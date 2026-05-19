@@ -11,6 +11,7 @@ import Budget from "./pages/Budget";
 import Billing from "./pages/Billing";
 import Employees from "./pages/Employees";
 import AdminPanel from "./pages/AdminPanel";
+import Directors from "./pages/Directors";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
@@ -30,6 +31,7 @@ function App() {
         <Route path="/orders" element={<Navigate to="/production" replace />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/employees" element={<Employees />} />
+        <Route path="/directors" element={<Directors />} />
         <Route path="/accounting" element={<Navigate to="/finance" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

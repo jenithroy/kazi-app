@@ -9,6 +9,9 @@ import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { cn, Avatar, Pill, Btn, Icons } from "../components/ui";
+import { TASK_CATEGORIES } from "../constants";
+
+const CAT_MAP = Object.fromEntries(TASK_CATEGORIES.map(c => [c.label, c.color]));
 
 /* ── Default columns ──────────────────────────────── */
 const DEFAULT_COLUMNS = [
@@ -45,6 +48,9 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee }) {
   const [priority, setPriority] = useState("med");
   const [dueDate, setDueDate]   = useState("");
   const [orderRef, setOrderRef] = useState("");
+  const [category, setCategory] = useState("");
+
+  const submit = () => title.trim() && onAdd({ title, assignee, priority, dueDate, orderRef, category, status: columnLabel });
 
   return (
     <div className="ktasks-card" style={{ gap: 8 }}>
@@ -53,7 +59,7 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee }) {
         placeholder="Task title…"
         value={title}
         onChange={e => setTitle(e.target.value)}
-        onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter" && title.trim()) onAdd({ title, assignee, priority, dueDate, orderRef, status: columnLabel }); }}
+        onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter") submit(); }}
         style={{ border: "1.5px solid var(--mint-2)", borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: "var(--font)", outline: "none", width: "100%" }}
       />
       <input
@@ -75,10 +81,15 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee }) {
           <option value="low">Low</option>
         </select>
       </div>
+      <select value={category} onChange={e => setCategory(e.target.value)}
+        style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff", fontFamily: "var(--font)", width: "100%" }}>
+        <option value="">Category…</option>
+        {TASK_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+      </select>
       <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
         style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 8px", fontSize: 12, fontFamily: "var(--font)", width: "100%" }} />
       <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={() => title.trim() && onAdd({ title, assignee, priority, dueDate, orderRef, status: columnLabel })}
+        <button onClick={submit}
           style={{ flex: 1, background: "var(--mint-deep)", color: "#fff", border: "none", borderRadius: 6, padding: "7px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)" }}>
           Add Task
         </button>
@@ -114,6 +125,14 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 600 }}>{displayId}</span>
         <span className="ktasks-prio" style={{ background: pDot, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
       </div>
+      {task.category && (
+        <span style={{
+          display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px",
+          borderRadius: 20, marginBottom: 2,
+          background: `${CAT_MAP[task.category] || "#8E8E93"}22`,
+          color: CAT_MAP[task.category] || "#8E8E93",
+        }}>{task.category}</span>
+      )}
       <div className="ktasks-card-t">{task.title}</div>
       {task.orderRef && <div className="ktasks-card-o">{task.orderRef}</div>}
       {task.order && <div className="ktasks-card-o">{task.order}</div>}
@@ -310,9 +329,10 @@ function Tasks() {
   const [tasks,    setTasks]    = useState([]);
   const [columns,  setColumns]  = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [filter,   setFilter]   = useState(null);   // assignee name or null
-  const [showNew,  setShowNew]  = useState(false);  // modal for "+ New task"
-  const [newForm,  setNewForm]  = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", status: "To Do" });
+  const [filter,      setFilter]      = useState(null);   // assignee name or null
+  const [catFilter,   setCatFilter]   = useState(null);   // category or null
+  const [showNew,     setShowNew]     = useState(false);
+  const [newForm,     setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", status: "To Do" });
 
   async function loadColumns() {
     const snap = await getDocs(collection(db, "task_columns"));
@@ -351,8 +371,9 @@ function Tasks() {
     let t = tasks;
     if (role === "employee") t = t.filter(x => x.assignee === profile?.name);
     if (filter) t = t.filter(x => x.assignee === filter);
+    if (catFilter) t = t.filter(x => x.category === catFilter);
     return t;
-  }, [tasks, filter, role, profile]);
+  }, [tasks, filter, catFilter, role, profile]);
 
   const byColumn = useMemo(() =>
     columns.reduce((acc, col) => { acc[col.label] = visibleTasks.filter(t => t.status === col.label); return acc; }, {}),
@@ -365,8 +386,14 @@ function Tasks() {
   }
 
   async function handleDelete(id) {
-    await deleteDoc(doc(db, "tasks", id));
-    setTasks(cur => cur.filter(t => t.id !== id));
+    if (!window.confirm("Delete this task?")) return;
+    try {
+      await deleteDoc(doc(db, "tasks", id));
+      setTasks(cur => cur.filter(t => t.id !== id));
+    } catch (err) {
+      alert("Could not delete task — Firestore rules may need redeploying.");
+      console.error(err);
+    }
   }
 
   async function handleDrop(taskId, newStatus) {
@@ -424,10 +451,28 @@ function Tasks() {
 
         {/* Assign-to filter */}
         {canEdit && (
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 10 }}>
             <AssignFilter selected={filter} onSelect={setFilter} tasks={tasks} />
           </div>
         )}
+
+        {/* Category filter */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Category:</span>
+          <button onClick={() => setCatFilter(null)}
+            style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !catFilter ? "var(--ink)" : "var(--card)", color: !catFilter ? "#fff" : "var(--ink-3)", border: !catFilter ? "none" : "1px solid var(--line-strong)" }}>
+            All
+          </button>
+          {TASK_CATEGORIES.map(c => {
+            const active = catFilter === c.label;
+            return (
+              <button key={c.label} onClick={() => setCatFilter(active ? null : c.label)}
+                style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: active ? c.color : `${c.color}18`, color: active ? "#fff" : c.color, border: "none" }}>
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Board */}
         {loading ? (
@@ -489,6 +534,12 @@ function Tasks() {
                   {columns.map(c => <option key={c.id} value={c.label}>{c.label}</option>)}
                 </select>
               </label>
+              <label>Category
+                <select value={newForm.category} onChange={e => setNewForm(f => ({ ...f, category: e.target.value }))}>
+                  <option value="">— None —</option>
+                  {TASK_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+                </select>
+              </label>
               <label>Due date
                 <input type="date" value={newForm.dueDate} onChange={e => setNewForm(f => ({ ...f, dueDate: e.target.value }))} />
               </label>
@@ -497,8 +548,8 @@ function Tasks() {
               <button className="ghost-button" onClick={() => setShowNew(false)}>Cancel</button>
               <button className="primary-button" onClick={async () => {
                 if (!newForm.title.trim()) return;
-                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, status: newForm.status });
-                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", status: "To Do" });
+                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, status: newForm.status });
+                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", status: "To Do" });
                 setShowNew(false);
               }}>Create task</button>
             </div>
