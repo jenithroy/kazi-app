@@ -1,0 +1,81 @@
+// Default permissions granted to nepal_admin users on first login
+export const DEFAULT_NEPAL_ADMIN_PERMISSIONS = {
+  tasks:      true,
+  attendance: true,
+  production: true,
+  inventory:  true,
+  qc:         true,
+  billing:    true,
+  employees:  true,
+  budget:     true,
+  finance: {
+    expenses:     true,
+    payroll:      true,
+    purchases:    true,
+    vatBills:     true,
+    journal:      true,
+    ledger:       true,
+    pl:           true,
+    balanceSheet: true,
+  },
+};
+
+// Resolve the app role — always use appRole first, fall back to role
+// (profile.role stores the job title e.g. "Director"; appRole stores "uk_admin")
+function appRole(profile) {
+  return profile?.appRole || profile?.role || "employee";
+}
+
+// Can the user edit the given section (tasks, attendance, production, etc.)
+export function sectionCanEdit(profile, section) {
+  if (!profile) return false;
+  const role = appRole(profile);
+  if (role === "super_admin") return true;
+  if (role === "employee") return false;
+  // uk_admin — read-only by default, but can edit tasks
+  if (role === "uk_admin") {
+    if (section === "tasks") return true;
+    return profile.permissions?.[section] === true;
+  }
+  // nepal_admin — check granted permissions
+  return profile.permissions?.[section] === true;
+}
+
+// Can the user see this nav section at all?
+export function sectionVisible(profile, sectionKey) {
+  if (!profile) return false;
+  const role = appRole(profile);
+  const NAV_BY_ROLE = {
+    nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees"],
+    uk_admin:    ["dashboard","finance","production","billing","content","tasks"],
+    employee:    ["dashboard","tasks","attendance"],
+    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin"],
+  };
+  const base = new Set(NAV_BY_ROLE[role] || []);
+  if (base.has(sectionKey)) return true;
+  // Per-user permission override (e.g. a uk_admin granted tasks access)
+  return profile.permissions?.[sectionKey] === true;
+}
+
+// Is a Finance tab visible (and editable) for this user?
+export function financeTabAllowed(profile, tabKey) {
+  if (!profile) return false;
+  const role = appRole(profile);
+  if (role === "super_admin") return true;
+  if (role === "uk_admin") return true;   // UK admins see all finance tabs (read-only)
+  if (role === "employee") return false;
+  // nepal_admin
+  return profile.permissions?.finance?.[tabKey] === true;
+}
+
+// Map Finance tab labels → permission keys
+export const FINANCE_TAB_KEYS = {
+  "expenses":      "expenses",
+  "payroll":       "payroll",
+  "purchases":     "purchases",
+  "vat bills":     "vatBills",
+  "journal":       "journal",
+  "ledger":        "ledger",
+  "p&l":           "pl",
+  "balance sheet": "balanceSheet",
+};

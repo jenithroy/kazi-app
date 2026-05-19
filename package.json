@@ -1,0 +1,28 @@
+{
+  "name": "kazi-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "seed": "node scripts/seedFirestore.js",
+    "dedupe-purchases": "node scripts/dedupePurchases.js"
+  },
+  "dependencies": {
+    "@react-pdf/renderer": "^4.5.1",
+    "firebase": "^11.8.1",
+    "firebase-admin": "^12.7.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.10"
+  }
+}

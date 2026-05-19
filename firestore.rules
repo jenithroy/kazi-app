@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function hasRole(role) {
+      return isSignedIn() && userDoc().data.role == role;
+    }
+    function isNepalAdmin() {
+      return hasRole("nepal_admin");
+    }
+    function isNepalStaff() {
+      return hasRole("nepal_staff") || isNepalAdmin();
+    }
+    function isSuperAdmin() {
+      return hasRole("super_admin");
+    }
+    function isUkAdmin() {
+      return hasRole("uk_admin");
+    }
+    function changingOnlyStatus() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(["status"]);
+    }
+
+    match /{document=**} {
+      allow read: if isSignedIn();
+    }
+    match /attendance/{id} {
+      allow create, update: if isNepalStaff();
+      allow delete: if false;
+    }
+    match /production/{id} {
+      allow create, update: if isNepalStaff();
+      allow delete: if false;
+    }
+    match /inventory/{id} {
+      allow create, update: if isNepalStaff();
+      allow delete: if false;
+    }
+    match /qc_logs/{id} {
+      allow create, update: if isNepalStaff();
+      allow delete: if false;
+    }
+    match /tasks/{id} {
+      allow create, update: if isNepalStaff() || isUkAdmin();
+      allow delete: if false;
+    }
+    match /content/{id} {
+      allow create: if isNepalStaff();
+      allow update: if isNepalStaff() || (isUkAdmin() && changingOnlyStatus());
+      allow delete: if false;
+    }
+    match /finance_expenses/{id} {
+      allow create, update: if isNepalStaff();
+      allow delete: if false;
+    }
+    match /users/{id} {
+      allow create: if isSignedIn() && request.auth.uid == id;
+      allow update: if isSignedIn() && request.auth.uid == id;
+      allow delete: if false;
+    }
+    match /finance_payroll/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /finance_purchases/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /finance_vat/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /finance_journal/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /budget_requests/{id} {
+      allow create, update: if isSignedIn();
+      allow delete: if isNepalAdmin() || isSuperAdmin();
+    }
+    match /orders/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if isNepalAdmin() || isSuperAdmin();
+    }
+    match /invoices/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if isNepalAdmin() || isSuperAdmin();
+    }
+    match /challans/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if isNepalAdmin() || isSuperAdmin();
+    }
+    match /quotations/{id} {
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if isNepalAdmin() || isSuperAdmin();
+    }
+    match /counters/{id} {
+      allow create, update: if isSignedIn();
+    }
+  }
+}

@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meadowell – Root-Cause Healing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Cormorant:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+
+    /* ────────────────────────────────────────────
+       Reset & Base
+    ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #2D2A24;
+      background: #FAF8F3;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { text-decoration: none; color: inherit; }
+    img { max-width: 100%; display: block; }
+
+    /* ────────────────────────────────────────────
+       Design Tokens
+    ──────────────────────────────────────────── */
+    :root {
+      --gold: #C9AD52;
+      --gold-light: #E2CF7A;
+      --gold-pale: #F7F0D4;
+      --gold-btn: #C9AD52;
+      --dark: #1C1A14;
+      --dark-2: #2D2A24;
+      --cream: #FAF8F3;
+      --cream-2: #F3EFE4;
+      --warm-gray: #8A8478;
+      --text-muted: #7A7469;
+      --white: #FFFFFF;
+      --border: #E8E2D4;
+      --radius: 12px;
+      --radius-lg: 20px;
+      --shadow: 0 4px 24px rgba(28,26,20,0.08);
+      --shadow-lg: 0 12px 48px rgba(28,26,20,0.14);
+      --transition: 0.3s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    /* ────────────────────────────────────────────
+       Typography
+    ──────────────────────────────────────────── */
+    h1, h2, h3, h4 { font-family: 'Cormorant Garamond', serif; line-height: 1.2; }
+    h1 { font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 400; }
+    h2 { font-size: clamp(2rem, 4vw, 3rem); font-weight: 400; }
+    h3 { font-size: clamp(1.15rem, 2vw, 1.5rem); font-weight: 500; }
+    p  { font-size: 1rem; color: var(--text-muted); line-height: 1.8; }
+
+    /* ────────────────────────────────────────────
+       Utilities
+    ──────────────────────────────────────────── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+    .section    { padding: 96px 0; }
+    .text-center { text-align: center; }
+
+    .tag {
+      display: inline-block;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--gold);
+      background: var(--gold-pale);
+      border: 1px solid #DDD0A0;
+      padding: 4px 14px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 14px 34px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: none;
+      transition: all var(--transition);
+    }
+    .btn-gold {
+      background: var(--gold-btn);
+      color: var(--dark);
+    }
+    .btn-gold:hover {
+      background: #B89C3F;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(201,173,82,0.4);
+    }
+    .btn-outline-light {
+      background: transparent;
+      color: var(--white);
+      border: 1.5px solid rgba(255,255,255,0.55);
+    }
+    .btn-outline-light:hover {
+      border-color: var(--white);
+      background: rgba(255,255,255,0.08);
+    }
+    .btn-dark {
+      background: var(--dark);
+      color: var(--white);
+    }
+    .btn-dark:hover {
+      background: #333;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+
+    /* ────────────────────────────────────────────
+       NAVIGATION — split layout with centered logo
+    ──────────────────────────────────────────── */
+    .nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 200;
+      transition: background var(--transition), box-shadow var(--transition);
+    }
+    .nav.scrolled {
+      background: rgba(250,248,243,0.95);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 2px 20px rgba(28,26,20,0.06);
+    }
+    .nav.scrolled .nav-link,
+    .nav.scrolled .nav-logo-text { color: var(--dark); }
+    .nav.scrolled .nav-logo-icon path,
+    .nav.scrolled .nav-logo-icon line { stroke: var(--dark); }
+
+    .nav-inner {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      height: 76px;
+      padding: 0 48px;
+    }
+    .nav-left  { display: flex; align-items: center; gap: 48px; }
+    .nav-right { display: flex; align-items: center; gap: 48px; justify-content: flex-end; }
+    .nav-link {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--gold-light);
+      transition: color var(--transition), opacity var(--transition);
+    }
+    .nav-link:hover { color: var(--white); opacity: 0.9; }
+    .nav.scrolled .nav-link:hover { color: var(--gold); opacity: 1; }
+
+    .nav-logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .nav-logo-icon { height: 80px; width: auto; }
+    /* Kazi logo color: gold on transparent hero, original green when scrolled */
+    .nav .nav-logo-icon .cls-1 { fill: var(--gold-light); transition: fill var(--transition); }
+    .nav.scrolled .nav-logo-icon .cls-1 { fill: #0d4924; }
+    .nav-logo-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 0.72rem;
+      font-weight: 400;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--gold-light);
+      display: none; /* hidden unless scrolled enough */
+    }
+
+    /* Mobile nav */
+    .nav-mobile-toggle {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+      position: absolute;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .nav-mobile-toggle span {
+      display: block;
+      width: 22px; height: 1.5px;
+      background: var(--gold-light);
+      margin: 5px 0;
+      transition: all var(--transition);
+    }
+    .nav.scrolled .nav-mobile-toggle span { background: var(--dark); }
+    .mobile-drawer {
+      display: none;
+      position: fixed;
+      top: 76px; left: 0; right: 0;
+      background: var(--cream);
+      border-bottom: 1px solid var(--border);
+      padding: 24px 32px;
+      flex-direction: column;
+      gap: 0;
+      z-index: 199;
+    }
+    .mobile-drawer.open { display: flex; }
+    .mobile-drawer a {
+      font-size: 0.82rem;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dark-2);
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .mobile-drawer a:last-child { border-bottom: none; }
+
+    /* ────────────────────────────────────────────
+       HERO — the signature section
+    ──────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      height: 100vh;
+      min-height: 600px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .hero-bg {
+      position: absolute;
+      inset: 0;
+      background:
+        url('https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=1800&q=85&fit=crop') center/cover no-repeat;
+      transform: scale(1.04);
+      transition: transform 8s ease-out;
+    }
+    .hero-bg.loaded { transform: scale(1); }
+    /* subtle gradient for nav readability at top */
+    .hero-bg::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(to bottom,
+          rgba(40,38,28,0.32) 0%,
+          rgba(40,38,28,0.08) 35%,
+          rgba(40,38,28,0.10) 65%,
+          rgba(40,38,28,0.28) 100%);
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      max-width: 640px;
+      padding: 0 24px;
+    }
+    .hero-headline {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(1.5rem, 2.8vw, 2.2rem);
+      font-weight: 400;
+      color: var(--gold-light);
+      line-height: 1.55;
+      margin-bottom: 36px;
+      letter-spacing: 0.01em;
+    }
+    .hero-cta { display: flex; align-items: center; justify-content: center; gap: 16px; }
+
+    /* ── The giant "Meadowell" signature text ── */
+    .hero-brand-text {
+      position: absolute;
+      bottom: -0.08em;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      text-align: center;
+      z-index: 3;
+      pointer-events: none;
+      white-space: nowrap;
+      font-family: 'Cormorant', serif;
+      font-size: 38vw;
+      font-weight: 300;
+      color: var(--gold-light);
+      letter-spacing: -0.02em;
+      line-height: 0.85;
+      user-select: none;
+    }
+
+    /* ────────────────────────────────────────────
+       STATS BAR
+    ──────────────────────────────────────────── */
+    .stats { background: var(--dark); }
+    .stats-inner {
+      display: flex;
+      align-items: stretch;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .stat-item {
+      flex: 1;
+      padding: 44px 32px;
+      text-align: center;
+      border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    .stat-item:last-child { border-right: none; }
+    .stat-number {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2.8rem;
+      font-weight: 400;
+      color: var(--gold);
+      display: block;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .stat-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    /* ────────────────────────────────────────────
+       STORY SECTION
+    ──────────────────────────────────────────── */
+    .story { background: var(--cream); }
+    .story-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 88px;
+      align-items: center;
+    }
+    .story-visual { position: relative; }
+    .story-img {
+      width: 100%;
+      aspect-ratio: 4/5;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      background: var(--cream-2);
+    }
+    .story-img-inner {
+      width: 100%; height: 100%;
+      background:
+        url('https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=800&q=80&fit=crop') center/cover no-repeat;
+      transition: transform 0.8s ease;
+    }
+    .story-img:hover .story-img-inner { transform: scale(1.04); }
+    .story-badge {
+      position: absolute;
+      bottom: -20px; right: -20px;
+      background: var(--gold);
+      color: var(--dark);
+      border-radius: var(--radius);
+      padding: 22px 28px;
+      box-shadow: var(--shadow-lg);
+      text-align: center;
+    }
+    .story-badge strong {
+      display: block;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2.2rem;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .story-badge span { font-family: 'Inter', sans-serif; font-size: 0.72rem; font-weight: 500; opacity: 0.75; }
+    .story-content h2 { color: var(--dark); margin-bottom: 20px; font-size: clamp(1.9rem, 3.5vw, 2.6rem); }
+    .story-content > p { margin-bottom: 18px; }
+    .story-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+      margin: 28px 0 36px;
+    }
+    .story-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.93rem;
+      color: var(--dark-2);
+    }
+    .story-list li::before {
+      content: '';
+      width: 18px; height: 18px;
+      min-width: 18px;
+      background: var(--gold);
+      border-radius: 50%;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231C1A14' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+      background-size: 9px;
+      background-position: center;
+      background-repeat: no-repeat;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ────────────────────────────────────────────
+       WHY WORK WITH US
+    ──────────────────────────────────────────── */
+    .why { background: var(--white); }
+    .section-header {
+      text-align: center;
+      max-width: 600px;
+      margin: 0 auto 60px;
+    }
+    .section-header h2 { color: var(--dark); margin-bottom: 16px; }
+    .section-header p  { font-size: 1.05rem; }
+
+    .why-cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 28px; }
+    .why-card {
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 44px 36px;
+      position: relative;
+      overflow: hidden;
+      transition: transform var(--transition), box-shadow var(--transition);
+    }
+    .why-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--gold);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform var(--transition);
+    }
+    .why-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+    .why-card:hover::after { transform: scaleX(1); }
+    .why-icon {
+      width: 52px; height: 52px;
+      background: var(--gold-pale);
+      border: 1px solid #DDD0A0;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      font-size: 1.3rem;
+    }
+    .why-card h3 { color: var(--dark); margin-bottom: 12px; font-size: 1.25rem; }
+    .why-card p  { font-size: 0.9rem; }
+
+    /* ────────────────────────────────────────────
+       HOW IT WORKS
+    ──────────────────────────────────────────── */
+    .how { background: var(--dark); overflow: hidden; }
+    .how .section-header h2 { color: var(--white); }
+    .how .section-header p  { color: rgba(255,255,255,0.5); }
+    .how .tag { color: var(--gold); background: rgba(201,173,82,0.1); border-color: rgba(201,173,82,0.2); }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3,1fr);
+      gap: 1px;
+      background: rgba(255,255,255,0.05);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      margin-bottom: 52px;
+    }
+    .step {
+      background: rgba(255,255,255,0.02);
+      padding: 52px 40px;
+      transition: background var(--transition);
+    }
+    .step:hover { background: rgba(201,173,82,0.05); }
+    .step-num {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 5rem;
+      font-weight: 300;
+      color: rgba(201,173,82,0.12);
+      line-height: 1;
+      margin-bottom: 24px;
+      display: block;
+    }
+    .step-icon {
+      width: 46px; height: 46px;
+      border-radius: 12px;
+      background: rgba(201,173,82,0.1);
+      border: 1px solid rgba(201,173,82,0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      margin-bottom: 20px;
+    }
+    .step h3 { color: var(--white); margin-bottom: 12px; font-size: 1.22rem; }
+    .step p   { color: rgba(255,255,255,0.48); font-size: 0.9rem; }
+    .step-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--gold);
+      background: rgba(201,173,82,0.08);
+      border: 1px solid rgba(201,173,82,0.18);
+      padding: 5px 14px;
+      border-radius: 100px;
+      margin-top: 22px;
+    }
+
+    /* ────────────────────────────────────────────
+       TESTIMONIALS
+    ──────────────────────────────────────────── */
+    .testimonials { background: var(--cream-2); }
+    .t-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 24px; }
+    .t-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 40px;
+      border: 1px solid var(--border);
+      transition: box-shadow var(--transition);
+    }
+    .t-card:hover { box-shadow: var(--shadow-lg); }
+    .t-stars {
+      display: flex;
+      gap: 3px;
+      margin-bottom: 20px;
+      color: var(--gold);
+      font-size: 0.9rem;
+      letter-spacing: 2px;
+    }
+    .t-quote {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.12rem;
+      font-style: italic;
+      color: var(--dark-2);
+      line-height: 1.75;
+      margin-bottom: 28px;
+    }
+    .t-author { display: flex; align-items: center; gap: 14px; }
+    .t-avatar {
+      width: 42px; height: 42px;
+      border-radius: 50%;
+      background: var(--gold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 600;
+      font-size: 1rem;
+      color: var(--dark);
+      flex-shrink: 0;
+    }
+    .t-name   { font-family: 'Inter', sans-serif; font-size: 0.88rem; font-weight: 600; color: var(--dark); }
+    .t-detail { font-family: 'Inter', sans-serif; font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* ────────────────────────────────────────────
+       QUIZ CTA
+    ──────────────────────────────────────────── */
+    .quiz-cta {
+      background: linear-gradient(160deg, #1C1A14 0%, #272415 50%, #1C1A14 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .quiz-cta::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 70% 55% at 50% 50%, rgba(201,173,82,0.1) 0%, transparent 70%);
+    }
+    .quiz-inner {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 96px 24px;
+    }
+    .quiz-inner .tag { color: var(--gold); background: rgba(201,173,82,0.1); border-color: rgba(201,173,82,0.2); }
+    .quiz-inner h2 { color: var(--white); margin-bottom: 18px; font-size: clamp(1.8rem, 3.5vw, 2.6rem); }
+    .quiz-inner > p { color: rgba(255,255,255,0.55); font-size: 1.05rem; margin-bottom: 40px; }
+    .quiz-chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 44px;
+    }
+    .quiz-chip {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.65);
+      padding: 9px 20px;
+      border-radius: 100px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.83rem;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .quiz-chip:hover, .quiz-chip.active {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: var(--dark);
+    }
+
+    /* ────────────────────────────────────────────
+       ABOUT STRIP
+    ──────────────────────────────────────────── */
+    .about-strip { background: var(--cream); }
+    .about-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 88px;
+      align-items: center;
+    }
+    .about-img-wrap { position: relative; }
+    .about-img {
+      width: 100%;
+      aspect-ratio: 3/4;
+      border-radius: var(--radius-lg);
+      background: url('https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&q=80&fit=crop') center/cover no-repeat;
+      overflow: hidden;
+    }
+    .about-floater {
+      position: absolute;
+      top: 32px; right: -28px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: var(--shadow);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.83rem;
+      font-weight: 500;
+      color: var(--dark);
+      white-space: nowrap;
+    }
+    .about-content h2 { color: var(--dark); margin-bottom: 20px; }
+    .about-content > p { margin-bottom: 16px; }
+    .about-actions { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 32px; }
+
+    /* ────────────────────────────────────────────
+       BLOG / RESOURCES
+    ──────────────────────────────────────────── */
+    .blog { background: var(--white); }
+    .blog-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 24px; }
+    .blog-card {
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--cream);
+      transition: transform var(--transition), box-shadow var(--transition);
+    }
+    .blog-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+    .blog-thumb {
+      height: 210px;
+      overflow: hidden;
+      background: var(--cream-2);
+    }
+    .blog-thumb-img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      background-size: cover;
+      background-position: center;
+      transition: transform 0.7s ease;
+    }
+    .blog-card:hover .blog-thumb-img { transform: scale(1.06); }
+    .blog-body { padding: 24px 22px 28px; }
+    .blog-meta {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--gold);
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .blog-card h3 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.05rem;
+      color: var(--dark);
+      margin-bottom: 10px;
+      line-height: 1.45;
+    }
+    .blog-card p { font-size: 0.83rem; line-height: 1.65; }
+    .blog-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--gold);
+      margin-top: 16px;
+      transition: gap var(--transition);
+    }
+    .blog-link:hover { gap: 9px; }
+
+    /* ────────────────────────────────────────────
+       NEWSLETTER
+    ──────────────────────────────────────────── */
+    .newsletter { background: var(--gold); }
+    .newsletter-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 48px;
+      padding: 60px 0;
+    }
+    .newsletter-text h3 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.8rem;
+      color: var(--dark);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .newsletter-text p { color: rgba(28,26,20,0.6); font-size: 0.9rem; }
+    .newsletter-form {
+      display: flex;
+      border-radius: 4px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      min-width: 400px;
+    }
+    .newsletter-form input {
+      flex: 1;
+      padding: 15px 22px;
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.88rem;
+      background: var(--white);
+      color: var(--dark);
+      outline: none;
+    }
+    .newsletter-form input::placeholder { color: #aaa; }
+    .newsletter-form button {
+      background: var(--dark);
+      color: var(--white);
+      border: none;
+      padding: 15px 26px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.83rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--transition);
+    }
+    .newsletter-form button:hover { background: #2e2b20; }
+
+    /* ────────────────────────────────────────────
+       FOOTER
+    ──────────────────────────────────────────── */
+    .footer { background: var(--dark); padding: 72px 0 0; }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 52px;
+      padding-bottom: 52px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .footer-brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .footer-brand-logo svg { height: 28px; width: auto; }
+    .footer-brand-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.4rem;
+      font-weight: 400;
+      color: var(--white);
+      letter-spacing: 0.04em;
+    }
+    .footer-brand p {
+      color: rgba(255,255,255,0.38);
+      font-size: 0.86rem;
+      max-width: 270px;
+      line-height: 1.75;
+      margin-bottom: 26px;
+    }
+    .footer-socials { display: flex; gap: 10px; }
+    .social-btn {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.45);
+      font-size: 0.85rem;
+      transition: all var(--transition);
+    }
+    .social-btn:hover {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: var(--dark);
+    }
+    .footer-col h4 {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.66rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.28);
+      margin-bottom: 20px;
+    }
+    .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .footer-col ul a {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.86rem;
+      color: rgba(255,255,255,0.5);
+      transition: color var(--transition);
+    }
+    .footer-col ul a:hover { color: var(--gold); }
+    .footer-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 22px 0;
+    }
+    .footer-bottom p {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.76rem;
+      color: rgba(255,255,255,0.24);
+    }
+    .footer-bottom-links { display: flex; gap: 24px; }
+    .footer-bottom-links a {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.76rem;
+      color: rgba(255,255,255,0.24);
+      transition: color var(--transition);
+    }
+    .footer-bottom-links a:hover { color: rgba(255,255,255,0.6); }
+
+    /* ────────────────────────────────────────────
+       Scroll animations
+    ──────────────────────────────────────────── */
+    [data-reveal] {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity 0.75s ease, transform 0.75s ease;
+    }
+    [data-reveal="left"]  { transform: translateX(-36px); }
+    [data-reveal="right"] { transform: translateX(36px); }
+    [data-reveal].is-visible {
+      opacity: 1;
+      transform: none;
+    }
+    [data-delay="1"] { transition-delay: 0.1s; }
+    [data-delay="2"] { transition-delay: 0.2s; }
+    [data-delay="3"] { transition-delay: 0.3s; }
+    [data-delay="4"] { transition-delay: 0.4s; }
+
+    /* ────────────────────────────────────────────
+       Responsive
+    ──────────────────────────────────────────── */
+    @media (max-width: 1080px) {
+      .why-cards { grid-template-columns: 1fr; }
+      .steps     { grid-template-columns: 1fr; }
+      .t-grid    { grid-template-columns: 1fr; }
+      .blog-grid { grid-template-columns: repeat(2,1fr); }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+      .story-grid, .about-inner { grid-template-columns: 1fr; gap: 48px; }
+      .story-badge { bottom: 20px; right: 20px; }
+    }
+    @media (max-width: 768px) {
+      .nav-inner { padding: 0 24px; position: relative; }
+      .nav-left, .nav-right { display: none; }
+      .nav-mobile-toggle { display: flex; flex-direction: column; }
+      .hero-brand-text { font-size: 44vw; }
+      .hero-headline { font-size: 1.4rem; }
+      .section { padding: 64px 0; }
+      .stats-inner { flex-direction: column; }
+      .stat-item { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.06); }
+      .stat-item:last-child { border-bottom: none; }
+      .newsletter-inner { flex-direction: column; align-items: flex-start; }
+      .newsletter-form { min-width: unset; width: 100%; }
+      .blog-grid { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+      .footer-bottom { flex-direction: column; gap: 12px; text-align: center; }
+      .about-floater { display: none; }
+    }
+    @media (max-width: 480px) {
+      .hero-brand-text { font-size: 52vw; }
+      .hero-headline { font-size: 1.2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════
+       NAVIGATION
+  ══════════════════════════════════════════ -->
+  <nav class="nav" id="mainNav">
+    <div class="nav-inner">
+      <!-- Left links -->
+      <div class="nav-left">
+        <a class="nav-link" href="#how-it-works">How It Works</a>
+        <a class="nav-link" href="#about">About</a>
+        <a class="nav-link" href="#resources">Resources</a>
+      </div>
+
+      <!-- Center logo -->
+      <a href="#" class="nav-logo">
+        <svg class="nav-logo-icon" id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 601.2 446.99"><defs><style>.cls-1{fill:#0d4924;}</style></defs><path class="cls-1" d="M11.57,352.12a264,264,0,0,0-2.78-36.75q-.79-6-3.58-21.85-.4-2-.69-4.47a36.45,36.45,0,0,1-.3-4.28A12.73,12.73,0,0,1,5.81,278q1.59-2.58,5.76-3.38,6.15-1,8.54,7.55a93.87,93.87,0,0,1,1.69,12,94.31,94.31,0,0,0,1.49,11.23q1.38,6.15,4.17,6.15a4.66,4.66,0,0,0,3-1.39Q41,300.27,47.63,294.61t11.52-9.14a87.79,87.79,0,0,0,9.63-8.05l15.9-15.16c2.51-2.1,4.17-3.41,5-3.94q4.17-2.74,7-2.75a8.07,8.07,0,0,1,2.78.6q4.77,2,4.77,5.54,0,3.38-4,8.13A60.2,60.2,0,0,1,93,277q-19.86,17.83-39.73,35.48,15.49,6.35,37.15,9.91,6.56,1,38.14,4.75,23.64,1.39,35.36,2.38,21.06,1.78,33.78,7.93a21.44,21.44,0,0,1-7,3.47,28.31,28.31,0,0,1-7.94,1.09c-.93,0-2.75-.06-5.47-.2s-5-.2-6.85-.2q-6.36,0-30-4.17a111,111,0,0,0-18.08-2q-25-1.57-49.86-3.17-28.41-4-44.3-19.87l-2.19,2v39.73a21.66,21.66,0,0,1-.79,4.37l-1.2,4q-3.37-2.58-5.66-4.37a10.13,10.13,0,0,0-2.68-1.79c-.79.93-1.39,1.59-1.79,2a18.26,18.26,0,0,1-2.38,2.19Z"/><path class="cls-1" d="M247.78,276.79a67.17,67.17,0,0,0,5.17,16.1q4.95,9.93,7.35,15.3,4.56,7.35,6.75,11.13,7.35,12.12,7.95,13.91,5.16,11.73,7.94,20.17c1.86,5.64,2.79,10.17,2.79,13.62q0,6.36-4.38,8a10.12,10.12,0,0,1-3.17.6q-4.77,0-7.95-5.57a45,45,0,0,1-3.78-9.93q-2-7-3-10.33-3.77-12.53-5.16-18.48-8.34.8-16.49,1.39-17.49,2.39-21,12.82t-4.47,11.82q-2.38,3.57-6,3.57a14.37,14.37,0,0,1-3-.59,6.61,6.61,0,0,1-3.38-2,4.78,4.78,0,0,1-1.19-3.18c0-1.46.8-3.77,2.39-7a36.76,36.76,0,0,0,2.78-6.56,189.53,189.53,0,0,1,7.15-23.45q1.38-3.78,5.36-14.11,2.19-5.76,7.55-26.83,4.17-16.31,9.34-25.44a22.42,22.42,0,0,1,7.75,10.73C245.33,262.87,246.19,267.65,247.78,276.79Zm-18.87,39.72a39,39,0,0,0,9.14,1.39q4.75,0,11.92-3.57-3.39-6.56-6.56-13.31-2.39-5-6-13.71-3.57,8.54-5.36,14.1A76.14,76.14,0,0,0,228.91,316.51Z"/><path class="cls-1" d="M346.12,293.12H366a69.86,69.86,0,0,1,9.54.5,17.41,17.41,0,0,1,6.16,2.08q4.36,2.39,4.37,6.36,0,5.16-9.34,12.32a66.9,66.9,0,0,1-13.9,8.34,163.36,163.36,0,0,0-19.08,9.73q-7.14,4.19-18.47,11.33a126.58,126.58,0,0,0,14.9,2.08q8.14.7,17.08.7,6.75,0,22.55-.4l16.39-.39q1.4,0,17.88-2.39a98.2,98.2,0,0,1,12.72-1.19q6.35,0,9.83,1.79a6.2,6.2,0,0,1,3.48,6q0,5.35-2.69,7.65c-1.78,1.52-4.27,2.28-7.45,2.28q-3.57,0-13.9-2.38a38.1,38.1,0,0,0-7.15-1.2q-9.73,0-43.12,2.79-16.68,1.38-27,1.39a143.45,143.45,0,0,1-26.23-2.2Q299,355.47,299,348.66q0-3.41,3.78-7.61a47,47,0,0,1,9.73-8q4-2.6,15.5-8.61,18.07-9.6,24.24-16.61a68.53,68.53,0,0,0-11.13-.79q-6.36,0-19.47,1.39t-19.47,1.39h-5a10.29,10.29,0,0,1-5.17-1q-2.38-1.57-2.38-5.31-.6-6.66,11.12-8.83c3.18-.52,6.42-1.05,9.74-1.57q3.57,2.58,10.33,2.58a66.24,66.24,0,0,0,8.94-.79A155.91,155.91,0,0,1,346.12,293.12Z"/><path class="cls-1" d="M446.24,324.91q3-4.57,14.51-10.93a121.8,121.8,0,0,1,16.88-8q5-1.78,20.86-7.55,22.46-8.34,35.56-11.12,10.74-3.18,16.1-4.57a63.51,63.51,0,0,1,16.09-2.58,31.48,31.48,0,0,1,7.55.79q-3.78,12.92-17.68,15.3l-26.23,3.57a16.9,16.9,0,0,0-10.23,8.45,32,32,0,0,0-3.08,14.6,68,68,0,0,0,.8,9.93,110,110,0,0,0,2.18,10.93q19.86-4.77,31.09-6.46a139.91,139.91,0,0,1,20.57-1.69,82.42,82.42,0,0,1,17.28,1.79,18.27,18.27,0,0,0-.2,3.18c.13,2.38.2,4.11.2,5.17A183.57,183.57,0,0,0,554.72,349a194.49,194.49,0,0,0-33.18,9.24q-.79.41-7.75,3.58a13.19,13.19,0,0,1-5.56,1.19,35.85,35.85,0,0,1-5.56-.6q-7.95-.78-13.61-1.49a113.35,113.35,0,0,1-13.61-2.68q2-8.14,13-10t12.22-12.82a67.13,67.13,0,0,0,.6-8.74c0-4-.67-7.05-2-9.23s-3.58-3.28-6.76-3.28a10.68,10.68,0,0,0-2.38.2q-23.06,9.53-45.89,18.87v-.6Q445.06,326.7,446.24,324.91Z"/><path class="cls-1" d="M327.5,176c-2.41-3.93-6.08-7.59-7-11.84-2.87-13.41-9.8-25-15.37-37.16a189.7,189.7,0,0,1-17.06-64.33c-1.32-16.87,1.38-32.85,12.81-46.14,11.64-13.52,23-11.73,28.75,5.11,2.82,8.21,3.79,17.28,4.25,26,1.12,21.48-3.47,42.41-7.47,63.36-3.1,16.2-5,32.46-.61,48.74.85,3.14,2.46,6.08,3.41,9.2a40.4,40.4,0,0,1,.89,6.17ZM317,140.66c2-10.48,3.56-19.84,5.61-29.1,4.56-20.54,8.94-41.16,7-62.31a87.47,87.47,0,0,0-6.09-25.1c-4.7-11.4-12.89-12.39-21.33-3.47-7.91,8.37-11.23,18.79-11.89,30-1.61,27.21,6.84,52.07,18.48,76.08C311.06,131.4,314,135.68,317,140.66Z"/><path class="cls-1" d="M352.57,146.68c-.58,1.61-1.15,3.23-1.77,4.95,21.34-8.45,42.81-16.28,63.69-25.44a89.15,89.15,0,0,0,39.16-32.72,43.59,43.59,0,0,0,4.28-8.79c1.38-3.69-.25-6-4.14-5.54-7.13.87-14.41,1.52-21.27,3.51-22,6.38-41.36,17.38-56.78,34.69a16.44,16.44,0,0,1-3.08,2.19,109.47,109.47,0,0,1,34.47-29.61c15.41-8.65,31.71-15.15,49.41-17.22,3.48-.4,8.33-.27,10.47,1.78,3.26,3.13.84,7.77-1.17,11.36-6,10.77-14.73,19.27-24.19,27-18.8,15.3-40.13,25.88-62.73,34.37a149.28,149.28,0,0,0-24.45,12.39c-3.07,1.85-4.62,6.1-7.14,9-1.34,1.56-3.27,2.63-4.93,3.93-.94-1.88-2.77-3.85-2.6-5.63a17,17,0,0,1,3-7.55C345.84,155,349.3,150.89,352.57,146.68Z"/><path class="cls-1" d="M228.59,324.32c-4.15,9.24-8.77,18.32-12.36,27.78-4.84,12.77-8.31,25.92-7.12,39.88.14,1.61-1.38,3.37-2.14,5-1.76-.88-4.27-1.3-5.16-2.73-4.26-6.82-3.9-14.48-2.59-22,4-22.64,16.07-41,31.09-57.71,3-3.36,5.64-7.09,8.34-10.53,0,.16-.06.81-.18,2.44,3.85-3.72,7.3-6.84,10.5-10.2,11.85-12.47,24.2-24.53,35.22-37.7,8.33-9.95,13.51-22,17-36.24-5.74,5.11-10.65,9.19-15.21,13.62-4.81,4.69-9.52,9.53-13.86,14.65s-7.9,10.41-11.82,15.64l-1-.7c4.57-6.41,8.72-13.16,13.8-19.13,6.47-7.62,13.91-14.42,20.5-21.94,4.61-5.24,8.5-11.11,12.72-16.7,1.76-2.34,3.27-5,5.42-6.86,1-.88,3.23-.37,4.91-.49,0,1.53.07,3.07-.07,4.58a3.44,3.44,0,0,1-.93,1.72c-8,9.3-11.63,20.82-16.34,31.8-7.23,16.88-18.15,31.1-31.3,43.75C257.88,292,247.76,301.62,238,311.61c-3.69,3.78-6.4,8.52-9.57,12.83-.24-.57-.47-1.16-.71-1.76-17.28,17.24-29.23,47.11-24.16,58,4-11.22,7.89-23.56,12.91-35.41C219.62,337.92,224.5,331.29,228.59,324.32Z"/><path class="cls-1" d="M296.71,182.49c-3-4.38-6.76-5-10.4-4.65-10.3.88-20.54,2.38-30.83,3.26-31.64,2.71-60.36-4.79-84.81-25.6-4.36-3.71-7.86-8.84-10.57-13.95-3-5.7,0-10.09,6.53-10.32a38.65,38.65,0,0,1,9.26,1c12.22,2.58,22.68,9.07,33,15.9a65,65,0,0,0-6.82-3.33c-7.84-2.79-15.63-5.86-23.68-7.83-3-.72-6.62,1.35-10,2.14,1.1,3.28,1.44,7.13,3.43,9.73,8.12,10.64,19.55,16.82,31.65,21.83,23.23,9.63,47,9.46,71.06,3.73a94.9,94.9,0,0,1,16.57-2.15A24.36,24.36,0,0,1,312,181c-15.73,9.12-21.63,9.57-26,1.48Z"/><path class="cls-1" d="M388.81,291c4.43,1.09,8.85,2.19,13.29,3.25a21.68,21.68,0,0,0,3.4.54c14.88,1.25,21.36-5.51,19-20.22-2-12.45-8.42-23.09-15.15-33.37C399,225.36,385.92,212,369.47,202.39c-5.24-3-11.44-4.83-17.44-6s-8.49.93-9.5,7c-2,12-.39,23.94,2.55,35.6a75.21,75.21,0,0,0,22.14,37.65,44.07,44.07,0,0,1,3.21,3.6c-9-5.15-14.71-13.33-19.86-21.94-8.25-13.79-9.73-29.37-12-44.82-1.23-8.51-4-16.79-5.94-25.2a13.74,13.74,0,0,1,.06-3.56,21.31,21.31,0,0,1,3.59.23c3.09.74,6.11,2.16,9.22,2.38,8.36.6,15.57,4.16,22.29,8.55,26.46,17.26,45.46,40.93,58.33,69.6a58.83,58.83,0,0,1,3.91,13.67c1.44,8-3.11,15-11,16.69C408.44,298.15,398.32,296.22,388.81,291Z"/><path class="cls-1" d="M371.15,163.35c2.13,2.89,4.62,4.92,4.27,6.1-.61,2-3,3.52-4.61,5.25-1.44-1.63-4-3.2-4-4.89S369,166.29,371.15,163.35Z"/><path class="cls-1" d="M242.6,400.3a13.56,13.56,0,0,0-.29-1.6,11.1,11.1,0,0,1-.3-2.2,3.3,3.3,0,0,1,.19-1.28.82.82,0,0,1,.83-.4,2.46,2.46,0,0,1,1.05.29,2.72,2.72,0,0,1,1.39,1.73,10.34,10.34,0,0,1,.38,3.08q0,1.09-.12,2.85a17.72,17.72,0,0,0-.09,2.22,9.32,9.32,0,0,0,3-1.82q4.6-3.8,4.81-3.92a3.31,3.31,0,0,1,1.65-.55c1.15,0,2.05,1,2.7,3.08.44,1.77.9,3.54,1.35,5.31,1.09-1.43,2-2.53,2.61-3.29,1.21-1.4,2.26-2.11,3.17-2.11a2.28,2.28,0,0,1,1.54.7,4.42,4.42,0,0,1,1.13,1.94,13.06,13.06,0,0,1,.41,3.78,11,11,0,0,0,.5,4,3.09,3.09,0,0,0,3.17,1.72,25.63,25.63,0,0,1,4.17.24,8.92,8.92,0,0,1,3.08,1.33l-4.68,2a14.72,14.72,0,0,1-5.19,1.1c-2,.17-3.31-1.23-3.92-4.18q-.68-3.37-1.31-6.75a34.47,34.47,0,0,0-3.21,5.92,52.91,52.91,0,0,1-3,6,5.33,5.33,0,0,1-1.73-1.68,4.44,4.44,0,0,1-.42-2.06c0-.23,0-.67,0-1.33s.05-1.21.05-1.66q0-2.86-.21-5a39.08,39.08,0,0,0-.85-4.86c-1.54,1.21-2.88,2.3-4,3.29s-2.25,2-3.79,3.46a4.7,4.7,0,0,0-1.27,1.94,8,8,0,0,0-.34,2.4c0,.57,0,1.12,0,1.67s.05,1.09.08,1.62a4.23,4.23,0,0,1-.06.7,4.06,4.06,0,0,0-.07.53,3.42,3.42,0,0,1-3.3-3.17c-.45-2.64-1.06-4.36-1.84-5.14a12,12,0,0,0,2-3.78,14.37,14.37,0,0,0,.63-4.32V400.3Z"/><path class="cls-1" d="M294.62,398.74a20.66,20.66,0,0,0-3.79,1.77,34,34,0,0,0-3.5,2.41c-.71.65-1.21,1.09-1.52,1.35a2.29,2.29,0,0,1-1.35.72,1,1,0,0,1-.66-.24,3.74,3.74,0,0,1-.67-.88,2.51,2.51,0,0,1-.4-1.33c0-1.35,1.3-2.66,3.92-3.93l3.25-1.43c1.12-.62,2-1.08,2.62-1.39a11.21,11.21,0,0,1,4.68-1.61,3.43,3.43,0,0,1,1.77.45,3.74,3.74,0,0,1,1.35,1.49,26.52,26.52,0,0,1,2.36,6.12,47.94,47.94,0,0,1,1.31,6.42,14.62,14.62,0,0,0,1.39,3.81,10.13,10.13,0,0,1,1.23,4,4.39,4.39,0,0,1-.55,2.07,1.61,1.61,0,0,1-1.39,1,2.57,2.57,0,0,1-2.24-1.27,10.6,10.6,0,0,1-1.06-2.36q-4.64,1.89-7.42,2.89a26.69,26.69,0,0,1-8.52,1.88,9,9,0,0,1-4-.8,6.78,6.78,0,0,1-2.95-2.95,2.84,2.84,0,0,1-.43-1.51q0-2,2.7-4.13a20,20,0,0,1,4.48-2.65,29,29,0,0,1,7.3-2.19q1.68-.3,7.29-.93a12.07,12.07,0,0,0-.76-4.59c-.67-1.63-1.68-2.44-3-2.44A4.41,4.41,0,0,0,294.62,398.74Zm-12.53,17.13a13.47,13.47,0,0,0,2.39.59,16.23,16.23,0,0,0,2.55.21,22.1,22.1,0,0,0,7.07-1.2,31.61,31.61,0,0,0,6.77-3.23,5.73,5.73,0,0,0-2.79-2.3,11,11,0,0,0-4.17-.74,15.86,15.86,0,0,0-7.6,1.92C283.92,412.4,282.52,414,282.09,415.87Z"/><path class="cls-1" d="M312.26,399.24q0,1.51.06,2.79a15.77,15.77,0,0,0,.49,3l3.21-3.38c1.47-1.41,2.68-2.11,3.64-2.11a2.14,2.14,0,0,1,1.42.53,4.72,4.72,0,0,1,1.12,1.83,25.29,25.29,0,0,1,1.12,5.53,30.83,30.83,0,0,0,.95,5.32q.51,1.56,3.85,2.19l3,.51a4,4,0,0,1-2,2.42,6.57,6.57,0,0,1-3.43.95,5.86,5.86,0,0,1-2.3-.44,3.79,3.79,0,0,1-1.67-1.37,9.54,9.54,0,0,1-1.48-4.39,68.41,68.41,0,0,0-1.14-8.1,16.32,16.32,0,0,0-5.52,6.45,20.07,20.07,0,0,0-1.78,8.56,3.15,3.15,0,0,1-2.63-1.6,8,8,0,0,1-.74-3.71,26.8,26.8,0,0,1,.25-3.52q.25-1.91.51-3.6a23.28,23.28,0,0,0-.22-2.9c-.36-2.62-.54-4.2-.54-4.76a8.36,8.36,0,0,1,.39-2.7,5.56,5.56,0,0,1,1.42-2.15c.66,1,1.12,1.75,1.37,2.2A5,5,0,0,1,312.26,399.24Z"/><path class="cls-1" d="M331.58,414.35v-1.9q0-5.19-.1-7.89c-.07-1.8-.21-3.57-.4-5.31a4.59,4.59,0,0,1-.05-.76,5.89,5.89,0,0,1,.6-2.7c.4-.79.85-1.18,1.36-1.18.69,0,1.27.69,1.75,2.06a8.53,8.53,0,0,1,.47,2.7,22,22,0,0,1-.25,2.49,22.75,22.75,0,0,0-.26,2.62v3.92c0,1.24,0,2.3.1,3.17a21.49,21.49,0,0,0,.41,2.78,14.06,14.06,0,0,0,6-2.34,12,12,0,0,0,4.41-4.41,13,13,0,0,0,1.14-5.57,13.73,13.73,0,0,1,1-5.36,4.52,4.52,0,0,1,2.34,2.09,11.56,11.56,0,0,1,.78,5v1.73a14.44,14.44,0,0,0,.26,2.28,16,16,0,0,1,.25,2.41c0,1.71,1,2.84,3,3.37l3.25.76a15.19,15.19,0,0,1-2.53,2.11,5.93,5.93,0,0,1-3.21,1,4.07,4.07,0,0,1-3.88-2.36l-1.3-2.83a58.44,58.44,0,0,1-5.45,3.93q-4.1,2.54-6.45,2.53a2.91,2.91,0,0,1-2.36-1A5.26,5.26,0,0,1,331.58,414.35Z"/><path class="cls-1" d="M363.31,387.81l.51-.54h2.07a14.33,14.33,0,0,1,2.2.16c.9.2,1.56.33,2,.38a31,31,0,0,1,5.5,1.27A9.61,9.61,0,0,1,380,392.5a31.6,31.6,0,0,1-5.59-.87,32.25,32.25,0,0,0-5.93-.86,11.79,11.79,0,0,0-1.94.14,8.34,8.34,0,0,0-1.8.59,2.87,2.87,0,0,0-1.47,1.69,8.05,8.05,0,0,0-.49,3,20.75,20.75,0,0,0,.38,3.63c.11.64.34,1.68.68,3.12a22.13,22.13,0,0,1,3.41-.26,35.5,35.5,0,0,1,3.59.19c1.18.13,2.49.32,3.92.57a23.29,23.29,0,0,1-4.34,1.73c-1.52.47-3,.94-4.52,1.38a3.51,3.51,0,0,0-2.06,1.64,6.14,6.14,0,0,0-.55,2.78,19,19,0,0,0,.17,2.19c.25,2,.38,3.26.38,3.74a5.49,5.49,0,0,1-.55,2.61,4.28,4.28,0,0,1-2.25-2,6.44,6.44,0,0,1-.49-2.73c0-.4,0-1,.08-1.81s.09-1.39.09-1.73a4.45,4.45,0,0,0-.68-2.77c-.08-.09-.55-.53-1.39-1.35a3.85,3.85,0,0,1-.89-1,1.87,1.87,0,0,1-.21-.9v-.78c0-.29,0-.62,0-1a2.75,2.75,0,0,0,2.12-.59,3,3,0,0,0,.5-1.94v-2.15a25.79,25.79,0,0,0-.34-3.42,27.35,27.35,0,0,1-.34-3.41,5.69,5.69,0,0,1,.69-2.94,4.13,4.13,0,0,1,2.53-1.7Z"/><path class="cls-1" d="M392,398.74a20.43,20.43,0,0,0-3.8,1.77,35.15,35.15,0,0,0-3.5,2.41c-.7.65-1.21,1.09-1.52,1.35a2.24,2.24,0,0,1-1.35.72,1,1,0,0,1-.65-.24,3.72,3.72,0,0,1-.68-.88,2.51,2.51,0,0,1-.4-1.33q0-2,3.92-3.93l3.25-1.43c1.13-.62,2-1.08,2.62-1.39a11.21,11.21,0,0,1,4.68-1.61,3.38,3.38,0,0,1,1.77.45,3.74,3.74,0,0,1,1.35,1.49,27,27,0,0,1,2.37,6.12,49.58,49.58,0,0,1,1.3,6.42,14.74,14.74,0,0,0,1.4,3.81,10.25,10.25,0,0,1,1.22,4,4.28,4.28,0,0,1-.55,2.07,1.6,1.6,0,0,1-1.39,1,2.58,2.58,0,0,1-2.24-1.27,10.22,10.22,0,0,1-1.05-2.36c-3.1,1.26-5.57,2.22-7.43,2.89a26.69,26.69,0,0,1-8.52,1.88,9,9,0,0,1-4-.8,6.78,6.78,0,0,1-3-2.95,2.92,2.92,0,0,1-.42-1.51q0-2,2.7-4.13a19.7,19.7,0,0,1,4.47-2.65,29.08,29.08,0,0,1,7.3-2.19c1.12-.2,3.56-.51,7.3-.93a12.27,12.27,0,0,0-.76-4.59c-.68-1.63-1.69-2.44-3-2.44A4.36,4.36,0,0,0,392,398.74Zm-12.53,17.13a13.14,13.14,0,0,0,2.38.59,16.43,16.43,0,0,0,2.55.21,22.06,22.06,0,0,0,7.07-1.2,31.38,31.38,0,0,0,6.77-3.23,5.7,5.7,0,0,0-2.78-2.3,11.06,11.06,0,0,0-4.18-.74,15.85,15.85,0,0,0-7.59,1.92C381.29,412.4,379.89,414,379.47,415.87Z"/><path class="cls-1" d="M413.85,418.53c-1.07.25-1.87.42-2.4.5a12.64,12.64,0,0,1-2.37.3,3.51,3.51,0,0,1-2-.51,2.33,2.33,0,0,1-1-1.54,8.63,8.63,0,0,1-.23-2q0-4,3.92-8.65A33.87,33.87,0,0,1,417,400.3q1.44-.93,2.07-1.26a5,5,0,0,1,2.19-.68,1.77,1.77,0,0,1,1.23.47,3,3,0,0,1,.76,1.47,3.3,3.3,0,0,1,.12.8q0,1.65-2.19,2.58L417.48,405a15.43,15.43,0,0,0-5,4.28,12.77,12.77,0,0,0-2.85,5.63l.66.06c.21,0,.46,0,.74,0a22.19,22.19,0,0,0,7.76-1.73l7.51-3a21.89,21.89,0,0,0,3.46-1.9,6.6,6.6,0,0,1,2.95-1.23,2.16,2.16,0,0,1,1.31.49,4.16,4.16,0,0,1,1.14,1.58l-6.79,3.71c-2.54,1.33-4.94,2.45-7.22,3.38A38.12,38.12,0,0,1,413.85,418.53Z"/><path class="cls-1" d="M439.88,414.9q0-1.23.09-4c0-1.84.08-2.8.08-2.89v-2.15c-.08-.65-.15-1.23-.21-1.75a2.63,2.63,0,0,0-.76-1.5,10.07,10.07,0,0,1-1.83-2.42,3.49,3.49,0,0,1-.15-.91q0-.51.69-.84a3,3,0,0,0,1-.74,2.5,2.5,0,0,0,.44-1,5.86,5.86,0,0,0,.13-1.14c0-.26,0-.51,0-.76s0-.51,0-.76a9.27,9.27,0,0,0-.17-1.44,23,23,0,0,1-.37-3.08,3.47,3.47,0,0,1,.33-1.68,1.33,1.33,0,0,1,1.27-.59q2.07,0,2.38,4.15c.21,2.77.46,4.34.74,4.7.62.76,2.33,1.29,5.15,1.57,1.91.19,3.84.38,5.78.54H455q-3.67,1.06-7.3,2.07a7.85,7.85,0,0,0-3.67,1.2,3.65,3.65,0,0,0-1,3,46.78,46.78,0,0,0,.3,5.67,17.88,17.88,0,0,0,1.27,4.75c1.77-.53,2.87-.84,3.31-.93a10.81,10.81,0,0,1,1.87-.13,5.78,5.78,0,0,1-2.42,3.46,6.74,6.74,0,0,1-4,1.44,3.38,3.38,0,0,1-2.47-.93A3.93,3.93,0,0,1,439.88,414.9Z"/><path class="cls-1" d="M453.93,414.35v-1.9c0-3.46,0-6.09-.1-7.89s-.21-3.57-.41-5.31a6.5,6.5,0,0,1,0-.76,5.89,5.89,0,0,1,.6-2.7c.4-.79.85-1.18,1.36-1.18.68,0,1.27.69,1.75,2.06a8.53,8.53,0,0,1,.47,2.7,24.79,24.79,0,0,1-.25,2.49,22.75,22.75,0,0,0-.26,2.62v3.92c0,1.24,0,2.3.1,3.17a19.89,19.89,0,0,0,.41,2.78,14.06,14.06,0,0,0,6-2.34A12.17,12.17,0,0,0,468,407.6a13.14,13.14,0,0,0,1.14-5.57,13.73,13.73,0,0,1,1-5.36,4.52,4.52,0,0,1,2.34,2.09,11.56,11.56,0,0,1,.78,5v1.73a15.46,15.46,0,0,0,.25,2.28,15,15,0,0,1,.26,2.41c0,1.71,1,2.84,3,3.37l3.25.76a15.19,15.19,0,0,1-2.53,2.11,5.93,5.93,0,0,1-3.21,1,4.07,4.07,0,0,1-3.88-2.36c-.56-1.21-1-2.15-1.31-2.83a57.12,57.12,0,0,1-5.44,3.93q-4.09,2.54-6.45,2.53a2.93,2.93,0,0,1-2.37-1A5.33,5.33,0,0,1,453.93,414.35Z"/><path class="cls-1" d="M480.47,402.92c0-.2.18-1.55.38-4.05s.94-3.76,2.23-3.76a2,2,0,0,1,1.67.64,2.78,2.78,0,0,1,.48,1.73,10.65,10.65,0,0,1-.12,1.56c-.17.78-.33,1.56-.47,2.32a14.07,14.07,0,0,0,2.91.29q.9,0,2.7-.12c1.21-.09,2.1-.13,2.66-.13a11.2,11.2,0,0,1,3.19.42,6.15,6.15,0,0,1,2.59,1.6,19.9,19.9,0,0,1-6,1.42,27.3,27.3,0,0,0-6,1.2,3.16,3.16,0,0,0-2,2.26,16.26,16.26,0,0,0-.49,4.32v5.57c-.06.39-.1.68-.12.84a4.38,4.38,0,0,1-3.63-2.82,14.06,14.06,0,0,1-.93-5.66,30.75,30.75,0,0,1,.21-3.81C479.93,405.62,480.16,404.35,480.47,402.92Z"/><path class="cls-1" d="M503.38,384.73c.64-.14,1.19.17,1.64.93a3.38,3.38,0,0,1,.4,1,6,6,0,0,1,.13.66c0,.12,0,.29,0,.48a2.05,2.05,0,0,1-.25,1.06,1.46,1.46,0,0,1-.93.59h-.51a1.57,1.57,0,0,1-1.3-.9,4.08,4.08,0,0,1-.43-2,5,5,0,0,1,.15-1.36c.1-.34.28-.51.53-.51A3.16,3.16,0,0,0,503.38,384.73Zm-.55,25v-1a14,14,0,0,1,.29-2.7,33.26,33.26,0,0,0,.76-4.59c-.05-.39-.1-.86-.14-1.39s-.07-1.09-.07-1.68a9.31,9.31,0,0,1,.21-2.24c.14-.53.41-.8.8-.8s1.06.48,1.82,1.43a3.42,3.42,0,0,1,.63,1.37,7.62,7.62,0,0,1,.21,1.79,22.4,22.4,0,0,1-.59,4.47l-.81,3.79q-.26,3.17-.47,6.28c-.43,2.72-1.32,4.27-2.68,4.63a8.34,8.34,0,0,1-.64-3.16c0-.44.15-1.65.45-3.62A17.38,17.38,0,0,0,502.83,409.69Z"/><path class="cls-1" d="M513.71,399.24c0,1,0,1.94.07,2.79a15.67,15.67,0,0,0,.48,3l3.22-3.38c1.46-1.41,2.67-2.11,3.63-2.11a2.12,2.12,0,0,1,1.42.53,4.6,4.6,0,0,1,1.12,1.83,25.29,25.29,0,0,1,1.12,5.53,31.86,31.86,0,0,0,1,5.32q.51,1.56,3.85,2.19l3,.51a4,4,0,0,1-2,2.42,6.6,6.6,0,0,1-3.44.95,5.86,5.86,0,0,1-2.3-.44,3.79,3.79,0,0,1-1.67-1.37,9.43,9.43,0,0,1-1.47-4.39,73.78,73.78,0,0,0-1.14-8.1,16.27,16.27,0,0,0-5.53,6.45,20.07,20.07,0,0,0-1.77,8.56,3.16,3.16,0,0,1-2.64-1.6,8,8,0,0,1-.74-3.71,26.92,26.92,0,0,1,.26-3.52c.16-1.27.33-2.47.5-3.6a21.51,21.51,0,0,0-.22-2.9c-.36-2.62-.54-4.2-.54-4.76a8.36,8.36,0,0,1,.39-2.7,5.59,5.59,0,0,1,1.43-2.15c.66,1,1.11,1.75,1.36,2.2A5,5,0,0,1,513.71,399.24Z"/><path class="cls-1" d="M540.84,417.44a23.48,23.48,0,0,1-2.43.77,8.8,8.8,0,0,1-2.21.32,3.36,3.36,0,0,1-2.28-.68,3.25,3.25,0,0,1-.93-2.6,7.16,7.16,0,0,1,0-.93,9.32,9.32,0,0,1,3-5.94,18.34,18.34,0,0,1,6-3.49,64.52,64.52,0,0,1,6.59-2,2.72,2.72,0,0,0,1.58-1.43c.43-.79.95-1.18,1.54-1.18a1.69,1.69,0,0,1,1.43.93,5.79,5.79,0,0,1,.7,1.79,19.86,19.86,0,0,1,.4,2.68c.08,1,.13,2,.13,3s-.06,2.53-.17,4.22c-.26,3.79-.38,6.17-.38,7.13,0,.53,0,1.46.08,2.78s.09,2,.09,2.11a10.07,10.07,0,0,1-.76,4.3A5.55,5.55,0,0,1,549.7,432a33.94,33.94,0,0,1-4,.78,32.72,32.72,0,0,1-4.83.36,19.9,19.9,0,0,1-4.78-.51A5.9,5.9,0,0,1,533,431a2.58,2.58,0,0,1-.85-1.77q0-1.72,3.21-3.08a22.91,22.91,0,0,1,4.93-1.39c-1.23,1.21-2.46,2.43-3.67,3.67a13.46,13.46,0,0,0,5.19,1.06,14.08,14.08,0,0,0,3.36-.43,20.92,20.92,0,0,0,3.44-1.18,3.8,3.8,0,0,0,1.85-2.76,19.93,19.93,0,0,0,.59-5.17,38.62,38.62,0,0,0-.23-4.37,34,34,0,0,0-.65-3.77c-.85.53-2,1.28-3.42,2.26A30.2,30.2,0,0,1,540.84,417.44Zm-5.19-2.58a10.05,10.05,0,0,0,1.56.12,15.23,15.23,0,0,0,7.93-2.32c2.84-1.68,4.53-3.74,5.07-6.16a8.65,8.65,0,0,0-2.11-.25,14.12,14.12,0,0,0-7.83,2.51A9.89,9.89,0,0,0,535.65,414.86Z"/></svg>
+      </a>
+
+      <!-- Right links -->
+      <div class="nav-right">
+        <a class="nav-link" href="#testimonials">Reviews</a>
+        <a class="nav-link" href="#pricing">Pricing</a>
+        <a class="nav-link" href="#contact">Contact</a>
+      </div>
+
+      <!-- Mobile toggle -->
+      <button class="nav-mobile-toggle" id="mobileToggle" onclick="toggleNav()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile drawer -->
+  <div class="mobile-drawer" id="mobileDrawer">
+    <a href="#how-it-works" onclick="closeNav()">How It Works</a>
+    <a href="#about"        onclick="closeNav()">About</a>
+    <a href="#resources"    onclick="closeNav()">Resources</a>
+    <a href="#testimonials" onclick="closeNav()">Reviews</a>
+    <a href="#pricing"      onclick="closeNav()">Pricing</a>
+    <a href="#contact"      onclick="closeNav()">Contact</a>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       HERO
+  ══════════════════════════════════════════ -->
+  <section class="hero" id="hero">
+    <!-- Background photo -->
+    <div class="hero-bg" id="heroBg"></div>
+
+    <!-- Centered content -->
+    <div class="hero-content">
+      <p class="hero-headline">
+        Restore your body's innate ability to heal with<br>
+        a definitive root-cause healing method and<br>
+        the support of a dedicated practitioner.
+      </p>
+      <div class="hero-cta">
+        <a href="#contact" class="btn btn-gold">Book a Discovery Call</a>
+      </div>
+    </div>
+
+    <!-- Signature giant wordmark -->
+    <div class="hero-brand-text" aria-hidden="true">Kazi</div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       STATS BAR
+  ══════════════════════════════════════════ -->
+  <div class="stats">
+    <div class="container">
+      <div class="stats-inner">
+        <div class="stat-item" data-reveal data-delay="1">
+          <span class="stat-number" data-count="1500" data-suffix="+">1,500+</span>
+          <span class="stat-label">Lives Changed</span>
+        </div>
+        <div class="stat-item" data-reveal data-delay="2">
+          <span class="stat-number" data-count="4500" data-suffix="+">4,500+</span>
+          <span class="stat-label">Protocols Developed</span>
+        </div>
+        <div class="stat-item" data-reveal data-delay="3">
+          <span class="stat-number">98%</span>
+          <span class="stat-label">Client Satisfaction</span>
+        </div>
+        <div class="stat-item" data-reveal data-delay="4">
+          <span class="stat-number">6-Step</span>
+          <span class="stat-label">Healing Methodology</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════
+       STORY SECTION
+  ══════════════════════════════════════════ -->
+  <section class="story section">
+    <div class="container">
+      <div class="story-grid">
+        <div class="story-visual" data-reveal="left">
+          <div class="story-img">
+            <div class="story-img-inner"></div>
+          </div>
+          <div class="story-badge">
+            <strong>6-Step</strong>
+            <span>Healing Method</span>
+          </div>
+        </div>
+        <div class="story-content" data-reveal="right">
+          <span class="tag">Your Body's Story</span>
+          <h2>Your body tells a complete story</h2>
+          <p>Most approaches chase symptoms. We trace them back to their origin — uncovering the hidden drivers like toxins, trauma, nutrient deficiencies, and pathogens that keep you stuck.</p>
+          <ul class="story-list">
+            <li>Unconventional depth of diagnostic discovery</li>
+            <li>Compassionate 1-on-1 practitioner guidance</li>
+            <li>Personalized healing protocols tailored to you</li>
+            <li>Ongoing support and protocol adjustments</li>
+            <li>Comprehensive functional lab testing</li>
+          </ul>
+          <a href="#how-it-works" class="btn btn-dark">Discover the Method &rarr;</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       WHY WORK WITH US
+  ══════════════════════════════════════════ -->
+  <section class="why section" id="about">
+    <div class="container">
+      <div class="section-header" data-reveal>
+        <span class="tag">Why Meadowell</span>
+        <h2>Unconventional depth for sustained healing</h2>
+        <p>We go where conventional medicine doesn't — into the root causes keeping your body from doing what it was designed to do.</p>
+      </div>
+      <div class="why-cards">
+        <div class="why-card" data-reveal data-delay="1">
+          <div class="why-icon">🌱</div>
+          <h3>Root Cause Clarity</h3>
+          <p>We trace every symptom back to its source — whether hidden toxins, chronic pathogens, trauma responses, or nutritional deficiencies that conventional tests miss entirely.</p>
+        </div>
+        <div class="why-card" data-reveal data-delay="2">
+          <div class="why-icon">🤝</div>
+          <h3>Compassionate Guidance</h3>
+          <p>Your dedicated practitioner walks beside you through every step of the healing journey, offering real support — not just protocols. You are never alone in this.</p>
+        </div>
+        <div class="why-card" data-reveal data-delay="3">
+          <div class="why-icon">✦</div>
+          <h3>Personalized Pathways</h3>
+          <p>No cookie-cutter plans. Every healing protocol is crafted specifically for your unique body, history, and goals — then refined as your health evolves.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       HOW IT WORKS
+  ══════════════════════════════════════════ -->
+  <section class="how section" id="how-it-works">
+    <div class="container">
+      <div class="section-header" data-reveal>
+        <span class="tag">The Process</span>
+        <h2>Navigate healing with confidence</h2>
+        <p>Three clear steps from where you are now to where your body was always meant to be.</p>
+      </div>
+      <div class="steps">
+        <div class="step" data-reveal data-delay="1">
+          <span class="step-num">01</span>
+          <div class="step-icon">📞</div>
+          <h3>Begin with a Discovery Call</h3>
+          <p>In your complimentary 30-minute discovery call, your practitioner listens deeply, identifies potential root causes, and determines whether Meadowell is the right fit for your healing journey.</p>
+          <span class="step-pill">⏱ 30 min &middot; Free</span>
+        </div>
+        <div class="step" data-reveal data-delay="2">
+          <span class="step-num">02</span>
+          <div class="step-icon">🗺️</div>
+          <h3>Define a Clear Path Forward</h3>
+          <p>We pair you with a dedicated practitioner and run comprehensive functional lab testing to map the full picture of what's happening in your body — then build your personalized healing plan.</p>
+          <span class="step-pill">⚗️ Functional Lab Testing</span>
+        </div>
+        <div class="step" data-reveal data-delay="3">
+          <span class="step-num">03</span>
+          <div class="step-icon">🌿</div>
+          <h3>Navigate Healing with Confidence</h3>
+          <p>With your protocol in hand and your practitioner by your side, you begin healing with regular check-ins, protocol refinements, and unwavering support every step of the way.</p>
+          <span class="step-pill">🔄 Ongoing Support</span>
+        </div>
+      </div>
+      <div class="text-center" data-reveal>
+        <a href="#contact" class="btn btn-gold" style="font-size:0.88rem;padding:16px 40px;">Book Your Discovery Call</a>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       ABOUT STRIP
+  ══════════════════════════════════════════ -->
+  <section class="about-strip section">
+    <div class="container">
+      <div class="about-inner">
+        <div class="about-img-wrap" data-reveal="left">
+          <div class="about-img"></div>
+          <div class="about-floater">
+            <span>💛</span> Dedicated 1-on-1 Practitioner
+          </div>
+        </div>
+        <div class="about-content" data-reveal="right">
+          <span class="tag">About Meadowell</span>
+          <h2>You deserve more than a diagnosis</h2>
+          <p>Meadowell was born from a deeply personal mission: to give people what the conventional healthcare system too often withholds — genuine answers, genuine healing, and genuine support.</p>
+          <p>Our practitioners combine functional medicine principles with empathetic, human-centered care. We believe that when given the right conditions, your body knows exactly how to heal itself.</p>
+          <p>Every protocol is grounded in science, shaped by lived experience, and built around you as a whole person — not a collection of symptoms.</p>
+          <div class="about-actions">
+            <a href="#how-it-works" class="btn btn-gold">How It Works</a>
+            <a href="#testimonials" class="btn btn-dark">Read Stories</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       TESTIMONIALS
+  ══════════════════════════════════════════ -->
+  <section class="testimonials section" id="testimonials">
+    <div class="container">
+      <div class="section-header" data-reveal>
+        <span class="tag">Client Stories</span>
+        <h2>Real people. Real healing.</h2>
+        <p>Over 1,500 people have reclaimed their health through the Meadowell method. Here are a few of their stories.</p>
+      </div>
+      <div class="t-grid">
+        <div class="t-card" data-reveal data-delay="1">
+          <div class="t-stars">★★★★★</div>
+          <p class="t-quote">"Meadowell went beyond the quick fix. For years I struggled with gut issues that no doctor could explain. Within months of working with my practitioner, I finally had answers — and more importantly, real relief."</p>
+          <div class="t-author">
+            <div class="t-avatar">S</div>
+            <div>
+              <div class="t-name">Sabrina D.</div>
+              <div class="t-detail">Gut Health &middot; 14 months of healing</div>
+            </div>
+          </div>
+        </div>
+        <div class="t-card" data-reveal data-delay="2">
+          <div class="t-stars">★★★★★</div>
+          <p class="t-quote">"I got my life back. After being diagnosed with Crohn's, I thought I'd be managing symptoms forever. Meadowell helped me understand what was driving my flares and gave me tools to actually heal — not just cope."</p>
+          <div class="t-author">
+            <div class="t-avatar">S</div>
+            <div>
+              <div class="t-name">Shelby H.</div>
+              <div class="t-detail">Crohn's Disease &middot; 8 months of healing</div>
+            </div>
+          </div>
+        </div>
+        <div class="t-card" data-reveal data-delay="1">
+          <div class="t-stars">★★★★★</div>
+          <p class="t-quote">"I regained my hope. Going through parasite cleansing felt overwhelming, but my practitioner made it feel manageable. The support throughout the process was unlike anything I've experienced in healthcare."</p>
+          <div class="t-author">
+            <div class="t-avatar">E</div>
+            <div>
+              <div class="t-name">Erica T.</div>
+              <div class="t-detail">Parasite Protocol &middot; 6 months of healing</div>
+            </div>
+          </div>
+        </div>
+        <div class="t-card" data-reveal data-delay="2">
+          <div class="t-stars">★★★★★</div>
+          <p class="t-quote">"I have finally gained control over my health. After decades of feeling at the mercy of my body, Meadowell gave me a roadmap. I understand what's happening, why, and what to do — that knowledge is everything."</p>
+          <div class="t-author">
+            <div class="t-avatar">J</div>
+            <div>
+              <div class="t-name">Julie H.</div>
+              <div class="t-detail">Hormone Health &middot; 10 months of healing</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       QUIZ CTA
+  ══════════════════════════════════════════ -->
+  <section class="quiz-cta" id="pricing">
+    <div class="quiz-inner">
+      <span class="tag">Free Assessment</span>
+      <h2>How do you feel when you wake up most mornings?</h2>
+      <p>Answer 24 simple questions and discover the likely root causes behind your symptoms — in just minutes.</p>
+      <div class="quiz-chips">
+        <span class="quiz-chip">Exhausted, even after sleep</span>
+        <span class="quiz-chip">Bloated or digestive pain</span>
+        <span class="quiz-chip">Brain fog or poor focus</span>
+        <span class="quiz-chip">Anxious or low mood</span>
+        <span class="quiz-chip">Joint or muscle pain</span>
+        <span class="quiz-chip">Chronic skin issues</span>
+        <span class="quiz-chip">Hormonal imbalances</span>
+        <span class="quiz-chip">Frequent illness</span>
+      </div>
+      <a href="#contact" class="btn btn-gold" style="font-size:0.95rem;padding:16px 42px;">
+        Start the Free Assessment &rarr;
+      </a>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       BLOG / RESOURCES
+  ══════════════════════════════════════════ -->
+  <section class="blog section" id="resources">
+    <div class="container">
+      <div class="section-header" data-reveal>
+        <span class="tag">Resources</span>
+        <h2>Learn, explore, understand</h2>
+        <p>Insights from our practitioners on root-cause healing, detoxification, and what conventional medicine doesn't tell you.</p>
+      </div>
+      <div class="blog-grid">
+        <div class="blog-card" data-reveal data-delay="1">
+          <div class="blog-thumb">
+            <div class="blog-thumb-img" style="background-image:url('https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=600&q=80&fit=crop')"></div>
+          </div>
+          <div class="blog-body">
+            <div class="blog-meta">Mar 17, 2026 &middot; Detox</div>
+            <h3>Detoxing Mold: What Your Practitioner Needs You to Know</h3>
+            <p>Mold toxicity is one of the most underdiagnosed drivers of chronic illness. Here's how we approach it.</p>
+            <a href="#" class="blog-link">Read Article &rarr;</a>
+          </div>
+        </div>
+        <div class="blog-card" data-reveal data-delay="2">
+          <div class="blog-thumb">
+            <div class="blog-thumb-img" style="background-image:url('https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=600&q=80&fit=crop')"></div>
+          </div>
+          <div class="blog-body">
+            <div class="blog-meta">Jan 14, 2026 &middot; Symptoms</div>
+            <h3>When Your Body Speaks Through Symptoms</h3>
+            <p>Your symptoms aren't the problem — they're the message. Learning to read them changes everything.</p>
+            <a href="#" class="blog-link">Read Article &rarr;</a>
+          </div>
+        </div>
+        <div class="blog-card" data-reveal data-delay="3">
+          <div class="blog-thumb">
+            <div class="blog-thumb-img" style="background-image:url('https://images.unsplash.com/photo-1491841550275-ad7854e35ca6?w=600&q=80&fit=crop')"></div>
+          </div>
+          <div class="blog-body">
+            <div class="blog-meta">Dec 14, 2025 &middot; Mindset</div>
+            <h3>The Practice of Holding Space for Your Healing</h3>
+            <p>Healing is not linear. How emotional support shapes physical recovery in ways science is only beginning to understand.</p>
+            <a href="#" class="blog-link">Read Article &rarr;</a>
+          </div>
+        </div>
+        <div class="blog-card" data-reveal data-delay="4">
+          <div class="blog-thumb">
+            <div class="blog-thumb-img" style="background-image:url('https://images.unsplash.com/photo-1526256262350-7da7584cf5eb?w=600&q=80&fit=crop')"></div>
+          </div>
+          <div class="blog-body">
+            <div class="blog-meta">Nov 14, 2025 &middot; Method</div>
+            <h3>The Meadowell Method: A Deep Dive</h3>
+            <p>Our six-step root-cause framework — how it was developed, what makes it different, and why it works.</p>
+            <a href="#" class="blog-link">Read Article &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       NEWSLETTER
+  ══════════════════════════════════════════ -->
+  <section class="newsletter">
+    <div class="container">
+      <div class="newsletter-inner">
+        <div class="newsletter-text">
+          <h3>Get healing insights in your inbox</h3>
+          <p>Join 12,000+ readers getting weekly root-cause health wisdom.</p>
+        </div>
+        <form class="newsletter-form" onsubmit="handleSubscribe(event)">
+          <input type="email" placeholder="Your email address" required />
+          <button type="submit">Subscribe &rarr;</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════ -->
+  <footer class="footer" id="contact">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="footer-brand-logo">
+            <svg style="height:28px;width:auto;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 601.2 446.99"><defs><style>.footer-cls{fill:#C9AD52;}</style></defs><path class="footer-cls" d="M11.57,352.12a264,264,0,0,0-2.78-36.75q-.79-6-3.58-21.85-.4-2-.69-4.47a36.45,36.45,0,0,1-.3-4.28A12.73,12.73,0,0,1,5.81,278q1.59-2.58,5.76-3.38,6.15-1,8.54,7.55a93.87,93.87,0,0,1,1.69,12,94.31,94.31,0,0,0,1.49,11.23q1.38,6.15,4.17,6.15a4.66,4.66,0,0,0,3-1.39Q41,300.27,47.63,294.61t11.52-9.14a87.79,87.79,0,0,0,9.63-8.05l15.9-15.16c2.51-2.1,4.17-3.41,5-3.94q4.17-2.74,7-2.75a8.07,8.07,0,0,1,2.78.6q4.77,2,4.77,5.54,0,3.38-4,8.13A60.2,60.2,0,0,1,93,277q-19.86,17.83-39.73,35.48,15.49,6.35,37.15,9.91,6.56,1,38.14,4.75,23.64,1.39,35.36,2.38,21.06,1.78,33.78,7.93a21.44,21.44,0,0,1-7,3.47,28.31,28.31,0,0,1-7.94,1.09c-.93,0-2.75-.06-5.47-.2s-5-.2-6.85-.2q-6.36,0-30-4.17a111,111,0,0,0-18.08-2q-25-1.57-49.86-3.17-28.41-4-44.3-19.87l-2.19,2v39.73a21.66,21.66,0,0,1-.79,4.37l-1.2,4q-3.37-2.58-5.66-4.37a10.13,10.13,0,0,0-2.68-1.79c-.79.93-1.39,1.59-1.79,2a18.26,18.26,0,0,1-2.38,2.19Z"/><path class="footer-cls" d="M247.78,276.79a67.17,67.17,0,0,0,5.17,16.1q4.95,9.93,7.35,15.3,4.56,7.35,6.75,11.13,7.35,12.12,7.95,13.91,5.16,11.73,7.94,20.17c1.86,5.64,2.79,10.17,2.79,13.62q0,6.36-4.38,8a10.12,10.12,0,0,1-3.17.6q-4.77,0-7.95-5.57a45,45,0,0,1-3.78-9.93q-2-7-3-10.33-3.77-12.53-5.16-18.48-8.34.8-16.49,1.39-17.49,2.39-21,12.82t-4.47,11.82q-2.38,3.57-6,3.57a14.37,14.37,0,0,1-3-.59,6.61,6.61,0,0,1-3.38-2,4.78,4.78,0,0,1-1.19-3.18c0-1.46.8-3.77,2.39-7a36.76,36.76,0,0,0,2.78-6.56,189.53,189.53,0,0,1,7.15-23.45q1.38-3.78,5.36-14.11,2.19-5.76,7.55-26.83,4.17-16.31,9.34-25.44a22.42,22.42,0,0,1,7.75,10.73C245.33,262.87,246.19,267.65,247.78,276.79Zm-18.87,39.72a39,39,0,0,0,9.14,1.39q4.75,0,11.92-3.57-3.39-6.56-6.56-13.31-2.39-5-6-13.71-3.57,8.54-5.36,14.1A76.14,76.14,0,0,0,228.91,316.51Z"/><path class="footer-cls" d="M346.12,293.12H366a69.86,69.86,0,0,1,9.54.5,17.41,17.41,0,0,1,6.16,2.08q4.36,2.39,4.37,6.36,0,5.16-9.34,12.32a66.9,66.9,0,0,1-13.9,8.34,163.36,163.36,0,0,0-19.08,9.73q-7.14,4.19-18.47,11.33a126.58,126.58,0,0,0,14.9,2.08q8.14.7,17.08.7,6.75,0,22.55-.4l16.39-.39q1.4,0,17.88-2.39a98.2,98.2,0,0,1,12.72-1.19q6.35,0,9.83,1.79a6.2,6.2,0,0,1,3.48,6q0,5.35-2.69,7.65c-1.78,1.52-4.27,2.28-7.45,2.28q-3.57,0-13.9-2.38a38.1,38.1,0,0,0-7.15-1.2q-9.73,0-43.12,2.79-16.68,1.38-27,1.39a143.45,143.45,0,0,1-26.23-2.2Q299,355.47,299,348.66q0-3.41,3.78-7.61a47,47,0,0,1,9.73-8q4-2.6,15.5-8.61,18.07-9.6,24.24-16.61a68.53,68.53,0,0,0-11.13-.79q-6.36,0-19.47,1.39t-19.47,1.39h-5a10.29,10.29,0,0,1-5.17-1q-2.38-1.57-2.38-5.31-.6-6.66,11.12-8.83c3.18-.52,6.42-1.05,9.74-1.57q3.57,2.58,10.33,2.58a66.24,66.24,0,0,0,8.94-.79A155.91,155.91,0,0,1,346.12,293.12Z"/><path class="footer-cls" d="M446.24,324.91q3-4.57,14.51-10.93a121.8,121.8,0,0,1,16.88-8q5-1.78,20.86-7.55,22.46-8.34,35.56-11.12,10.74-3.18,16.1-4.57a63.51,63.51,0,0,1,16.09-2.58,31.48,31.48,0,0,1,7.55.79q-3.78,12.92-17.68,15.3l-26.23,3.57a16.9,16.9,0,0,0-10.23,8.45,32,32,0,0,0-3.08,14.6,68,68,0,0,0,.8,9.93,110,110,0,0,0,2.18,10.93q19.86-4.77,31.09-6.46a139.91,139.91,0,0,1,20.57-1.69,82.42,82.42,0,0,1,17.28,1.79,18.27,18.27,0,0,0-.2,3.18c.13,2.38.2,4.11.2,5.17A183.57,183.57,0,0,0,554.72,349a194.49,194.49,0,0,0-33.18,9.24q-.79.41-7.75,3.58a13.19,13.19,0,0,1-5.56,1.19,35.85,35.85,0,0,1-5.56-.6q-7.95-.78-13.61-1.49a113.35,113.35,0,0,1-13.61-2.68q2-8.14,13-10t12.22-12.82a67.13,67.13,0,0,0,.6-8.74c0-4-.67-7.05-2-9.23s-3.58-3.28-6.76-3.28a10.68,10.68,0,0,0-2.38.2q-23.06,9.53-45.89,18.87v-.6Q445.06,326.7,446.24,324.91Z"/><path class="footer-cls" d="M327.5,176c-2.41-3.93-6.08-7.59-7-11.84-2.87-13.41-9.8-25-15.37-37.16a189.7,189.7,0,0,1-17.06-64.33c-1.32-16.87,1.38-32.85,12.81-46.14,11.64-13.52,23-11.73,28.75,5.11,2.82,8.21,3.79,17.28,4.25,26,1.12,21.48-3.47,42.41-7.47,63.36-3.1,16.2-5,32.46-.61,48.74.85,3.14,2.46,6.08,3.41,9.2a40.4,40.4,0,0,1,.89,6.17ZM317,140.66c2-10.48,3.56-19.84,5.61-29.1,4.56-20.54,8.94-41.16,7-62.31a87.47,87.47,0,0,0-6.09-25.1c-4.7-11.4-12.89-12.39-21.33-3.47-7.91,8.37-11.23,18.79-11.89,30-1.61,27.21,6.84,52.07,18.48,76.08C311.06,131.4,314,135.68,317,140.66Z"/><path class="footer-cls" d="M352.57,146.68c-.58,1.61-1.15,3.23-1.77,4.95,21.34-8.45,42.81-16.28,63.69-25.44a89.15,89.15,0,0,0,39.16-32.72,43.59,43.59,0,0,0,4.28-8.79c1.38-3.69-.25-6-4.14-5.54-7.13.87-14.41,1.52-21.27,3.51-22,6.38-41.36,17.38-56.78,34.69a16.44,16.44,0,0,1-3.08,2.19,109.47,109.47,0,0,1,34.47-29.61c15.41-8.65,31.71-15.15,49.41-17.22,3.48-.4,8.33-.27,10.47,1.78,3.26,3.13.84,7.77-1.17,11.36-6,10.77-14.73,19.27-24.19,27-18.8,15.3-40.13,25.88-62.73,34.37a149.28,149.28,0,0,0-24.45,12.39c-3.07,1.85-4.62,6.1-7.14,9-1.34,1.56-3.27,2.63-4.93,3.93-.94-1.88-2.77-3.85-2.6-5.63a17,17,0,0,1,3-7.55C345.84,155,349.3,150.89,352.57,146.68Z"/></svg>
+          </div>
+          <p>Restoring health through root-cause discovery, compassionate guidance, and personalized healing protocols.</p>
+          <div class="footer-socials">
+            <!-- Instagram -->
+            <a href="#" class="social-btn" aria-label="Instagram">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+            </a>
+            <!-- Pinterest -->
+            <a href="#" class="social-btn" aria-label="Pinterest">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/></svg>
+            </a>
+            <!-- Podcast -->
+            <a href="#" class="social-btn" aria-label="Podcast">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+            </a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h4>Navigate</h4>
+          <ul>
+            <li><a href="#">Home</a></li>
+            <li><a href="#how-it-works">How it Works</a></li>
+            <li><a href="#about">About</a></li>
+            <li><a href="#resources">Resources</a></li>
+            <li><a href="#testimonials">Reviews</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Healing</h4>
+          <ul>
+            <li><a href="#">The Meadowell Method</a></li>
+            <li><a href="#">Functional Lab Testing</a></li>
+            <li><a href="#">Free Assessment</a></li>
+            <li><a href="#pricing">Pricing</a></li>
+            <li><a href="#contact">Book a Call</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="#">Our Practitioners</a></li>
+            <li><a href="#">Blog</a></li>
+            <li><a href="#">Podcast</a></li>
+            <li><a href="#contact">Contact</a></li>
+            <li><a href="#">CellCore ECO</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>&copy; 2026 Meadowell. All rights reserved.</p>
+        <div class="footer-bottom-links">
+          <a href="#">Privacy Policy</a>
+          <a href="#">Terms of Use</a>
+          <a href="#">Cookie Policy</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+
+  <!-- ══════════════════════════════════════════
+       JAVASCRIPT
+  ══════════════════════════════════════════ -->
+  <script>
+    /* ── Nav: change style on scroll ── */
+    const nav = document.getElementById('mainNav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 60);
+    }, { passive: true });
+
+    /* ── Mobile nav ── */
+    function toggleNav() {
+      document.getElementById('mobileDrawer').classList.toggle('open');
+    }
+    function closeNav() {
+      document.getElementById('mobileDrawer').classList.remove('open');
+    }
+
+    /* ── Hero bg subtle ken-burns ── */
+    window.addEventListener('load', () => {
+      document.getElementById('heroBg').classList.add('loaded');
+    });
+
+    /* ── Scroll reveal ── */
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('is-visible');
+          revealObserver.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('[data-reveal]').forEach(el => revealObserver.observe(el));
+
+    /* ── Stat counters ── */
+    const counterObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        const el = e.target;
+        const target = parseInt(el.dataset.count, 10);
+        const suffix = el.dataset.suffix || '';
+        if (!target) return;
+        const dur = 1600;
+        const start = performance.now();
+        function tick(now) {
+          const p = Math.min((now - start) / dur, 1);
+          const ease = 1 - Math.pow(1 - p, 3);
+          el.textContent = Math.floor(target * ease).toLocaleString() + suffix;
+          if (p < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+        counterObserver.unobserve(el);
+      });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('[data-count]').forEach(el => counterObserver.observe(el));
+
+    /* ── Quiz chips toggle ── */
+    document.querySelectorAll('.quiz-chip').forEach(c => {
+      c.addEventListener('click', () => c.classList.toggle('active'));
+    });
+
+    /* ── Newsletter ── */
+    function handleSubscribe(e) {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      const orig = btn.textContent;
+      btn.textContent = 'Subscribed ✓';
+      btn.style.background = '#2a6b3d';
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.style.background = '';
+        e.target.reset();
+      }, 3000);
+    }
+
+    /* ── Parallax on hero bg (subtle) ── */
+    window.addEventListener('scroll', () => {
+      const scrolled = window.scrollY;
+      const heroBg = document.getElementById('heroBg');
+      if (heroBg && scrolled < window.innerHeight) {
+        heroBg.style.transform = `translateY(${scrolled * 0.25}px)`;
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>

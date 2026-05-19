@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Firebase service account key — contains private key, never commit
+serviceAccountKey.json
+*serviceAccount*.json
+
+# Claude Code local settings (machine-specific)
+.claude/
+
+# Netlify deployment state (contains site ID)
+.netlify/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.local
+
+# Logs
+*.log
+npm-debug.log*
