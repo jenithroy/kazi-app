@@ -47,7 +47,10 @@ service cloud.firestore {
     }
     match /tasks/{id} {
       allow create, update: if isNepalStaff() || isUkAdmin();
-      allow delete: if false;
+      allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+    }
+    match /task_columns/{id} {
+      allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /content/{id} {
       allow create: if isNepalStaff();

@@ -47,9 +47,9 @@ export function sectionVisible(profile, sectionKey) {
   const role = appRole(profile);
   const NAV_BY_ROLE = {
     nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees"],
-    uk_admin:    ["dashboard","finance","production","billing","content","tasks"],
+    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors"],
     employee:    ["dashboard","tasks","attendance"],
-    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin"],
+    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors"],
   };
   const base = new Set(NAV_BY_ROLE[role] || []);
   if (base.has(sectionKey)) return true;

@@ -8,9 +8,20 @@ export const GPS_ACCURACY_THRESHOLD_M = 150; // reject readings with worse accur
 
 export const TASK_COLUMNS = ["To Do", "In Progress", "Done", "Blocked"];
 
+export const TASK_CATEGORIES = [
+  { label: "Research",      color: "#7C6FCD" },
+  { label: "Manufacturing", color: "#2D9B6F" },
+  { label: "Hiring",        color: "#E07B39" },
+  { label: "Marketing",     color: "#D64E8A" },
+  { label: "Finance",       color: "#2980B9" },
+  { label: "Operations",    color: "#6D8B3A" },
+  { label: "Admin",         color: "#8E8E93" },
+  { label: "Other",         color: "#AEAEB2" },
+];
+
 export const TEAM_MEMBERS = [
   // UK Admins
-  { name: "Fin", role: "Director", location: "uk", email: "fin@kazi.com", appRole: "uk_admin" },
+  { name: "Finn", role: "Director", location: "uk", email: "fin@kazi.com", appRole: "uk_admin" },
   { name: "Zen", role: "Director", location: "uk", email: "zen@kazi.com", appRole: "uk_admin" },
   // Nepal Admins
   { name: "Wilson", role: "Operations Head", location: "nepal", email: "wilsonshah98765@gmail.com", appRole: "nepal_admin" },
