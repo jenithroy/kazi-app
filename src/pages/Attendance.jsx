@@ -41,13 +41,36 @@ function hueFromName(name = "") {
 
 /* ─── Employee GPS Clock-in Card ──────────────────── */
 function ClockInCard({ profile, today, alreadyClockedIn }) {
-  // idle | locating | success | outside | denied | error | low-accuracy
-  const [status,    setStatus]    = useState(alreadyClockedIn ? "success" : "idle");
-  const [clockedAt, setClockedAt] = useState(
+  // idle | checking | in-range | locating | success | outside | denied | error | low-accuracy
+  const [status,     setStatus]     = useState(alreadyClockedIn ? "success" : "idle");
+  const [distanceM,  setDistanceM]  = useState(null);
+  const [clockedAt,  setClockedAt]  = useState(
     alreadyClockedIn?.clockedInAt?.toDate
       ? `${String(alreadyClockedIn.clockedInAt.toDate().getHours()).padStart(2,"0")}:${String(alreadyClockedIn.clockedInAt.toDate().getMinutes()).padStart(2,"0")}`
       : null
   );
+
+  // Auto-check location on mount so button is only enabled when in range
+  useEffect(() => {
+    if (alreadyClockedIn) return;
+    checkProximity();
+  }, []);
+
+  function checkProximity() {
+    if (!navigator.geolocation) { setStatus("error"); return; }
+    setStatus("checking");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (accuracy > GPS_ACCURACY_THRESHOLD_M) { setStatus("low-accuracy"); return; }
+        const dist = haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng);
+        setDistanceM(Math.round(dist));
+        setStatus(dist <= GEOFENCE_RADIUS_M ? "in-range" : "outside");
+      },
+      (err) => setStatus(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
 
   async function handleClockIn() {
     if (!navigator.geolocation) { setStatus("error"); return; }
@@ -56,13 +79,12 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
       async (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
 
-        // Reject unreliable GPS readings
-        if (accuracy > GPS_ACCURACY_THRESHOLD_M) {
-          setStatus("low-accuracy");
-          return;
-        }
+        if (accuracy > GPS_ACCURACY_THRESHOLD_M) { setStatus("low-accuracy"); return; }
 
         const dist = haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng);
+        setDistanceM(Math.round(dist));
+
+        // Re-verify distance at clock-in time
         if (dist > GEOFENCE_RADIUS_M) { setStatus("outside"); return; }
 
         try {
@@ -95,19 +117,15 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
             clockedInAt: serverTimestamp(),
           });
 
-          // Auto-sync: also create/update an attendance record as "Present" (or "Late" if after 10 AM)
           const hour = new Date().getHours();
           const autoStatus = hour >= 10 ? "Late" : "Present";
           const attRef = doc(db, "attendance", `${today}_${staffId}`);
           await setDoc(attRef, {
-            date: today,
-            staffId,
+            date: today, staffId,
             staffName: profile?.name || "Unknown",
             role: profile?.jobRole || profile?.role || "",
-            status: autoStatus,
-            hours: 8,
-            note: "GPS clock-in",
-            loggedBy: "GPS",
+            status: autoStatus, hours: 8,
+            note: "GPS clock-in", loggedBy: "GPS",
             createdAt: serverTimestamp(),
           }, { merge: true });
 
@@ -121,22 +139,25 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
     );
   }
 
+  const isError = ["outside", "error", "denied", "low-accuracy"].includes(status);
+  const isInRange = status === "in-range";
+
   return (
     <div className="kazi-card" style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center" }}>
       {/* animated ring */}
       <div style={{ position: "relative", width: 80, height: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {status === "locating" && (
+        {(status === "locating" || status === "checking") && (
           <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid var(--mint-2)", animation: "ring-expand 1.2s ease-out infinite" }} />
         )}
         <div style={{
           width: 64, height: 64, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-          background: status === "success" ? "var(--mint-soft)" : status === "outside" || status === "error" || status === "denied" || status === "low-accuracy" ? "var(--terra-soft)" : "var(--bg-2)",
-          border: `2px solid ${status === "success" ? "var(--mint-2)" : status === "outside" || status === "error" || status === "low-accuracy" ? "var(--terra)" : "var(--line-strong)"}`,
+          background: status === "success" ? "var(--mint-soft)" : isInRange ? "var(--mint-soft)" : isError ? "var(--terra-soft)" : "var(--bg-2)",
+          border: `2px solid ${status === "success" || isInRange ? "var(--mint-2)" : isError ? "var(--terra)" : "var(--line-strong)"}`,
           transition: "all .3s",
         }}>
-          {status === "success" && <Icons.Check size={26} sw={2.5} style={{ color: "var(--mint-deep)" }} />}
-          {(status === "outside" || status === "error" || status === "denied" || status === "low-accuracy") && <Icons.Alert size={24} style={{ color: "var(--terra)" }} />}
-          {(status === "idle" || status === "locating") && <Icons.MapPin size={24} style={{ color: "var(--ink-3)" }} />}
+          {(status === "success" || isInRange) && <Icons.Check size={26} sw={2.5} style={{ color: "var(--mint-deep)" }} />}
+          {isError                              && <Icons.Alert size={24} style={{ color: "var(--terra)" }} />}
+          {(status === "idle" || status === "locating" || status === "checking") && <Icons.MapPin size={24} style={{ color: "var(--ink-3)" }} />}
         </div>
       </div>
 
@@ -144,23 +165,28 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
         <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 600 }}>GPS Clock-In</h3>
         <p style={{ margin: 0, fontSize: 13, color: "var(--ink-3)" }}>
           {status === "idle"         && `Must be within ${GEOFENCE_RADIUS_M}m of ${WORK_SITE.name}`}
-          {status === "locating"     && "Acquiring GPS signal…"}
+          {status === "checking"     && "Checking your location…"}
+          {status === "in-range"     && `You're ${distanceM}m from the office — ready to clock in`}
+          {status === "locating"     && "Verifying location and clocking in…"}
           {status === "success"      && `Clocked in at ${clockedAt} · verified`}
-          {status === "outside"      && `You're outside the geofence — move closer to the office`}
+          {status === "outside"      && `You're ${distanceM != null ? `${distanceM}m` : "too far"} from the office — must be within ${GEOFENCE_RADIUS_M}m`}
           {status === "denied"       && "Location access denied — enable GPS in browser settings"}
           {status === "error"        && "Could not get location — check device GPS and retry"}
           {status === "low-accuracy" && `GPS signal too weak (>${GPS_ACCURACY_THRESHOLD_M}m) — try again outdoors`}
         </p>
       </div>
 
-      <button
-        className="primary-button"
-        onClick={handleClockIn}
-        disabled={status === "locating" || status === "success"}
-        style={{ padding: "12px 40px", fontSize: 14 }}
-      >
-        {status === "locating" ? "Locating…" : status === "success" ? "✓ Clocked In" : "Clock In Now"}
-      </button>
+      {status === "success" ? (
+        <button className="primary-button" disabled style={{ padding: "12px 40px", fontSize: 14 }}>✓ Clocked In</button>
+      ) : isInRange ? (
+        <button className="primary-button" onClick={handleClockIn} style={{ padding: "12px 40px", fontSize: 14 }}>Clock In Now</button>
+      ) : status === "locating" ? (
+        <button className="primary-button" disabled style={{ padding: "12px 40px", fontSize: 14 }}>Verifying…</button>
+      ) : isError ? (
+        <button className="ghost-button" onClick={checkProximity} style={{ padding: "10px 32px", fontSize: 13 }}>Retry</button>
+      ) : (
+        <button className="primary-button" disabled style={{ padding: "12px 40px", fontSize: 14, opacity: 0.45, cursor: "not-allowed" }}>Clock In Now</button>
+      )}
     </div>
   );
 }
