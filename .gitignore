@@ -16,8 +16,11 @@ serviceAccountKey.json
 # Claude Code local settings (machine-specific)
 .claude/
 
-# Netlify deployment state (contains site ID)
+# Netlify (no longer used)
 .netlify/
+
+# Cloudflare
+.wrangler/
 
 # OS / editor
 .DS_Store

@@ -2,7 +2,7 @@
 
 A full-stack web application for managing day-to-day operations across **Nepal and UK teams** at Kazi Manufacturing Pvt. Ltd.
 
-Built with **React 18 + Vite + Firebase** (Firestore, Auth) and deployed on **Netlify**.
+Built with **React 18 + Vite + Firebase** (Firestore, Auth) and deployed on **Cloudflare Pages**.
 
 ---
 
@@ -31,7 +31,7 @@ Built with **React 18 + Vite + Firebase** (Firestore, Auth) and deployed on **Ne
 - **Auth** — Firebase Authentication
 - **PDF generation** — jsPDF + html2canvas, `@react-pdf/renderer`
 - **Build tool** — Vite 5
-- **Hosting** — Netlify (with `_redirects` for SPA routing)
+- **Hosting** — Cloudflare Pages (with `_redirects` for SPA routing)
 
 ---
 
