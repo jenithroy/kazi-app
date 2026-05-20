@@ -109,5 +109,8 @@ service cloud.firestore {
     match /counters/{id} {
       allow create, update: if isSignedIn();
     }
+    match /customers/{id} {
+      allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+    }
   }
 }

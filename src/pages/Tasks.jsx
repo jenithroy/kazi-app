@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   addDoc, collection, deleteDoc, doc, getDocs,
-  serverTimestamp, updateDoc, writeBatch
+  serverTimestamp, updateDoc, writeBatch, query, orderBy
 } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { TEAM_MEMBERS } from "../constants";
@@ -42,15 +42,19 @@ function hueFromName(name = "") {
 }
 
 /* ── Add-card inline form ─────────────────────────── */
-function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee }) {
-  const [title, setTitle]       = useState("");
-  const [assignee, setAssignee] = useState(defaultAssignee || "");
-  const [priority, setPriority] = useState("med");
-  const [dueDate, setDueDate]   = useState("");
-  const [orderRef, setOrderRef] = useState("");
-  const [category, setCategory] = useState("");
+function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers }) {
+  const [title, setTitle]           = useState("");
+  const [assignee, setAssignee]     = useState(defaultAssignee || "");
+  const [priority, setPriority]     = useState("med");
+  const [dueDate, setDueDate]       = useState("");
+  const [orderRef, setOrderRef]     = useState("");
+  const [category, setCategory]     = useState("");
+  const [customer, setCustomer]     = useState("");
+  const [description, setDescription] = useState("");
 
-  const submit = () => title.trim() && onAdd({ title, assignee, priority, dueDate, orderRef, category, status: columnLabel });
+  const submit = () => title.trim() && onAdd({ title, assignee, priority, dueDate, orderRef, category, customer, description, status: columnLabel });
+
+  const sel = { border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff", fontFamily: "var(--font)", width: "100%" };
 
   return (
     <div className="ktasks-card" style={{ gap: 8 }}>
@@ -62,6 +66,17 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee }) {
         onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter") submit(); }}
         style={{ border: "1.5px solid var(--mint-2)", borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: "var(--font)", outline: "none", width: "100%" }}
       />
+      <select value={customer} onChange={e => setCustomer(e.target.value)} style={sel}>
+        <option value="">Customer…</option>
+        {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+      </select>
+      <textarea
+        placeholder="Description (optional)…"
+        value={description}
+        onChange={e => setDescription(e.target.value)}
+        rows={2}
+        style={{ ...sel, resize: "vertical", padding: "5px 8px", lineHeight: 1.4 }}
+      />
       <input
         placeholder="Order ref (e.g. KZ-2418)"
         value={orderRef}
@@ -69,20 +84,17 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee }) {
         style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 8px", fontSize: 12, fontFamily: "var(--font)", outline: "none", width: "100%" }}
       />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-        <select value={assignee} onChange={e => setAssignee(e.target.value)}
-          style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff", fontFamily: "var(--font)" }}>
+        <select value={assignee} onChange={e => setAssignee(e.target.value)} style={sel}>
           <option value="">Assignee…</option>
           {TEAM_MEMBERS.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
         </select>
-        <select value={priority} onChange={e => setPriority(e.target.value)}
-          style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff", fontFamily: "var(--font)" }}>
+        <select value={priority} onChange={e => setPriority(e.target.value)} style={sel}>
           <option value="high">High</option>
           <option value="med">Medium</option>
           <option value="low">Low</option>
         </select>
       </div>
-      <select value={category} onChange={e => setCategory(e.target.value)}
-        style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff", fontFamily: "var(--font)", width: "100%" }}>
+      <select value={category} onChange={e => setCategory(e.target.value)} style={sel}>
         <option value="">Category…</option>
         {TASK_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
       </select>
@@ -125,15 +137,27 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 600 }}>{displayId}</span>
         <span className="ktasks-prio" style={{ background: pDot, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
       </div>
-      {task.category && (
-        <span style={{
-          display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px",
-          borderRadius: 20, marginBottom: 2,
-          background: `${CAT_MAP[task.category] || "#8E8E93"}22`,
-          color: CAT_MAP[task.category] || "#8E8E93",
-        }}>{task.category}</span>
-      )}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: task.category || task.customer ? 2 : 0 }}>
+        {task.customer && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
+            background: "var(--mint-soft)", color: "var(--mint-deep)",
+          }}>{task.customer}</span>
+        )}
+        {task.category && (
+          <span style={{
+            fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
+            background: `${CAT_MAP[task.category] || "#8E8E93"}22`,
+            color: CAT_MAP[task.category] || "#8E8E93",
+          }}>{task.category}</span>
+        )}
+      </div>
       <div className="ktasks-card-t">{task.title}</div>
+      {task.description && (
+        <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4, marginTop: 2 }}>
+          {task.description.length > 80 ? task.description.slice(0, 80) + "…" : task.description}
+        </div>
+      )}
       {task.orderRef && <div className="ktasks-card-o">{task.orderRef}</div>}
       {task.order && <div className="ktasks-card-o">{task.order}</div>}
       <div className="ktasks-card-f">
@@ -164,7 +188,7 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
 }
 
 /* ── Kanban column ────────────────────────────────── */
-function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onDrop, onDeleteColumn, onColumnDrop, defaultAssignee }) {
+function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onDrop, onDeleteColumn, onColumnDrop, defaultAssignee, customers }) {
   const [adding, setAdding]       = useState(false);
   const [dragOver, setDragOver]   = useState(false);
   const [colDragOver, setColDragOver] = useState(false);
@@ -219,6 +243,7 @@ function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onDrop, 
           <AddCardForm
             columnLabel={col.label}
             defaultAssignee={defaultAssignee}
+            customers={customers}
             onAdd={data => { onAdd(data); setAdding(false); }}
             onCancel={() => setAdding(false)}
           />
@@ -329,10 +354,13 @@ function Tasks() {
   const [tasks,    setTasks]    = useState([]);
   const [columns,  setColumns]  = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [filter,      setFilter]      = useState(null);   // assignee name or null
-  const [catFilter,   setCatFilter]   = useState(null);   // category or null
+  const [customers,   setCustomers]   = useState([]);
+  const [filter,      setFilter]      = useState(null);
+  const [catFilter,   setCatFilter]   = useState(null);
+  const [custFilter,  setCustFilter]  = useState(null);
   const [showNew,     setShowNew]     = useState(false);
-  const [newForm,     setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", status: "To Do" });
+  const [newCustomer, setNewCustomer] = useState("");
+  const [newForm,     setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
 
   async function loadColumns() {
     const snap = await getDocs(collection(db, "task_columns"));
@@ -363,8 +391,13 @@ function Tasks() {
     setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   }
 
+  async function loadCustomers() {
+    const snap = await getDocs(query(collection(db, "customers"), orderBy("name")));
+    setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  }
+
   useEffect(() => {
-    Promise.all([loadColumns(), loadTasks()]).then(() => setLoading(false)).catch(console.error);
+    Promise.all([loadColumns(), loadTasks(), loadCustomers()]).then(() => setLoading(false)).catch(console.error);
   }, []);
 
   const visibleTasks = useMemo(() => {
@@ -372,8 +405,9 @@ function Tasks() {
     if (role === "employee") t = t.filter(x => x.assignee === profile?.name);
     if (filter) t = t.filter(x => x.assignee === filter);
     if (catFilter) t = t.filter(x => x.category === catFilter);
+    if (custFilter) t = t.filter(x => x.customer === custFilter);
     return t;
-  }, [tasks, filter, catFilter, role, profile]);
+  }, [tasks, filter, catFilter, custFilter, role, profile]);
 
   const byColumn = useMemo(() =>
     columns.reduce((acc, col) => { acc[col.label] = visibleTasks.filter(t => t.status === col.label); return acc; }, {}),
@@ -456,6 +490,43 @@ function Tasks() {
           </div>
         )}
 
+        {/* Customer filter + management */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Customer:</span>
+          <button onClick={() => setCustFilter(null)}
+            style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !custFilter ? "var(--mint-deep)" : "var(--card)", color: !custFilter ? "#fff" : "var(--ink-3)", border: !custFilter ? "none" : "1px solid var(--line-strong)" }}>
+            All
+          </button>
+          {customers.map(c => {
+            const active = custFilter === c.name;
+            return (
+              <button key={c.id} onClick={() => setCustFilter(active ? null : c.name)}
+                style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: active ? "var(--mint-deep)" : "var(--mint-soft)", color: active ? "#fff" : "var(--mint-deep)", border: "none" }}>
+                {c.name}
+                <span style={{ marginLeft: 5, opacity: .65, fontSize: 11 }}>{tasks.filter(t => t.customer === c.name).length}</span>
+              </button>
+            );
+          })}
+          {canEdit && (
+            <form onSubmit={async e => {
+              e.preventDefault();
+              if (!newCustomer.trim()) return;
+              await addDoc(collection(db, "customers"), { name: newCustomer.trim(), createdAt: serverTimestamp() });
+              setNewCustomer("");
+              await loadCustomers();
+            }} style={{ display: "flex", gap: 4 }}>
+              <input
+                value={newCustomer} onChange={e => setNewCustomer(e.target.value)}
+                placeholder="+ Add customer"
+                style={{ border: "1px dashed var(--mint-2)", borderRadius: 20, padding: "4px 10px", fontSize: 12, fontFamily: "var(--font)", outline: "none", background: "transparent", color: "var(--ink-3)", width: 120 }}
+              />
+              {newCustomer.trim() && (
+                <button type="submit" style={{ background: "var(--mint-deep)", color: "#fff", border: "none", borderRadius: 20, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontFamily: "var(--font)" }}>Add</button>
+              )}
+            </form>
+          )}
+        </div>
+
         {/* Category filter */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Category:</span>
@@ -486,6 +557,7 @@ function Tasks() {
                 allTasks={tasks}
                 canEdit={canEdit}
                 defaultAssignee={filter}
+                customers={customers}
                 onAdd={handleAdd}
                 onDelete={handleDelete}
                 onDrop={handleDrop}
@@ -510,6 +582,15 @@ function Tasks() {
             <div className="grid-form" style={{ gridTemplateColumns: "1fr" }}>
               <label>Title
                 <input type="text" value={newForm.title} onChange={e => setNewForm(f => ({ ...f, title: e.target.value }))} placeholder="Task title…" />
+              </label>
+              <label>Customer
+                <select value={newForm.customer} onChange={e => setNewForm(f => ({ ...f, customer: e.target.value }))}>
+                  <option value="">— None —</option>
+                  {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </label>
+              <label>Description
+                <textarea value={newForm.description} onChange={e => setNewForm(f => ({ ...f, description: e.target.value }))} placeholder="What needs to be done…" rows={3} style={{ resize: "vertical" }} />
               </label>
               <label>Order ref
                 <input type="text" value={newForm.orderRef} onChange={e => setNewForm(f => ({ ...f, orderRef: e.target.value }))} placeholder="e.g. KZ-2418" />
@@ -548,8 +629,8 @@ function Tasks() {
               <button className="ghost-button" onClick={() => setShowNew(false)}>Cancel</button>
               <button className="primary-button" onClick={async () => {
                 if (!newForm.title.trim()) return;
-                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, status: newForm.status });
-                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", status: "To Do" });
+                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, customer: newForm.customer, description: newForm.description, status: newForm.status });
+                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
                 setShowNew(false);
               }}>Create task</button>
             </div>

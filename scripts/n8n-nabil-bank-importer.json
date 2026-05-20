@@ -1,0 +1,208 @@
+{
+  "name": "Nabil Bank Transaction Importer",
+  "active": false,
+  "tags": [],
+  "nodes": [
+    {
+      "parameters": {
+        "type": "n8n-nodes-base.stickyNote",
+        "content": "## Nabil Bank Transaction Importer\n\n**What this workflow does:**\nEvery 30 minutes, fetches unread transaction alert emails from Nabil Bank (txn-alert@nabilbank.com), parses the HTML table, writes each transaction to Firestore, then marks the email as read.\n\n---\n\n**Credentials required:**\n\n1. **Gmail OAuth2 - Kazi**\n   - Type: Gmail OAuth2\n   - Account: the Gmail account that receives Nabil Bank alerts\n\n2. **Google Service Account - Firebase**\n   - Type: Google Service Account (JSON key)\n   - The service account must have the **Cloud Datastore User** role (or **Firebase Admin**) on project `kazi-manufacturing`\n   - Required OAuth2 scope: `https://www.googleapis.com/auth/datastore`\n\n---\n\n**Firestore collection:** `bank_transactions`\n**Project:** `kazi-manufacturing`"
+      },
+      "id": "sticky-note-001",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 80]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-001",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 340]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 50,
+        "filters": {
+          "q": "from:txn-alert@nabilbank.com is:unread subject:\"Transaction Alert\""
+        },
+        "options": {
+          "format": "full"
+        }
+      },
+      "id": "gmail-fetch-001",
+      "name": "Get Unread Nabil Alerts",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [460, 340],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail OAuth2 - Kazi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Parse Nabil Bank HTML transaction alert emails\n// Extracts data from the colored table row in the email body\n// Green (#1fb25a) = Credit, Red = Debit\n// ============================================================\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  // n8n Gmail node returns html under different keys depending on format\n  const html = item.json.htmlBody\n    || (item.json.payload && item.json.payload.body && item.json.payload.body.data)\n    || item.json.body?.html\n    || item.json.textHtml\n    || item.json.html\n    || '';\n\n  const msgId = item.json.id || item.json.messageId || '';\n\n  if (!html) {\n    // Skip if no HTML body found\n    console.log(`Message ${msgId}: no HTML body found, skipping`);\n    continue;\n  }\n\n  // Match the colored transaction row\n  const rowMatch = html.match(/<tr[^>]*style=\"[^\"]*color:\\s*(#1fb25a|red)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/tr>/i);\n  if (!rowMatch) {\n    console.log(`Message ${msgId}: no matching transaction row found, skipping`);\n    continue;\n  }\n\n  // Extract all <td> cell contents\n  const cells = [];\n  const cellPattern = /<td[^>]*>\\s*([\\s\\S]*?)\\s*<\\/td>/gi;\n  let m;\n  while ((m = cellPattern.exec(rowMatch[2])) !== null) {\n    cells.push(m[1].replace(/<[^>]+>/g, '').replace(/\\s+/g, ' ').trim());\n  }\n\n  if (cells.length < 5) {\n    console.log(`Message ${msgId}: only ${cells.length} cells found, expected 5, skipping`);\n    continue;\n  }\n\n  const [dateTime, txnType, amountStr, balanceStr, remarks] = cells;\n\n  const type = txnType.toLowerCase().includes('credit') ? 'credit' : 'debit';\n  const amount = parseFloat(amountStr.replace(/,/g, '')) || 0;\n  const balance = parseFloat(balanceStr.replace(/,/g, '')) || 0;\n  const date = dateTime.substring(0, 10); // \"YYYY-MM-DD\"\n\n  // Auto-categorise based on remarks\n  let category = 'Other';\n  const rem = remarks.toLowerCase();\n  if (rem.includes('fonepay') || rem.startsWith('fon:')) {\n    category = 'Client Payment';\n  } else if (rem.includes('salary') || rem.includes('payroll')) {\n    category = 'Payroll';\n  } else if (rem.includes('rent')) {\n    category = 'Rent';\n  } else if (rem.includes('electric') || rem.includes('bijuli') || rem.includes('light')) {\n    category = 'Utilities';\n  } else if (rem.includes('mpay') || rem.includes('fpqr')) {\n    category = 'Supplier';\n  } else if (rem.includes('tax') || rem.includes('vat') || rem.includes('ird')) {\n    category = 'Tax';\n  }\n\n  results.push({\n    json: {\n      date,\n      description: remarks,\n      amountNPR: amount,\n      balance,\n      type,\n      category,\n      reference: msgId,\n      source: 'nabil_auto',\n      originalMessageId: msgId,\n    }\n  });\n}\n\nif (results.length === 0) {\n  // Return a no-op item so downstream nodes don't error on empty input\n  return [{ json: { _noTransactions: true } }];\n}\n\nreturn results;"
+      },
+      "id": "code-parse-001",
+      "name": "Parse Transaction HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 340]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-no-txns",
+              "leftValue": "={{ $json._noTransactions }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-transactions-001",
+      "name": "Has Transactions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [900, 340]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://firestore.googleapis.com/v1/projects/kazi-manufacturing/databases/(default)/documents/bank_transactions",
+        "authentication": "oAuth2",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"date\": { \"stringValue\": \"{{ $json.date }}\" },\n    \"description\": { \"stringValue\": \"{{ $json.description }}\" },\n    \"amountNPR\": { \"doubleValue\": {{ $json.amountNPR }} },\n    \"balance\": { \"doubleValue\": {{ $json.balance }} },\n    \"type\": { \"stringValue\": \"{{ $json.type }}\" },\n    \"category\": { \"stringValue\": \"{{ $json.category }}\" },\n    \"reference\": { \"stringValue\": \"{{ $json.reference }}\" },\n    \"source\": { \"stringValue\": \"nabil_auto\" }\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "http-firestore-001",
+      "name": "Write to Firestore",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 260],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "",
+          "name": "Google Service Account - Firebase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "markAsRead",
+        "messageId": "={{ $json.originalMessageId }}"
+      },
+      "id": "gmail-mark-read-001",
+      "name": "Mark Email as Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1340, 260],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail OAuth2 - Kazi"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Unread Nabil Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Unread Nabil Alerts": {
+      "main": [
+        [
+          {
+            "node": "Parse Transaction HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Transaction HTML": {
+      "main": [
+        [
+          {
+            "node": "Has Transactions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Transactions?": {
+      "main": [
+        [
+          {
+            "node": "Write to Firestore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to Firestore": {
+      "main": [
+        [
+          {
+            "node": "Mark Email as Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}
