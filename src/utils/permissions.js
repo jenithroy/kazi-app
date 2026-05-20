@@ -17,6 +17,7 @@ export const DEFAULT_NEPAL_ADMIN_PERMISSIONS = {
     ledger:       true,
     pl:           true,
     balanceSheet: true,
+    bank:         true,
   },
 };
 
@@ -78,4 +79,5 @@ export const FINANCE_TAB_KEYS = {
   "ledger":        "ledger",
   "p&l":           "pl",
   "balance sheet": "balanceSheet",
+  "bank":          "bank",
 };

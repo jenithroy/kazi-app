@@ -121,7 +121,9 @@ function tabLabel(t) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-const TABS = ["expenses", "payroll", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet"];
+const TABS = ["expenses", "payroll", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank"];
+
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function Finance() {
   const { profile } = useAuth();
@@ -166,12 +168,17 @@ function Finance() {
   const [invoices, setInvoices] = useState([]);
 
   /* ── Payroll edit state ── */
-  const [editingPayrollId, setEditingPayrollId] = useState(null); // null = new, id = editing
+  const [editingPayrollId, setEditingPayrollId] = useState(null);
+
+  /* ── Bank transactions state ── */
+  const [bankTxns, setBankTxns]       = useState([]);
+  const [showBankForm, setShowBankForm] = useState(false);
+  const [bankForm, setBankForm]       = useState({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "" });
 
   /* ── Load data ── */
   async function loadData() {
     const [payrollSnap, expensesSnap, purchasesSnap, vatBillsSnap, employeesSnap,
-           entriesSnap, accountsSnap, invSnap] = await Promise.all([
+           entriesSnap, accountsSnap, invSnap, bankSnap] = await Promise.all([
       getDocs(collection(db, "finance_payroll")),
       getDocs(collection(db, "finance_expenses")),
       getDocs(collection(db, "finance_purchases")),
@@ -180,10 +187,14 @@ function Finance() {
       getDocs(collection(db, "journal_entries")),
       getDocs(collection(db, "accounts")),
       getDocs(collection(db, "invoices")),
+      getDocs(collection(db, "bank_transactions")),
     ]);
 
     setEmployees(employeesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status !== "Inactive"));
     setPayroll(payrollSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const txns = bankSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    txns.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    setBankTxns(txns);
 
     const expRows = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     expRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -403,7 +414,12 @@ function Finance() {
 
   /* ── Memos ── */
   const summary = useMemo(() => {
-    const payrollNPR  = payroll.reduce((s, r) => s + Number(r.netNPR || 0), 0);
+    const now = new Date();
+    const curMonth = MONTHS[now.getMonth()];
+    const curYear  = now.getFullYear();
+    const payrollNPR  = payroll
+      .filter(r => r.month === curMonth && Number(r.year) === curYear)
+      .reduce((s, r) => s + Number(r.netNPR || 0), 0);
     const expensesNPR = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchNPR    = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const totalNPR    = payrollNPR + expensesNPR + purchNPR;
@@ -486,7 +502,7 @@ function Finance() {
                 <circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3.1-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.7.4 4.4 2.2 5 5.3"/>
               </svg>
             </div>
-            <p className="kfin-kpi-label">Total Payroll</p>
+            <p className="kfin-kpi-label">Payroll This Month</p>
             <p className="kfin-kpi-value">{asCurrency(summary.payrollNPR, "NPR")}</p>
             <p className="kfin-kpi-sub">{asCurrency(summary.payrollGBP, "GBP")}</p>
           </div>
@@ -1242,6 +1258,129 @@ function Finance() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ── Bank Transactions ── */}
+        {activeTab === "bank" && (
+          <>
+            {!canEdit && <div className="kfin-notice">ℹ UK admin — view only.</div>}
+            {canEdit && (
+              <div className="kfin-block">
+                <div className="kfin-block-hd">
+                  <p className="kfin-block-title">Log Transaction</p>
+                  <button className="ghost-button" style={{ fontSize: 12, padding: "5px 12px" }} onClick={() => setShowBankForm(v => !v)}>
+                    {showBankForm ? "✕ Cancel" : "+ Add Transaction"}
+                  </button>
+                </div>
+                {showBankForm && (
+                  <form className="kfin-form" onSubmit={async e => {
+                    e.preventDefault();
+                    await addDoc(collection(db, "bank_transactions"), {
+                      ...bankForm,
+                      amountNPR: Number(bankForm.amountNPR),
+                      createdBy: profile?.name || "Unknown",
+                      createdAt: serverTimestamp(),
+                    });
+                    setBankForm({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "" });
+                    setShowBankForm(false);
+                    await loadData();
+                  }}>
+                    <label className="kfin-label">Date
+                      <input type="date" className="kfin-input" value={bankForm.date} required onChange={e => setBankForm(f => ({ ...f, date: e.target.value }))} />
+                    </label>
+                    <label className="kfin-label">Description
+                      <input type="text" className="kfin-input" value={bankForm.description} required placeholder="e.g. Supplier payment — fabric" onChange={e => setBankForm(f => ({ ...f, description: e.target.value }))} />
+                    </label>
+                    <label className="kfin-label">Amount (NPR)
+                      <input type="number" min="0" className="kfin-input" value={bankForm.amountNPR} required placeholder="0" onChange={e => setBankForm(f => ({ ...f, amountNPR: e.target.value }))} />
+                    </label>
+                    <label className="kfin-label">Type
+                      <select className="kfin-select" value={bankForm.type} onChange={e => setBankForm(f => ({ ...f, type: e.target.value }))}>
+                        <option value="debit">Debit (money out)</option>
+                        <option value="credit">Credit (money in)</option>
+                      </select>
+                    </label>
+                    <label className="kfin-label">Category
+                      <select className="kfin-select" value={bankForm.category} onChange={e => setBankForm(f => ({ ...f, category: e.target.value }))}>
+                        <option value="">— Select —</option>
+                        {["Payroll","Supplier","Rent","Utilities","Tax","Client Payment","Loan","Transfer","Other"].map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </label>
+                    <label className="kfin-label">Reference / Note
+                      <input type="text" className="kfin-input" value={bankForm.reference} placeholder="Cheque no, bank ref, etc." onChange={e => setBankForm(f => ({ ...f, reference: e.target.value }))} />
+                    </label>
+                    <button type="submit" className="primary-button">Save Transaction</button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Summary strip */}
+            {(() => {
+              const totalIn  = bankTxns.filter(t => t.type === "credit").reduce((s, t) => s + Number(t.amountNPR || 0), 0);
+              const totalOut = bankTxns.filter(t => t.type === "debit").reduce((s, t) => s + Number(t.amountNPR || 0), 0);
+              const net = totalIn - totalOut;
+              return (
+                <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+                  {[
+                    { label: "Total In", value: totalIn, color: "var(--mint-deep)" },
+                    { label: "Total Out", value: totalOut, color: "var(--terra)" },
+                    { label: "Net", value: net, color: net >= 0 ? "var(--mint-deep)" : "var(--terra)" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="kfin-kpi" style={{ flex: "1 1 140px" }}>
+                      <p className="kfin-kpi-label">{label}</p>
+                      <p className="kfin-kpi-value" style={{ color }}>{asCurrency(value, "NPR")}</p>
+                      <p className="kfin-kpi-sub">{asCurrency(value / GBP_RATE, "GBP")}</p>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            <div className="kfin-block">
+              <div className="kfin-block-hd">
+                <p className="kfin-block-title">Transactions <span className="kfin-block-sub">({bankTxns.length})</span></p>
+              </div>
+              <div className="kfin-tbl-wrap">
+                <table className="kfin-tbl">
+                  <thead>
+                    <tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th>{canEdit && <th></th>}</tr>
+                  </thead>
+                  <tbody>
+                    {bankTxns.length === 0 && (
+                      <tr><td colSpan={canEdit ? 8 : 7} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>No transactions yet — add one above.</td></tr>
+                    )}
+                    {bankTxns.map(t => (
+                      <tr key={t.id}>
+                        <td>{t.date || "—"}</td>
+                        <td style={{ fontWeight: 500 }}>{t.description}</td>
+                        <td>{t.category || "—"}</td>
+                        <td>
+                          <span style={{ fontWeight: 600, color: t.type === "credit" ? "var(--mint-deep)" : "var(--terra)" }}>
+                            {t.type === "credit" ? "Credit" : "Debit"}
+                          </span>
+                        </td>
+                        <td style={{ color: t.type === "credit" ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 }}>
+                          {t.type === "credit" ? "+" : "−"} NPR {Number(t.amountNPR || 0).toLocaleString()}
+                        </td>
+                        <td style={{ color: "var(--ink-3)" }}>{asCurrency((t.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                        <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{t.reference || "—"}</td>
+                        {canEdit && (
+                          <td>
+                            <button onClick={async () => {
+                              if (!window.confirm("Delete this transaction?")) return;
+                              await deleteDoc(doc(db, "bank_transactions", t.id));
+                              await loadData();
+                            }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-5)", fontSize: 16 }}>×</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
 
       </div>
