@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   addDoc, collection, deleteDoc, doc, getDocs,
-  serverTimestamp, updateDoc, writeBatch, query, orderBy
+  serverTimestamp, updateDoc, writeBatch, query, orderBy,
 } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { TEAM_MEMBERS } from "../constants";
@@ -134,24 +134,27 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
       style={{ cursor: "grab", position: "relative" }}
     >
       <div className="ktasks-card-h">
-        <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 600 }}>{displayId}</span>
+        {task.customer ? (
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+            background: "var(--mint-soft)", color: "var(--mint-deep)",
+            letterSpacing: ".01em", maxWidth: 120, overflow: "hidden",
+            textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{task.customer}</span>
+        ) : (
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 600 }}>{displayId}</span>
+        )}
         <span className="ktasks-prio" style={{ background: pDot, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
       </div>
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: task.category || task.customer ? 2 : 0 }}>
-        {task.customer && (
-          <span style={{
-            fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
-            background: "var(--mint-soft)", color: "var(--mint-deep)",
-          }}>{task.customer}</span>
-        )}
-        {task.category && (
+      {task.category && (
+        <div style={{ marginBottom: 2 }}>
           <span style={{
             fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
             background: `${CAT_MAP[task.category] || "#8E8E93"}22`,
             color: CAT_MAP[task.category] || "#8E8E93",
           }}>{task.category}</span>
-        )}
-      </div>
+        </div>
+      )}
       <div className="ktasks-card-t">{task.title}</div>
       {task.description && (
         <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4, marginTop: 2 }}>
@@ -354,13 +357,13 @@ function Tasks() {
   const [tasks,    setTasks]    = useState([]);
   const [columns,  setColumns]  = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [customers,   setCustomers]   = useState([]);
-  const [filter,      setFilter]      = useState(null);
-  const [catFilter,   setCatFilter]   = useState(null);
-  const [custFilter,  setCustFilter]  = useState(null);
-  const [showNew,     setShowNew]     = useState(false);
-  const [newCustomer, setNewCustomer] = useState("");
-  const [newForm,     setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
+  const [customers,    setCustomers]   = useState([]);
+  const [filter,       setFilter]      = useState(null);
+  const [catFilter,    setCatFilter]   = useState(null);
+  const [custFilter,   setCustFilter]  = useState(null);
+  const [showFilters,  setShowFilters] = useState(false);
+  const [showNew,      setShowNew]     = useState(false);
+  const [newForm,      setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
 
   async function loadColumns() {
     const snap = await getDocs(collection(db, "task_columns"));
@@ -466,84 +469,117 @@ function Tasks() {
       <div className="kscr fade-in" style={{ padding: "4px 0 0", gap: 0 }}>
 
         {/* Page header */}
-        <div className="kph" style={{ padding: "8px 0 12px" }}>
-          <div>
-            <h2>Tasks</h2>
-            <p>{role === "employee" ? "Your assigned work" : "Team task board"}</p>
-          </div>
-          <div className="kph-a">
-            <button className="ghost-button" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Icons.Filter size={13} /> Filter
-            </button>
+        {(() => {
+          const activeCount = [filter, catFilter, custFilter].filter(Boolean).length;
+          return (
+            <div className="kph" style={{ padding: "8px 0 12px" }}>
+              <div>
+                <h2>Tasks</h2>
+                <p>{role === "employee" ? "Your assigned work" : "Team task board"}</p>
+              </div>
+              <div className="kph-a">
+                <button
+                  onClick={() => setShowFilters(f => !f)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+                    cursor: "pointer", fontFamily: "var(--font)",
+                    background: showFilters ? "var(--mint-soft)" : "var(--card)",
+                    color: showFilters ? "var(--mint-deep)" : "var(--ink-3)",
+                    border: showFilters ? "1px solid var(--mint-2)" : "1px solid var(--line-strong)",
+                    position: "relative",
+                  }}
+                >
+                  <Icons.Filter size={13} /> Filter
+                  {activeCount > 0 && (
+                    <span style={{
+                      background: "var(--mint-deep)", color: "#fff", borderRadius: "50%",
+                      width: 16, height: 16, fontSize: 10, fontWeight: 700,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>{activeCount}</span>
+                  )}
+                </button>
+                {canEdit && (
+                  <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => setShowNew(true)}>
+                    <Icons.Plus size={13} sw={2.2} /> New task
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Collapsible filter panel */}
+        {showFilters && (
+          <div style={{
+            background: "var(--bg-2)", borderRadius: 10, padding: "14px 16px",
+            marginBottom: 14, display: "flex", flexDirection: "column", gap: 12,
+            border: "1px solid var(--line-strong)",
+          }}>
+            {/* Assignee */}
             {canEdit && (
-              <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => setShowNew(true)}>
-                <Icons.Plus size={13} sw={2.2} /> New task
-              </button>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Assignee</div>
+                <AssignFilter selected={filter} onSelect={setFilter} tasks={tasks} />
+              </div>
+            )}
+
+            {/* Customer */}
+            {customers.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Customer</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button onClick={() => setCustFilter(null)}
+                    style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !custFilter ? "var(--mint-deep)" : "var(--card)", color: !custFilter ? "#fff" : "var(--ink-3)", border: !custFilter ? "none" : "1px solid var(--line-strong)" }}>
+                    All
+                  </button>
+                  {customers.map(c => {
+                    const active = custFilter === c.name;
+                    const count = tasks.filter(t => t.customer === c.name).length;
+                    return (
+                      <button key={c.id} onClick={() => setCustFilter(active ? null : c.name)}
+                        style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: active ? "var(--mint-deep)" : "var(--mint-soft)", color: active ? "#fff" : "var(--mint-deep)", border: "none" }}>
+                        {c.name}
+                        {count > 0 && <span style={{ marginLeft: 5, opacity: .65, fontSize: 11 }}>{count}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Category */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Category</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={() => setCatFilter(null)}
+                  style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !catFilter ? "var(--ink)" : "var(--card)", color: !catFilter ? "#fff" : "var(--ink-3)", border: !catFilter ? "none" : "1px solid var(--line-strong)" }}>
+                  All
+                </button>
+                {TASK_CATEGORIES.map(c => {
+                  const active = catFilter === c.label;
+                  return (
+                    <button key={c.label} onClick={() => setCatFilter(active ? null : c.label)}
+                      style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: active ? c.color : `${c.color}18`, color: active ? "#fff" : c.color, border: "none" }}>
+                      {c.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {[filter, catFilter, custFilter].some(Boolean) && (
+              <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                <button
+                  onClick={() => { setFilter(null); setCatFilter(null); setCustFilter(null); }}
+                  style={{ fontSize: 12, color: "var(--ink-4)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font)", padding: 0 }}
+                >
+                  ✕ Clear all filters
+                </button>
+              </div>
             )}
           </div>
-        </div>
-
-        {/* Assign-to filter */}
-        {canEdit && (
-          <div style={{ marginBottom: 10 }}>
-            <AssignFilter selected={filter} onSelect={setFilter} tasks={tasks} />
-          </div>
         )}
-
-        {/* Customer filter + management */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Customer:</span>
-          <button onClick={() => setCustFilter(null)}
-            style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !custFilter ? "var(--mint-deep)" : "var(--card)", color: !custFilter ? "#fff" : "var(--ink-3)", border: !custFilter ? "none" : "1px solid var(--line-strong)" }}>
-            All
-          </button>
-          {customers.map(c => {
-            const active = custFilter === c.name;
-            return (
-              <button key={c.id} onClick={() => setCustFilter(active ? null : c.name)}
-                style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: active ? "var(--mint-deep)" : "var(--mint-soft)", color: active ? "#fff" : "var(--mint-deep)", border: "none" }}>
-                {c.name}
-                <span style={{ marginLeft: 5, opacity: .65, fontSize: 11 }}>{tasks.filter(t => t.customer === c.name).length}</span>
-              </button>
-            );
-          })}
-          {canEdit && (
-            <form onSubmit={async e => {
-              e.preventDefault();
-              if (!newCustomer.trim()) return;
-              await addDoc(collection(db, "customers"), { name: newCustomer.trim(), createdAt: serverTimestamp() });
-              setNewCustomer("");
-              await loadCustomers();
-            }} style={{ display: "flex", gap: 4 }}>
-              <input
-                value={newCustomer} onChange={e => setNewCustomer(e.target.value)}
-                placeholder="+ Add customer"
-                style={{ border: "1px dashed var(--mint-2)", borderRadius: 20, padding: "4px 10px", fontSize: 12, fontFamily: "var(--font)", outline: "none", background: "transparent", color: "var(--ink-3)", width: 120 }}
-              />
-              {newCustomer.trim() && (
-                <button type="submit" style={{ background: "var(--mint-deep)", color: "#fff", border: "none", borderRadius: 20, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontFamily: "var(--font)" }}>Add</button>
-              )}
-            </form>
-          )}
-        </div>
-
-        {/* Category filter */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Category:</span>
-          <button onClick={() => setCatFilter(null)}
-            style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !catFilter ? "var(--ink)" : "var(--card)", color: !catFilter ? "#fff" : "var(--ink-3)", border: !catFilter ? "none" : "1px solid var(--line-strong)" }}>
-            All
-          </button>
-          {TASK_CATEGORIES.map(c => {
-            const active = catFilter === c.label;
-            return (
-              <button key={c.label} onClick={() => setCatFilter(active ? null : c.label)}
-                style={{ padding: "4px 11px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: active ? c.color : `${c.color}18`, color: active ? "#fff" : c.color, border: "none" }}>
-                {c.label}
-              </button>
-            );
-          })}
-        </div>
 
         {/* Board */}
         {loading ? (
