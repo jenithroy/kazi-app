@@ -33,13 +33,16 @@ export function sectionCanEdit(profile, section) {
   const role = appRole(profile);
   if (role === "super_admin") return true;
   if (role === "employee") return false;
+  const perm = profile.permissions?.[section];
+  const hasPerm = perm === true || (typeof perm === "object" && perm !== null);
+
   // uk_admin — read-only by default, but can edit tasks
   if (role === "uk_admin") {
     if (section === "tasks") return true;
-    return profile.permissions?.[section] === true;
+    return hasPerm;
   }
   // nepal_admin — check granted permissions
-  return profile.permissions?.[section] === true;
+  return hasPerm;
 }
 
 // Can the user see this nav section at all?
@@ -55,7 +58,8 @@ export function sectionVisible(profile, sectionKey) {
   const base = new Set(NAV_BY_ROLE[role] || []);
   if (base.has(sectionKey)) return true;
   // Per-user permission override (e.g. a uk_admin granted tasks access)
-  return profile.permissions?.[sectionKey] === true;
+  const perm = profile.permissions?.[sectionKey];
+  return perm === true || (typeof perm === "object" && perm !== null);
 }
 
 // Is a Finance tab visible (and editable) for this user?
