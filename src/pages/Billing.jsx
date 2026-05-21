@@ -226,7 +226,7 @@ function Billing() {
 
   /* ── KPI Summary ── */
   const summary = useMemo(() => {
-    const list = activeList;
+    const list = activeList.filter(d => d.status !== "Cancelled");
     const total = list.reduce((s, d) => s + Number(d.totalNPR || 0), 0);
     const paid  = list.filter(d => ["Paid", "Delivered", "Accepted"].includes(d.status)).reduce((s, d) => s + Number(d.totalNPR || 0), 0);
     const partialPaid = list.filter(d => d.status === "Partial").reduce((s, d) => s + Number(d.amountPaid || 0), 0);
