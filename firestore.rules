@@ -30,23 +30,23 @@ service cloud.firestore {
       allow read: if isSignedIn();
     }
     match /attendance/{id} {
-      allow create, update: if isNepalStaff();
+      allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /production/{id} {
-      allow create, update: if isNepalStaff();
+      allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /inventory/{id} {
-      allow create, update: if isNepalStaff();
+      allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /qc_logs/{id} {
-      allow create, update: if isNepalStaff();
+      allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /tasks/{id} {
-      allow create, update: if isNepalStaff() || isUkAdmin();
+      allow create, update: if isNepalStaff() || isUkAdmin() || isSuperAdmin();
       allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /task_columns/{id} {
@@ -57,12 +57,12 @@ service cloud.firestore {
       allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /content/{id} {
-      allow create: if isNepalStaff();
-      allow update: if isNepalStaff() || (isUkAdmin() && changingOnlyStatus());
+      allow create: if isNepalStaff() || isSuperAdmin();
+      allow update: if isNepalStaff() || isSuperAdmin() || (isUkAdmin() && changingOnlyStatus());
       allow delete: if false;
     }
     match /finance_expenses/{id} {
-      allow create, update: if isNepalStaff();
+      allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /users/{id} {

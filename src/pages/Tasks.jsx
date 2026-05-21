@@ -419,8 +419,14 @@ function Tasks() {
   );
 
   async function handleAdd(data) {
-    await addDoc(collection(db, "tasks"), { ...data, createdBy: profile?.name || "Unknown", createdAt: serverTimestamp() });
-    await loadTasks();
+    try {
+      await addDoc(collection(db, "tasks"), { ...data, createdBy: profile?.name || "Unknown", createdAt: serverTimestamp() });
+      await loadTasks();
+    } catch (err) {
+      console.error("Error adding task:", err);
+      alert("Failed to add task: " + err.message);
+      throw err;
+    }
   }
 
   async function handleDelete(id) {
