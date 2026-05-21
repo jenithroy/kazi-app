@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  addDoc, collection, doc, getDocs, serverTimestamp, updateDoc
+  addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteDoc
 } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
@@ -510,6 +510,12 @@ function Production() {
     await loadData();
   }
 
+  async function deleteOrder(order) {
+    if (!window.confirm(`Are you sure you want to permanently delete order ${order.orderId}?`)) return;
+    await deleteDoc(doc(db, "orders", order.id));
+    await loadData();
+  }
+
   async function moveOrderToCol(orderId, col) {
     const order = orders.find(o => o.id === orderId);
     if (!order || !canEdit) return;
@@ -941,6 +947,10 @@ function Production() {
                             Resume
                           </button>
                         )}
+                        <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--danger)", borderColor: "rgba(220,38,38,0.4)" }}
+                          onClick={() => deleteOrder(order)}>
+                          Delete
+                        </button>
                       </div>
                     )}
 
