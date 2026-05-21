@@ -4,11 +4,10 @@ import AppLayout from "../components/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { db } from "../firebase";
-import { todayDate, startOfWeekDate } from "../utils/date";
+import { todayDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M } from "../constants";
 import { Pill, Icons, cn } from "../components/ui";
-import { Bars } from "../components/viz";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const STATUS_OPTIONS = ["Present", "Absent", "Late", "Half-day", "Leave"];
@@ -23,14 +22,6 @@ function statusTone(s) {
   }
 }
 
-function getWeekDays(weekStart) {
-  const base = new Date(weekStart);
-  return DAY_LABELS.map((label, i) => {
-    const d = new Date(base); d.setDate(base.getDate() + i);
-    return { label, date: d.toISOString().slice(0, 10), day: d.getDate() };
-  });
-}
-
 function initials(name = "") {
   return name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?";
 }
@@ -39,9 +30,14 @@ function hueFromName(name = "") {
   let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
 }
 
+function toLocalISOString(date) {
+  const d = new Date(date);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
 /* ─── Employee GPS Clock-in Card ──────────────────── */
 function ClockInCard({ profile, today, alreadyClockedIn }) {
-  // idle | checking | in-range | locating | success | outside | denied | error | low-accuracy
   const [status,     setStatus]     = useState(alreadyClockedIn ? "success" : "idle");
   const [distanceM,  setDistanceM]  = useState(null);
   const [clockedAt,  setClockedAt]  = useState(
@@ -50,7 +46,6 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
       : null
   );
 
-  // Auto-check location on mount so button is only enabled when in range
   useEffect(() => {
     if (alreadyClockedIn) return;
     checkProximity();
@@ -78,19 +73,15 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
-
         if (accuracy > GPS_ACCURACY_THRESHOLD_M) { setStatus("low-accuracy"); return; }
-
         const dist = haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng);
         setDistanceM(Math.round(dist));
 
-        // Re-verify distance at clock-in time
         if (dist > GEOFENCE_RADIUS_M) { setStatus("outside"); return; }
 
         try {
           const staffId = profile?.uid || profile?.id || "";
 
-          // Prevent duplicate clock-ins for the same day
           const existing = await getDocs(query(
             collection(db, "clock_ins"),
             where("staffId", "==", staffId),
@@ -144,7 +135,6 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
 
   return (
     <div className="kazi-card" style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center" }}>
-      {/* animated ring */}
       <div style={{ position: "relative", width: 80, height: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {(status === "locating" || status === "checking") && (
           <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid var(--mint-2)", animation: "ring-expand 1.2s ease-out infinite" }} />
@@ -191,48 +181,130 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
   );
 }
 
+/* ─── Monthly Calendar View Component ──────────────── */
+function MonthCalendar({ currentMonthDate, setCurrentMonthDate, selectedDate, setSelectedDate, monthRecords }) {
+  const year = currentMonthDate.getFullYear();
+  const month = currentMonthDate.getMonth();
+  
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset = firstDay === 0 ? 6 : firstDay - 1; // Mon-Sun (Mon is 0 index for us)
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  
+  const grid = [];
+  for (let i = 0; i < offset; i++) grid.push(null);
+  for (let i = 1; i <= daysInMonth; i++) {
+    grid.push(toLocalISOString(new Date(year, month, i)));
+  }
+
+  // Aggregate counts per date
+  const counts = {};
+  monthRecords.forEach(r => {
+    if (!counts[r.date]) counts[r.date] = { present: 0, late: 0, absent: 0, leave: 0 };
+    if (r.status === "Present" || r.status === "Half-day") counts[r.date].present++;
+    else if (r.status === "Late") counts[r.date].late++;
+    else if (r.status === "Absent") counts[r.date].absent++;
+    else if (r.status === "Leave") counts[r.date].leave++;
+  });
+
+  return (
+    <div className="kazi-card" style={{ padding: "20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{currentMonthDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</h3>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month - 1, 1))}>← Prev</button>
+          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month + 1, 1))}>Next →</button>
+        </div>
+      </div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
+        {DAY_LABELS.map(d => <div key={d} style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase" }}>{d}</div>)}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+        {grid.map((dateStr, idx) => {
+          if (!dateStr) return <div key={`empty-${idx}`} style={{ minHeight: 60, background: "var(--bg)", borderRadius: 8 }} />;
+          
+          const isSelected = dateStr === selectedDate;
+          const isToday = dateStr === todayDate();
+          const dayNum = parseInt(dateStr.slice(-2), 10);
+          const c = counts[dateStr] || { present: 0, late: 0, absent: 0, leave: 0 };
+          
+          return (
+            <button 
+              key={dateStr}
+              onClick={() => setSelectedDate(dateStr)}
+              style={{
+                minHeight: 65, padding: "6px", display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "space-between", borderRadius: 8,
+                background: isSelected ? "var(--mint-soft)" : "var(--bg-2)",
+                border: `1.5px solid ${isSelected ? "var(--mint-2)" : isToday ? "var(--line-strong)" : "transparent"}`,
+                cursor: "pointer", transition: "all 0.2s"
+              }}
+            >
+              <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: isToday ? "var(--mint-deep)" : "var(--ink)" }}>{dayNum}</span>
+              <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "center", marginTop: 4 }}>
+                {c.present > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--mint-2)" }} title={`${c.present} Present`} />}
+                {c.late > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber-2)" }} title={`${c.late} Late`} />}
+                {c.absent > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--terra-2)" }} title={`${c.absent} Absent`} />}
+                {c.leave > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--blue-2)" }} title={`${c.leave} Leave`} />}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 12, marginTop: 16, justifyContent: "center", fontSize: 11, color: "var(--ink-4)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--mint-2)" }}/> Present</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--amber-2)" }}/> Late</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--terra-2)" }}/> Absent</div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Component ──────────────────────────────── */
 function Attendance() {
   const { profile } = useAuth();
   const canEdit  = sectionCanEdit(profile, "attendance");
   const isEmployee = profile?.role === "employee";
 
-  const today     = todayDate();
-  const weekStart = startOfWeekDate();
-  const weekDays  = useMemo(() => getWeekDays(weekStart), [weekStart]);
+  const today = todayDate();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date(today));
 
   const [rows,       setRows]       = useState([]);
   const [saving,     setSaving]     = useState(false);
   const [loading,    setLoading]    = useState(true);
   const [message,    setMessage]    = useState("");
-  const [weekCounts, setWeekCounts] = useState([0,0,0,0,0,0,0]);
-  const [clockIns,   setClockIns]   = useState([]);   // today's clock_ins docs
+  const [clockIns,   setClockIns]   = useState([]);
   const [editingRow, setEditingRow] = useState(null);
+  const [monthRecords, setMonthRecords] = useState([]);
 
-  useEffect(() => { loadAll().catch(console.error); }, []);
+  useEffect(() => { loadAll().catch(console.error); }, [selectedDate, currentMonthDate]);
 
   async function loadAll() {
     setLoading(true);
-    const weekEnd = weekDays[6].date;
-    const [usersSnap, weekSnap, todayAttSnap, clockSnap] = await Promise.all([
+    
+    // Calculate month bounds for calendar data
+    const year = currentMonthDate.getFullYear();
+    const month = currentMonthDate.getMonth();
+    const monthStart = toLocalISOString(new Date(year, month, 1));
+    const monthEnd = toLocalISOString(new Date(year, month + 1, 0));
+
+    const [usersSnap, monthAttSnap, selectedAttSnap, clockSnap] = await Promise.all([
       getDocs(query(collection(db, "users"), where("role", "in", ["nepal_admin","employee"]))),
-      getDocs(query(collection(db, "attendance"), where("date", ">=", weekStart), where("date", "<=", weekEnd))),
-      getDocs(query(collection(db, "attendance"), where("date", "==", today))),
-      getDocs(query(collection(db, "clock_ins"),  where("date", "==", today))),
+      getDocs(query(collection(db, "attendance"), where("date", ">=", monthStart), where("date", "<=", monthEnd))),
+      getDocs(query(collection(db, "attendance"), where("date", "==", selectedDate))),
+      getDocs(query(collection(db, "clock_ins"),  where("date", "==", selectedDate))),
     ]);
 
-    const staff   = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const weekRec = weekSnap.docs.map(d => d.data());
-
-    setWeekCounts(weekDays.map(({ date }) =>
-      weekRec.filter(r => r.date === date && ["Present","Late","Half-day"].includes(r.status)).length
-    ));
-
+    const staff = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    setMonthRecords(monthAttSnap.docs.map(d => d.data()));
     setClockIns(clockSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-    const todayRec = todayAttSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Always show every staff member — use their saved status if it exists, otherwise default to Absent
-    const attMap = Object.fromEntries(todayRec.map(r => [r.staffId, r]));
+    const selectedRec = selectedAttSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const attMap = Object.fromEntries(selectedRec.map(r => [r.staffId, r]));
+    
     setRows(staff.map(m => {
       const rec = attMap[m.uid || m.id];
       return {
@@ -254,8 +326,8 @@ function Attendance() {
     try {
       const batch = writeBatch(db);
       rows.forEach(row => {
-        const ref = doc(db, "attendance", row.id || `${today}_${row.staffId}`);
-        batch.set(ref, { date: today, staffId: row.staffId, staffName: row.staffName, role: row.role, status: row.status, hours: Number(row.hours || 0), note: row.note, loggedBy: profile?.name || "Unknown", createdAt: serverTimestamp() }, { merge: true });
+        const ref = doc(db, "attendance", row.id || `${selectedDate}_${row.staffId}`);
+        batch.set(ref, { date: selectedDate, staffId: row.staffId, staffName: row.staffName, role: row.role, status: row.status, hours: Number(row.hours || 0), note: row.note, loggedBy: profile?.name || "Unknown", createdAt: serverTimestamp() }, { merge: true });
       });
       await batch.commit();
       setMessage("Attendance saved.");
@@ -264,7 +336,6 @@ function Attendance() {
     finally { setSaving(false); }
   }
 
-  const weekLabels = weekDays.map(({ label, day }) => `${label} ${day}`);
   const myClockIn  = clockIns.find(c => c.staffId === (profile?.uid || profile?.id));
   const myRow      = rows.find(r => r.staffId === (profile?.uid || profile?.id));
 
@@ -279,7 +350,6 @@ function Attendance() {
 
           <ClockInCard profile={profile} today={today} alreadyClockedIn={myClockIn || null} />
 
-          {/* My status today */}
           {myRow && (
             <div className="kazi-card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(myRow.staffName)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(myRow.staffName)}</div>
@@ -297,22 +367,18 @@ function Attendance() {
   }
 
   /* ─── Admin view ────────────────────────────────── */
-  const currentMonth = new Date(today).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const selectedDateStrFormatted = new Date(selectedDate).toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month: "long", year: "numeric" });
 
   return (
     <AppLayout>
       <div className="kscr fade-in">
-
         {/* Header */}
         <div className="kph">
-          <div><h2>Attendance</h2><p>Daily log · {currentMonth}</p></div>
+          <div><h2>Attendance</h2><p>Manage daily logs and clock-ins</p></div>
           <div className="kph-a">
-            <button className="ghost-button" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Icons.Calendar size={13} /> {currentMonth}
-            </button>
             {canEdit && (
               <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={saveRows} disabled={saving}>
-                <Icons.Plus size={13} sw={2.2} /> {saving ? "Saving…" : "Log manually"}
+                <Icons.Plus size={13} sw={2.2} /> {saving ? "Saving…" : "Save Changes"}
               </button>
             )}
           </div>
@@ -321,96 +387,100 @@ function Attendance() {
         {!canEdit && <p className="banner-warning">UK admin — view only.</p>}
         {message   && <p className="banner-info">{message}</p>}
 
-        {/* This week bar chart */}
-        <div className="kazi-card" style={{ padding: "18px 20px" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>This week</div>
-          <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 14 }}>Present count per day</div>
-          <Bars data={weekCounts} labels={weekLabels} max={Math.max(...weekCounts, 1) + 1} height={120} color="var(--mint-deep)" />
-        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: 20, alignItems: "start" }}>
+          {/* Left: Month Calendar */}
+          <MonthCalendar 
+            currentMonthDate={currentMonthDate} 
+            setCurrentMonthDate={setCurrentMonthDate} 
+            selectedDate={selectedDate} 
+            setSelectedDate={setSelectedDate}
+            monthRecords={monthRecords}
+          />
 
-        {/* Staff log today */}
-        <div className="kazi-card" style={{ overflow: "hidden" }}>
-          <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid var(--line)" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Staff log · today</div>
-            <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>Clock-in times</div>
-          </div>
-          {loading ? (
-            <div style={{ padding: "24px 20px", color: "var(--ink-4)" }}>Loading…</div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Staff</th>
-                    <th>Status</th>
-                    <th>Clock-in</th>
-                    <th>Distance</th>
-                    <th>Method</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => {
-                    const clockRec = clockIns.find(c => c.staffId === row.staffId);
-                    const isEditing = editingRow === i;
-                    const clockTime = clockRec?.clockedInAt?.toDate
-                      ? clockRec.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
-                      : null;
-                    const distM = clockRec?.distanceToSiteM;
-
-                    return (
-                      <tr key={row.staffId || i}>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                            <div style={{ width: 30, height: 30, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(row.staffName)})`, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                              {initials(row.staffName)}
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: 13 }}>{row.staffName}</div>
-                              <div style={{ fontSize: 11, color: "var(--ink-4)" }}>{row.role}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          {isEditing && canEdit ? (
-                            <select value={row.status} onChange={e => setRows(cur => cur.map((r,j) => j===i ? {...r, status: e.target.value} : r))}
-                              style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12, fontFamily: "var(--font)" }}>
-                              {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-                            </select>
-                          ) : (
-                            <Pill tone={statusTone(row.status)} dot>{row.status}</Pill>
-                          )}
-                        </td>
-                        <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockTime || "—"}</td>
-                        <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
-                          {distM != null ? `${distM}m` : "—"}
-                        </td>
-                        <td>
-                          {clockTime ? (
-                            <Pill tone="ghost" icon={<Icons.MapPin size={11}/>}>GPS</Pill>
-                          ) : canEdit && isEditing ? (
-                            <span style={{ fontSize: 11, color: "var(--ink-4)", fontStyle: "italic" }}>manual</span>
-                          ) : "—"}
-                        </td>
-                        <td>
-                          {canEdit ? (
-                            isEditing ? (
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <button className="ghost-button" style={{ padding: "3px 10px", fontSize: 11 }} onClick={() => { saveRows(); setEditingRow(null); }}>Save</button>
-                                <button className="ghost-button" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditingRow(null)}>✕</button>
-                              </div>
-                            ) : (
-                              <button className="ghost-button" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setEditingRow(i)}>Edit</button>
-                            )
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {/* Right: Staff log for selected date */}
+          <div className="kazi-card" style={{ overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Staff log</div>
+              <div style={{ fontSize: 13, color: "var(--ink)", marginTop: 4, fontWeight: 500 }}>{selectedDateStrFormatted}</div>
             </div>
-          )}
+            {loading ? (
+              <div style={{ padding: "24px 20px", color: "var(--ink-4)" }}>Loading data for {selectedDate}…</div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Staff</th>
+                      <th>Status</th>
+                      <th>Clock-in</th>
+                      <th>Distance</th>
+                      <th>Method</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => {
+                      const clockRec = clockIns.find(c => c.staffId === row.staffId);
+                      const isEditing = editingRow === i;
+                      const clockTime = clockRec?.clockedInAt?.toDate
+                        ? clockRec.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
+                        : null;
+                      const distM = clockRec?.distanceToSiteM;
+
+                      return (
+                        <tr key={row.staffId || i}>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(row.staffName)})`, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                {initials(row.staffName)}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{row.staffName}</div>
+                                <div style={{ fontSize: 11, color: "var(--ink-4)" }}>{row.role}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            {isEditing && canEdit ? (
+                              <select value={row.status} onChange={e => setRows(cur => cur.map((r,j) => j===i ? {...r, status: e.target.value} : r))}
+                                style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12, fontFamily: "var(--font)" }}>
+                                {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+                              </select>
+                            ) : (
+                              <Pill tone={statusTone(row.status)} dot>{row.status}</Pill>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockTime || "—"}</td>
+                          <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
+                            {distM != null ? `${distM}m` : "—"}
+                          </td>
+                          <td>
+                            {clockTime ? (
+                              <Pill tone="ghost" icon={<Icons.MapPin size={11}/>}>GPS</Pill>
+                            ) : canEdit && isEditing ? (
+                              <span style={{ fontSize: 11, color: "var(--ink-4)", fontStyle: "italic" }}>manual</span>
+                            ) : "—"}
+                          </td>
+                          <td>
+                            {canEdit ? (
+                              isEditing ? (
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button className="ghost-button" style={{ padding: "3px 10px", fontSize: 11 }} onClick={() => { saveRows(); setEditingRow(null); }}>Save</button>
+                                  <button className="ghost-button" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditingRow(null)}>✕</button>
+                                </div>
+                              ) : (
+                                <button className="ghost-button" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setEditingRow(i)}>Edit</button>
+                              )
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
 
       </div>
