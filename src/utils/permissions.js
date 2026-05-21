@@ -55,7 +55,7 @@ export function sectionVisible(profile, sectionKey) {
   const role = appRole(profile);
   const NAV_BY_ROLE = {
     nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers"],
-    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers"],
+    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin"],
     employee:    ["dashboard","tasks","attendance"],
     super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers"],
   };

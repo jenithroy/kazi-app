@@ -166,13 +166,14 @@ export default function AdminPanel() {
     setUsers(prev => prev.map(u => u.id === user.id ? { ...u, permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS } : u));
   }
 
-  if (profile?.role !== "super_admin" && profile?.appRole !== "super_admin") {
+  const isAdmin = ["super_admin", "uk_admin"].includes(profile?.role) || ["super_admin", "uk_admin"].includes(profile?.appRole);
+  if (!isAdmin) {
     return (
       <AppLayout>
         <div className="kadm-deny">
           <div className="kadm-deny-ico">🔒</div>
           <h2>Access Restricted</h2>
-          <p>Only the Super Admin can access this panel.</p>
+          <p>Only Admins can access this panel.</p>
         </div>
       </AppLayout>
     );
