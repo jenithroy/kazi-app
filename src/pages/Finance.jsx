@@ -121,7 +121,7 @@ function tabLabel(t) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-const TABS = ["expenses", "payroll", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank"];
+const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank"];
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -136,13 +136,6 @@ function Finance() {
   /* ── State ── */
   const [payroll, setPayroll]         = useState([]);
   const [employees, setEmployees]     = useState([]);
-  const [payrollForm, setPayrollForm] = useState({
-    staffName: "", role: "",
-    month: new Date().toLocaleString("default", { month: "long" }),
-    year: new Date().getFullYear(),
-    basicNPR: "", lateDays: 0, lateRateNPR: 500, bonusNPR: 0, pfDeductionNPR: 0, note: ""
-  });
-  const [showPayrollForm, setShowPayrollForm] = useState(false);
   const [expenses, setExpenses]       = useState([]);
   const [expenseForm, setExpenseForm] = useState(initialExpense);
   const [purchases, setPurchases]     = useState([]);
@@ -166,9 +159,6 @@ function Finance() {
   const [journalForm, setJournalForm] = useState(emptyJournalForm);
   const [journalSubmitting, setJournalSubmitting] = useState(false);
   const [invoices, setInvoices] = useState([]);
-
-  /* ── Payroll edit state ── */
-  const [editingPayrollId, setEditingPayrollId] = useState(null);
 
   /* ── Bank transactions state ── */
   const [bankTxns, setBankTxns]       = useState([]);
@@ -262,36 +252,6 @@ function Finance() {
   useEffect(() => { loadData().catch(console.error); }, []);
 
   /* ── Handlers ── */
-  function calcPayroll(f) {
-    const basic = Number(f.basicNPR || 0), late = Number(f.lateDays || 0) * Number(f.lateRateNPR || 0),
-          pf = Number(f.pfDeductionNPR || 0), bonus = Number(f.bonusNPR || 0);
-    const gross = basic + bonus, totalDeductions = late + pf;
-    return { gross, late, pf, totalDeductions, net: gross - totalDeductions };
-  }
-
-  async function addPayroll(e) {
-    e.preventDefault();
-    if (!canEdit) return;
-    const { gross, late, pf, totalDeductions, net } = calcPayroll(payrollForm);
-    const data = {
-      staffName: payrollForm.staffName, role: payrollForm.role,
-      month: payrollForm.month, year: Number(payrollForm.year),
-      basicNPR: Number(payrollForm.basicNPR || 0), lateDays: Number(payrollForm.lateDays || 0),
-      lateRateNPR: Number(payrollForm.lateRateNPR || 0), lateDeductionNPR: late,
-      pfDeductionNPR: pf, bonusNPR: Number(payrollForm.bonusNPR || 0),
-      grossNPR: gross, totalDeductionsNPR: totalDeductions, netNPR: net,
-      note: payrollForm.note, loggedBy: profile?.name || "Unknown",
-    };
-    if (editingPayrollId) {
-      await fsUpdateDoc(doc(db, "finance_payroll", editingPayrollId), data);
-      setEditingPayrollId(null);
-    } else {
-      await addDoc(collection(db, "finance_payroll"), { ...data, createdAt: serverTimestamp() });
-    }
-    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
-    setShowPayrollForm(false);
-    await loadData();
-  }
 
   function nextExpenseId() {
     const nums = purchases.map(p => parseInt((p.expenseId || "EXP000").replace("EXP", ""), 10)).filter(n => !isNaN(n));
@@ -330,12 +290,6 @@ function Finance() {
 
   async function markExpensePaid(id, current) {
     await fsUpdateDoc(doc(db, "finance_expenses", id), { status: current === "Paid" ? null : "Paid" });
-    await loadData();
-  }
-
-  async function deletePayroll(id) {
-    if (!window.confirm("Delete this payroll record?")) return;
-    await deleteDoc(doc(db, "finance_payroll", id));
     await loadData();
   }
 
@@ -704,153 +658,6 @@ function Finance() {
           </>
         )}
 
-        {/* ── Payroll ── */}
-        {activeTab === "payroll" && (
-          <>
-            {!canEdit && <div className="kfin-notice">ℹ UK admin — view only.</div>}
-            {canEdit && (
-              <div className="kfin-block">
-                <div className="kfin-block-hd">
-                  <p className="kfin-block-title">{editingPayrollId ? "Edit Payroll Record" : "Payroll Entry"}</p>
-                  <button className="ghost-button" style={{ fontSize: 12, padding: "5px 12px" }} onClick={() => {
-                    setShowPayrollForm(v => !v);
-                    if (showPayrollForm) { setEditingPayrollId(null); setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" })); }
-                  }}>
-                    {showPayrollForm ? "✕ Cancel" : "+ Add Payroll"}
-                  </button>
-                </div>
-                {showPayrollForm && (() => {
-                  const calc = calcPayroll(payrollForm);
-                  return (
-                    <form className="kfin-form" onSubmit={addPayroll}>
-                      <label className="kfin-label">Staff Name
-                        <select className="kfin-select" value={payrollForm.staffName}
-                          onChange={e => { const emp = employees.find(em => em.name === e.target.value); setPayrollForm(f => ({ ...f, staffName: e.target.value, role: emp?.role || f.role, basicNPR: emp?.basicSalaryNPR || f.basicNPR })); }} required>
-                          <option value="">— Select Staff —</option>
-                          {employees.map(em => <option key={em.id} value={em.name}>{em.name}</option>)}
-                        </select>
-                      </label>
-                      <label className="kfin-label">Role
-                        <input type="text" className="kfin-input" value={payrollForm.role} required placeholder="e.g. Operations Manager"
-                          onChange={e => setPayrollForm(f => ({ ...f, role: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">Month
-                        <select className="kfin-select" value={payrollForm.month} onChange={e => setPayrollForm(f => ({ ...f, month: e.target.value }))}>
-                          {["January","February","March","April","May","June","July","August","September","October","November","December"].map(m => <option key={m}>{m}</option>)}
-                        </select>
-                      </label>
-                      <label className="kfin-label">Year
-                        <input type="number" className="kfin-input" value={payrollForm.year} min="2020" max="2099"
-                          onChange={e => setPayrollForm(f => ({ ...f, year: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">Basic Salary (NPR)
-                        <input type="number" min="0" className="kfin-input" value={payrollForm.basicNPR} required placeholder="0"
-                          onChange={e => setPayrollForm(f => ({ ...f, basicNPR: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">Bonus (NPR)
-                        <input type="number" min="0" className="kfin-input" value={payrollForm.bonusNPR} placeholder="0"
-                          onChange={e => setPayrollForm(f => ({ ...f, bonusNPR: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">Late Days
-                        <input type="number" min="0" max="31" className="kfin-input" value={payrollForm.lateDays} placeholder="0"
-                          onChange={e => setPayrollForm(f => ({ ...f, lateDays: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">Late Fee / Day (NPR)
-                        <input type="number" min="0" className="kfin-input" value={payrollForm.lateRateNPR} placeholder="500"
-                          onChange={e => setPayrollForm(f => ({ ...f, lateRateNPR: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">PF / Other Deduction (NPR)
-                        <input type="number" min="0" className="kfin-input" value={payrollForm.pfDeductionNPR} placeholder="0"
-                          onChange={e => setPayrollForm(f => ({ ...f, pfDeductionNPR: e.target.value }))} />
-                      </label>
-                      <label className="kfin-label">Note
-                        <input type="text" className="kfin-input" value={payrollForm.note} placeholder="Optional note"
-                          onChange={e => setPayrollForm(f => ({ ...f, note: e.target.value }))} />
-                      </label>
-                      <div className="kfin-calc kfin-full">
-                        <p className="kfin-calc-title">Salary Calculation</p>
-                        <div className="kfin-calc-grid">
-                          <span className="kfin-calc-key">Basic Salary</span>
-                          <span className="kfin-calc-val">NPR {Number(payrollForm.basicNPR || 0).toLocaleString()}</span>
-                          <span className="kfin-calc-key">Bonus</span>
-                          <span className="kfin-calc-val">NPR {Number(payrollForm.bonusNPR || 0).toLocaleString()}</span>
-                          <span className="kfin-calc-key kfin-calc-bold">Gross Pay</span>
-                          <span className="kfin-calc-val kfin-calc-bold">NPR {calc.gross.toLocaleString()}</span>
-                          <span className="kfin-calc-key kfin-calc-deduct">Late Fee ({payrollForm.lateDays} × {payrollForm.lateRateNPR})</span>
-                          <span className="kfin-calc-val kfin-calc-deduct">− NPR {calc.late.toLocaleString()}</span>
-                          <span className="kfin-calc-key kfin-calc-deduct">PF / Other</span>
-                          <span className="kfin-calc-val kfin-calc-deduct">− NPR {calc.pf.toLocaleString()}</span>
-                          <span className="kfin-calc-key kfin-calc-total">Net Pay</span>
-                          <span className="kfin-calc-val kfin-calc-total">NPR {calc.net.toLocaleString()}</span>
-                        </div>
-                      </div>
-                      <button type="submit" className="primary-button">{editingPayrollId ? "Update Payroll" : "Save Payroll"}</button>
-                    </form>
-                  );
-                })()}
-              </div>
-            )}
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Payroll Records <span className="kfin-block-sub">({payroll.length})</span></p>
-              </div>
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl">
-                  <thead>
-                    <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th><th>Net NPR</th><th>Net GBP</th>{canEdit && <th></th>}</tr>
-                  </thead>
-                  <tbody>
-                    {payroll.map(item => (
-                      <tr key={item.id}>
-                        <td style={{ fontWeight: 500 }}>{item.staffName}</td>
-                        <td>{item.role}</td>
-                        <td>{item.month}</td>
-                        <td>{item.year}</td>
-                        <td>{item.basicNPR ? `NPR ${Number(item.basicNPR).toLocaleString()}` : "—"}</td>
-                        <td>{item.bonusNPR ? `NPR ${Number(item.bonusNPR).toLocaleString()}` : "—"}</td>
-                        <td>{item.lateDays ?? "—"}</td>
-                        <td style={{ color: item.lateDeductionNPR ? "var(--terra)" : undefined }}>{item.lateDeductionNPR ? `− NPR ${Number(item.lateDeductionNPR).toLocaleString()}` : "—"}</td>
-                        <td style={{ color: item.pfDeductionNPR ? "var(--terra)" : undefined }}>{item.pfDeductionNPR ? `− NPR ${Number(item.pfDeductionNPR).toLocaleString()}` : "—"}</td>
-                        <td>{item.grossNPR ? `NPR ${Number(item.grossNPR).toLocaleString()}` : "—"}</td>
-                        <td style={{ fontWeight: 600, color: "var(--mint-deep)" }}>{asCurrency(item.netNPR || 0, "NPR")}</td>
-                        <td style={{ color: "var(--ink-3)" }}>{asCurrency((item.netNPR || 0) / GBP_RATE, "GBP")}</td>
-                        {canEdit && (
-                          <td>
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <button className="kbil-tbl-btn kbil-tbl-btn--primary"
-                                onClick={() => {
-                                  setEditingPayrollId(item.id);
-                                  setPayrollForm({
-                                    staffName: item.staffName || "",
-                                    role: item.role || "",
-                                    month: item.month || "",
-                                    year: item.year || new Date().getFullYear(),
-                                    basicNPR: item.basicNPR || "",
-                                    lateDays: item.lateDays || 0,
-                                    lateRateNPR: item.lateRateNPR || 500,
-                                    bonusNPR: item.bonusNPR || 0,
-                                    pfDeductionNPR: item.pfDeductionNPR || 0,
-                                    note: item.note || "",
-                                  });
-                                  setShowPayrollForm(true);
-                                  window.scrollTo({ top: 0, behavior: "smooth" });
-                                }}>
-                                Edit
-                              </button>
-                              <button className="kbil-tbl-btn kbil-tbl-btn--danger"
-                                onClick={() => deletePayroll(item.id)}>
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
         )}
 
         {/* ── Purchases ── */}

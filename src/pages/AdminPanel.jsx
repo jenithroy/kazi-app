@@ -15,7 +15,7 @@ const SECTIONS = [
   { key: "inventory",  label: "Inventory",        icon: "📦" },
   { key: "qc",         label: "Quality Control",  icon: "🛡" },
   { key: "billing",    label: "Billing",          icon: "📄" },
-  { key: "employees",  label: "Employees",        icon: "👥" },
+  { key: "employees",  label: "Employee and HR",        icon: "👥" },
   { key: "budget",     label: "Budget & Reqs",    icon: "💷" },
 ];
 

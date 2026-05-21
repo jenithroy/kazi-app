@@ -14,7 +14,7 @@ const ROUTE_LABEL = {
   finance:    "Finance",
   billing:    "Billing",
   content:    "Budget Requests",
-  employees:  "Employees",
+  employees:  "Employee and HR",
   admin:      "Admin Panel",
 };
 

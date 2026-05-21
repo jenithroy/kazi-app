@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { to: "/finance",    label: "Finance",    Icon: Icons.Finance,    group: "biz" },
   { to: "/billing",    label: "Billing",    Icon: Icons.Billing,    group: "biz" },
   { to: "/content",    label: "Budget",     Icon: Icons.Budget,     group: "biz", badge: 4 },
-  { to: "/employees",  label: "Employees",  Icon: Icons.Employees,  group: "biz" },
+  { to: "/employees",  label: "Employee and HR",  Icon: Icons.Employees,  group: "biz" },
   { to: "/admin",      label: "Admin",      Icon: Icons.Admin,      group: "biz" },
   { to: "/directors",  label: "Directors",  Icon: Icons.Directors,  group: "biz" },
   { to: "/customers",  label: "Customers",  Icon: Icons.Customers,  group: "biz" },
