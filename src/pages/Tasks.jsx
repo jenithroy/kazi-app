@@ -180,10 +180,11 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
           </span>
         )}
       </div>
-      {canEdit && hover && (
+      {canEdit && (
         <button
           onClick={e => { e.stopPropagation(); onDelete(task.id); }}
           style={{ position: "absolute", top: 6, right: 6, background: "none", border: "none", cursor: "pointer", color: "var(--ink-5)", fontSize: 14, lineHeight: 1, padding: 2, display: "flex" }}
+          title="Delete Task"
         >×</button>
       )}
     </div>
