@@ -14,7 +14,7 @@ const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", 
 
 const emptyForm = {
   name: "", role: "", department: "Operations", email: "", phone: "",
-  address: "", panNumber: "", bankAccount: "",
+  address: "", panNumber: "", bankAccount: "", bankName: "", bankBranch: "",
   joinDate: new Date().toISOString().slice(0, 10),
   basicSalaryNPR: "", location: "nepal", status: "Active"
 };
@@ -209,6 +209,16 @@ function Employees() {
                 onChange={e => setForm(f => ({ ...f, panNumber: e.target.value }))} />
             </label>
             <label>
+              Bank Name
+              <input type="text" value={form.bankName} placeholder="e.g. Nabil Bank"
+                onChange={e => setForm(f => ({ ...f, bankName: e.target.value }))} />
+            </label>
+            <label>
+              Branch
+              <input type="text" value={form.bankBranch} placeholder="e.g. Thamel"
+                onChange={e => setForm(f => ({ ...f, bankBranch: e.target.value }))} />
+            </label>
+            <label>
               Bank Account No.
               <input type="text" value={form.bankAccount} placeholder="Account number"
                 onChange={e => setForm(f => ({ ...f, bankAccount: e.target.value }))} />
@@ -265,7 +275,7 @@ function Employees() {
                 <th>Join Date</th>
                 <th>Basic Salary</th>
                 <th>PAN</th>
-                <th>Bank Account</th>
+                <th>Bank Details</th>
                 <th>Status</th>
                 {canEdit && <th>Actions</th>}
               </tr>
@@ -286,7 +296,10 @@ function Employees() {
                     {emp.basicSalaryNPR ? `NPR ${Number(emp.basicSalaryNPR).toLocaleString()}` : "—"}
                   </td>
                   <td style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{emp.panNumber || "—"}</td>
-                  <td style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{emp.bankAccount || "—"}</td>
+                  <td style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+                    {emp.bankName ? `${emp.bankName}${emp.bankBranch ? ` (${emp.bankBranch})` : ""}` : (emp.bankAccount ? "Bank Account" : "—")}
+                    {emp.bankAccount && <div style={{ fontFamily: "monospace", marginTop: 2 }}>{emp.bankAccount}</div>}
+                  </td>
                   <td>{statusBadge(emp.status)}</td>
                   {canEdit && (
                     <td>
