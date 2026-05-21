@@ -112,5 +112,8 @@ service cloud.firestore {
     match /customers/{id} {
       allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
+    match /employees/{id} {
+      allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+    }
   }
 }
