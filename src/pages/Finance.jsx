@@ -658,8 +658,6 @@ function Finance() {
           </>
         )}
 
-        )}
-
         {/* ── Purchases ── */}
         {activeTab === "purchases" && (
           <>

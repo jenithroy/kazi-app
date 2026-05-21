@@ -33,3 +33,83 @@ export const TEAM_MEMBERS = [
   { name: "Sudhansu", role: "Operations Assistant", location: "nepal", email: "sa4715666@gmail.com", appRole: "employee" },
   { name: "Bedhant", role: "Management", location: "nepal", email: "bedhant@kazi.com", appRole: "employee" },
 ];
+
+export const EMPLOYEE_SCHEDULES = {
+  "Wilson": { start: "11:00", end: "21:00" },
+  "Monika": { start: "12:30", end: "19:00" },
+  "Sudhansu": { start: "11:00", end: "19:00" },
+  "Sudhashu": { start: "11:00", end: "19:00" },
+  "Bedhant": { start: "11:00", end: "19:00" },
+  "Anmol": { start: "10:30", end: "18:00" },
+  "Anusha": {
+    days: {
+      "Mon": { start: "15:00", end: "19:00" },
+      "Tue": { start: "15:00", end: "19:00" },
+      "Wed": { start: "15:00", end: "19:00" },
+      "Thu": { start: "15:00", end: "19:00" },
+      "Fri": { start: "15:00", end: "19:00" },
+      "Sun": { start: "10:00", end: "18:00" }
+    }
+  }
+};
+
+export function getEmployeeScheduleForDate(employeeName, dateObj) {
+  if (!employeeName) return null;
+  const nameKey = Object.keys(EMPLOYEE_SCHEDULES).find(
+    k => k.toLowerCase() === employeeName.toLowerCase()
+  );
+  if (!nameKey) return null;
+
+  const sched = EMPLOYEE_SCHEDULES[nameKey];
+  if (sched.days) {
+    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dayName = daysOfWeek[dateObj.getDay()];
+    return sched.days[dayName] || null;
+  }
+  return sched;
+}
+
+export function parseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function calculateAttendanceStatus(employeeName, clockInDate) {
+  const sched = getEmployeeScheduleForDate(employeeName, clockInDate);
+  if (!sched) {
+    const hour = clockInDate.getHours();
+    return {
+      status: hour >= 10 ? "Late" : "Present",
+      lateCutApplied: false,
+      lateMinutes: 0
+    };
+  }
+
+  const [startHour, startMin] = sched.start.split(":").map(Number);
+  const scheduledTime = new Date(clockInDate);
+  scheduledTime.setHours(startHour, startMin, 0, 0);
+
+  const diffMs = clockInDate.getTime() - scheduledTime.getTime();
+  const diffMins = diffMs / (1000 * 60);
+
+  if (diffMins > 10) {
+    return {
+      status: "Late",
+      lateCutApplied: true,
+      lateMinutes: Math.round(diffMins)
+    };
+  } else if (diffMins > 0) {
+    return {
+      status: "Late",
+      lateCutApplied: false,
+      lateMinutes: Math.round(diffMins)
+    };
+  } else {
+    return {
+      status: "Present",
+      lateCutApplied: false,
+      lateMinutes: 0
+    };
+  }
+}
+

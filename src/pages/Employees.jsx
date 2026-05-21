@@ -47,10 +47,66 @@ function Employees() {
     staffName: "", role: "",
     month: new Date().toLocaleString("default", { month: "long" }),
     year: new Date().getFullYear(),
-    basicNPR: "", lateDays: 0, lateRateNPR: 500, bonusNPR: 0, pfDeductionNPR: 0, note: ""
+    basicNPR: "", lateDays: 0, lateRateNPR: 500, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: ""
   });
   const [showPayrollForm, setShowPayrollForm] = useState(false);
   const [editingPayrollId, setEditingPayrollId] = useState(null);
+  const [loadingAtt, setLoadingAtt] = useState(false);
+
+  useEffect(() => {
+    if (!payrollForm.staffName || !payrollForm.month || !payrollForm.year) return;
+    
+    let active = true;
+    const MONTH_MAP = {
+      January: "01", February: "02", March: "03", April: "04", May: "05", June: "06",
+      July: "07", August: "08", September: "09", October: "10", November: "11", December: "12"
+    };
+
+    async function autoCalculate() {
+      setLoadingAtt(true);
+      try {
+        const monthNum = MONTH_MAP[payrollForm.month];
+        if (!monthNum) return;
+        const monthIdx = Object.keys(MONTH_MAP).indexOf(payrollForm.month);
+        const daysInMonth = new Date(Number(payrollForm.year), monthIdx + 1, 0).getDate();
+        const start = `${payrollForm.year}-${monthNum}-01`;
+        const end = `${payrollForm.year}-${monthNum}-${String(daysInMonth).padStart(2, "0")}`;
+
+        const attSnap = await getDocs(query(
+          collection(db, "attendance"),
+          where("date", ">=", start),
+          where("date", "<=", end)
+        ));
+
+        if (!active) return;
+
+        const logs = attSnap.docs
+          .map(d => d.data())
+          .filter(r => r.staffName?.toLowerCase() === payrollForm.staffName.toLowerCase());
+
+        const lateDays = logs.filter(r => r.status === "Late").length;
+        const lateCutsCount = logs.filter(r => r.status === "Late" && r.lateCutApplied === true).length;
+        
+        const basic = Number(payrollForm.basicNPR || 0);
+        const dailySalary = basic / 30;
+        const cutAmount = Math.round(dailySalary * 0.25 * lateCutsCount);
+
+        setPayrollForm(f => ({
+          ...f,
+          lateDays,
+          lateCutsCount,
+          lateSalaryCutDeduction: cutAmount
+        }));
+      } catch (err) {
+        console.error("Error auto-calculating deductions:", err);
+      } finally {
+        if (active) setLoadingAtt(false);
+      }
+    }
+    
+    autoCalculate();
+    return () => { active = false; };
+  }, [payrollForm.staffName, payrollForm.month, payrollForm.year, payrollForm.basicNPR]);
 
   async function loadData() {
     const [empSnap, paySnap] = await Promise.all([
@@ -144,9 +200,14 @@ function Employees() {
 
   /* ── Payroll Handlers ── */
   function calcPayroll(f) {
-    const basic = Number(f.basicNPR || 0), late = Number(f.lateDays || 0) * Number(f.lateRateNPR || 0),
-          pf = Number(f.pfDeductionNPR || 0), bonus = Number(f.bonusNPR || 0);
-    const gross = basic + bonus, totalDeductions = late + pf;
+    const basic = Number(f.basicNPR || 0);
+    const lateFee = Number(f.lateDays || 0) * Number(f.lateRateNPR || 0);
+    const lateCut = Number(f.lateSalaryCutDeduction || 0);
+    const late = lateFee + lateCut;
+    const pf = Number(f.pfDeductionNPR || 0);
+    const bonus = Number(f.bonusNPR || 0);
+    const gross = basic + bonus;
+    const totalDeductions = late + pf;
     return { gross, late, pf, totalDeductions, net: gross - totalDeductions };
   }
 
@@ -157,11 +218,19 @@ function Employees() {
     const data = {
       staffName: payrollForm.staffName, role: payrollForm.role,
       month: payrollForm.month, year: Number(payrollForm.year),
-      basicNPR: Number(payrollForm.basicNPR || 0), lateDays: Number(payrollForm.lateDays || 0),
-      lateRateNPR: Number(payrollForm.lateRateNPR || 0), lateDeductionNPR: late,
-      pfDeductionNPR: pf, bonusNPR: Number(payrollForm.bonusNPR || 0),
-      grossNPR: gross, totalDeductionsNPR: totalDeductions, netNPR: net,
-      note: payrollForm.note, loggedBy: profile?.name || "Unknown",
+      basicNPR: Number(payrollForm.basicNPR || 0), 
+      lateDays: Number(payrollForm.lateDays || 0),
+      lateRateNPR: Number(payrollForm.lateRateNPR || 0), 
+      lateSalaryCutDeduction: Number(payrollForm.lateSalaryCutDeduction || 0),
+      lateCutsCount: Number(payrollForm.lateCutsCount || 0),
+      lateDeductionNPR: late,
+      pfDeductionNPR: pf, 
+      bonusNPR: Number(payrollForm.bonusNPR || 0),
+      grossNPR: gross, 
+      totalDeductionsNPR: totalDeductions, 
+      netNPR: net,
+      note: payrollForm.note, 
+      loggedBy: profile?.name || "Unknown",
     };
     if (editingPayrollId) {
       await updateDoc(doc(db, "finance_payroll", editingPayrollId), data);
@@ -169,7 +238,7 @@ function Employees() {
     } else {
       await addDoc(collection(db, "finance_payroll"), { ...data, createdAt: serverTimestamp() });
     }
-    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
+    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
     setShowPayrollForm(false);
     await loadData();
   }
@@ -445,6 +514,22 @@ function Employees() {
                       <input type="number" min="0" className="kfin-input" value={payrollForm.lateRateNPR} placeholder="500"
                         onChange={e => setPayrollForm(f => ({ ...f, lateRateNPR: e.target.value }))} />
                     </label>
+                    <label className="kfin-label">Late Cuts (&gt;10m)
+                      <input type="number" min="0" max="31" className="kfin-input" value={payrollForm.lateCutsCount} placeholder="0"
+                        onChange={e => {
+                          const cuts = Number(e.target.value || 0);
+                          const basic = Number(payrollForm.basicNPR || 0);
+                          setPayrollForm(f => ({ 
+                            ...f, 
+                            lateCutsCount: cuts,
+                            lateSalaryCutDeduction: Math.round((basic / 30) * 0.25 * cuts)
+                          }));
+                        }} />
+                    </label>
+                    <label className="kfin-label">Late Salary Cut Deduction (NPR)
+                      <input type="number" min="0" className="kfin-input" value={payrollForm.lateSalaryCutDeduction} placeholder="0"
+                        onChange={e => setPayrollForm(f => ({ ...f, lateSalaryCutDeduction: e.target.value }))} />
+                    </label>
                     <label className="kfin-label">PF / Other Deduction (NPR)
                       <input type="number" min="0" className="kfin-input" value={payrollForm.pfDeductionNPR} placeholder="0"
                         onChange={e => setPayrollForm(f => ({ ...f, pfDeductionNPR: e.target.value }))} />
@@ -462,8 +547,12 @@ function Employees() {
                         <span className="kfin-calc-val">NPR {Number(payrollForm.bonusNPR || 0).toLocaleString()}</span>
                         <span className="kfin-calc-key kfin-calc-bold">Gross Pay</span>
                         <span className="kfin-calc-val kfin-calc-bold">NPR {calc.gross.toLocaleString()}</span>
-                        <span className="kfin-calc-key kfin-calc-deduct">Late Fee ({payrollForm.lateDays} × {payrollForm.lateRateNPR})</span>
-                        <span className="kfin-calc-val kfin-calc-deduct">− NPR {calc.late.toLocaleString()}</span>
+                        <span className="kfin-calc-key kfin-calc-deduct">Flat Late Fee ({payrollForm.lateDays} × {payrollForm.lateRateNPR})</span>
+                        <span className="kfin-calc-val kfin-calc-deduct">− NPR {Math.round(payrollForm.lateDays * payrollForm.lateRateNPR).toLocaleString()}</span>
+                        <span className="kfin-calc-key kfin-calc-deduct">25% Salary Cuts ({payrollForm.lateCutsCount} cuts)</span>
+                        <span className="kfin-calc-val kfin-calc-deduct">− NPR {Number(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}</span>
+                        <span className="kfin-calc-key kfin-calc-bold">Total Late Deduction</span>
+                        <span className="kfin-calc-val kfin-calc-bold">− NPR {calc.late.toLocaleString()}</span>
                         <span className="kfin-calc-key kfin-calc-deduct">PF / Other</span>
                         <span className="kfin-calc-val kfin-calc-deduct">− NPR {calc.pf.toLocaleString()}</span>
                         <span className="kfin-calc-key kfin-calc-total">Net Pay</span>
@@ -496,7 +585,18 @@ function Employees() {
                       <td>{item.basicNPR ? `NPR ${Number(item.basicNPR).toLocaleString()}` : "—"}</td>
                       <td>{item.bonusNPR ? `NPR ${Number(item.bonusNPR).toLocaleString()}` : "—"}</td>
                       <td>{item.lateDays ?? "—"}</td>
-                      <td style={{ color: item.lateDeductionNPR ? "var(--terra)" : undefined }}>{item.lateDeductionNPR ? `− NPR ${Number(item.lateDeductionNPR).toLocaleString()}` : "—"}</td>
+                      <td style={{ color: item.lateDeductionNPR ? "var(--terra)" : undefined }}>
+                        {item.lateDeductionNPR ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            <span style={{ fontWeight: 600 }}>− NPR {Number(item.lateDeductionNPR).toLocaleString()}</span>
+                            {item.lateSalaryCutDeduction > 0 && (
+                              <span style={{ fontSize: "10px", color: "var(--ink-3)", fontStyle: "italic" }}>
+                                (incl. {item.lateCutsCount || 0} cuts: −NPR {Number(item.lateSalaryCutDeduction).toLocaleString()})
+                              </span>
+                            )}
+                          </div>
+                        ) : "—"}
+                      </td>
                       <td style={{ color: item.pfDeductionNPR ? "var(--terra)" : undefined }}>{item.pfDeductionNPR ? `− NPR ${Number(item.pfDeductionNPR).toLocaleString()}` : "—"}</td>
                       <td>{item.grossNPR ? `NPR ${Number(item.grossNPR).toLocaleString()}` : "—"}</td>
                       <td style={{ fontWeight: 600, color: "var(--mint-deep)" }}>{asCurrency(item.netNPR || 0, "NPR")}</td>
@@ -515,6 +615,8 @@ function Employees() {
                                   basicNPR: item.basicNPR || "",
                                   lateDays: item.lateDays || 0,
                                   lateRateNPR: item.lateRateNPR || 500,
+                                  lateSalaryCutDeduction: item.lateSalaryCutDeduction || 0,
+                                  lateCutsCount: item.lateCutsCount || 0,
                                   bonusNPR: item.bonusNPR || 0,
                                   pfDeductionNPR: item.pfDeductionNPR || 0,
                                   note: item.note || "",

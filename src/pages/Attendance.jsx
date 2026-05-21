@@ -6,7 +6,7 @@ import { sectionCanEdit } from "../utils/permissions";
 import { db } from "../firebase";
 import { todayDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
-import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M } from "../constants";
+import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate } from "../constants";
 import { Pill, Icons, cn } from "../components/ui";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -108,8 +108,12 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
             clockedInAt: serverTimestamp(),
           });
 
-          const hour = new Date().getHours();
-          const autoStatus = hour >= 10 ? "Late" : "Present";
+          const now = new Date();
+          const statusCalc = calculateAttendanceStatus(profile?.name || "", now);
+          const autoStatus = statusCalc.status;
+          const lateCutApplied = statusCalc.lateCutApplied;
+          const lateMinutes = statusCalc.lateMinutes;
+
           const attRef = doc(db, "attendance", `${today}_${staffId}`);
           await setDoc(attRef, {
             date: today, staffId,
@@ -118,9 +122,10 @@ function ClockInCard({ profile, today, alreadyClockedIn }) {
             status: autoStatus, hours: 8,
             note: "GPS clock-in", loggedBy: "GPS",
             createdAt: serverTimestamp(),
+            lateCutApplied,
+            lateMinutes,
           }, { merge: true });
 
-          const now = new Date();
           setClockedAt(`${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`);
           setStatus("success");
         } catch { setStatus("error"); }
@@ -308,13 +313,15 @@ function Attendance() {
     setRows(staff.map(m => {
       const rec = attMap[m.uid || m.id];
       return {
-        id:        rec?.id        || "",
-        staffId:   m.uid          || m.id,
-        staffName: m.name,
-        role:      m.jobRole      || m.role,
-        status:    rec?.status    || "Absent",
-        hours:     rec?.hours     ?? 8,
-        note:      rec?.note      || "",
+        id:             rec?.id             || "",
+        staffId:        m.uid               || m.id,
+        staffName:      m.name,
+        role:           m.jobRole           || m.role,
+        status:         rec?.status         || "Absent",
+        hours:          rec?.hours          ?? 8,
+        note:           rec?.note           || "",
+        lateCutApplied: rec?.lateCutApplied || false,
+        lateMinutes:    rec?.lateMinutes    || 0,
       };
     }));
     setLoading(false);
@@ -327,7 +334,19 @@ function Attendance() {
       const batch = writeBatch(db);
       rows.forEach(row => {
         const ref = doc(db, "attendance", row.id || `${selectedDate}_${row.staffId}`);
-        batch.set(ref, { date: selectedDate, staffId: row.staffId, staffName: row.staffName, role: row.role, status: row.status, hours: Number(row.hours || 0), note: row.note, loggedBy: profile?.name || "Unknown", createdAt: serverTimestamp() }, { merge: true });
+        batch.set(ref, { 
+          date: selectedDate, 
+          staffId: row.staffId, 
+          staffName: row.staffName, 
+          role: row.role, 
+          status: row.status, 
+          hours: Number(row.hours || 0), 
+          note: row.note, 
+          loggedBy: profile?.name || "Unknown", 
+          createdAt: serverTimestamp(),
+          lateCutApplied: row.status === "Late" ? (row.lateCutApplied ?? false) : false,
+          lateMinutes: row.status === "Late" ? (row.lateMinutes ?? 0) : 0,
+        }, { merge: true });
       });
       await batch.commit();
       setMessage("Attendance saved.");
@@ -355,10 +374,25 @@ function Attendance() {
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(myRow.staffName)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(myRow.staffName)}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{myRow.staffName}</div>
-                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{myRow.role}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                  {myRow.role}
+                  {(() => {
+                    const sched = getEmployeeScheduleForDate(myRow.staffName, parseLocalDate(today));
+                    if (!sched) return null;
+                    return ` · Schedule: ${sched.start} - ${sched.end}`;
+                  })()}
+                </div>
               </div>
-              <Pill tone={statusTone(myRow.status)} dot>{myRow.status}</Pill>
-              {myClockIn && <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}</span>}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <Pill tone={statusTone(myRow.status)} dot>{myRow.status}</Pill>
+                {myRow.status === "Late" && myRow.lateCutApplied && (
+                  <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Salary Cut</span>
+                )}
+                {myRow.status === "Late" && !myRow.lateCutApplied && (
+                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace Period</span>
+                )}
+                {myClockIn && <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}</span>}
+              </div>
             </div>
           )}
         </div>
@@ -411,6 +445,7 @@ function Attendance() {
                   <thead>
                     <tr>
                       <th>Staff</th>
+                      <th>Schedule</th>
                       <th>Status</th>
                       <th>Clock-in</th>
                       <th>Distance</th>
@@ -440,14 +475,47 @@ function Attendance() {
                               </div>
                             </div>
                           </td>
+                          <td style={{ fontSize: 12, color: "var(--ink-3)", verticalAlign: "middle" }}>
+                            {(() => {
+                              const sched = getEmployeeScheduleForDate(row.staffName, parseLocalDate(selectedDate));
+                              if (!sched) return "—";
+                              return `${sched.start} - ${sched.end}`;
+                            })()}
+                          </td>
                           <td>
                             {isEditing && canEdit ? (
-                              <select value={row.status} onChange={e => setRows(cur => cur.map((r,j) => j===i ? {...r, status: e.target.value} : r))}
-                                style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12, fontFamily: "var(--font)" }}>
-                                {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-                              </select>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                <select value={row.status} onChange={e => {
+                                  const newStatus = e.target.value;
+                                  setRows(cur => cur.map((r,j) => j===i ? {
+                                    ...r, 
+                                    status: newStatus,
+                                    lateCutApplied: newStatus === "Late" ? r.lateCutApplied : false
+                                  } : r));
+                                }}
+                                  style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12, fontFamily: "var(--font)", width: "100px" }}>
+                                  {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+                                </select>
+                                {row.status === "Late" && (
+                                  <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--terra)", marginTop: 4, cursor: "pointer", fontWeight: 500 }}>
+                                    <input type="checkbox" checked={row.lateCutApplied || false} 
+                                      onChange={e => setRows(cur => cur.map((r,j) => j===i ? {...r, lateCutApplied: e.target.checked} : r))} />
+                                    25% Salary Cut
+                                  </label>
+                                )}
+                              </div>
                             ) : (
-                              <Pill tone={statusTone(row.status)} dot>{row.status}</Pill>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <Pill tone={statusTone(row.status)} dot>{row.status}</Pill>
+                                {row.status === "Late" && row.lateCutApplied && (
+                                  <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Cut</span>
+                                )}
+                                {row.status === "Late" && !row.lateCutApplied && (row.lateMinutes > 0 ? (
+                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }} title={`${row.lateMinutes}m late`}>Grace (≤10m)</span>
+                                ) : (
+                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace</span>
+                                ))}
+                              </div>
                             )}
                           </td>
                           <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockTime || "—"}</td>
