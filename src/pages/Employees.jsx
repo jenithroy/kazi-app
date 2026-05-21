@@ -297,7 +297,7 @@ function Employees() {
             <article className="stat-card">
               <p className="stat-title">Total Basic Payroll</p>
               <h3 className="stat-value">{asCurrency(totalPayroll, "NPR")}</h3>
-              <p className="stat-note">active staff only</p>
+              <p className="stat-note">active staff only ({asCurrency(totalPayroll / GBP_RATE, "GBP")})</p>
             </article>
           </section>
 
@@ -337,7 +337,7 @@ function Employees() {
                     onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} />
                 </label>
                 <label>
-                  Basic Salary (NPR)
+                  Basic Salary (NPR) {form.basicSalaryNPR ? <span style={{ fontWeight: 400, color: "var(--ink-4)", fontSize: 11 }}>≈ {asCurrency(Number(form.basicSalaryNPR) / GBP_RATE, "GBP")}</span> : null}
                   <input type="number" min="0" value={form.basicSalaryNPR} placeholder="0"
                     onChange={e => setForm(f => ({ ...f, basicSalaryNPR: e.target.value }))} />
                 </label>
@@ -430,7 +430,12 @@ function Employees() {
                       <td style={{ fontSize: "0.85rem" }}>{emp.phone || "—"}</td>
                       <td style={{ fontSize: "0.85rem" }}>{emp.joinDate || "—"}</td>
                       <td style={{ fontFamily: "monospace" }}>
-                        {emp.basicSalaryNPR ? `NPR ${Number(emp.basicSalaryNPR).toLocaleString()}` : "—"}
+                        {emp.basicSalaryNPR ? (
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span>NPR {Number(emp.basicSalaryNPR).toLocaleString()}</span>
+                            <span style={{ fontSize: "11px", color: "var(--ink-4)" }}>({asCurrency(emp.basicSalaryNPR / GBP_RATE, "GBP")})</span>
+                          </div>
+                        ) : "—"}
                       </td>
                       <td style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{emp.panNumber || "—"}</td>
                       <td style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
@@ -542,21 +547,45 @@ function Employees() {
                       <p className="kfin-calc-title">Salary Calculation</p>
                       <div className="kfin-calc-grid">
                         <span className="kfin-calc-key">Basic Salary</span>
-                        <span className="kfin-calc-val">NPR {Number(payrollForm.basicNPR || 0).toLocaleString()}</span>
+                        <span className="kfin-calc-val">
+                          NPR {Number(payrollForm.basicNPR || 0).toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.basicNPR || 0) / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key">Bonus</span>
-                        <span className="kfin-calc-val">NPR {Number(payrollForm.bonusNPR || 0).toLocaleString()}</span>
+                        <span className="kfin-calc-val">
+                          NPR {Number(payrollForm.bonusNPR || 0).toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.bonusNPR || 0) / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key kfin-calc-bold">Gross Pay</span>
-                        <span className="kfin-calc-val kfin-calc-bold">NPR {calc.gross.toLocaleString()}</span>
+                        <span className="kfin-calc-val kfin-calc-bold">
+                          NPR {calc.gross.toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(calc.gross / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key kfin-calc-deduct">Flat Late Fee ({payrollForm.lateDays} × {payrollForm.lateRateNPR})</span>
-                        <span className="kfin-calc-val kfin-calc-deduct">− NPR {Math.round(payrollForm.lateDays * payrollForm.lateRateNPR).toLocaleString()}</span>
+                        <span className="kfin-calc-val kfin-calc-deduct">
+                          − NPR {Math.round(payrollForm.lateDays * payrollForm.lateRateNPR).toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Math.round(payrollForm.lateDays * payrollForm.lateRateNPR) / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key kfin-calc-deduct">25% Salary Cuts ({payrollForm.lateCutsCount} cuts)</span>
-                        <span className="kfin-calc-val kfin-calc-deduct">− NPR {Number(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}</span>
+                        <span className="kfin-calc-val kfin-calc-deduct">
+                          − NPR {Number(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.lateSalaryCutDeduction || 0) / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key kfin-calc-bold">Total Late Deduction</span>
-                        <span className="kfin-calc-val kfin-calc-bold">− NPR {calc.late.toLocaleString()}</span>
+                        <span className="kfin-calc-val kfin-calc-bold">
+                          − NPR {calc.late.toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(calc.late / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key kfin-calc-deduct">PF / Other</span>
-                        <span className="kfin-calc-val kfin-calc-deduct">− NPR {calc.pf.toLocaleString()}</span>
+                        <span className="kfin-calc-val kfin-calc-deduct">
+                          − NPR {calc.pf.toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(calc.pf / GBP_RATE, "GBP")})</span>
+                        </span>
                         <span className="kfin-calc-key kfin-calc-total">Net Pay</span>
-                        <span className="kfin-calc-val kfin-calc-total">NPR {calc.net.toLocaleString()}</span>
+                        <span className="kfin-calc-val kfin-calc-total">
+                          NPR {calc.net.toLocaleString()}
+                          <span style={{ fontSize: "11px", color: "var(--mint-deep)", marginLeft: 6, fontWeight: 700 }}>({asCurrency(calc.net / GBP_RATE, "GBP")})</span>
+                        </span>
                       </div>
                     </div>
                     <button type="submit" className="primary-button">{editingPayrollId ? "Update Payroll" : "Save Payroll"}</button>
@@ -582,23 +611,52 @@ function Employees() {
                       <td>{item.role}</td>
                       <td>{item.month}</td>
                       <td>{item.year}</td>
-                      <td>{item.basicNPR ? `NPR ${Number(item.basicNPR).toLocaleString()}` : "—"}</td>
-                      <td>{item.bonusNPR ? `NPR ${Number(item.bonusNPR).toLocaleString()}` : "—"}</td>
+                      <td>
+                        {item.basicNPR ? (
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span>NPR {Number(item.basicNPR).toLocaleString()}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.basicNPR / GBP_RATE, "GBP")})</span>
+                          </div>
+                        ) : "—"}
+                      </td>
+                      <td>
+                        {item.bonusNPR ? (
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span>NPR {Number(item.bonusNPR).toLocaleString()}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.bonusNPR / GBP_RATE, "GBP")})</span>
+                          </div>
+                        ) : "—"}
+                      </td>
                       <td>{item.lateDays ?? "—"}</td>
                       <td style={{ color: item.lateDeductionNPR ? "var(--terra)" : undefined }}>
                         {item.lateDeductionNPR ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                             <span style={{ fontWeight: 600 }}>− NPR {Number(item.lateDeductionNPR).toLocaleString()}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.lateDeductionNPR / GBP_RATE, "GBP")})</span>
                             {item.lateSalaryCutDeduction > 0 && (
-                              <span style={{ fontSize: "10px", color: "var(--ink-3)", fontStyle: "italic" }}>
-                                (incl. {item.lateCutsCount || 0} cuts: −NPR {Number(item.lateSalaryCutDeduction).toLocaleString()})
+                              <span style={{ fontSize: "10px", color: "var(--ink-4)", fontStyle: "italic" }}>
+                                (incl. {item.lateCutsCount || 0} cuts)
                               </span>
                             )}
                           </div>
                         ) : "—"}
                       </td>
-                      <td style={{ color: item.pfDeductionNPR ? "var(--terra)" : undefined }}>{item.pfDeductionNPR ? `− NPR ${Number(item.pfDeductionNPR).toLocaleString()}` : "—"}</td>
-                      <td>{item.grossNPR ? `NPR ${Number(item.grossNPR).toLocaleString()}` : "—"}</td>
+                      <td style={{ color: item.pfDeductionNPR ? "var(--terra)" : undefined }}>
+                        {item.pfDeductionNPR ? (
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span>− NPR {Number(item.pfDeductionNPR).toLocaleString()}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.pfDeductionNPR / GBP_RATE, "GBP")})</span>
+                          </div>
+                        ) : "—"}
+                      </td>
+                      <td>
+                        {item.grossNPR ? (
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span>NPR {Number(item.grossNPR).toLocaleString()}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.grossNPR / GBP_RATE, "GBP")})</span>
+                          </div>
+                        ) : "—"}
+                      </td>
                       <td style={{ fontWeight: 600, color: "var(--mint-deep)" }}>{asCurrency(item.netNPR || 0, "NPR")}</td>
                       <td style={{ color: "var(--ink-3)" }}>{asCurrency((item.netNPR || 0) / GBP_RATE, "GBP")}</td>
                       {canEditPayroll && (

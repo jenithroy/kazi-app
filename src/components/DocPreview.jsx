@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { InvoicePDFDoc } from "./InvoicePDF";
-import { fmtNPR, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
+import { fmtCurrency, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
 
 const TITLES = {
   invoice:   "Tax Invoice",
@@ -69,6 +69,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   }
 
   /* ── Computed values ── */
+  const currency    = data.currency || "NPR";
   const items       = (data.items || []).filter(it => it.description || Number(it.rate) > 0);
   const subtotal    = data.subtotalNPR    || 0;
   const discountAmt = data.discountAmtNPR || 0;
@@ -80,7 +81,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   const creditDue   = Math.max(0, total - amountPaid);
   const showVAT     = docType === "invoice" && data.applyVAT;
   const showDiscount = discountAmt > 0;
-  const wordsTotal  = total > 0 ? numWords(total) : "—";
+  const wordsTotal  = total > 0 ? numWords(total, currency) : "—";
 
   /* ── Meta rows (right column) ── */
   const metaRows = [];
@@ -190,8 +191,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                   <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "left" }}>Description</th>
                   <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "center", width: 42 }}>Qty</th>
                   <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "center", width: 52 }}>Unit</th>
-                  <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "right", width: 92 }}>Rate (NPR)</th>
-                  <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "right", width: 92 }}>Amount (NPR)</th>
+                  <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "right", width: 92 }}>Rate ({currency})</th>
+                  <th style={{ background: g, color: "#fff", padding: "6px 8px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", textAlign: "right", width: 92 }}>Amount ({currency})</th>
                 </tr>
               </thead>
               <tbody>
@@ -201,8 +202,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333" }}>{it.description || "—"}</td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "center" }}>{Number(it.qty) % 1 === 0 ? it.qty : Number(it.qty).toFixed(2)}</td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "center" }}>{it.unit || "Pcs"}</td>
-                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtNPR(Number(it.rate || 0))}</td>
-                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtNPR(Number(it.qty || 0) * Number(it.rate || 0))}</td>
+                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrency(Number(it.rate || 0), currency)}</td>
+                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrency(Number(it.qty || 0) * Number(it.rate || 0), currency)}</td>
                   </tr>
                 )) : (
                   <tr><td colSpan={6} style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#999", textAlign: "center" }}>No items</td></tr>
@@ -216,7 +217,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {/* Subtotal */}
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                   <span style={{ color: "#555" }}>Subtotal</span>
-                  <span style={{ fontWeight: 600, color: "#333" }}>{fmtNPR(subtotal)}</span>
+                  <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrency(subtotal, currency)}</span>
                 </div>
 
                 {/* Discount (Nepal IRD: must show separately) */}
@@ -224,11 +225,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                       <span style={{ color: "#c0392b" }}>Discount ({discountPct}%)</span>
-                      <span style={{ fontWeight: 600, color: "#c0392b" }}>− {fmtNPR(discountAmt)}</span>
+                      <span style={{ fontWeight: 600, color: "#c0392b" }}>− {fmtCurrency(discountAmt, currency)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                       <span style={{ color: "#555" }}>Taxable Amount</span>
-                      <span style={{ fontWeight: 600, color: "#333" }}>{fmtNPR(taxableAmt)}</span>
+                      <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrency(taxableAmt, currency)}</span>
                     </div>
                   </>
                 )}
@@ -237,14 +238,14 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {showVAT && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                     <span style={{ color: "#555" }}>VAT @ 13% (Nepal IRD)</span>
-                    <span style={{ fontWeight: 600, color: "#333" }}>{fmtNPR(vatAmt)}</span>
+                    <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrency(vatAmt, currency)}</span>
                   </div>
                 )}
 
                 {/* Grand Total */}
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 13, fontWeight: 800, borderTop: `2px solid ${g}`, borderBottom: `2px solid ${g}`, marginTop: 2 }}>
                   <span style={{ color: g }}>Grand Total</span>
-                  <span style={{ color: g }}>{fmtNPR(total)}</span>
+                  <span style={{ color: g }}>{fmtCurrency(total, currency)}</span>
                 </div>
 
                 {/* Credit / payment summary (if partial) */}
@@ -252,11 +253,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11, marginTop: 3 }}>
                       <span style={{ color: "#1a5c1a" }}>Amount Paid</span>
-                      <span style={{ fontWeight: 600, color: "#1a5c1a" }}>{fmtNPR(amountPaid)}</span>
+                      <span style={{ fontWeight: 600, color: "#1a5c1a" }}>{fmtCurrency(amountPaid, currency)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", fontSize: 11.5, fontWeight: 800 }}>
                       <span style={{ color: creditDue > 0 ? "#c0392b" : "#1a5c1a" }}>Credit Balance Due</span>
-                      <span style={{ color: creditDue > 0 ? "#c0392b" : "#1a5c1a" }}>{fmtNPR(creditDue)}</span>
+                      <span style={{ color: creditDue > 0 ? "#c0392b" : "#1a5c1a" }}>{fmtCurrency(creditDue, currency)}</span>
                     </div>
                   </>
                 )}

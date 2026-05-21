@@ -4,7 +4,7 @@
  * Used by DocPreview's "Download PDF" button.
  */
 import { Document, Page, View, Text, Image, StyleSheet } from "@react-pdf/renderer";
-import { fmtNPR, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
+import { fmtCurrency, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
 
 /* ── Colours ─────────────────────────────────────── */
 const G   = "#1a5c1a";
@@ -130,6 +130,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
   const title  = TITLES[docType] || "DOCUMENT";
 
   /* Computed values */
+  const currency    = data.currency || "NPR";
   const items       = (data.items || []).filter(it => it.description || Number(it.rate) > 0);
   const subtotal    = data.subtotalNPR    || 0;
   const discountAmt = data.discountAmtNPR || 0;
@@ -141,7 +142,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
   const creditDue   = Math.max(0, total - amountPaid);
   const showVAT     = docType === "invoice" && data.applyVAT;
   const showDisc    = discountAmt > 0;
-  const wordsText   = total > 0 ? numWords(total) : "—";
+  const wordsText   = total > 0 ? numWords(total, currency) : "—";
 
   /* Meta rows */
   const metaRows = [];
@@ -214,8 +215,8 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
             <Text style={[S.tblHd, S.cDesc]}>Description</Text>
             <Text style={[S.tblHd, S.cQty]}>Qty</Text>
             <Text style={[S.tblHd, S.cUnit]}>Unit</Text>
-            <Text style={[S.tblHd, S.cRate]}>Rate (NPR)</Text>
-            <Text style={[S.tblHd, S.cAmt]}>Amount (NPR)</Text>
+            <Text style={[S.tblHd, S.cRate]}>{`Rate (${currency})`}</Text>
+            <Text style={[S.tblHd, S.cAmt]}>{`Amount (${currency})`}</Text>
           </View>
           {items.length > 0 ? items.map((it, i) => (
             <View key={i} style={[S.tblRow, i % 2 === 1 ? S.tblEven : {}]}>
@@ -223,8 +224,8 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
               <Text style={[S.tblCell, S.cDesc]}>{it.description || "—"}</Text>
               <Text style={[S.tblCell, S.cQty]}>{Number(it.qty) % 1 === 0 ? it.qty : Number(it.qty).toFixed(2)}</Text>
               <Text style={[S.tblCell, S.cUnit]}>{it.unit || "Pcs"}</Text>
-              <Text style={[S.tblCell, S.cRate]}>{fmtNPR(Number(it.rate || 0))}</Text>
-              <Text style={[S.tblCell, S.cAmt]}>{fmtNPR(Number(it.qty || 0) * Number(it.rate || 0))}</Text>
+              <Text style={[S.tblCell, S.cRate]}>{fmtCurrency(Number(it.rate || 0), currency)}</Text>
+              <Text style={[S.tblCell, S.cAmt]}>{fmtCurrency(Number(it.qty || 0) * Number(it.rate || 0), currency)}</Text>
             </View>
           )) : (
             <View style={S.tblRow}>
@@ -235,24 +236,24 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
           {/* ── Totals ── */}
           <View style={S.totalsWrap}>
             <View style={S.totalsBox}>
-              <TotRow label="Subtotal" value={fmtNPR(subtotal)} />
+              <TotRow label="Subtotal" value={fmtCurrency(subtotal, currency)} />
               {showDisc && (
                 <>
-                  <TotRow label={`Discount (${discountPct}%)`} value={`− ${fmtNPR(discountAmt)}`} labelStyle={{ color: RED }} valueStyle={S.totRed} />
-                  <TotRow label="Taxable Amount" value={fmtNPR(taxableAmt)} />
+                  <TotRow label={`Discount (${discountPct}%)`} value={`− ${fmtCurrency(discountAmt, currency)}`} labelStyle={{ color: RED }} valueStyle={S.totRed} />
+                  <TotRow label="Taxable Amount" value={fmtCurrency(taxableAmt, currency)} />
                 </>
               )}
-              {showVAT && <TotRow label="VAT @ 13% (Nepal IRD)" value={fmtNPR(vatAmt)} />}
-              <TotRow label="Grand Total" value={fmtNPR(total)} isGrand />
+              {showVAT && <TotRow label="VAT @ 13% (Nepal IRD)" value={fmtCurrency(vatAmt, currency)} />}
+              <TotRow label="Grand Total" value={fmtCurrency(total, currency)} isGrand />
               {docType === "invoice" && amountPaid > 0 && (
                 <>
                   <View style={[S.creditRow, { borderBottomColor: GB }]}>
                     <Text style={[S.creditLbl, { color: G }]}>Amount Paid</Text>
-                    <Text style={[S.creditVal, { color: G }]}>{fmtNPR(amountPaid)}</Text>
+                    <Text style={[S.creditVal, { color: G }]}>{fmtCurrency(amountPaid, currency)}</Text>
                   </View>
                   <View style={S.creditRow}>
                     <Text style={[S.creditLbl, { color: creditDue > 0 ? RED : G }]}>Credit Balance Due</Text>
-                    <Text style={[S.creditVal, { color: creditDue > 0 ? RED : G }]}>{fmtNPR(creditDue)}</Text>
+                    <Text style={[S.creditVal, { color: creditDue > 0 ? RED : G }]}>{fmtCurrency(creditDue, currency)}</Text>
                   </View>
                 </>
               )}

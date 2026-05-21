@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import {
   DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
-  fmtNPR, fmtDate, calcTotals, getNextNumber, statusBadge,
+  fmtNPR, fmtDate, calcTotals, getNextNumber, statusBadge, fmtCurrency,
 } from "../utils/billing.jsx";
 
 /* ══════════════════════════════════════════════════════
@@ -92,6 +92,7 @@ function Billing() {
         /* ── UPDATE existing document ── */
         const updates = {
           ...form,
+          currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           subtotalNPR:    subtotal,
           discountPct:    Number(form.discountPct) || 0,
           discountAmtNPR: discountAmt,
@@ -112,6 +113,7 @@ function Billing() {
         const docNumber = await getNextNumber(tab);
         const record = {
           ...form,
+          currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           [meta.numberField]: docNumber,
           subtotalNPR:    subtotal,
           discountPct:    Number(form.discountPct) || 0,
@@ -169,10 +171,22 @@ function Billing() {
 
   /* ── Convert Quotation → Invoice ── */
   async function convertToInvoice(qt) {
-    if (!window.confirm(`Convert ${qt.quotationNumber} to a VAT Invoice?`)) return;
+    const isGBP = qt.currency === "GBP";
+    const confirmMsg = isGBP
+      ? `Convert ${qt.quotationNumber} to a VAT Invoice? Since the quotation is in GBP, the rates will be converted to NPR using the rate of 1 GBP = 200 NPR.`
+      : `Convert ${qt.quotationNumber} to a VAT Invoice?`;
+    if (!window.confirm(confirmMsg)) return;
     setSubmitting(true);
     try {
-      const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(qt.items || [], true, qt.discountPct || 0);
+      // Convert items rates to NPR if GBP
+      const items = (qt.items || []).map(it => {
+        if (isGBP) {
+          return { ...it, rate: Number(it.rate || 0) * 200 };
+        }
+        return it;
+      });
+
+      const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(items, true, qt.discountPct || 0);
       const invNumber = await getNextNumber("invoice");
       const d = new Date(); d.setDate(d.getDate() + 30);
 
@@ -188,7 +202,7 @@ function Billing() {
         clientPhone:      qt.clientPhone || "",
         status:           "Draft",
         applyVAT:         true,
-        items:            qt.items || [],
+        items:            items,
         note:             qt.note || "",
         discountPct:      qt.discountPct || 0,
         discountAmtNPR:   discountAmt,
@@ -199,6 +213,7 @@ function Billing() {
         vatAmountNPR:     vatAmt,
         totalNPR:         total,
         amountPaid:       0,
+        currency:         "NPR",
         createdBy:        profile?.name || "Unknown",
         createdAt:        serverTimestamp(),
       });
@@ -227,17 +242,27 @@ function Billing() {
   /* ── KPI Summary ── */
   const summary = useMemo(() => {
     const list = activeList.filter(d => d.status !== "Cancelled");
-    const total = list.reduce((s, d) => s + Number(d.totalNPR || 0), 0);
-    const paid  = list.filter(d => ["Paid", "Delivered", "Accepted"].includes(d.status)).reduce((s, d) => s + Number(d.totalNPR || 0), 0);
-    const partialPaid = list.filter(d => d.status === "Partial").reduce((s, d) => s + Number(d.amountPaid || 0), 0);
+    const getValInNPR = (d, key) => {
+      const val = Number(d[key] || 0);
+      if (d.currency === "GBP") {
+        return val * 200; // GBP_RATE = 200
+      }
+      return val;
+    };
+    const total = list.reduce((s, d) => s + getValInNPR(d, "totalNPR"), 0);
+    const paid  = list.filter(d => ["Paid", "Delivered", "Accepted"].includes(d.status)).reduce((s, d) => s + getValInNPR(d, "totalNPR"), 0);
+    const partialPaid = list.filter(d => d.status === "Partial").reduce((s, d) => s + getValInNPR(d, "amountPaid"), 0);
     const pending = list.filter(d => !["Paid", "Delivered", "Accepted", "Cancelled", "Rejected"].includes(d.status)).reduce((s, d) => {
-      const due = Number(d.totalNPR || 0) - Number(d.amountPaid || 0);
+      const due = getValInNPR(d, "totalNPR") - getValInNPR(d, "amountPaid");
       return s + Math.max(0, due);
     }, 0);
     const vatCollected = tab === "invoice"
       ? list.filter(d => ["Paid", "Partial"].includes(d.status)).reduce((s, d) => {
-          const paidFraction = d.totalNPR > 0 ? (d.amountPaid || 0) / d.totalNPR : 0;
-          return s + Number(d.vatAmountNPR || 0) * (d.status === "Paid" ? 1 : paidFraction);
+          const totalVal = getValInNPR(d, "totalNPR");
+          const paidVal = getValInNPR(d, "amountPaid");
+          const vatVal = getValInNPR(d, "vatAmountNPR");
+          const paidFraction = totalVal > 0 ? paidVal / totalVal : 0;
+          return s + vatVal * (d.status === "Paid" ? 1 : paidFraction);
         }, 0)
       : 0;
     return { total, paid: paid + partialPaid, pending, vatCollected, count: list.length };
@@ -346,6 +371,15 @@ function Billing() {
                     <input className="kfin-input" type="date" value={form.validUntil} onChange={e => setF("validUntil", e.target.value)} />
                   </label>
                 )}
+                {tab === "quotation" && (
+                  <label className="kfin-label">
+                    Currency
+                    <select className="kfin-select" value={form.currency || "NPR"} onChange={e => setF("currency", e.target.value)}>
+                      <option value="NPR">NPR (Nepalese Rupee)</option>
+                      <option value="GBP">GBP (British Pound)</option>
+                    </select>
+                  </label>
+                )}
 
                 {/* Status */}
                 <label className="kfin-label">
@@ -422,8 +456,8 @@ function Billing() {
                   <span className="kbil-col-label">Description</span>
                   <span className="kbil-col-label">Qty</span>
                   <span className="kbil-col-label">Unit</span>
-                  <span className="kbil-col-label">Rate (NPR)</span>
-                  <span className="kbil-col-label kbil-col-right">Amount</span>
+                  <span className="kbil-col-label">Rate ({form.currency || "NPR"})</span>
+                  <span className="kbil-col-label kbil-col-right">Amount ({form.currency || "NPR"})</span>
                   <span />
                 </div>
                 {form.items.map((item, idx) => (
@@ -432,7 +466,7 @@ function Billing() {
                     <input className="kfin-input" type="number" min="0" step="any" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} />
                     <input className="kfin-input" type="text" value={item.unit} placeholder="Pcs" onChange={e => updateItem(idx, "unit", e.target.value)} />
                     <input className="kfin-input" type="number" min="0" step="any" value={item.rate} placeholder="0" onChange={e => updateItem(idx, "rate", e.target.value)} />
-                    <span className="kbil-item-amount">{(Number(item.qty || 0) * Number(item.rate || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    <span className="kbil-item-amount">{(Number(item.qty || 0) * Number(item.rate || 0)).toLocaleString(form.currency === "GBP" ? "en-GB" : "en-IN", { minimumFractionDigits: 2 })}</span>
                     <button type="button" className="kbil-item-del" disabled={form.items.length <= 1} onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}>×</button>
                   </div>
                 ))}
@@ -460,7 +494,7 @@ function Billing() {
                   />
                   {Number(form.discountPct) > 0 && (
                     <span style={{ fontSize: 12, color: "var(--terra)", fontWeight: 600 }}>
-                      − {fmtNPR(formTotals.discountAmt)} off
+                      − {fmtCurrency(formTotals.discountAmt, form.currency)} off
                     </span>
                   )}
                 </div>
@@ -468,29 +502,29 @@ function Billing() {
                 <div className="kbil-totals-card">
                   <div className="kbil-totals-row">
                     <span className="kbil-totals-label">Subtotal</span>
-                    <span className="kbil-totals-val">{fmtNPR(formTotals.subtotal)}</span>
+                    <span className="kbil-totals-val">{fmtCurrency(formTotals.subtotal, form.currency)}</span>
                   </div>
                   {Number(form.discountPct) > 0 && (
                     <>
                       <div className="kbil-totals-row" style={{ color: "var(--terra)" }}>
                         <span className="kbil-totals-label">Discount ({form.discountPct}%)</span>
-                        <span className="kbil-totals-val">− {fmtNPR(formTotals.discountAmt)}</span>
+                        <span className="kbil-totals-val">− {fmtCurrency(formTotals.discountAmt, form.currency)}</span>
                       </div>
                       <div className="kbil-totals-row">
                         <span className="kbil-totals-label">Taxable Amount</span>
-                        <span className="kbil-totals-val">{fmtNPR(formTotals.taxableAmt)}</span>
+                        <span className="kbil-totals-val">{fmtCurrency(formTotals.taxableAmt, form.currency)}</span>
                       </div>
                     </>
                   )}
                   {tab === "invoice" && form.applyVAT && (
                     <div className="kbil-totals-row">
                       <span className="kbil-totals-label">VAT (13%)</span>
-                      <span className="kbil-totals-val">{fmtNPR(formTotals.vatAmt)}</span>
+                      <span className="kbil-totals-val">{fmtCurrency(formTotals.vatAmt, form.currency)}</span>
                     </div>
                   )}
                   <div className="kbil-totals-grand">
                     <span>Grand Total</span>
-                    <span className="kbil-totals-grand-val">{fmtNPR(formTotals.total)}</span>
+                    <span className="kbil-totals-grand-val">{fmtCurrency(formTotals.total, form.currency)}</span>
                   </div>
                 </div>
               </div>
@@ -576,14 +610,14 @@ function Billing() {
                           <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDate(row.validUntil)}</td>
                         )}
 
-                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtNPR(row.subtotalNPR || 0)}</td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.subtotalNPR || 0, row.currency)}</td>
                         {tab === "invoice" && (
                           <td style={{ textAlign: "right", fontSize: 12, color: "var(--terra)", fontVariantNumeric: "tabular-nums" }}>
                             {row.discountPct > 0 ? `${row.discountPct}%` : "—"}
                           </td>
                         )}
-                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtNPR(row.vatAmountNPR || 0)}</td>}
-                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--mint-deep)", fontVariantNumeric: "tabular-nums" }}>{fmtNPR(row.totalNPR || 0)}</td>
+                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.vatAmountNPR || 0, row.currency)}</td>}
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--mint-deep)", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.totalNPR || 0, row.currency)}</td>
 
                         {/* Credit Due column — invoices only */}
                         {tab === "invoice" && (
@@ -591,7 +625,7 @@ function Billing() {
                             {row.status === "Cancelled" ? (
                               <span style={{ color: "var(--ink-4)", fontSize: 12 }}>—</span>
                             ) : creditDue > 0 ? (
-                              <span style={{ color: "var(--terra)", fontWeight: 700, fontSize: 12 }}>{fmtNPR(creditDue)}</span>
+                              <span style={{ color: "var(--terra)", fontWeight: 700, fontSize: 12 }}>{fmtCurrency(creditDue, row.currency)}</span>
                             ) : (
                               <span style={{ color: "var(--mint-deep)", fontSize: 12 }}>Settled</span>
                             )}
@@ -707,14 +741,14 @@ function Billing() {
                           <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDate(row.validUntil)}</td>
                         )}
 
-                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtNPR(row.subtotalNPR || 0)}</td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.subtotalNPR || 0, row.currency)}</td>
                         {tab === "invoice" && (
                           <td style={{ textAlign: "right", fontSize: 12, color: "var(--terra)", fontVariantNumeric: "tabular-nums" }}>
                             {row.discountPct > 0 ? `${row.discountPct}%` : "—"}
                           </td>
                         )}
-                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtNPR(row.vatAmountNPR || 0)}</td>}
-                        <td style={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmtNPR(row.totalNPR || 0)}</td>
+                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.vatAmountNPR || 0, row.currency)}</td>}
+                        <td style={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.totalNPR || 0, row.currency)}</td>
                         <td>{statusBadge(row.status)}</td>
                         <td>
                           <button className="kbil-tbl-btn kbil-tbl-btn--primary" onClick={() => setPreviewDoc({ data: row, docType: tab })}>View</button>

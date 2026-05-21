@@ -43,6 +43,7 @@ export function makeEmptyForm(type) {
     clientName: "", clientPAN: "", clientAddress: "", clientPhone: "",
     status: "Draft", note: "",
     discountPct: 0,
+    currency: "NPR",
     items: [{ ...emptyItem }, { ...emptyItem }, { ...emptyItem }],
   };
   if (type === "invoice") {
@@ -81,6 +82,14 @@ export function fmtNPR(n) {
   return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
+export function fmtCurrency(n, currency = "NPR") {
+  if (isNaN(n)) n = 0;
+  if (currency === "GBP") {
+    return "£" + new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  }
+  return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
 export function fmtDate(s) {
   if (!s) return "—";
   const [y, m, d] = s.split("-");
@@ -88,7 +97,7 @@ export function fmtDate(s) {
   return `${parseInt(d, 10)} ${months[parseInt(m, 10) - 1]} ${y}`;
 }
 
-export function numWords(num) {
+export function numWords(num, currency = "NPR") {
   num = Math.round(num * 100) / 100;
   const intPart = Math.floor(num);
   const decPart = Math.round((num - intPart) * 100);
@@ -100,6 +109,21 @@ export function numWords(num) {
     if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? " " + ones[n % 10] : "") + " ";
     return ones[Math.floor(n / 100)] + " Hundred " + h(n % 100);
   }
+
+  if (currency === "GBP") {
+    if (intPart === 0 && decPart === 0) return "Zero Pounds Only";
+    let r = "", tmp = intPart;
+    if (tmp >= 1000000) { r += h(Math.floor(tmp / 1000000)) + "Million "; tmp %= 1000000; }
+    if (tmp >= 1000)    { r += h(Math.floor(tmp / 1000))    + "Thousand "; tmp %= 1000; }
+    if (tmp > 0)        { r += h(tmp); }
+    r = r.trim();
+    let res = "Pounds " + r;
+    if (decPart > 0) {
+      res += " and " + h(decPart).trim() + " Pence";
+    }
+    return res.trim() + " Only";
+  }
+
   if (intPart === 0 && decPart === 0) return "Zero Only";
   let r = "", tmp = intPart;
   if (tmp >= 10000000) { r += h(Math.floor(tmp / 10000000)) + "Crore "; tmp %= 10000000; }
