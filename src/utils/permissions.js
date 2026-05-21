@@ -33,7 +33,11 @@ export function sectionCanEdit(profile, section) {
   const role = appRole(profile);
   if (role === "super_admin") return true;
   if (role === "employee") return false;
-  const perm = profile.permissions?.[section];
+  
+  let perm = profile.permissions?.[section];
+  if (perm === undefined && role === "nepal_admin") {
+    perm = DEFAULT_NEPAL_ADMIN_PERMISSIONS[section];
+  }
   const hasPerm = perm === true || (typeof perm === "object" && perm !== null);
 
   // uk_admin — read-only by default, but can edit tasks
@@ -58,7 +62,10 @@ export function sectionVisible(profile, sectionKey) {
   const base = new Set(NAV_BY_ROLE[role] || []);
   if (base.has(sectionKey)) return true;
   // Per-user permission override (e.g. a uk_admin granted tasks access)
-  const perm = profile.permissions?.[sectionKey];
+  let perm = profile.permissions?.[sectionKey];
+  if (perm === undefined && role === "nepal_admin") {
+    perm = DEFAULT_NEPAL_ADMIN_PERMISSIONS[sectionKey];
+  }
   return perm === true || (typeof perm === "object" && perm !== null);
 }
 
@@ -70,7 +77,11 @@ export function financeTabAllowed(profile, tabKey) {
   if (role === "uk_admin") return true;   // UK admins see all finance tabs (read-only)
   if (role === "employee") return false;
   // nepal_admin
-  return profile.permissions?.finance?.[tabKey] === true;
+  let val = profile.permissions?.finance?.[tabKey];
+  if (val === undefined) {
+    val = DEFAULT_NEPAL_ADMIN_PERMISSIONS.finance?.[tabKey];
+  }
+  return val === true;
 }
 
 // Map Finance tab labels → permission keys
