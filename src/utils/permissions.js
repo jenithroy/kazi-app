@@ -30,6 +30,19 @@ function appRole(profile) {
 // Can the user edit the given section (tasks, attendance, production, etc.)
 export function sectionCanEdit(profile, section) {
   if (!profile) return false;
+
+  // Explicitly grant production edit access to Wilson, Anmol, and Anusha
+  if (section === "production") {
+    const nameLower = profile.name?.toLowerCase();
+    const emailLower = profile.email?.toLowerCase();
+    if (
+      ["wilson", "anmol", "anusha"].includes(nameLower) ||
+      ["wilsonshah98765@gmail.com", "basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes(emailLower)
+    ) {
+      return true;
+    }
+  }
+
   const role = appRole(profile);
   if (role === "super_admin") return true;
   if (role === "employee") return false;

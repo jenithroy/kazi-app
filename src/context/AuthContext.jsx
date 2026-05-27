@@ -48,11 +48,21 @@ export function AuthProvider({ children }) {
             // Init or read permissions for nepal_admin
             if (teamMember.appRole === "nepal_admin") {
               const snap = await getDoc(profileRef);
-              if (!snap.data()?.permissions) {
+              const data = snap.data();
+              if (!data?.permissions) {
                 await updateDoc(profileRef, { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS });
                 profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
               } else {
-                profileData.permissions = snap.data().permissions;
+                let existingPerms = data.permissions;
+                // Force production: true for Wilson, Anmol, Anusha
+                const nameLower = teamMember.name.toLowerCase();
+                if (["wilson", "anmol", "anusha"].includes(nameLower)) {
+                  if (existingPerms.production !== true) {
+                    existingPerms = { ...existingPerms, production: true };
+                    await updateDoc(profileRef, { "permissions.production": true });
+                  }
+                }
+                profileData.permissions = existingPerms;
               }
             }
           } catch (syncErr) {

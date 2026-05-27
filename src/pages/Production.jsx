@@ -338,7 +338,7 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, ca
 }
 
 /* ── Image compression helper ───────────────────────── */
-function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.7) {
+function compressImage(file, maxWidth = 2000, maxHeight = 2000, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -394,9 +394,33 @@ function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.7) {
 function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
   const [noteText, setNoteText] = useState("");
   const [file, setFile] = useState(null);
+  const [compressing, setCompressing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(null);
   const fileInputRef = useRef(null);
+
+  async function handleFileChange(e) {
+    const selected = e.target.files[0];
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+
+    if (selected.type.startsWith("image/")) {
+      setCompressing(true);
+      setFile(selected);
+      try {
+        const compressed = await compressImage(selected);
+        setFile(compressed);
+      } catch (err) {
+        console.warn("Image compression failed, using original file:", err);
+      } finally {
+        setCompressing(false);
+      }
+    } else {
+      setFile(selected);
+    }
+  }
 
   async function handleAddNote(e) {
     e.preventDefault();
@@ -407,15 +431,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
 
     try {
       if (file) {
-        let fileToUpload = file;
-        if (file.type.startsWith("image/")) {
-          try {
-            fileToUpload = await compressImage(file);
-          } catch (e) {
-            console.warn("Image compression failed, using original file:", e);
-          }
-        }
-
+        const fileToUpload = file;
         const safeName = fileToUpload.name.replace(/[^a-zA-Z0-9._-]/g, "_");
         const path = `production-notes/${order.id}/${Date.now()}_${safeName}`;
         const fileRef = storageRef(storage, path);
@@ -507,7 +523,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
                     <img
                       src={n.imageUrl}
                       alt="Attachment"
-                      style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 6, border: "1px solid var(--line-strong)", cursor: "zoom-in" }}
+                      style={{ maxWidth: "100%", maxHeight: 600, borderRadius: 6, border: "1px solid var(--line-strong)", cursor: "zoom-in" }}
                     />
                   </a>
                 </div>
@@ -540,7 +556,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
               <img
                 src={URL.createObjectURL(file)}
                 alt="Upload preview"
-                style={{ height: 100, borderRadius: 6, border: "1px solid var(--line-strong)", objectFit: "cover" }}
+                style={{ height: 180, borderRadius: 6, border: "1px solid var(--line-strong)", objectFit: "cover" }}
               />
               <button
                 type="button"
@@ -576,19 +592,20 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
                 <circle cx="8.5" cy="8.5" r="1.5"/>
                 <polyline points="21 15 16 10 5 21"/>
               </svg>
-              {file ? file.name.slice(0, 15) + "..." : "Attach Picture"}
+              {compressing ? "Optimizing image..." : file ? file.name.slice(0, 15) + "..." : "Attach Picture"}
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                onChange={e => setFile(e.target.files[0] || null)}
+                onChange={handleFileChange}
+                disabled={compressing || uploading}
                 style={{ display: "none" }}
               />
             </label>
             <button
               type="submit"
               className="primary-button"
-              disabled={uploading || (!noteText.trim() && !file)}
+              disabled={uploading || compressing || (!noteText.trim() && !file)}
               style={{ fontSize: 10.5, padding: "4px 10px" }}
             >
               {uploading ? "Uploading..." : "Add Note"}
