@@ -337,6 +337,59 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, ca
   );
 }
 
+/* ── Image compression helper ───────────────────────── */
+function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = event => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          blob => {
+            if (!blob) {
+              reject(new Error("Canvas conversion to Blob failed"));
+              return;
+            }
+            const compressedFile = new File([blob], file.name, {
+              type: "image/jpeg",
+              lastModified: Date.now()
+            });
+            resolve(compressedFile);
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+      img.onerror = err => reject(err);
+    };
+    reader.onerror = err => reject(err);
+  });
+}
+
 /* ── Notes and Attachments Section ─────────────────── */
 function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
   const [noteText, setNoteText] = useState("");
@@ -354,10 +407,19 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
 
     try {
       if (file) {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        let fileToUpload = file;
+        if (file.type.startsWith("image/")) {
+          try {
+            fileToUpload = await compressImage(file);
+          } catch (e) {
+            console.warn("Image compression failed, using original file:", e);
+          }
+        }
+
+        const safeName = fileToUpload.name.replace(/[^a-zA-Z0-9._-]/g, "_");
         const path = `production-notes/${order.id}/${Date.now()}_${safeName}`;
         const fileRef = storageRef(storage, path);
-        const task = uploadBytesResumable(fileRef, file);
+        const task = uploadBytesResumable(fileRef, fileToUpload);
         
         await new Promise((resolve, reject) => {
           task.on(
@@ -445,7 +507,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
                     <img
                       src={n.imageUrl}
                       alt="Attachment"
-                      style={{ maxWidth: "100%", maxHeight: 150, borderRadius: 6, border: "1px solid var(--line-strong)", cursor: "zoom-in" }}
+                      style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 6, border: "1px solid var(--line-strong)", cursor: "zoom-in" }}
                     />
                   </a>
                 </div>
@@ -478,7 +540,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
               <img
                 src={URL.createObjectURL(file)}
                 alt="Upload preview"
-                style={{ height: 60, borderRadius: 6, border: "1px solid var(--line-strong)", objectFit: "cover" }}
+                style={{ height: 100, borderRadius: 6, border: "1px solid var(--line-strong)", objectFit: "cover" }}
               />
               <button
                 type="button"
