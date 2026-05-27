@@ -473,6 +473,40 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
               resize: "vertical"
             }}
           />
+          {file && (
+            <div style={{ position: "relative", display: "inline-flex", marginTop: 4, marginBottom: 4, alignSelf: "flex-start" }}>
+              <img
+                src={URL.createObjectURL(file)}
+                alt="Upload preview"
+                style={{ height: 60, borderRadius: 6, border: "1px solid var(--line-strong)", objectFit: "cover" }}
+              />
+              <button
+                type="button"
+                onClick={() => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -6,
+                  background: "var(--danger, #dc2626)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: 16,
+                  height: 16,
+                  fontSize: 10,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: "bold",
+                  lineHeight: 1
+                }}
+                title="Remove image"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <label style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-3)" }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
