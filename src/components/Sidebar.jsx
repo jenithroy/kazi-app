@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { to: "/admin",      label: "Admin",      Icon: Icons.Admin,      group: "biz" },
   { to: "/directors",  label: "Directors",  Icon: Icons.Directors,  group: "biz" },
   { to: "/customers",  label: "Customers",  Icon: Icons.Customers,  group: "biz" },
+  { to: "/messenger",  label: "Messenger",  Icon: Icons.Message,    group: "biz" },
 ];
 
 const GROUPS = [

@@ -7,8 +7,115 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import {
   DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
-  fmtNPR, fmtDate, calcTotals, getNextNumber, statusBadge, fmtCurrency,
+  fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
 } from "../utils/billing.jsx";
+
+/* ── FX rates vs NPR (fallback — overwritten by live fetch) ── */
+const FX_FALLBACK = {
+  USD: 133.5, GBP: 168.0, EUR: 145.0, AUD: 86.0,
+  INR: 1.60,  CNY: 18.4,  SGD: 99.0,  AED: 36.3,
+  CAD: 97.0,  JPY: 0.89,
+};
+
+/* ── Currency Converter Popover ── */
+function FXPopover({ idx, onApply, onClose }) {
+  const [rates, setRates]     = useState(FX_FALLBACK);
+  const [currency, setCurrency] = useState("USD");
+  const [fxAmt, setFxAmt]     = useState("");
+  const [manualRate, setManualRate] = useState(FX_FALLBACK["USD"]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch live rates once on mount
+  useEffect(() => {
+    fetch("https://api.exchangerate-api.com/v4/latest/NPR")
+      .then(r => r.json())
+      .then(data => {
+        // API gives NPR→X, we need X→NPR: invert
+        const live = {};
+        Object.entries(data.rates || {}).forEach(([k, v]) => { if (v) live[k] = 1 / v; });
+        const merged = { ...FX_FALLBACK, ...live };
+        setRates(merged);
+        setManualRate(+(merged[currency] || FX_FALLBACK[currency]).toFixed(4));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  // When currency changes, update manual rate
+  useEffect(() => {
+    setManualRate(+(rates[currency] || FX_FALLBACK[currency]).toFixed(4));
+  }, [currency, rates]);
+
+  const nprResult = fxAmt && Number(fxAmt) > 0 ? Number(fxAmt) * Number(manualRate) : null;
+
+  return (
+    <div className="kbil-fx-pop" onClick={e => e.stopPropagation()}>
+      <div className="kbil-fx-pop-hd">
+        <span>Convert to NPR</span>
+        <button className="kbil-fx-pop-close" onClick={onClose}>✕</button>
+      </div>
+
+      {/* Currency selector */}
+      <div className="kbil-fx-row">
+        <select
+          className="kfin-select kbil-fx-sel"
+          value={currency}
+          onChange={e => setCurrency(e.target.value)}
+        >
+          {Object.keys(FX_FALLBACK).map(c => <option key={c}>{c}</option>)}
+        </select>
+        <input
+          className="kfin-input kbil-fx-amt"
+          type="number" min="0" step="any"
+          placeholder={`Amount in ${currency}`}
+          value={fxAmt}
+          autoFocus
+          onChange={e => setFxAmt(e.target.value)}
+        />
+      </div>
+
+      {/* Exchange rate — editable */}
+      <div className="kbil-fx-rate-row">
+        <span className="kbil-fx-rate-lbl">1 {currency} =</span>
+        <input
+          className="kfin-input kbil-fx-rate-inp"
+          type="number" min="0" step="any"
+          value={manualRate}
+          onChange={e => setManualRate(e.target.value)}
+        />
+        <span className="kbil-fx-rate-lbl">NPR</span>
+        {loading && <span className="kbil-fx-live">fetching…</span>}
+        {!loading && <span className="kbil-fx-live">live ✓</span>}
+      </div>
+
+      {/* Result */}
+      {nprResult != null && (
+        <div className="kbil-fx-result">
+          = <strong>{fmtNPR(nprResult)}</strong>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="kbil-fx-actions">
+        <button
+          className="kbil-btn-primary"
+          style={{ fontSize: 12, padding: "5px 14px" }}
+          disabled={!nprResult}
+          onClick={() => { onApply(idx, nprResult.toFixed(2)); onClose(); }}
+        >
+          Apply to Rate
+        </button>
+        <button
+          className="kbil-btn-ghost"
+          style={{ fontSize: 12, padding: "5px 12px" }}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /* ══════════════════════════════════════════════════════
    BILLING PAGE — VAT Invoice · Challan · Quotation
@@ -28,6 +135,7 @@ function Billing() {
   const [submitting, setSubmitting] = useState(false);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [editingId, setEditingId]   = useState(null);   // doc id when editing, null when creating
+  const [fxPopover, setFxPopover]   = useState(null);   // row idx with popover open, or null
 
   const [showCancelled, setShowCancelled] = useState(false);
 
@@ -465,8 +573,34 @@ function Billing() {
                     <input className="kfin-input" type="text" value={item.description} placeholder="Item or service" onChange={e => updateItem(idx, "description", e.target.value)} />
                     <input className="kfin-input" type="number" min="0" step="any" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} />
                     <input className="kfin-input" type="text" value={item.unit} placeholder="Pcs" onChange={e => updateItem(idx, "unit", e.target.value)} />
-                    <input className="kfin-input" type="number" min="0" step="any" value={item.rate} placeholder="0" onChange={e => updateItem(idx, "rate", e.target.value)} />
-                    <span className="kbil-item-amount">{(Number(item.qty || 0) * Number(item.rate || 0)).toLocaleString(form.currency === "GBP" ? "en-GB" : "en-IN", { minimumFractionDigits: 2 })}</span>
+                    {/* Rate with FX converter button */}
+                    <div style={{ position: "relative" }}>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <input
+                          className="kfin-input"
+                          type="number" min="0" step="any"
+                          value={item.rate} placeholder="0"
+                          onChange={e => updateItem(idx, "rate", e.target.value)}
+                          style={{ flex: 1, minWidth: 0 }}
+                        />
+                        <button
+                          type="button"
+                          className="kbil-fx-trigger"
+                          title="Convert from foreign currency"
+                          onClick={() => setFxPopover(fxPopover === idx ? null : idx)}
+                        >
+                          ⇄
+                        </button>
+                      </div>
+                      {fxPopover === idx && (
+                        <FXPopover
+                          idx={idx}
+                          onApply={(i, val) => updateItem(i, "rate", val)}
+                          onClose={() => setFxPopover(null)}
+                        />
+                      )}
+                    </div>
+                    <span className="kbil-item-amount">{(Number(item.qty || 0) * Number(item.rate || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                     <button type="button" className="kbil-item-del" disabled={form.items.length <= 1} onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}>×</button>
                   </div>
                 ))}

@@ -13,6 +13,7 @@ import Employees from "./pages/Employees";
 import AdminPanel from "./pages/AdminPanel";
 import Directors from "./pages/Directors";
 import Customers from "./pages/Customers";
+import Messenger from "./pages/Messenger";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
         <Route path="/employees" element={<Employees />} />
         <Route path="/directors" element={<Directors />} />
         <Route path="/customers" element={<Customers />} />
+        <Route path="/messenger" element={<Messenger />} />
         <Route path="/accounting" element={<Navigate to="/finance" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

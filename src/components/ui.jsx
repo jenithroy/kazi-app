@@ -203,4 +203,5 @@ export const Icons = {
   Menu:       (p) => <Ico {...p} d="M4 6h16M4 12h16M4 18h16"/>,
   Directors:  (p) => <Ico {...p} s={<><path d="M3 21V7a2 2 0 012-2h14a2 2 0 012 2v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h2M13 10h2M9 14h2"/></>}/>,
   Customers:  (p) => <Ico {...p} s={<><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>}/>,
+  Message:    (p) => <Ico {...p} s={<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>}/>,
 };

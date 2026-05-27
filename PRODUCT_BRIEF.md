@@ -180,7 +180,7 @@ The UI should surface the GBP rate visibly somewhere on finance screens (e.g. "A
 
 **No multi-site selector needed.** No tenant switching. No line/shift selector. Everything is for one factory, one team.
 
-The app is deployed on Netlify (static hosting) backed by Firebase (Firestore + Storage + Auth). There is no backend server — all logic runs client-side in React.
+The app is deployed as a static web application backed by Firebase (Firestore + Storage + Auth). There is no backend server — all logic runs client-side in React.
 
 ---
 

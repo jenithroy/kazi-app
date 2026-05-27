@@ -8,6 +8,7 @@ import { todayDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate } from "../constants";
 import { Pill, Icons, cn } from "../components/ui";
+import ClockInCard from "../components/ClockInCard";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const STATUS_OPTIONS = ["Present", "Absent", "Late", "Half-day", "Leave"];
@@ -36,155 +37,7 @@ function toLocalISOString(date) {
   return d.toISOString().slice(0, 10);
 }
 
-/* ─── Employee GPS Clock-in Card ──────────────────── */
-function ClockInCard({ profile, today, alreadyClockedIn }) {
-  const [status,     setStatus]     = useState(alreadyClockedIn ? "success" : "idle");
-  const [distanceM,  setDistanceM]  = useState(null);
-  const [clockedAt,  setClockedAt]  = useState(
-    alreadyClockedIn?.clockedInAt?.toDate
-      ? `${String(alreadyClockedIn.clockedInAt.toDate().getHours()).padStart(2,"0")}:${String(alreadyClockedIn.clockedInAt.toDate().getMinutes()).padStart(2,"0")}`
-      : null
-  );
 
-  useEffect(() => {
-    if (alreadyClockedIn) return;
-    checkProximity();
-  }, []);
-
-  function checkProximity() {
-    if (!navigator.geolocation) { setStatus("error"); return; }
-    setStatus("checking");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        if (accuracy > GPS_ACCURACY_THRESHOLD_M) { setStatus("low-accuracy"); return; }
-        const dist = haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng);
-        setDistanceM(Math.round(dist));
-        setStatus(dist <= GEOFENCE_RADIUS_M ? "in-range" : "outside");
-      },
-      (err) => setStatus(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  }
-
-  async function handleClockIn() {
-    if (!navigator.geolocation) { setStatus("error"); return; }
-    setStatus("locating");
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        if (accuracy > GPS_ACCURACY_THRESHOLD_M) { setStatus("low-accuracy"); return; }
-        const dist = haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng);
-        setDistanceM(Math.round(dist));
-
-        if (dist > GEOFENCE_RADIUS_M) { setStatus("outside"); return; }
-
-        try {
-          const staffId = profile?.uid || profile?.id || "";
-
-          const existing = await getDocs(query(
-            collection(db, "clock_ins"),
-            where("staffId", "==", staffId),
-            where("date", "==", today)
-          ));
-          if (!existing.empty) {
-            const prev = existing.docs[0].data();
-            setClockedAt(
-              prev.clockedInAt?.toDate
-                ? `${String(prev.clockedInAt.toDate().getHours()).padStart(2,"0")}:${String(prev.clockedInAt.toDate().getMinutes()).padStart(2,"0")}`
-                : "earlier"
-            );
-            setStatus("success");
-            return;
-          }
-
-          await addDoc(collection(db, "clock_ins"), {
-            staffId,
-            staffName: profile?.name || "Unknown",
-            role: profile?.jobRole || profile?.role || "",
-            date: today, lat: latitude, lng: longitude,
-            accuracyM: Math.round(accuracy),
-            distanceToSiteM: Math.round(dist),
-            clockedInAt: serverTimestamp(),
-          });
-
-          const now = new Date();
-          const statusCalc = calculateAttendanceStatus(profile?.name || "", now);
-          const autoStatus = statusCalc.status;
-          const lateCutApplied = statusCalc.lateCutApplied;
-          const lateMinutes = statusCalc.lateMinutes;
-
-          const attRef = doc(db, "attendance", `${today}_${staffId}`);
-          await setDoc(attRef, {
-            date: today, staffId,
-            staffName: profile?.name || "Unknown",
-            role: profile?.jobRole || profile?.role || "",
-            status: autoStatus, hours: 8,
-            note: "GPS clock-in", loggedBy: "GPS",
-            createdAt: serverTimestamp(),
-            lateCutApplied,
-            lateMinutes,
-          }, { merge: true });
-
-          setClockedAt(`${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`);
-          setStatus("success");
-        } catch { setStatus("error"); }
-      },
-      (err) => setStatus(err.code === err.PERMISSION_DENIED ? "denied" : "error"),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  }
-
-  const isError = ["outside", "error", "denied", "low-accuracy"].includes(status);
-  const isInRange = status === "in-range";
-
-  return (
-    <div className="kazi-card" style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, textAlign: "center" }}>
-      <div style={{ position: "relative", width: 80, height: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {(status === "locating" || status === "checking") && (
-          <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid var(--mint-2)", animation: "ring-expand 1.2s ease-out infinite" }} />
-        )}
-        <div style={{
-          width: 64, height: 64, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-          background: status === "success" ? "var(--mint-soft)" : isInRange ? "var(--mint-soft)" : isError ? "var(--terra-soft)" : "var(--bg-2)",
-          border: `2px solid ${status === "success" || isInRange ? "var(--mint-2)" : isError ? "var(--terra)" : "var(--line-strong)"}`,
-          transition: "all .3s",
-        }}>
-          {(status === "success" || isInRange) && <Icons.Check size={26} sw={2.5} style={{ color: "var(--mint-deep)" }} />}
-          {isError                              && <Icons.Alert size={24} style={{ color: "var(--terra)" }} />}
-          {(status === "idle" || status === "locating" || status === "checking") && <Icons.MapPin size={24} style={{ color: "var(--ink-3)" }} />}
-        </div>
-      </div>
-
-      <div>
-        <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 600 }}>GPS Clock-In</h3>
-        <p style={{ margin: 0, fontSize: 13, color: "var(--ink-3)" }}>
-          {status === "idle"         && `Must be within ${GEOFENCE_RADIUS_M}m of ${WORK_SITE.name}`}
-          {status === "checking"     && "Checking your location…"}
-          {status === "in-range"     && `You're ${distanceM}m from the office — ready to clock in`}
-          {status === "locating"     && "Verifying location and clocking in…"}
-          {status === "success"      && `Clocked in at ${clockedAt} · verified`}
-          {status === "outside"      && `You're ${distanceM != null ? `${distanceM}m` : "too far"} from the office — must be within ${GEOFENCE_RADIUS_M}m`}
-          {status === "denied"       && "Location access denied — enable GPS in browser settings"}
-          {status === "error"        && "Could not get location — check device GPS and retry"}
-          {status === "low-accuracy" && `GPS signal too weak (>${GPS_ACCURACY_THRESHOLD_M}m) — try again outdoors`}
-        </p>
-      </div>
-
-      {status === "success" ? (
-        <button className="primary-button" disabled style={{ padding: "12px 40px", fontSize: 14 }}>✓ Clocked In</button>
-      ) : isInRange ? (
-        <button className="primary-button" onClick={handleClockIn} style={{ padding: "12px 40px", fontSize: 14 }}>Clock In Now</button>
-      ) : status === "locating" ? (
-        <button className="primary-button" disabled style={{ padding: "12px 40px", fontSize: 14 }}>Verifying…</button>
-      ) : isError ? (
-        <button className="ghost-button" onClick={checkProximity} style={{ padding: "10px 32px", fontSize: 13 }}>Retry</button>
-      ) : (
-        <button className="primary-button" disabled style={{ padding: "12px 40px", fontSize: 14, opacity: 0.45, cursor: "not-allowed" }}>Clock In Now</button>
-      )}
-    </div>
-  );
-}
 
 /* ─── Monthly Calendar View Component ──────────────── */
 function MonthCalendar({ currentMonthDate, setCurrentMonthDate, selectedDate, setSelectedDate, monthRecords }) {
@@ -367,7 +220,7 @@ function Attendance() {
             <div><h2>Attendance</h2><p>Your daily log · {new Date(today).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div>
           </div>
 
-          <ClockInCard profile={profile} today={today} alreadyClockedIn={myClockIn || null} />
+          <ClockInCard profile={profile} onClockChange={loadAll} />
 
           {myRow && (
             <div className="kazi-card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>

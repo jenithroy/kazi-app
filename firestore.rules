@@ -33,6 +33,9 @@ service cloud.firestore {
       allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
+    match /clock_ins/{id} {
+      allow create, update: if isSignedIn();
+    }
     match /production/{id} {
       allow create, update: if isNepalStaff() || isSuperAdmin();
       allow delete: if false;
@@ -114,6 +117,12 @@ service cloud.firestore {
     }
     match /employees/{id} {
       allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+    }
+
+    // This allows the Cloudflare worker to write to the 'messages' collection
+    match /messages/{document=**} {
+      allow write: if true;
+      allow read: if true; // (Update this later to restrict who can read them)
     }
   }
 }

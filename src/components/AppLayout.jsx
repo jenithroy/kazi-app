@@ -16,6 +16,7 @@ const ROUTE_LABEL = {
   content:    "Budget Requests",
   employees:  "Employee and HR",
   admin:      "Admin Panel",
+  messenger:  "Messenger Chat",
 };
 
 function Topbar({ collapsed, onMobileMenuToggle }) {

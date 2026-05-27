@@ -2403,6 +2403,73 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 .kbil-badge--danger  { background: var(--terra-soft); color: var(--terra); }
 .kbil-badge--partial { background: var(--amber-soft); color: #7c4d00; }
 
+/* ── FX Currency Converter ── */
+.kbil-fx-trigger {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--mint-deep);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.kbil-fx-trigger:hover { background: var(--mint-soft); border-color: var(--mint-2); }
+
+.kbil-fx-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  width: 290px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18);
+}
+.kbil-fx-pop-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px; font-weight: 700; color: var(--ink-1);
+}
+.kbil-fx-pop-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-4); font-size: 14px; line-height: 1; padding: 2px 4px;
+}
+.kbil-fx-pop-close:hover { color: var(--terra); }
+
+.kbil-fx-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.kbil-fx-sel { width: 80px !important; flex-shrink: 0; }
+.kbil-fx-amt { flex: 1; min-width: 0; }
+
+.kbil-fx-rate-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; margin-bottom: 8px;
+}
+.kbil-fx-rate-lbl { color: var(--ink-3); white-space: nowrap; }
+.kbil-fx-rate-inp { width: 90px !important; font-size: 12px !important; padding: 4px 8px !important; }
+.kbil-fx-live {
+  font-size: 10px; color: var(--mint-deep);
+  background: var(--mint-soft); border-radius: 4px;
+  padding: 1px 5px; margin-left: auto;
+}
+
+.kbil-fx-result {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px; color: var(--ink-2);
+  margin-bottom: 10px;
+  text-align: center;
+  letter-spacing: .01em;
+}
+.kbil-fx-result strong { color: var(--mint-deep); font-size: 15px; }
+
+.kbil-fx-actions { display: flex; gap: 8px; }
+
 /* ── Table action buttons ── */
 .kbil-tbl-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .kbil-tbl-btn {

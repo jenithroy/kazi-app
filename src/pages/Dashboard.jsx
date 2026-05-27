@@ -8,6 +8,7 @@ import { todayDate, startOfWeekDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
 import { AreaChart, AttendanceRing, ProductionPipeline, QCDial, Donut, Bars } from "../components/viz";
+import ClockInCard from "../components/ClockInCard";
 
 /* ── Helpers ─────────────────────────────────────────── */
 function getLast6Months() {
@@ -596,146 +597,38 @@ function BudgetApprovalCard({ br }) {
 function EmployeeDash() {
   const { profile } = useAuth();
   const [data, setData] = useState(null);
-  const [clockPhase, setClockPhase] = useState("idle");
-  const [clockDist, setClockDist] = useState(null);
-  const [clockCoords, setClockCoords] = useState(null); // { lat, lng, accuracy }
-  const [clockTime, setClockTime] = useState(new Date());
-  const [clockInDocId, setClockInDocId] = useState(null); // for clock-out updates
+
+  async function load() {
+    const today = todayDate();
+    const name = profile?.name || "";
+    const results = await Promise.allSettled([
+      getDocs(query(collection(db, "attendance"), where("date", "==", today))),
+      getDocs(collection(db, "tasks")),
+    ]);
+    const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
+    const [attSnap, tasksSnap] = results.map(docs);
+    const myRecord = attSnap.map(d => d.data()).find(r => r.staffName === name);
+    const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
+    const myTasks = tasks.filter(t => (t.assignee || "").toLowerCase() === name.toLowerCase());
+
+    // Month attendance — real data from Firestore
+    let allAtt = [];
+    try { allAtt = (await getDocs(collection(db, "attendance"))).docs.map(d => d.data()).filter(r => r.staffName === name); } catch (_) {}
+
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const monthAtt = allAtt.filter(r => r.date?.slice(0, 7) === monthKey);
+    const counts = {
+      present: monthAtt.filter(r => r.status === "Present").length,
+      late:    monthAtt.filter(r => r.status === "Late").length,
+      leave:   monthAtt.filter(r => r.status === "Leave").length,
+    };
+    setData({ myRecord, myTasks, counts, monthAtt });
+  }
 
   useEffect(() => {
-    const t = setInterval(() => setClockTime(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    async function load() {
-      const today = todayDate();
-      const name = profile?.name || "";
-      const staffId = profile?.uid || profile?.id || "";
-      const results = await Promise.allSettled([
-        getDocs(query(collection(db, "attendance"), where("date", "==", today))),
-        getDocs(collection(db, "tasks")),
-        getDocs(query(collection(db, "clock_ins"), where("staffId", "==", staffId), where("date", "==", today))),
-      ]);
-      const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-      const [attSnap, tasksSnap, clockSnap] = results.map(docs);
-      const myRecord = attSnap.map(d => d.data()).find(r => r.staffName === name);
-      const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
-      const myTasks = tasks.filter(t => (t.assignee || "").toLowerCase() === name.toLowerCase());
-
-      // Check if already clocked in today
-      if (clockSnap.length > 0) {
-        setClockInDocId(clockSnap[0].id);
-        const ci = clockSnap[0].data();
-        setClockDist(ci.distanceToSiteM ?? null);
-        setClockPhase(ci.clockedOutAt ? "idle" : "clocked");
-      }
-
-      // Month attendance — real data from Firestore
-      let allAtt = [];
-      try { allAtt = (await getDocs(collection(db, "attendance"))).docs.map(d => d.data()).filter(r => r.staffName === name); } catch (_) {}
-
-      const now = new Date();
-      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const monthAtt = allAtt.filter(r => r.date?.slice(0, 7) === monthKey);
-      const counts = {
-        present: monthAtt.filter(r => r.status === "Present").length,
-        late:    monthAtt.filter(r => r.status === "Late").length,
-        leave:   monthAtt.filter(r => r.status === "Leave").length,
-      };
-      setData({ myRecord, myTasks, counts, monthAtt });
-    }
     load().catch(console.error);
   }, [profile]);
-
-  const RADIUS = GEOFENCE_RADIUS_M;
-  const ringPct = clockDist == null ? 0 : Math.max(0, Math.min(100, (1 - clockDist / RADIUS) * 100));
-
-  const startClock = () => {
-    if (!navigator.geolocation) { setClockDist(9999); setClockPhase("far"); return; }
-    setClockPhase("locating");
-    setClockDist(null);
-    setClockCoords(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-
-        // Reject unreliable GPS readings
-        if (accuracy > GPS_ACCURACY_THRESHOLD_M) {
-          setClockDist(9999);
-          setClockPhase("low-accuracy");
-          return;
-        }
-
-        const dist = Math.round(haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng));
-        setClockDist(dist);
-        setClockCoords({ lat: latitude, lng: longitude, accuracy: Math.round(accuracy) });
-        setClockPhase(dist > RADIUS ? "far" : "success");
-      },
-      () => { setClockDist(9999); setClockPhase("far"); },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  };
-
-  const confirmClockIn = async () => {
-    const staffId = profile?.uid || profile?.id || "";
-    const today = todayDate();
-    try {
-      // Prevent duplicate clock-ins
-      const existing = await getDocs(query(
-        collection(db, "clock_ins"),
-        where("staffId", "==", staffId),
-        where("date", "==", today)
-      ));
-      if (!existing.empty) {
-        setClockInDocId(existing.docs[0].id);
-        setClockPhase("clocked");
-        return;
-      }
-
-      const clockRef = await addDoc(collection(db, "clock_ins"), {
-        staffId,
-        staffName:       profile?.name || "Unknown",
-        role:            profile?.jobRole || profile?.role || "",
-        date:            today,
-        lat:             clockCoords?.lat ?? null,
-        lng:             clockCoords?.lng ?? null,
-        accuracyM:       clockCoords?.accuracy ?? null,
-        distanceToSiteM: clockDist,
-        clockedInAt:     serverTimestamp(),
-      });
-      setClockInDocId(clockRef.id);
-
-      // Auto-sync: create/update attendance record
-      const hour = new Date().getHours();
-      const autoStatus = hour >= 10 ? "Late" : "Present";
-      const attRef = doc(db, "attendance", `${today}_${staffId}`);
-      await setDoc(attRef, {
-        date: today,
-        staffId,
-        staffName: profile?.name || "Unknown",
-        role: profile?.jobRole || profile?.role || "",
-        status: autoStatus,
-        hours: 8,
-        note: "GPS clock-in",
-        loggedBy: "GPS",
-        createdAt: serverTimestamp(),
-      }, { merge: true });
-    } catch (_) { /* still mark UI as clocked */ }
-    setClockPhase("clocked");
-  };
-
-  const handleClockOut = async () => {
-    if (clockInDocId) {
-      try {
-        const ref = doc(db, "clock_ins", clockInDocId);
-        await setDoc(ref, { clockedOutAt: serverTimestamp() }, { merge: true });
-      } catch (_) { /* best-effort */ }
-    }
-    setClockPhase("idle");
-    setClockDist(null);
-    setClockCoords(null);
-  };
 
   if (!data) return <Loading />;
 
@@ -743,128 +636,7 @@ function EmployeeDash() {
     <AppLayout>
       <div className="kdash fade-in">
         {/* Clock-in hero */}
-        <Card pad={false} className="kem-clock">
-          <div className="kem-clock-grid">
-            {/* Ring */}
-            <div className="kem-clock-ring">
-              <div className="kem-clock-rings">
-                <svg viewBox="0 0 200 200" width="200" height="200">
-                  <defs>
-                    <linearGradient id="clk-g" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="var(--mint)" />
-                      <stop offset="100%" stopColor="var(--mint-deep)" />
-                    </linearGradient>
-                  </defs>
-                  <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(15,46,34,.06)" strokeWidth="3" strokeDasharray="3 4"/>
-                  {clockPhase !== "idle" && (
-                    <circle cx="100" cy="100" r="78" fill="none"
-                      stroke={clockPhase === "far" ? "var(--terra)" : "url(#clk-g)"} strokeWidth="10"
-                      strokeDasharray={`${(ringPct/100)*490} 490`} strokeLinecap="round"
-                      transform="rotate(-90 100 100)" style={{ transition: "stroke-dasharray .6s ease" }}/>
-                  )}
-                  {clockPhase === "locating" && (
-                    <circle cx="100" cy="100" r="60" fill="none" stroke="var(--mint)" strokeWidth="2"
-                      strokeDasharray="20 380" style={{ transformOrigin: "100px 100px", animation: "spin 1.2s linear infinite" }}/>
-                  )}
-                  <circle cx="100" cy="100" r="64" fill="#fff"/>
-                </svg>
-                <div className="kem-clock-inner">
-                  {clockPhase === "idle"     && <><Icons.MapPin size={24} sw={1.8}/><div className="kem-clock-inner-l">Ready to clock in</div></>}
-                  {clockPhase === "locating" && <><Icons.Crosshair size={26} sw={1.8}/><div className="kem-clock-inner-l">Locating…</div></>}
-                  {clockPhase === "success"  && <><div className="num-xl mono" style={{fontSize:26,color:"var(--mint-deep)"}}>{clockDist}m</div><div className="kem-clock-inner-l">from workshop</div></>}
-                  {clockPhase === "far"      && <><div className="num-xl mono" style={{fontSize:22,color:"var(--terra)"}}>{(clockDist/1000).toFixed(2)}km</div><div className="kem-clock-inner-l">out of range</div></>}
-                  {clockPhase === "clocked"  && <><Icons.Check size={28} sw={2.2} style={{color:"var(--mint-deep)"}}/><div className="kem-clock-inner-l">Clocked in</div></>}
-                </div>
-              </div>
-            </div>
-
-            {/* Side */}
-            <div className="kem-clock-side">
-              <div className="kem-clock-head">
-                <div>
-                  <div className="kem-clock-name">Hi {profile?.name?.split(" ")[0]},</div>
-                  <div className="kem-clock-time">
-                    <span className="num-xl mono" style={{fontSize:32}}>{clockTime.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</span>
-                    <span className="kem-clock-zone">Kathmandu</span>
-                  </div>
-                </div>
-                <div className="kem-clock-geo">
-                  <Icons.Wifi size={14} sw={1.8}/>
-                  <span>GPS · Geofence {RADIUS}m</span>
-                </div>
-              </div>
-
-              {clockPhase === "idle" && (
-                <>
-                  <p className="kem-clock-msg">Tap to verify you're at the workshop. Clock-in is GPS-checked and your time is stamped server-side.</p>
-                  <div className="kem-clock-actions">
-                    <Btn kind="mint" size="lg" icon={<Icons.MapPin size={16} sw={2}/>} onClick={startClock}>Clock in</Btn>
-                  </div>
-                </>
-              )}
-              {clockPhase === "locating" && (
-                <div className="kem-clock-actions"><Btn kind="soft" size="lg" disabled>Locating…</Btn></div>
-              )}
-              {clockPhase === "success" && (
-                <>
-                  <div className="kem-clock-banner kem-clock-banner--ok">
-                    <Icons.Check size={18} sw={2.2}/>
-                    <div>
-                      <div>You're at the workshop.</div>
-                      <span><strong className="mono">{clockDist}m</strong> from the office · within {RADIUS}m geofence</span>
-                    </div>
-                  </div>
-                  <div className="kem-clock-actions">
-                    <Btn kind="ghost" size="md" onClick={() => { setClockPhase("idle"); setClockDist(null); }}>Cancel</Btn>
-                    <Btn kind="mint" size="lg" icon={<Icons.Check size={16} sw={2.2}/>} onClick={confirmClockIn}>Confirm clock-in</Btn>
-                  </div>
-                </>
-              )}
-              {clockPhase === "far" && (
-                <>
-                  <div className="kem-clock-banner kem-clock-banner--err">
-                    <Icons.Alert size={18}/>
-                    <div>
-                      <div>You're outside the workshop geofence.</div>
-                      <span>You are <strong className="mono">{(clockDist/1000).toFixed(2)}km</strong> away. Move within {RADIUS}m to clock in.</span>
-                    </div>
-                  </div>
-                  <div className="kem-clock-actions">
-                    <Btn kind="soft" size="md" onClick={() => { setClockPhase("idle"); setClockDist(null); }}>Try again</Btn>
-                  </div>
-                </>
-              )}
-              {clockPhase === "low-accuracy" && (
-                <>
-                  <div className="kem-clock-banner kem-clock-banner--err">
-                    <Icons.Alert size={18}/>
-                    <div>
-                      <div>GPS signal too weak</div>
-                      <span>Accuracy worse than <strong className="mono">{GPS_ACCURACY_THRESHOLD_M}m</strong>. Move outdoors or wait for a better signal.</span>
-                    </div>
-                  </div>
-                  <div className="kem-clock-actions">
-                    <Btn kind="soft" size="md" onClick={() => { setClockPhase("idle"); setClockDist(null); }}>Try again</Btn>
-                  </div>
-                </>
-              )}
-              {clockPhase === "clocked" && (
-                <>
-                  <div className="kem-clock-banner kem-clock-banner--ok">
-                    <Icons.Check size={18} sw={2.2}/>
-                    <div>
-                      <div>Clocked in at <strong className="mono">{clockTime.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</strong></div>
-                      <span>Have a productive day, {profile?.name?.split(" ")[0]}.</span>
-                    </div>
-                  </div>
-                  <div className="kem-clock-actions">
-                    <Btn kind="outline" size="md" onClick={handleClockOut}>Clock out</Btn>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </Card>
+        <ClockInCard profile={profile} onClockChange={load} />
 
         {/* Tasks + Attendance */}
         <div className="kgrid kgrid--2-3">

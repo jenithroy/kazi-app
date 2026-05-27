@@ -6,7 +6,9 @@ import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
-import { db } from "../firebase";
+import { db, storage } from "../firebase";
+import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { useRef } from "react";
 import { todayDate } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
@@ -46,6 +48,34 @@ const FABRIC_TYPES = [
   "Terry Cotton", "Chinese Terry Fabric", "Rib Fabric", "Fleece", "Jersey",
   "Denim", "Linen", "Polyester Blend", "Other"
 ];
+
+function parseInvoiceDescription(desc) {
+  let styleName = desc || "";
+  let fabricType = "Terry Cotton";
+  let colorway = "";
+
+  const colorMatch = desc.match(/\(([^)]+)\)$/);
+  let baseDesc = desc;
+  if (colorMatch) {
+    colorway = colorMatch[1];
+    baseDesc = desc.replace(/\s*\([^)]+\)$/, "");
+  }
+
+  const parts = baseDesc.split(/\s*(?:—|-)\s*/);
+  if (parts.length > 1) {
+    styleName = parts[0].trim();
+    const fabricCandidate = parts[1].trim();
+    if (FABRIC_TYPES.includes(fabricCandidate)) {
+      fabricType = fabricCandidate;
+    } else {
+      fabricType = "Other";
+    }
+  } else {
+    styleName = baseDesc.trim();
+  }
+
+  return { styleName, fabricType, colorway };
+}
 
 const emptyOrderForm = {
   date: todayDate(),
@@ -233,7 +263,7 @@ function orderStatusBadge(status) {
 }
 
 /* ── Pipeline card ────────────────────────────────────── */
-function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, canEdit }) {
+function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, canEdit, profile, onUpdate }) {
   const pri = orderPriority(order);
   const pct = stageProgress(order.stage);
 
@@ -295,7 +325,185 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, ca
               >{STAGES.indexOf(order.stage) === STAGES.length - 2 ? "Deliver" : "Next →"}</button>
             </div>
           )}
+          <OrderNotesSection
+            order={order}
+            canEdit={canEdit}
+            profile={profile}
+            onUpdate={onUpdate}
+          />
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Notes and Attachments Section ─────────────────── */
+function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
+  const [noteText, setNoteText] = useState("");
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const fileInputRef = useRef(null);
+
+  async function handleAddNote(e) {
+    e.preventDefault();
+    if (!noteText.trim() && !file) return;
+    setUploading(true);
+    let imageUrl = null;
+    let storagePath = null;
+
+    try {
+      if (file) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `production-notes/${order.id}/${Date.now()}_${safeName}`;
+        const fileRef = storageRef(storage, path);
+        const task = uploadBytesResumable(fileRef, file);
+        
+        await new Promise((resolve, reject) => {
+          task.on(
+            "state_changed",
+            snap => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+            reject,
+            resolve
+          );
+        });
+        
+        imageUrl = await getDownloadURL(fileRef);
+        storagePath = path;
+      }
+
+      const newNote = {
+        id: `note_${Date.now()}`,
+        text: noteText.trim(),
+        date: todayDate(),
+        by: profile?.name || "Unknown",
+        ...(imageUrl ? { imageUrl, storagePath } : {})
+      };
+
+      const updatedNotes = [...(order.notesList || []), newNote];
+      await updateDoc(doc(db, "orders", order.id), { notesList: updatedNotes });
+      setNoteText("");
+      setFile(null);
+      setProgress(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      console.error("Failed to add note:", err);
+      alert("Failed to add note: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteNote(noteId, storagePath) {
+    if (!window.confirm("Are you sure you want to delete this note?")) return;
+    try {
+      if (storagePath) {
+        try {
+          await deleteObject(storageRef(storage, storagePath));
+        } catch (e) {
+          console.warn("Storage file delete failed or didn't exist:", e);
+        }
+      }
+      const updatedNotes = (order.notesList || []).filter(n => n.id !== noteId);
+      await updateDoc(doc(db, "orders", order.id), { notesList: updatedNotes });
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      console.error("Failed to delete note:", err);
+      alert("Failed to delete note: " + err.message);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12, borderTop: "1px dashed var(--line-strong)", paddingTop: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>
+        Notes &amp; Attachments
+      </div>
+
+      {/* Notes List */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+        {(!order.notesList || order.notesList.length === 0) ? (
+          <span style={{ fontSize: 11, color: "var(--ink-4)", fontStyle: "italic" }}>No notes added yet.</span>
+        ) : (
+          order.notesList.map(n => (
+            <div key={n.id} style={{ background: "var(--bg-surface-soft, #f8faf8)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-4)", fontSize: 10, marginBottom: 4 }}>
+                <span><strong>{n.by}</strong> · {n.date}</span>
+                {canEdit && (
+                  <button
+                    onClick={() => handleDeleteNote(n.id, n.storagePath)}
+                    style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: 10, padding: 0 }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+              {n.text && <div style={{ color: "var(--ink)", whiteSpace: "pre-wrap" }}>{n.text}</div>}
+              {n.imageUrl && (
+                <div style={{ marginTop: 6 }}>
+                  <a href={n.imageUrl} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={n.imageUrl}
+                      alt="Attachment"
+                      style={{ maxWidth: "100%", maxHeight: 150, borderRadius: 6, border: "1px solid var(--line-strong)", cursor: "zoom-in" }}
+                    />
+                  </a>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Add Note Form */}
+      {canEdit && (
+        <form onSubmit={handleAddNote} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <textarea
+            placeholder="Write a note..."
+            value={noteText}
+            onChange={e => setNoteText(e.target.value)}
+            rows={2}
+            style={{
+              width: "100%",
+              borderRadius: 6,
+              border: "1px solid var(--line-strong)",
+              padding: "6px 8px",
+              fontSize: 11.5,
+              fontFamily: "var(--font)",
+              resize: "vertical"
+            }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <label style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-3)" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+              {file ? file.name.slice(0, 15) + "..." : "Attach Picture"}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={e => setFile(e.target.files[0] || null)}
+                style={{ display: "none" }}
+              />
+            </label>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={uploading || (!noteText.trim() && !file)}
+              style={{ fontSize: 10.5, padding: "4px 10px" }}
+            >
+              {uploading ? "Uploading..." : "Add Note"}
+            </button>
+          </div>
+          {progress !== null && (
+            <div style={{ height: 3, background: "var(--line)", borderRadius: 3, overflow: "hidden", marginTop: 2 }}>
+              <div style={{ height: "100%", width: `${progress}%`, background: "var(--accent)" }} />
+            </div>
+          )}
+        </form>
       )}
     </div>
   );
@@ -334,6 +542,56 @@ function Production() {
   const [invoiceModal,    setInvoiceModal]    = useState(null); // order object
   const [savingInvoice,   setSavingInvoice]   = useState(false);
   const [invModalFields,  setInvModalFields]  = useState(emptyInvFields);
+
+  /* ── Recommendation state & helpers ── */
+  const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
+
+  const latestInvoice = useMemo(() => {
+    if (!invoices || invoices.length === 0) return null;
+    const sorted = [...invoices].sort((a, b) => {
+      const timeA = a.createdAt?.seconds || (a.date ? new Date(a.date).getTime() / 1000 : 0);
+      const timeB = b.createdAt?.seconds || (b.date ? new Date(b.date).getTime() / 1000 : 0);
+      return timeB - timeA;
+    });
+    return sorted[0];
+  }, [invoices]);
+
+  useEffect(() => {
+    if (showOrderForm) {
+      setDismissedSuggestion(false);
+    }
+  }, [showOrderForm]);
+
+  function applyInvoiceSuggestion() {
+    if (!latestInvoice) return;
+    const firstItem = latestInvoice.items?.[0] || {};
+    const parsed = parseInvoiceDescription(firstItem.description || "");
+
+    setOrderForm(f => ({
+      ...f,
+      customerName: latestInvoice.clientName || "",
+      styleName: parsed.styleName,
+      fabricType: parsed.fabricType,
+      colorway: parsed.colorway,
+      quantity: firstItem.qty || "",
+      pricePerPcNPR: firstItem.rate || "",
+      invoiceRef: latestInvoice.invoiceNumber || "",
+      notes: latestInvoice.note || "",
+    }));
+
+    if (latestInvoice.clientAddress || latestInvoice.clientPhone || latestInvoice.clientPAN) {
+      setIssueInvoice(true);
+      setInvFields(f => ({
+        ...f,
+        clientAddress: latestInvoice.clientAddress || "",
+        clientPhone: latestInvoice.clientPhone || "",
+        clientPAN: latestInvoice.clientPAN || "",
+        dueDate: latestInvoice.dueDate || dueIn30(todayDate()),
+        applyVAT: latestInvoice.applyVAT ?? true,
+        paymentTerms: latestInvoice.paymentTerms || "Net 30",
+      }));
+    }
+  }
 
   async function loadData() {
     const [batchSnap, orderSnap, empSnap, invSnap] = await Promise.all([
@@ -625,6 +883,8 @@ function Production() {
                         onAdvance={() => advanceStage(order)}
                         onReverse={() => reverseStage(order)}
                         canEdit={canEdit}
+                        profile={profile}
+                        onUpdate={loadData}
                       />
                     ))}
                   </div>
@@ -664,6 +924,79 @@ function Production() {
           {showOrderForm && canEdit && (
             <section className="panel">
               <h3>New Production Order</h3>
+
+              {latestInvoice && !dismissedSuggestion && (
+                <div className="kprod-suggestion-banner" style={{
+                  background: "var(--ok-container)",
+                  border: "1.5px solid var(--ok-container-border)",
+                  borderRadius: "var(--r-card, 10px)",
+                  padding: "14px 18px",
+                  marginBottom: 20,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  boxShadow: "var(--shadow-1)",
+                  animation: "fadeIn 0.2s ease-out"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ok-text)", fontWeight: 600, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      <span style={{ fontSize: "1.1rem" }}>💡</span> Smart Recommendation
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      style={{ padding: "3px 8px", fontSize: 11, border: "none", background: "transparent", color: "var(--ok-text)", opacity: 0.8, cursor: "pointer" }}
+                      onClick={() => setDismissedSuggestion(true)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  
+                  <div style={{ fontSize: 13, color: "var(--ok-text)", lineHeight: 1.4 }}>
+                    Auto-fill order details using the latest invoice <strong>{latestInvoice.invoiceNumber}</strong> for <strong>{latestInvoice.clientName}</strong>:
+                  </div>
+
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                    gap: 12,
+                    fontSize: 12,
+                    color: "var(--ok-text)",
+                    background: "rgba(255, 255, 255, 0.4)",
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    border: "1px solid var(--ok-container-border)"
+                  }}>
+                    <div><strong>Customer:</strong> {latestInvoice.clientName}</div>
+                    {latestInvoice.items?.[0] && (
+                      <>
+                        <div style={{ gridColumn: "span 2" }}><strong>Item:</strong> {latestInvoice.items[0].description}</div>
+                        <div><strong>Qty:</strong> {latestInvoice.items[0].qty?.toLocaleString()} pcs</div>
+                        <div><strong>Rate:</strong> NPR {latestInvoice.items[0].rate?.toLocaleString()}</div>
+                      </>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      style={{
+                        fontSize: 11.5,
+                        padding: "6px 14px",
+                        background: "var(--primary-deep, #1b5e20)",
+                        borderColor: "var(--primary-deep, #1b5e20)",
+                        color: "#fff",
+                        cursor: "pointer"
+                      }}
+                      onClick={applyInvoiceSuggestion}
+                    >
+                      ✓ Apply Recommendation
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <form className="grid-form" onSubmit={submitOrder}>
                 <label>
                   Order Date
@@ -969,6 +1302,12 @@ function Production() {
                             {order.notes}
                           </p>
                         )}
+                        <OrderNotesSection
+                          order={order}
+                          canEdit={canEdit}
+                          profile={profile}
+                          onUpdate={loadData}
+                        />
                       </div>
                     )}
                   </section>

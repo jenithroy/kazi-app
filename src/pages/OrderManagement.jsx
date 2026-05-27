@@ -8,8 +8,13 @@ import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
+import { Icons } from "../components/ui";
 
 const STAGES = ["Ordered", "Cutting", "Sewing", "Printing", "QC", "Shipping", "Delivered"];
+
+const STAGE_TONES = ["neutral", "amber", "terra", "blue", "mint", "blue", "ghost"];
+const TONE_DOT = { neutral: "var(--ink-4)", mint: "var(--mint-2)", terra: "var(--terra)", ghost: "var(--ink-5)", amber: "var(--amber)", blue: "var(--blue)" };
+const TONE_BG  = { neutral: "var(--bg-2)",  mint: "var(--mint-soft)", terra: "var(--terra-soft)", ghost: "var(--bg-2)", amber: "var(--amber-soft)", blue: "var(--blue-soft)" };
 
 const SEED_ORDERS = [
   { customer: "RetailCorp",  item: "T-Shirts",  quantity: 500, currentStage: 1, status: "Active" },
@@ -40,6 +45,7 @@ function OrderManagement() {
   const [newOrder, setNewOrder]   = useState({ customer: "", item: "", quantity: "" });
   const [saving, setSaving]       = useState(false);
   const [confirmId, setConfirmId] = useState(null); // order id awaiting cancel confirm
+  const [viewMode, setViewMode]   = useState("kanban"); // default view mode
 
   /* ── Load from Firestore ── */
   async function loadOrders() {
@@ -90,6 +96,37 @@ function OrderManagement() {
     setSaving(false);
   }
 
+  /* ── Add order directly to stage ── */
+  async function handleAddOrderToStage(customer, item, quantity, stageIdx) {
+    if (!customer.trim() || !item.trim()) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "orders"), {
+        customer:     customer.trim(),
+        item:         item.trim(),
+        quantity:     Number(quantity) || 0,
+        currentStage: stageIdx,
+        status:       stageIdx === STAGES.length - 1 ? "Delivered" : "Active",
+        createdBy:    profile?.name || "Unknown",
+        createdAt:    serverTimestamp(),
+      });
+      await loadOrders();
+    } catch (err) {
+      alert("Failed to create order: " + err.message);
+    }
+    setSaving(false);
+  }
+
+  /* ── Drop order on stage ── */
+  async function handleDropOrder(orderId, stageIdx) {
+    const isDelivered = stageIdx === STAGES.length - 1;
+    await updateDoc(doc(db, "orders", orderId), {
+      currentStage: stageIdx,
+      status: isDelivered ? "Delivered" : "Active",
+    });
+    await loadOrders();
+  }
+
   /* ── Advance / reverse stage ── */
   async function changeStage(order, delta) {
     const next = Math.min(STAGES.length - 1, Math.max(0, order.currentStage + delta));
@@ -136,9 +173,24 @@ function OrderManagement() {
         description="Track active orders through production stages · cancel or remove orders."
       />
 
-      {/* ── Add Order Button ── */}
-      {canEdit && (
-        <div style={{ marginBottom: 20 }}>
+      {/* ── View & Actions Control Row ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div className="tab-row" style={{ margin: 0 }}>
+          <button
+            className={`tab-button ${viewMode === "kanban" ? "active" : ""}`}
+            onClick={() => setViewMode("kanban")}
+          >
+            Board View
+          </button>
+          <button
+            className={`tab-button ${viewMode === "list" ? "active" : ""}`}
+            onClick={() => setViewMode("list")}
+          >
+            List View
+          </button>
+        </div>
+
+        {canEdit && (
           <button
             className="primary-button"
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
@@ -146,8 +198,8 @@ function OrderManagement() {
           >
             {showForm ? "✕ Cancel" : "+ New Order"}
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ── New Order Form ── */}
       {showForm && (
@@ -194,46 +246,76 @@ function OrderManagement() {
 
       {loading && <p style={{ color: "var(--ink-3)" }}>Loading orders…</p>}
 
-      {/* ── Active Orders ── */}
-      {active.length > 0 && (
-        <div className="orders-list" style={{ display: "flex", flexDirection: "column", gap: 30, marginTop: 20 }}>
-          {active.map(order => (
-            <OrderCard
-              key={order.id}
-              order={order}
+      {/* ── Views Rendering ── */}
+      {!loading && viewMode === "kanban" && (
+        <div className="ktasks-board" style={{ gridTemplateColumns: "repeat(7, minmax(220px, 1fr))", overflowX: "auto", paddingBottom: 16, alignItems: "flex-start" }}>
+          {STAGES.map((stage, idx) => (
+            <OrderKanbanColumn
+              key={stage}
+              label={stage}
+              stageIdx={idx}
+              orders={idx === STAGES.length - 1 ? delivered : active.filter(o => o.currentStage === idx)}
               canEdit={canEdit}
-              onAdvance={() => changeStage(order, +1)}
-              onReverse={() => changeStage(order, -1)}
-              onCancel={() => setConfirmId(order.id)}
-              onConfirmCancel={() => cancelOrder(order)}
-              onDismissCancel={() => setConfirmId(null)}
-              confirming={confirmId === order.id}
-              onRemove={null}
+              onAddOrder={handleAddOrderToStage}
+              onDrop={handleDropOrder}
+              onAdvanceCard={(order) => changeStage(order, 1)}
+              onReverseCard={(order) => changeStage(order, -1)}
+              onCancelCard={(id) => setConfirmId(id)}
+              onConfirmCancelCard={(order) => cancelOrder(order)}
+              onDismissCancelCard={() => setConfirmId(null)}
+              confirmingId={confirmId}
+              onRemoveCard={idx === STAGES.length - 1 && canEdit ? (order) => removeOrder(order) : null}
             />
           ))}
         </div>
       )}
 
-      {/* ── Delivered Orders ── */}
-      {delivered.length > 0 && (
-        <div style={{ marginTop: 36 }}>
-          <h3 style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
-            Delivered ({delivered.length})
-          </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {delivered.map(order => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                canEdit={false}
-                onRemove={canEdit ? () => removeOrder(order) : null}
-              />
-            ))}
-          </div>
-        </div>
+      {!loading && viewMode === "list" && (
+        <>
+          {/* ── Active Orders (List View) ── */}
+          {active.length > 0 ? (
+            <div className="orders-list" style={{ display: "flex", flexDirection: "column", gap: 30, marginTop: 20 }}>
+              {active.map(order => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  canEdit={canEdit}
+                  onAdvance={() => changeStage(order, +1)}
+                  onReverse={() => changeStage(order, -1)}
+                  onCancel={() => setConfirmId(order.id)}
+                  onConfirmCancel={() => cancelOrder(order)}
+                  onDismissCancel={() => setConfirmId(null)}
+                  confirming={confirmId === order.id}
+                  onRemove={null}
+                />
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: "var(--ink-3)", marginTop: 20 }}>No active orders. Create one above.</p>
+          )}
+
+          {/* ── Delivered Orders (List View) ── */}
+          {delivered.length > 0 && (
+            <div style={{ marginTop: 36 }}>
+              <h3 style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
+                Delivered ({delivered.length})
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {delivered.map(order => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    canEdit={false}
+                    onRemove={canEdit ? () => removeOrder(order) : null}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* ── Cancelled Orders ── */}
+      {/* ── Cancelled Orders (Visible in both views) ── */}
       {cancelled.length > 0 && (
         <div style={{ marginTop: 36 }}>
           <h3 style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
@@ -260,7 +342,7 @@ function OrderManagement() {
   );
 }
 
-/* ── Order Card ────────────────────────────── */
+/* ── Order Card (List View) ────────────────────────────── */
 function OrderCard({ order, canEdit, onAdvance, onReverse, onCancel, onConfirmCancel, onDismissCancel, confirming, onRestore, onRemove }) {
   const isCancelled = order.status === "Cancelled";
   const isDelivered = order.status === "Delivered";
@@ -295,7 +377,7 @@ function OrderCard({ order, canEdit, onAdvance, onReverse, onCancel, onConfirmCa
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <StatusBadge status={order.status || "Active"} />
 
-          {/* ── Stop / Cancel Process button — always visible on active orders ── */}
+          {/* ── Stop / Cancel Process button ── */}
           {isActive && onCancel && !confirming && (
             <button
               onClick={onCancel}
@@ -309,7 +391,6 @@ function OrderCard({ order, canEdit, onAdvance, onReverse, onCancel, onConfirmCa
                 cursor: "pointer", transition: "background .15s",
               }}
             >
-              {/* Stop icon */}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                 <rect x="4" y="4" width="16" height="16" rx="2" />
               </svg>
@@ -430,6 +511,259 @@ function OrderCard({ order, canEdit, onAdvance, onReverse, onCancel, onConfirmCa
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── Inline Add Order Form (Kanban View) ─────────────────────────── */
+function AddOrderCardForm({ onAdd, onCancel }) {
+  const [customer, setCustomer] = useState("");
+  const [item, setItem] = useState("");
+  const [quantity, setQuantity] = useState("");
+
+  const submit = () => {
+    if (!customer.trim() || !item.trim()) return;
+    onAdd({
+      customer: customer.trim(),
+      item: item.trim(),
+      quantity: Number(quantity) || 0,
+    });
+  };
+
+  return (
+    <div className="ktasks-card" style={{ gap: 8, marginTop: 4 }}>
+      <input
+        autoFocus
+        placeholder="Customer *"
+        value={customer}
+        onChange={e => setCustomer(e.target.value)}
+        style={{ border: "1.5px solid var(--mint-2)", borderRadius: 6, padding: "6px 8px", fontSize: 12, fontFamily: "var(--font)", outline: "none", width: "100%" }}
+        onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter") submit(); }}
+      />
+      <input
+        placeholder="Item *"
+        value={item}
+        onChange={e => setItem(e.target.value)}
+        style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 8px", fontSize: 11.5, fontFamily: "var(--font)", outline: "none", width: "100%" }}
+        onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter") submit(); }}
+      />
+      <input
+        placeholder="Quantity (optional)"
+        type="number"
+        min="1"
+        value={quantity}
+        onChange={e => setQuantity(e.target.value)}
+        style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 8px", fontSize: 11.5, fontFamily: "var(--font)", outline: "none", width: "100%" }}
+        onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter") submit(); }}
+      />
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={submit}
+          style={{ flex: 1, background: "var(--mint-deep)", color: "#fff", border: "none", borderRadius: 6, padding: "7px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)" }}>
+          Add Order
+        </button>
+        <button onClick={onCancel}
+          style={{ background: "transparent", border: "1px solid var(--line-strong)", borderRadius: 6, padding: "7px 10px", fontSize: 11, cursor: "pointer", color: "var(--ink-3)", fontFamily: "var(--font)" }}>
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Order Kanban Card (Kanban View) ────────────────────────────── */
+function OrderKanbanCard({ order, canEdit, onDragStart, onAdvance, onReverse, onCancel, onConfirmCancel, onDismissCancel, confirming, onRemove, onRestore }) {
+  const [hover, setHover] = useState(false);
+  const isCancelled = order.status === "Cancelled";
+  const isDelivered = order.status === "Delivered";
+  const isActive    = !isCancelled && !isDelivered;
+  const shortId = order.id ? `#${order.id.slice(0, 6)}` : "";
+
+  return (
+    <div
+      draggable={canEdit && isActive}
+      onDragStart={onDragStart}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="ktasks-card"
+      style={{
+        cursor: canEdit && isActive ? "grab" : "default",
+        position: "relative",
+        borderLeft: isCancelled ? "3px solid var(--terra)" : isDelivered ? "3px solid var(--blue)" : "3px solid var(--mint-2)",
+        opacity: isCancelled ? 0.6 : 1,
+        transition: "opacity .2s, border-left .2s",
+        padding: "10px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+      }}
+    >
+      <div className="ktasks-card-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>{order.customer}</span>
+        <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>{shortId}</span>
+      </div>
+
+      <div className="ktasks-card-t" style={{ fontSize: 12, color: "var(--ink-2)" }}>
+        {order.quantity ? `${order.quantity} × ` : ""}{order.item}
+      </div>
+
+      {confirming ? (
+        <div style={{
+          marginTop: 6, padding: 6, borderRadius: 6,
+          background: "var(--terra-soft)", border: "1px solid var(--terra)",
+          display: "flex", flexDirection: "column", gap: 6,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--terra)" }}>Stop this order?</span>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              onClick={e => { e.stopPropagation(); onConfirmCancel(); }}
+              style={{ flex: 1, padding: "4px", borderRadius: 4, border: "none", background: "var(--terra)", color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
+            >
+              Yes
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onDismissCancel(); }}
+              style={{ flex: 1, padding: "4px", borderRadius: 4, border: "1px solid var(--terra)", background: "transparent", color: "var(--terra)", fontSize: 10, fontWeight: 600, cursor: "pointer" }}
+            >
+              No
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+          <StatusBadge status={order.status || "Active"} />
+
+          {/* Quick Manual navigation arrows + Stop / Cancel button */}
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            {isActive && canEdit && onReverse && (
+              <button
+                onClick={e => { e.stopPropagation(); onReverse(); }}
+                disabled={order.currentStage === 0}
+                style={{ background: "none", border: "none", padding: 2, cursor: "pointer", color: order.currentStage === 0 ? "var(--ink-5)" : "var(--ink-3)", display: "flex" }}
+                title="Reverse Stage"
+              >
+                <Icons.ChevronLeft size={14} />
+              </button>
+            )}
+
+            {isActive && canEdit && onAdvance && (
+              <button
+                onClick={e => { e.stopPropagation(); onAdvance(); }}
+                disabled={order.currentStage === STAGES.length - 1}
+                style={{ background: "none", border: "none", padding: 2, cursor: "pointer", color: order.currentStage === STAGES.length - 1 ? "var(--ink-5)" : "var(--ink-3)", display: "flex" }}
+                title="Advance Stage"
+              >
+                <Icons.ChevronRight size={14} />
+              </button>
+            )}
+
+            {isActive && canEdit && onCancel && (
+              <button
+                onClick={e => { e.stopPropagation(); onCancel(); }}
+                style={{ background: "none", border: "none", padding: 2, cursor: "pointer", color: "var(--terra)", display: "flex" }}
+                title="Stop / Cancel Order"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
+              </button>
+            )}
+
+            {onRemove && canEdit && (
+              <button
+                onClick={e => { e.stopPropagation(); onRemove(); }}
+                style={{ background: "none", border: "none", padding: 2, cursor: "pointer", color: "var(--terra)", fontSize: 14, lineHeight: 1, display: "flex", alignItems: "center" }}
+                title="Permanently Delete Order"
+              >
+                <Icons.X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Kanban Column (Kanban View) ────────────────────────────────── */
+function OrderKanbanColumn({ label, stageIdx, orders, canEdit, onAddOrder, onDrop, onAdvanceCard, onReverseCard, onCancelCard, onConfirmCancelCard, onDismissCancelCard, confirmingId, onRemoveCard, onRestoreCard }) {
+  const [adding, setAdding] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const tone = STAGE_TONES[stageIdx] || "neutral";
+  const dotColor = TONE_DOT[tone] || "var(--ink-4)";
+  const bgColor = TONE_BG[tone] || "var(--bg-2)";
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const orderId = e.dataTransfer.getData("orderId");
+    if (orderId) {
+      onDrop(orderId, stageIdx);
+    }
+  }
+
+  return (
+    <div
+      className="ktasks-col"
+      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+      style={{
+        background: dragOver ? bgColor : "var(--bg-2)",
+        outline: dragOver ? `2px dashed ${dotColor}` : "none",
+        minHeight: 480,
+        flex: "1 0 220px",
+        maxWidth: 260,
+      }}
+    >
+      <div className="ktasks-col-h" style={{ padding: "4px", display: "flex", alignSelf: "stretch", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
+          <span style={{ fontWeight: 600, fontSize: 12.5, color: "var(--ink-2)" }}>{label}</span>
+        </div>
+        <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 600 }}>{orders.length}</span>
+      </div>
+
+      <div className="ktasks-col-body" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", padding: "4px 0" }}>
+        {orders.map(order => (
+          <OrderKanbanCard
+            key={order.id}
+            order={order}
+            canEdit={canEdit}
+            onDragStart={e => e.dataTransfer.setData("orderId", order.id)}
+            onAdvance={() => onAdvanceCard(order)}
+            onReverse={() => onReverseCard(order)}
+            onCancel={() => onCancelCard(order.id)}
+            onConfirmCancel={() => onConfirmCancelCard(order)}
+            onDismissCancel={onDismissCancelCard}
+            confirming={confirmingId === order.id}
+            onRemove={onRemoveCard ? () => onRemoveCard(order) : null}
+            onRestore={onRestoreCard ? () => onRestoreCard(order) : null}
+          />
+        ))}
+
+        {adding && (
+          <AddOrderCardForm
+            onAdd={data => {
+              onAddOrder(data.customer, data.item, data.quantity, stageIdx);
+              setAdding(false);
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        )}
+
+        {orders.length === 0 && !adding && (
+          <div className="ktasks-empty" style={{ margin: "auto 0" }}>No orders</div>
+        )}
+      </div>
+
+      {canEdit && !adding && (
+        <button
+          onClick={() => setAdding(true)}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 12, fontWeight: 500, padding: "6px 4px", textAlign: "left", display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--font)" }}
+        >
+          <Icons.Plus size={13} sw={2} /> Add order
+        </button>
+      )}
     </div>
   );
 }
