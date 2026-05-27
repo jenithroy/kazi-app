@@ -344,7 +344,6 @@ function compressImage(file, maxWidth = 2000, maxHeight = 2000, quality = 0.85) 
     reader.readAsDataURL(file);
     reader.onload = event => {
       const img = new Image();
-      img.src = event.target.result;
       img.onload = () => {
         let width = img.width;
         let height = img.height;
@@ -385,6 +384,7 @@ function compressImage(file, maxWidth = 2000, maxHeight = 2000, quality = 0.85) 
         );
       };
       img.onerror = err => reject(err);
+      img.src = event.target.result;
     };
     reader.onerror = err => reject(err);
   });
@@ -437,14 +437,12 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
         const fileRef = storageRef(storage, path);
         const task = uploadBytesResumable(fileRef, fileToUpload);
         
-        await new Promise((resolve, reject) => {
-          task.on(
-            "state_changed",
-            snap => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-            reject,
-            resolve
-          );
-        });
+        task.on(
+          "state_changed",
+          snap => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100))
+        );
+        
+        await task;
         
         imageUrl = await getDownloadURL(fileRef);
         storagePath = path;
