@@ -12,6 +12,7 @@ import { useRef } from "react";
 import { todayDate } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
+import ProductionCalendar from "../components/ProductionCalendar";
 
 const VAT_RATE = 0.13;
 
@@ -926,6 +927,9 @@ function Production() {
         <button className={cn("tab-button", activeTab === "orders" && "active")} onClick={() => setActiveTab("orders")}>
           Order Management
         </button>
+        <button className={cn("tab-button", activeTab === "calendar" && "active")} onClick={() => setActiveTab("calendar")}>
+          Timeline &amp; Calendar
+        </button>
         <button className={cn("tab-button", activeTab === "batches" && "active")} onClick={() => setActiveTab("batches")}>
           Batch Tracking
         </button>
@@ -1474,6 +1478,15 @@ function Production() {
             );
           })()}
         </>
+      )}
+
+      {/* ══════════════════ TIMELINE & CALENDAR ══════════════════ */}
+      {activeTab === "calendar" && (
+        <ProductionCalendar 
+          orders={orders} 
+          canEdit={canEdit} 
+          onUpdate={loadData} 
+        />
       )}
 
       {/* ══════════════════ BATCH TRACKING ══════════════════ */}
