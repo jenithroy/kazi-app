@@ -41,6 +41,61 @@ function Loading() {
   );
 }
 
+/* ── Sales Target Helper & Card ──────────────────────── */
+function getSalesTargetInfo(invoices) {
+  const targetGBP = 1000; // Monthly target of £1,000 (NPR 200,000)
+  const targetNPR = targetGBP * GBP_RATE;
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const currentMonthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === thisMonth);
+  const currentSalesNPR = currentMonthInvoices
+    .filter(inv => inv.status !== "Cancelled")
+    .reduce((sum, inv) => sum + Number(inv.totalNPR || 0), 0);
+  const currentSalesGBP = currentSalesNPR / GBP_RATE;
+  const pct = Math.min(Math.round((currentSalesNPR / targetNPR) * 100), 100);
+  
+  return {
+    currentSalesNPR,
+    currentSalesGBP,
+    targetNPR,
+    targetGBP,
+    pct
+  };
+}
+
+function SalesTargetCard({ salesTarget }) {
+  if (!salesTarget) return null;
+  const { currentSalesNPR, currentSalesGBP, targetNPR, targetGBP, pct } = salesTarget;
+  return (
+    <Card title="Monthly Sales Target" sub="Target vs Actual Revenue" accent="var(--mint-deep)">
+      <div className="ksales-target" style={{ padding: "4px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Revenue MTD</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+              <span className="num-xl" style={{ fontSize: 24, fontWeight: 700 }}>£{Math.round(currentSalesGBP).toLocaleString()}</span>
+              <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>₨ {Math.round(currentSalesNPR).toLocaleString()}</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Target: £{targetGBP.toLocaleString()}</div>
+            <div className="num-xl" style={{ fontSize: 18, color: "var(--mint-deep)", marginTop: 4 }}>{pct}% Achieved</div>
+          </div>
+        </div>
+        
+        <div style={{ background: "rgba(15,46,34,.07)", borderRadius: 10, padding: "2px", position: "relative", marginBottom: 8 }}>
+          <Progress pct={pct} color="var(--mint-deep)" h={12} />
+        </div>
+        
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-4)", fontFamily: "var(--mono)" }}>
+          <span>₨ 0</span>
+          <span>50%</span>
+          <span>₨ {targetNPR.toLocaleString("en-IN")}</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /* ══════════════════════════════════════════════════════
    NEPAL ADMIN DASHBOARD
 ══════════════════════════════════════════════════════ */
@@ -59,7 +114,7 @@ function NepalAdminDash() {
       const {
         attendance, production: prodRows, qc_logs: qcLogs, inventory,
         tasks, budget_requests: budgetRequests, orders, finance_expenses: expenses, users,
-        order_costs: orderCosts,
+        order_costs: orderCosts, invoices,
       } = await loadCollections({
         attendance:       "attendance",
         production:       "production",
@@ -71,6 +126,7 @@ function NepalAdminDash() {
         finance_expenses: "finance_expenses",
         users:            "users",
         order_costs:      "order_costs",
+        invoices:         "invoices",
       });
 
       const todayAtt = attendance.filter(r => r.date === today);
@@ -141,11 +197,13 @@ function NepalAdminDash() {
         return attendance.filter(r => r.date === key && ["Present","Late","Half-day"].includes(r.status)).length;
       });
 
+      const salesTarget = getSalesTargetInfo(invoices);
+
       setData({
         presentToday, lateToday, leaveToday, absent, totalStaff, weeklyUnits, qcPassRate,
         lowStockItems, tasksByCol, recentTasks, pendingBudget, activeOrders, orders, monthExpNPR,
         weeklyExpTrend, weeklyExpLabels, thisMonthRevNPR, totalRevNPR, totalCostNPR, totalProfitNPR, avgMargin,
-        recentBatches, attTrend,
+        recentBatches, attTrend, salesTarget,
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
@@ -187,6 +245,8 @@ function NepalAdminDash() {
             spark={<Spark data={[94,93,95,96,95,97,Number(data.qcPassRate)]} color="var(--mint-2)" fill="var(--mint-soft)" />}
           />
         </div>
+
+        <SalesTargetCard salesTarget={data.salesTarget} />
 
         {/* Production pipeline */}
         <Card
@@ -447,9 +507,12 @@ function UKAdminDash() {
         .filter(p => p.month === curMonthName && Number(p.year) === curYear)
         .reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
 
+      const salesTarget = getSalesTargetInfo(invoices);
+
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
         pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR,
+        salesTarget,
       });
     }
     load().catch(e => { console.error(e); setData({}); });
@@ -483,6 +546,8 @@ function UKAdminDash() {
             spark={<Spark data={[3.0,3.1,3.2,3.1,3.2,3.2,3.2]} color="var(--blue)" fill="var(--blue-soft)" />}
           />
         </div>
+
+        <SalesTargetCard salesTarget={data.salesTarget} />
 
         {/* Revenue chart */}
         <Card title="Revenue · 30 days" sub="Paid invoices · in GBP" accent="var(--mint-deep)"
@@ -658,12 +723,15 @@ function EmployeeDash() {
     const results = await Promise.allSettled([
       getDocs(query(collection(db, "attendance"), where("date", "==", today))),
       getDocs(collection(db, "tasks")),
+      getDocs(collection(db, "invoices")),
     ]);
     const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-    const [attSnap, tasksSnap] = results.map(docs);
+    const [attSnap, tasksSnap, invoicesSnap] = results.map(docs);
     const myRecord = attSnap.map(d => d.data()).find(r => r.staffName === name);
     const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
     const myTasks = tasks.filter(t => (t.assignee || "").toLowerCase() === name.toLowerCase());
+    const invoices = invoicesSnap.map(d => ({ id: d.id, ...d.data() }));
+    const salesTarget = getSalesTargetInfo(invoices);
 
     // Month attendance — real data from Firestore
     let allAtt = [];
@@ -677,7 +745,7 @@ function EmployeeDash() {
       late:    monthAtt.filter(r => r.status === "Late").length,
       leave:   monthAtt.filter(r => r.status === "Leave").length,
     };
-    setData({ myRecord, myTasks, counts, monthAtt });
+    setData({ myRecord, myTasks, counts, monthAtt, salesTarget });
   }
 
   useEffect(() => {
@@ -691,6 +759,8 @@ function EmployeeDash() {
       <div className="kdash fade-in">
         {/* Clock-in hero */}
         <ClockInCard profile={profile} onClockChange={load} />
+
+        <SalesTargetCard salesTarget={data.salesTarget} />
 
         {/* Tasks + Attendance */}
         <div className="kgrid kgrid--2-3">
@@ -796,7 +866,7 @@ function Dashboard() {
   const { profile } = useAuth();
   const role = profile?.appRole || profile?.role;
   if (role === "uk_admin") return <UKAdminDash />;
-  if (role === "employee") return <EmployeeDash />;
+  if (role === "employee" || role === "nepal_staff") return <EmployeeDash />;
   return <NepalAdminDash />;
 }
 

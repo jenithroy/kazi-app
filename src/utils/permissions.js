@@ -46,7 +46,7 @@ export function sectionCanEdit(profile, section) {
 
   const role = appRole(profile);
   if (role === "super_admin") return true;
-  if (role === "employee") return false;
+  if (role === "employee" || role === "nepal_staff") return false;
   
   let perm = profile.permissions?.[section];
   if (perm === undefined && role === "nepal_admin") {
@@ -71,6 +71,7 @@ export function sectionVisible(profile, sectionKey) {
     nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger","library"],
     uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger","library"],
     employee:    ["dashboard","tasks","attendance","library"],
+    nepal_staff: ["dashboard","tasks","attendance","library","production","qc","inventory","content"],
     super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger","library"],
   };
   const base = new Set(NAV_BY_ROLE[role] || []);

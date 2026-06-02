@@ -123,7 +123,7 @@ function MonthCalendar({ currentMonthDate, setCurrentMonthDate, selectedDate, se
 function Attendance() {
   const { profile } = useAuth();
   const canEdit  = sectionCanEdit(profile, "attendance");
-  const isEmployee = profile?.role === "employee";
+  const isEmployee = profile?.role === "employee" || profile?.role === "nepal_staff";
 
   const today = todayDate();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -149,7 +149,7 @@ function Attendance() {
     const monthEnd = toLocalISOString(new Date(year, month + 1, 0));
 
     const [usersSnap, monthAttSnap, selectedAttSnap, clockSnap] = await Promise.all([
-      getDocs(query(collection(db, "users"), where("role", "in", ["nepal_admin","employee"]))),
+      getDocs(query(collection(db, "users"), where("role", "in", ["nepal_admin","employee","nepal_staff"]))),
       getDocs(query(collection(db, "attendance"), where("date", ">=", monthStart), where("date", "<=", monthEnd))),
       getDocs(query(collection(db, "attendance"), where("date", "==", selectedDate))),
       getDocs(query(collection(db, "clock_ins"),  where("date", "==", selectedDate))),

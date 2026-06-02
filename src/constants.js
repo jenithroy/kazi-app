@@ -21,8 +21,8 @@ export const TASK_CATEGORIES = [
 
 export const TEAM_MEMBERS = [
   // UK Admins
-  { name: "Finn", role: "Director", location: "uk", email: "fin@kazi.com", appRole: "uk_admin" },
-  { name: "Zen", role: "Director", location: "uk", email: "zen@kazi.com", appRole: "uk_admin" },
+  { name: "Finn", role: "Director", location: "uk", email: "finnqrk@gmail.com", appRole: "uk_admin" },
+  { name: "Zen", role: "Director", location: "uk", email: "hi.zenuk@gmail.com", appRole: "uk_admin" },
   // Nepal Admins
   { name: "Wilson", role: "Operations Head", location: "nepal", email: "wilsonshah98765@gmail.com", appRole: "nepal_admin" },
   { name: "Anmol", role: "Operations Intern", location: "nepal", email: "Basnetanamol21@gmail.com", appRole: "nepal_admin" },

@@ -34,8 +34,8 @@ const teamMembers = [
   { name: "Social Media Presenter", roleTitle: "Social Media Presenter", location: "nepal", email: "social.presenter@kazi.com", appRole: "nepal_staff" },
   { name: "Labour (Cutter)", roleTitle: "Labour", location: "nepal", email: "labour.cutter@kazi.com", appRole: "nepal_staff" },
   { name: "Labour (Stitcher)", roleTitle: "Labour", location: "nepal", email: "labour.stitcher@kazi.com", appRole: "nepal_staff" },
-  { name: "Zeenn", roleTitle: "CEO", location: "uk", email: "zeenn@kazi.com", appRole: "uk_admin" },
-  { name: "Co-Director", roleTitle: "Director", location: "uk", email: "codirector@kazi.com", appRole: "uk_admin" }
+  { name: "Zen", roleTitle: "Director", location: "uk", email: "hi.zenuk@gmail.com", appRole: "uk_admin" },
+  { name: "Finn", roleTitle: "Director", location: "uk", email: "finnqrk@gmail.com", appRole: "uk_admin" }
 ];
 
 async function ensureAuthUser(member) {

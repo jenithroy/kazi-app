@@ -406,7 +406,7 @@ function Tasks() {
 
   const visibleTasks = useMemo(() => {
     let t = tasks;
-    if (role === "employee") t = t.filter(x => x.assignee === profile?.name);
+    if (role === "employee" || role === "nepal_staff") t = t.filter(x => x.assignee === profile?.name);
     if (filter) t = t.filter(x => x.assignee === filter);
     if (catFilter) t = t.filter(x => x.category === catFilter);
     if (custFilter) t = t.filter(x => x.customer === custFilter);
@@ -482,7 +482,7 @@ function Tasks() {
             <div className="kph" style={{ padding: "8px 0 12px" }}>
               <div>
                 <h2>Tasks</h2>
-                <p>{role === "employee" ? "Your assigned work" : "Team task board"}</p>
+                <p>{(role === "employee" || role === "nepal_staff") ? "Your assigned work" : "Team task board"}</p>
               </div>
               <div className="kph-a">
                 <button
