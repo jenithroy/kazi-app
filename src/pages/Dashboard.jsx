@@ -449,6 +449,8 @@ function UKAdminDash() {
     load().catch(e => { console.error(e); setData({}); });
   }, []);
 
+  const { fmt: fmtC } = useCurrency();
+
   if (!data) return <Loading />;
 
   return (
