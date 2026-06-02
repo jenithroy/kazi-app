@@ -43,7 +43,7 @@ function Loading() {
 
 /* ── Sales Target Helper & Card ──────────────────────── */
 function getSalesTargetInfo(invoices) {
-  const targetGBP = 1000; // Monthly target of £1,000 (NPR 200,000)
+  const targetGBP = 2000; // Monthly target of £2,000 (NPR 400,000)
   const targetNPR = targetGBP * GBP_RATE;
   const thisMonth = new Date().toISOString().slice(0, 7);
   const currentMonthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === thisMonth);
