@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp
+  addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc
 } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
-import { sectionCanEdit } from "../utils/permissions";
+import { sectionCanEdit, sectionVisible } from "../utils/permissions";
 import { db } from "../firebase";
-import { cn, Pill, Icons } from "../components/ui";
+import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
 
-/* ── Constants ─────────────────────────────────────────── */
+/* ── Stock Constants ───────────────────────────────────── */
 const STOCK_CATEGORIES = [
   "Raw Materials", "Fabric", "Thread & Accessories", "Packaging",
   "Equipment", "Consumables", "Finished Goods", "Office Supplies", "Other"
@@ -26,6 +26,14 @@ function nextItemId(rows) {
   const nums = rows.map(r => parseInt((r.itemId || "ITEM000").replace(/\D/g, ""), 10)).filter(n => !isNaN(n));
   return `IT${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
 }
+
+/* ── Library Constants ─────────────────────────────────── */
+const PROCESS_CATEGORIES = ["printing", "embellishment", "construction", "finishing", "other"];
+const COMMON_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
+
+const emptyFabric   = { name: "", composition: "", weight_gsm: "", available_colors: "", supplier: "", price_per_meter: "", notes: "" };
+const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "" };
+const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", notes: "" };
 
 /* ── Stepper input ─────────────────────────────────────── */
 function Stepper({ value, onChange, disabled, min = 0 }) {
@@ -58,7 +66,7 @@ function Stepper({ value, onChange, disabled, min = 0 }) {
   );
 }
 
-/* ── Trash icon ────────────────────────────────────────── */
+/* ── Icons ─────────────────────────────────────────────── */
 function TrashIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -69,7 +77,6 @@ function TrashIcon({ size = 15 }) {
   );
 }
 
-/* ── Save icon ─────────────────────────────────────────── */
 function SaveIcon({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -80,31 +87,372 @@ function SaveIcon({ size = 14 }) {
   );
 }
 
-/* ── Main component ─────────────────────────────────────── */
+/* ── Library Modals & Cards ──────────────────────────── */
+function LibraryModal({ tab, item, onClose, onSaved }) {
+  const isEdit = !!item;
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  const [form, setForm] = useState(() => {
+    if (!item) {
+      if (tab === "fabrics")   return { ...emptyFabric };
+      if (tab === "processes") return { ...emptyProcess };
+      return { ...emptyPattern };
+    }
+    return {
+      ...item,
+      available_colors: Array.isArray(item.available_colors) ? item.available_colors.join(", ") : (item.available_colors || ""),
+      sizes_available: item.sizes_available || [],
+    };
+  });
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const toggleSize = (s) => set("sizes_available", form.sizes_available.includes(s)
+    ? form.sizes_available.filter(x => x !== s)
+    : [...form.sizes_available, s]
+  );
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.name.trim()) { setError("Name is required"); return; }
+    setSaving(true); setError("");
+    try {
+      const payload = { ...form };
+      if (tab === "fabrics") {
+        payload.available_colors = form.available_colors
+          ? form.available_colors.split(",").map(c => c.trim()).filter(Boolean)
+          : [];
+        payload.weight_gsm = form.weight_gsm ? Number(form.weight_gsm) : null;
+        payload.price_per_meter = form.price_per_meter ? Number(form.price_per_meter) : null;
+      }
+      if (tab === "processes") {
+        payload.cost_per_unit  = form.cost_per_unit  ? Number(form.cost_per_unit)  : null;
+        payload.min_quantity   = form.min_quantity   ? Number(form.min_quantity)   : null;
+        payload.lead_time_days = form.lead_time_days ? Number(form.lead_time_days) : null;
+      }
+      if (isEdit) {
+        await updateDoc(doc(db, tab, item.id), { ...payload, updatedAt: serverTimestamp() });
+        onSaved({ id: item.id, ...payload });
+      } else {
+        const ref = await addDoc(collection(db, tab), { ...payload, createdAt: serverTimestamp() });
+        onSaved({ id: ref.id, ...payload });
+      }
+    } catch (err) {
+      setError(err.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="kbrf-modal" style={{ maxWidth: 520 }}>
+        <div className="kbrf-modal-hd">
+          <div style={{ fontSize: 16, fontWeight: 700 }}>
+            {isEdit ? "Edit" : "Add"} {tab === "fabrics" ? "Fabric" : tab === "processes" ? "Process" : "Pattern"}
+          </div>
+          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label className="kfin-label">Name *</label>
+            <input className="kfin-input" value={form.name} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : "e.g. Oversized Tee"} />
+          </div>
+
+          {tab === "fabrics" && <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="kfin-label">Composition</label>
+                <input className="kfin-input" value={form.composition} onChange={e => set("composition", e.target.value)} placeholder="100% Cotton" />
+              </div>
+              <div>
+                <label className="kfin-label">Weight (GSM)</label>
+                <input className="kfin-input" type="number" value={form.weight_gsm} onChange={e => set("weight_gsm", e.target.value)} placeholder="180" />
+              </div>
+            </div>
+            <div>
+              <label className="kfin-label">Available Colors (comma-separated)</label>
+              <input className="kfin-input" value={form.available_colors} onChange={e => set("available_colors", e.target.value)} placeholder="White, Black, Navy" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="kfin-label">Supplier</label>
+                <input className="kfin-input" value={form.supplier} onChange={e => set("supplier", e.target.value)} />
+              </div>
+              <div>
+                <label className="kfin-label">Price/metre (NPR)</label>
+                <input className="kfin-input" type="number" value={form.price_per_meter} onChange={e => set("price_per_meter", e.target.value)} placeholder="350" />
+              </div>
+            </div>
+          </>}
+
+          {tab === "processes" && <>
+            <div>
+              <label className="kfin-label">Category</label>
+              <select className="kfin-input" value={form.category} onChange={e => set("category", e.target.value)}>
+                <option value="">Select category</option>
+                {PROCESS_CATEGORIES.map(c => <option key={c} value={c} style={{ textTransform: "capitalize" }}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="kfin-label">Description</label>
+              <textarea className="kfin-input" rows={2} value={form.description} onChange={e => set("description", e.target.value)} style={{ resize: "vertical" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <div>
+                <label className="kfin-label">Cost/unit (NPR)</label>
+                <input className="kfin-input" type="number" value={form.cost_per_unit} onChange={e => set("cost_per_unit", e.target.value)} />
+              </div>
+              <div>
+                <label className="kfin-label">Min qty</label>
+                <input className="kfin-input" type="number" value={form.min_quantity} onChange={e => set("min_quantity", e.target.value)} />
+              </div>
+              <div>
+                <label className="kfin-label">Lead time (days)</label>
+                <input className="kfin-input" type="number" value={form.lead_time_days} onChange={e => set("lead_time_days", e.target.value)} />
+              </div>
+            </div>
+          </>}
+
+          {tab === "patterns" && <>
+            <div>
+              <label className="kfin-label">Product Type</label>
+              <input className="kfin-input" value={form.product_type} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
+            </div>
+            <div>
+              <label className="kfin-label">Sizes Available</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                {COMMON_SIZES.map(s => (
+                  <button key={s} type="button"
+                    onClick={() => toggleSize(s)}
+                    style={{
+                      padding: "4px 10px", borderRadius: 6, fontSize: 12, border: "1.5px solid",
+                      borderColor: form.sizes_available.includes(s) ? "var(--mint-deep)" : "var(--line)",
+                      background: form.sizes_available.includes(s) ? "var(--mint-soft)" : "transparent",
+                      color: form.sizes_available.includes(s) ? "var(--mint-deep)" : "var(--ink-3)",
+                      cursor: "pointer",
+                    }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="kfin-label">Tech Pack URL</label>
+              <input className="kfin-input" value={form.tech_pack_url} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
+            </div>
+          </>}
+
+          <div>
+            <label className="kfin-label">Notes</label>
+            <textarea className="kfin-input" rows={2} value={form.notes} onChange={e => set("notes", e.target.value)} style={{ resize: "vertical" }} />
+          </div>
+
+          {error && <p style={{ color: "var(--terra)", fontSize: 13 }}>{error}</p>}
+
+          <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
+            <button type="submit" className="primary-button" disabled={saving} style={{ flex: 1 }}>
+              {saving ? "Saving…" : isEdit ? "Save Changes" : "Add"}
+            </button>
+            <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function FabricCard({ item, canEdit, onEdit, onDelete }) {
+  const colors = Array.isArray(item.available_colors) ? item.available_colors : [];
+  return (
+    <div className="kazi-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
+          {item.composition && <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{item.composition}</div>}
+        </div>
+        {item.weight_gsm && <Pill tone="mint">{item.weight_gsm} GSM</Pill>}
+      </div>
+      {colors.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {colors.map(c => <Pill key={c} tone="blue">{c}</Pill>)}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--ink-4)" }}>
+        {item.supplier && <span>Supplier: {item.supplier}</span>}
+        {item.price_per_meter && <span>{fmt.npr(item.price_per_meter)}/m</span>}
+      </div>
+      {item.notes && <div style={{ fontSize: 12, color: "var(--ink-4)", borderTop: "1px solid var(--line)", paddingTop: 8 }}>{item.notes}</div>}
+      {canEdit && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px" }} onClick={onEdit}>Edit</button>
+          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px", color: "var(--terra)" }} onClick={onDelete}>Delete</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProcessCard({ item, canEdit, onEdit, onDelete }) {
+  return (
+    <div className="kazi-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
+          {item.description && <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{item.description}</div>}
+        </div>
+        {item.category && <Pill tone="amber" style={{ textTransform: "capitalize" }}>{item.category}</Pill>}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: "var(--ink-4)" }}>
+        {item.cost_per_unit  && <span>{fmt.npr(item.cost_per_unit)}/unit</span>}
+        {item.min_quantity   && <span>Min: {item.min_quantity} pcs</span>}
+        {item.lead_time_days && <span>Lead: {item.lead_time_days}d</span>}
+      </div>
+      {item.notes && <div style={{ fontSize: 12, color: "var(--ink-4)", borderTop: "1px solid var(--line)", paddingTop: 8 }}>{item.notes}</div>}
+      {canEdit && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px" }} onClick={onEdit}>Edit</button>
+          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px", color: "var(--terra)" }} onClick={onDelete}>Delete</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PatternCard({ item, canEdit, onEdit, onDelete }) {
+  const sizes = Array.isArray(item.sizes_available) ? item.sizes_available : [];
+  return (
+    <div className="kazi-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
+          {item.product_type && <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{item.product_type}</div>}
+        </div>
+        {item.tech_pack_url && (
+          <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" className="ghost-button" style={{ fontSize: 12, padding: "3px 10px" }}>
+            Tech Pack ↗
+          </a>
+        )}
+      </div>
+      {sizes.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {sizes.map(s => <Pill key={s} tone="neutral">{s}</Pill>)}
+        </div>
+      )}
+      {item.notes && <div style={{ fontSize: 12, color: "var(--ink-4)", borderTop: "1px solid var(--line)", paddingTop: 8 }}>{item.notes}</div>}
+      {canEdit && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px" }} onClick={onEdit}>Edit</button>
+          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px", color: "var(--terra)" }} onClick={onDelete}>Delete</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Main Component ────────────────────────────────────── */
 function Inventory() {
   const { profile } = useAuth();
-  const canEdit = sectionCanEdit(profile, "inventory");
-  const { updateDoc } = useFirestore("inventory");
+  const canEditInventory = sectionCanEdit(profile, "inventory");
+  const canEditLibrary = sectionCanEdit(profile, "library");
+
+  const showInventory = sectionVisible(profile, "inventory");
+  const showLibrary = sectionVisible(profile, "library");
+
+  const { updateDoc: updateInventoryDoc } = useFirestore("inventory");
+
+  // Dynamic Allowed Tabs Setup
+  const allowedTabs = [];
+  if (showInventory) {
+    allowedTabs.push({ key: "stock", label: "Stock Levels" });
+    allowedTabs.push({ key: "details", label: "Item Details" });
+  }
+  if (showLibrary) {
+    allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
+    allowedTabs.push({ key: "processes", label: "Processes" });
+    allowedTabs.push({ key: "patterns", label: "Patterns" });
+  }
+
+  const [activeTab, setActiveTab] = useState(() => {
+    return allowedTabs[0]?.key || "stock";
+  });
 
   const [rows, setRows] = useState([]);
+  const [fabrics, setFabrics] = useState([]);
+  const [processes, setProcesses] = useState([]);
+  const [patterns, setPatterns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   const [draft, setDraft] = useState({});
-  const [activeTab, setActiveTab] = useState("stock");
   const [showAddForm, setShowAddForm] = useState(false);
   const [itemForm, setItemForm] = useState(emptyItemForm);
   const [addingItem, setAddingItem] = useState(false);
   const [search, setSearch] = useState("");
   const [savingRow, setSavingRow] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // row.id pending confirm
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deletingRow, setDeletingRow] = useState(null);
 
+  // Library-specific UI states
+  const [libraryModalOpen, setLibraryModalOpen] = useState(false);
+  const [libraryEditItem, setLibraryEditItem] = useState(null);
+
   async function loadData() {
-    const snap = await getDocs(collection(db, "inventory"));
-    const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    records.sort((a, b) => (a.item || "").localeCompare(b.item || ""));
-    setRows(records);
+    setLoading(true);
+    try {
+      const promises = [];
+      let inventoryIdx = -1;
+      let fabricsIdx = -1;
+      let processesIdx = -1;
+      let patternsIdx = -1;
+
+      if (showInventory) {
+        inventoryIdx = promises.length;
+        promises.push(getDocs(collection(db, "inventory")));
+      }
+      if (showLibrary) {
+        fabricsIdx = promises.length;
+        promises.push(getDocs(collection(db, "fabrics")));
+        processesIdx = promises.length;
+        promises.push(getDocs(collection(db, "processes")));
+        patternsIdx = promises.length;
+        promises.push(getDocs(collection(db, "patterns")));
+      }
+
+      const results = await Promise.allSettled(promises);
+
+      if (inventoryIdx !== -1) {
+        const res = results[inventoryIdx];
+        if (res.status === "fulfilled") {
+          const records = res.value.docs.map(d => ({ id: d.id, ...d.data() }));
+          records.sort((a, b) => (a.item || "").localeCompare(b.item || ""));
+          setRows(records);
+        }
+      }
+      if (fabricsIdx !== -1) {
+        const res = results[fabricsIdx];
+        if (res.status === "fulfilled") {
+          setFabrics(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+      if (processesIdx !== -1) {
+        const res = results[processesIdx];
+        if (res.status === "fulfilled") {
+          setProcesses(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+      if (patternsIdx !== -1) {
+        const res = results[patternsIdx];
+        if (res.status === "fulfilled") {
+          setPatterns(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { loadData().catch(console.error); }, []);
+  useEffect(() => { loadData().catch(console.error); }, [profile]);
 
   function getClosing(row, rowDraft = {}) {
     const opening  = Number(row.openingStock || 0);
@@ -121,10 +469,10 @@ function Inventory() {
   }
 
   async function saveRow(row) {
-    if (!canEdit) return;
+    if (!canEditInventory) return;
     setSavingRow(row.id);
     const rowDraft = draft[row.id] || {};
-    await updateDoc(row.id, {
+    await updateInventoryDoc(row.id, {
       stockIn:     Number(rowDraft.stockIn     ?? row.stockIn     ?? 0),
       stockUsed:   Number(rowDraft.stockUsed   ?? row.stockUsed   ?? 0),
       lastUpdated: new Date().toISOString().slice(0, 10),
@@ -163,6 +511,47 @@ function Inventory() {
     setAddingItem(false);
   }
 
+  /* ── Library handlers ── */
+  async function handleDeleteLibraryItem(item) {
+    if (!window.confirm(`Delete "${item.name}"?`)) return;
+    await deleteDoc(doc(db, activeTab, item.id));
+    if (activeTab === "fabrics")   setFabrics(fabrics.filter(x => x.id !== item.id));
+    if (activeTab === "processes") setProcesses(processes.filter(x => x.id !== item.id));
+    if (activeTab === "patterns")  setPatterns(patterns.filter(x => x.id !== item.id));
+  }
+
+  function handleSavedLibraryItem(saved) {
+    if (activeTab === "fabrics") {
+      if (libraryEditItem) {
+        setFabrics(fabrics.map(x => x.id === saved.id ? saved : x));
+      } else {
+        setFabrics([...fabrics, saved]);
+      }
+    }
+    if (activeTab === "processes") {
+      if (libraryEditItem) {
+        setProcesses(processes.map(x => x.id === saved.id ? saved : x));
+      } else {
+        setProcesses([...processes, saved]);
+      }
+    }
+    if (activeTab === "patterns") {
+      if (libraryEditItem) {
+        setPatterns(patterns.map(x => x.id === saved.id ? saved : x));
+      } else {
+        setPatterns([...patterns, saved]);
+      }
+    }
+    setLibraryModalOpen(false);
+    setLibraryEditItem(null);
+  }
+
+  function getActiveLibraryItems() {
+    if (activeTab === "fabrics")   return fabrics;
+    if (activeTab === "processes") return processes;
+    return patterns;
+  }
+
   /* ── Stats ── */
   const lowStockCount  = rows.filter(r => getClosing(r) <= Number(r.minLevel || 0)).length;
   const totalItems     = rows.length;
@@ -176,52 +565,102 @@ function Inventory() {
     r.supplier?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const filteredFabrics = fabrics.filter(r =>
+    !search ||
+    r.name?.toLowerCase().includes(search.toLowerCase()) ||
+    r.composition?.toLowerCase().includes(search.toLowerCase()) ||
+    r.supplier?.toLowerCase().includes(search.toLowerCase())
+  );
+  const filteredProcesses = processes.filter(r =>
+    !search ||
+    r.name?.toLowerCase().includes(search.toLowerCase()) ||
+    r.category?.toLowerCase().includes(search.toLowerCase()) ||
+    r.description?.toLowerCase().includes(search.toLowerCase())
+  );
+  const filteredPatterns = patterns.filter(r =>
+    !search ||
+    r.name?.toLowerCase().includes(search.toLowerCase()) ||
+    r.product_type?.toLowerCase().includes(search.toLowerCase())
+  );
+
   /* ── Draft helpers ── */
   function draftStockIn(row)   { return draft[row.id]?.stockIn   ?? row.stockIn   ?? 0; }
   function draftStockUsed(row) { return draft[row.id]?.stockUsed ?? row.stockUsed ?? 0; }
 
+  // Resolve dynamic title/desc
+  let pageTitle = "Inventory & Library";
+  let pageDesc = "Monitor stock levels, reorder alerts, fabrics, processes, and patterns.";
+  if (showInventory && !showLibrary) {
+    pageTitle = "Inventory & Stock";
+    pageDesc = "Monitor stock levels, reorder alerts, and item details.";
+  } else if (showLibrary && !showInventory) {
+    pageTitle = "Production Library";
+    pageDesc = "Reference repository for fabrics, processes, and patterns.";
+  }
+
+  const renderAction = () => {
+    if (activeTab === "stock" || activeTab === "details") {
+      if (!canEditInventory) return null;
+      return (
+        <button className="primary-button" onClick={() => setShowAddForm(v => !v)}>
+          {showAddForm ? "Cancel" : "+ Add Item"}
+        </button>
+      );
+    }
+    if (activeTab === "fabrics" || activeTab === "processes" || activeTab === "patterns") {
+      if (!canEditLibrary) return null;
+      const typeLabel = activeTab === "fabrics" ? "Fabric" : activeTab === "processes" ? "Process" : "Pattern";
+      return (
+        <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
+          + Add {typeLabel}
+        </button>
+      );
+    }
+    return null;
+  };
+
   return (
     <AppLayout>
       <PageHeader
-        title="Inventory & Stock"
-        description="Monitor stock levels, reorder alerts and item details."
-        action={canEdit && (
-          <button className="primary-button" onClick={() => setShowAddForm(v => !v)}>
-            {showAddForm ? "Cancel" : "+ Add Item"}
-          </button>
-        )}
+        title={pageTitle}
+        description={pageDesc}
+        action={renderAction()}
       />
 
-      {!canEdit && <p className="banner-warning">UK admin view-only mode enabled.</p>}
+      {activeTab === "stock" && !canEditInventory && (
+        <p className="banner-warning">UK admin view-only mode enabled.</p>
+      )}
 
-      {/* ── KPI Cards ── */}
-      <div className="kinv-kpis">
-        <div className={cn("kinv-kpi", lowStockCount > 0 && "kinv-kpi--warn")}>
-          <span className="kinv-kpi-l">TOTAL ITEMS</span>
-          <span className="kinv-kpi-v">{totalItems}</span>
+      {/* ── KPI Cards (Only visible if user has Inventory permission) ── */}
+      {showInventory && (
+        <div className="kinv-kpis">
+          <div className={cn("kinv-kpi", lowStockCount > 0 && "kinv-kpi--warn")}>
+            <span className="kinv-kpi-l">TOTAL ITEMS</span>
+            <span className="kinv-kpi-v">{totalItems}</span>
+          </div>
+          <div className={cn("kinv-kpi", lowStockCount > 0 && "kinv-kpi--warn")}>
+            <span className="kinv-kpi-l">LOW / REORDER</span>
+            <span className="kinv-kpi-v" style={{ color: lowStockCount > 0 ? "var(--terra)" : undefined }}>
+              {lowStockCount}
+            </span>
+            <span className="kinv-kpi-note">{lowStockCount > 0 ? `${lowStockCount} needs attention` : "all OK"}</span>
+          </div>
+          <div className="kinv-kpi">
+            <span className="kinv-kpi-l">STOCK VALUE (NPR)</span>
+            <span className="kinv-kpi-v" style={{ fontSize: totalStockValue > 999999 ? 22 : 28 }}>
+              NPR {totalStockValue.toLocaleString()}
+            </span>
+            <span className="kinv-kpi-note">closing × unit cost</span>
+          </div>
+          <div className="kinv-kpi">
+            <span className="kinv-kpi-l">CATEGORIES</span>
+            <span className="kinv-kpi-v">{categories}</span>
+          </div>
         </div>
-        <div className={cn("kinv-kpi", lowStockCount > 0 && "kinv-kpi--warn")}>
-          <span className="kinv-kpi-l">LOW / REORDER</span>
-          <span className="kinv-kpi-v" style={{ color: lowStockCount > 0 ? "var(--terra)" : undefined }}>
-            {lowStockCount}
-          </span>
-          <span className="kinv-kpi-note">{lowStockCount > 0 ? `${lowStockCount} needs attention` : "all OK"}</span>
-        </div>
-        <div className="kinv-kpi">
-          <span className="kinv-kpi-l">STOCK VALUE (NPR)</span>
-          <span className="kinv-kpi-v" style={{ fontSize: totalStockValue > 999999 ? 22 : 28 }}>
-            NPR {totalStockValue.toLocaleString()}
-          </span>
-          <span className="kinv-kpi-note">closing × unit cost</span>
-        </div>
-        <div className="kinv-kpi">
-          <span className="kinv-kpi-l">CATEGORIES</span>
-          <span className="kinv-kpi-v">{categories}</span>
-        </div>
-      </div>
+      )}
 
-      {/* ── Add Item Form ── */}
-      {showAddForm && canEdit && (
+      {/* ── Add Item Form (Stock) ── */}
+      {showAddForm && canEditInventory && (
         <section className="panel">
           <h3 style={{ marginBottom: 16, fontSize: "0.95rem", fontWeight: 700 }}>New Stock Item</h3>
           <form className="grid-form" onSubmit={addItem}>
@@ -282,10 +721,23 @@ function Inventory() {
         {/* Panel header */}
         <div className="kinv-panel-hd">
           <div className="kinv-tabs">
-            <button className={cn("kinv-tab", activeTab === "stock" && "kinv-tab--on")}
-              onClick={() => setActiveTab("stock")}>Stock Levels</button>
-            <button className={cn("kinv-tab", activeTab === "details" && "kinv-tab--on")}
-              onClick={() => setActiveTab("details")}>Item Details</button>
+            {allowedTabs.map(t => (
+              <button
+                key={t.key}
+                className={cn("kinv-tab", activeTab === t.key && "kinv-tab--on")}
+                onClick={() => {
+                  setActiveTab(t.key);
+                  setShowAddForm(false);
+                }}
+              >
+                {t.label}
+                {["fabrics", "processes", "patterns"].includes(t.key) && (
+                  <span style={{ marginLeft: 6, fontSize: 11, background: "var(--bg-2)", padding: "1px 6px", borderRadius: 10, color: "var(--ink-4)" }}>
+                    {t.key === "fabrics" ? fabrics.length : t.key === "processes" ? processes.length : patterns.length}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
           <div className="kinv-search">
@@ -301,7 +753,7 @@ function Inventory() {
         </div>
 
         {/* ── Stock Levels ── */}
-        {activeTab === "stock" && (
+        {activeTab === "stock" && showInventory && (
           <div className="kinv-table-wrap">
             <table className="kinv-table">
               <thead>
@@ -337,70 +789,49 @@ function Inventory() {
 
                   return (
                     <tr key={row.id} className={cn("kinv-row", lowStock && "kinv-row--low")}>
-                      {/* Item ID */}
                       <td>
                         <span className="kinv-id">{row.itemId}</span>
                       </td>
-
-                      {/* Item name */}
                       <td>
                         <span className="kinv-name">{row.item}</span>
                       </td>
-
-                      {/* Category */}
                       <td>
                         <span className="kinv-cat">{row.category || "—"}</span>
                       </td>
-
-                      {/* Unit */}
                       <td>
                         <span className="kinv-unit">{row.unit}</span>
                       </td>
-
-                      {/* Opening */}
                       <td>
                         <span className="kinv-num">{Number(row.openingStock || 0).toLocaleString()}</span>
                       </td>
-
-                      {/* Stock In – stepper */}
                       <td>
                         <Stepper
                           value={draftStockIn(row)}
                           onChange={val => setStockIn(row.id, val)}
-                          disabled={!canEdit}
+                          disabled={!canEditInventory}
                         />
                       </td>
-
-                      {/* Stock Used – stepper */}
                       <td>
                         <Stepper
                           value={draftStockUsed(row)}
                           onChange={val => setStockUsed(row.id, val)}
-                          disabled={!canEdit}
+                          disabled={!canEditInventory}
                         />
                       </td>
-
-                      {/* Closing */}
                       <td>
                         <span className={cn("kinv-closing", lowStock && "kinv-closing--low")}>
                           {closing.toLocaleString()}
                         </span>
                       </td>
-
-                      {/* Min Level */}
                       <td>
                         <span className="kinv-num">{minLevel}</span>
                       </td>
-
-                      {/* Status */}
                       <td>
                         {lowStock
                           ? <Pill tone="terra">Reorder</Pill>
                           : <Pill tone="mint">OK</Pill>
                         }
                       </td>
-
-                      {/* Actions */}
                       <td>
                         {isDelConfirm ? (
                           <div className="kinv-del-confirm">
@@ -419,7 +850,7 @@ function Inventory() {
                           <div className="kinv-actions">
                             <button
                               className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
-                              disabled={!canEdit || savingRow === row.id}
+                              disabled={!canEditInventory || savingRow === row.id}
                               onClick={() => saveRow(row)}
                               title="Save changes"
                             >
@@ -432,7 +863,7 @@ function Inventory() {
                                 </>
                               )}
                             </button>
-                            {canEdit && (
+                            {canEditInventory && (
                               <button
                                 className="kinv-btn-del"
                                 onClick={() => setDeleteConfirm(row.id)}
@@ -453,7 +884,7 @@ function Inventory() {
         )}
 
         {/* ── Item Details ── */}
-        {activeTab === "details" && (
+        {activeTab === "details" && showInventory && (
           <div className="kinv-table-wrap">
             <table className="kinv-table">
               <thead>
@@ -510,7 +941,54 @@ function Inventory() {
             </table>
           </div>
         )}
+
+        {/* ── Library Tabs (Fabrics, Processes, Patterns) ── */}
+        {["fabrics", "processes", "patterns"].includes(activeTab) && showLibrary && (
+          <div style={{ padding: 20 }}>
+            {loading ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {[1, 2, 3].map(i => <div key={i} style={{ height: 140, background: "var(--bg-2)", borderRadius: 14, animation: "pulse 1.5s infinite" }} />)}
+              </div>
+            ) : getActiveLibraryItems().length === 0 ? (
+              <div style={{ textAlign: "center", padding: "60px 0", color: "var(--ink-4)" }}>
+                <div style={{ fontSize: 15, marginBottom: 12 }}>No {activeTab} added yet</div>
+                {canEditLibrary && (
+                  <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
+                    Add first entry
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {activeTab === "fabrics" && filteredFabrics.map(item => (
+                  <FabricCard key={item.id} item={item} canEdit={canEditLibrary}
+                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
+                    onDelete={() => handleDeleteLibraryItem(item)} />
+                ))}
+                {activeTab === "processes" && filteredProcesses.map(item => (
+                  <ProcessCard key={item.id} item={item} canEdit={canEditLibrary}
+                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
+                    onDelete={() => handleDeleteLibraryItem(item)} />
+                ))}
+                {activeTab === "patterns" && filteredPatterns.map(item => (
+                  <PatternCard key={item.id} item={item} canEdit={canEditLibrary}
+                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
+                    onDelete={() => handleDeleteLibraryItem(item)} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {libraryModalOpen && (
+        <LibraryModal
+          tab={activeTab}
+          item={libraryEditItem}
+          onClose={() => { setLibraryModalOpen(false); setLibraryEditItem(null); }}
+          onSaved={handleSavedLibraryItem}
+        />
+      )}
     </AppLayout>
   );
 }

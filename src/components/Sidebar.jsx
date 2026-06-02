@@ -19,7 +19,6 @@ const NAV_ITEMS = [
   { to: "/directors",  label: "Directors",  Icon: Icons.Directors,  group: "biz" },
   { to: "/customers",  label: "Customers",  Icon: Icons.Customers,  group: "biz" },
   { to: "/messenger",  label: "Messenger",  Icon: Icons.Message,    group: "biz" },
-  { to: "/library",   label: "Library",    Icon: Icons.Inventory,  group: "ops" },
 ];
 
 const GROUPS = [
@@ -38,7 +37,26 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const location = useLocation();
   const role = profile?.appRole || profile?.role || "employee";
 
-  const items = NAV_ITEMS.filter(i => sectionVisible(profile, routeKey(i.to)));
+  const items = NAV_ITEMS
+    .filter(item => {
+      if (item.to === "/inventory") {
+        return sectionVisible(profile, "inventory") || sectionVisible(profile, "library");
+      }
+      return sectionVisible(profile, routeKey(item.to));
+    })
+    .map(item => {
+      if (item.to === "/inventory") {
+        const hasInv = sectionVisible(profile, "inventory");
+        const hasLib = sectionVisible(profile, "library");
+        let label = "Inventory";
+        if (hasInv && hasLib) label = "Inventory & Library";
+        else if (hasLib) label = "Production Library";
+        else if (hasInv) label = "Inventory & Stock";
+        return { ...item, label };
+      }
+      return item;
+    });
+
   const byGroup = GROUPS.map(g => ({
     ...g,
     items: items.filter(i => i.group === g.id),

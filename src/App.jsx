@@ -14,7 +14,6 @@ import AdminPanel from "./pages/AdminPanel";
 import Directors from "./pages/Directors";
 import Customers from "./pages/Customers";
 import Messenger from "./pages/Messenger";
-import Library from "./pages/Library";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
@@ -37,7 +36,7 @@ function App() {
         <Route path="/directors" element={<Directors />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/messenger" element={<Messenger />} />
-        <Route path="/library" element={<Library />} />
+        <Route path="/library" element={<Navigate to="/inventory" replace />} />
         <Route path="/accounting" element={<Navigate to="/finance" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
