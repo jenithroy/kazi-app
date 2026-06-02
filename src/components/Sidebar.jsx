@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { to: "/directors",  label: "Directors",  Icon: Icons.Directors,  group: "biz" },
   { to: "/customers",  label: "Customers",  Icon: Icons.Customers,  group: "biz" },
   { to: "/messenger",  label: "Messenger",  Icon: Icons.Message,    group: "biz" },
+  { to: "/library",   label: "Library",    Icon: Icons.Inventory,  group: "ops" },
 ];
 
 const GROUPS = [

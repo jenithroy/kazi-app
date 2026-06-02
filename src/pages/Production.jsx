@@ -13,6 +13,9 @@ import { todayDate } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
+import { notifyStageChange } from "../utils/telegram";
+// eslint-disable-next-line no-unused-vars
+import { ORDER_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
 
 const VAT_RATE = 0.13;
 
@@ -638,6 +641,7 @@ function Production() {
   const [orderForm, setOrderForm] = useState(emptyOrderForm);
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [employees, setEmployees] = useState([]);
 
@@ -808,32 +812,47 @@ function Production() {
   async function submitOrder(e) {
     e.preventDefault();
     setSavingOrder(true);
-    const orderId  = nextOrderId();
-    const total    = Number(orderForm.quantity || 0) * Number(orderForm.pricePerPcNPR || 0);
-    const invNum   = issueInvoice ? nextInvoiceNumber() : null;
+    const total = Number(orderForm.quantity || 0) * Number(orderForm.pricePerPcNPR || 0);
 
-    const orderDoc = {
-      ...orderForm,
-      orderId,
-      quantity:      Number(orderForm.quantity || 0),
-      pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
-      totalValueNPR: total,
-      stageHistory:  [{ stage: "Order Received", date: todayDate(), by: profile?.name || "Unknown" }],
-      createdBy:     profile?.name || "Unknown",
-      createdAt:     serverTimestamp(),
-      ...(invNum ? { invoiceNumber: invNum } : {}),
-    };
-
-    const orderRef = await addDoc(collection(db, "orders"), orderDoc);
-
-    if (issueInvoice && invNum) {
-      const invDoc = buildInvoiceDoc(
-        { ...orderForm, quantity: orderDoc.quantity },
-        invFields,
-        invNum,
-        orderRef.id
-      );
-      await addDoc(collection(db, "invoices"), invDoc);
+    if (editingOrder) {
+      // Edit existing order
+      await updateDoc(doc(db, "orders", editingOrder.id), {
+        customerName:  orderForm.customerName,
+        styleName:     orderForm.styleName,
+        fabricType:    orderForm.fabricType,
+        colorway:      orderForm.colorway,
+        quantity:      Number(orderForm.quantity || 0),
+        pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
+        totalValueNPR: total,
+        deliveryDate:  orderForm.deliveryDate,
+        assignedTo:    orderForm.assignedTo,
+        invoiceRef:    orderForm.invoiceRef,
+        notes:         orderForm.notes,
+      });
+      setEditingOrder(null);
+    } else {
+      // Create new order
+      const orderId = nextOrderId();
+      const invNum  = issueInvoice ? nextInvoiceNumber() : null;
+      const orderDoc = {
+        ...orderForm,
+        orderId,
+        quantity:      Number(orderForm.quantity || 0),
+        pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
+        totalValueNPR: total,
+        stageHistory:  [{ stage: "Order Received", date: todayDate(), by: profile?.name || "Unknown" }],
+        createdBy:     profile?.name || "Unknown",
+        createdAt:     serverTimestamp(),
+        ...(invNum ? { invoiceNumber: invNum } : {}),
+      };
+      const orderRef = await addDoc(collection(db, "orders"), orderDoc);
+      if (issueInvoice && invNum) {
+        const invDoc = buildInvoiceDoc(
+          { ...orderForm, quantity: orderDoc.quantity },
+          invFields, invNum, orderRef.id
+        );
+        await addDoc(collection(db, "invoices"), invDoc);
+      }
     }
 
     setOrderForm(emptyOrderForm);
@@ -863,6 +882,7 @@ function Production() {
     const newStatus = newStage === "Delivered" ? "Completed" : order.status;
     const history = [...(order.stageHistory || []), { stage: newStage, date: todayDate(), by: profile?.name || "Unknown" }];
     await updateDoc(doc(db, "orders", order.id), { stage: newStage, status: newStatus, stageHistory: history });
+    notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: newStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
     await loadData();
   }
 
@@ -893,6 +913,7 @@ function Production() {
     if (order.stage === targetStage) return;
     const history = [...(order.stageHistory || []), { stage: targetStage, date: todayDate(), by: profile?.name || "Unknown" }];
     await updateDoc(doc(db, "orders", orderId), { stage: targetStage, status: "Active", stageHistory: history });
+    notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: targetStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
     await loadData();
   }
 
@@ -1038,7 +1059,7 @@ function Production() {
           {/* New Order Form */}
           {showOrderForm && canEdit && (
             <section className="panel">
-              <h3>New Production Order</h3>
+              <h3>{editingOrder ? `Edit Order — ${editingOrder.orderId}` : "New Production Order"}</h3>
 
               {latestInvoice && !dismissedSuggestion && (
                 <div className="kprod-suggestion-banner" style={{
@@ -1273,9 +1294,9 @@ function Production() {
 
                 <div style={{ display: "flex", gap: 10 }}>
                   <button type="submit" className="primary-button" disabled={savingOrder}>
-                    {savingOrder ? "Creating…" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
+                    {savingOrder ? "Saving…" : editingOrder ? "Save Changes" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
                   </button>
-                  <button type="button" className="ghost-button" onClick={() => { setShowOrderForm(false); setIssueInvoice(false); setInvFields(emptyInvFields); }}>Cancel</button>
+                  <button type="button" className="ghost-button" onClick={() => { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); }}>Cancel</button>
                 </div>
               </form>
             </section>
@@ -1395,6 +1416,29 @@ function Production() {
                             Resume
                           </button>
                         )}
+                        <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
+                          onClick={() => {
+                            setEditingOrder(order);
+                            setOrderForm({
+                              date:          order.date || todayDate(),
+                              deliveryDate:  order.deliveryDate || "",
+                              customerName:  order.customerName || "",
+                              styleName:     order.styleName || "",
+                              fabricType:    order.fabricType || "Terry Cotton",
+                              colorway:      order.colorway || "",
+                              quantity:      order.quantity || "",
+                              pricePerPcNPR: order.pricePerPcNPR || "",
+                              invoiceRef:    order.invoiceRef || "",
+                              assignedTo:    order.assignedTo || "",
+                              stage:         order.stage || "Order Received",
+                              status:        order.status || "Active",
+                              notes:         order.notes || "",
+                            });
+                            setShowOrderForm(true);
+                            setActiveTab("orders");
+                          }}>
+                          Edit
+                        </button>
                         <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--danger)", borderColor: "rgba(220,38,38,0.4)" }}
                           onClick={() => deleteOrder(order)}>
                           Delete

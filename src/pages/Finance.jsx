@@ -6,6 +6,7 @@ import {
   doc,
   getDocs,
   serverTimestamp,
+  setDoc,
   updateDoc as fsUpdateDoc,
   writeBatch
 } from "firebase/firestore";
@@ -16,10 +17,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 import AppLayout from "../components/AppLayout";
+import { fmt } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 
 /* ── Seed data ─────────────────────────────────────── */
@@ -118,15 +121,17 @@ function tabLabel(t) {
   if (t === "vat bills")     return "VAT Bills";
   if (t === "p&l")           return "P & L";
   if (t === "balance sheet") return "Balance Sheet";
+  if (t === "order p&l")     return "Order P&L";
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank"];
+const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank", "order p&l"];
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function Finance() {
   const { profile } = useAuth();
+  const { fmt: fmtC } = useCurrency();
   const [activeTab, setActiveTab] = useState("expenses");
 
   const visibleTabs = TABS.filter(t => financeTabAllowed(profile, FINANCE_TAB_KEYS[t]));
@@ -165,10 +170,21 @@ function Finance() {
   const [showBankForm, setShowBankForm] = useState(false);
   const [bankForm, setBankForm]       = useState({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "" });
 
+  /* ── Order P&L state ── */
+  const [orders, setOrders]               = useState([]);
+  const [orderCosts, setOrderCosts]       = useState({});   // keyed by orderId
+  const [oplSelectedId, setOplSelectedId] = useState(null); // order open in panel
+  const [oplCostForm, setOplCostForm]     = useState({ material: "", labour: "", overhead: "", shipping: "" });
+  const [oplSaving, setOplSaving]         = useState(false);
+  const [oplStatusFilter, setOplStatusFilter] = useState("all");
+  const [labourRatePerUnit, setLabourRatePerUnit] = useState(null); // auto-calculated NPR/unit
+  const [oplDateFrom, setOplDateFrom]     = useState("");
+  const [oplDateTo, setOplDateTo]         = useState("");
+
   /* ── Load data ── */
   async function loadData() {
     const [payrollSnap, expensesSnap, purchasesSnap, vatBillsSnap, employeesSnap,
-           entriesSnap, accountsSnap, invSnap, bankSnap] = await Promise.all([
+           entriesSnap, accountsSnap, invSnap, bankSnap, ordersSnap, costsSnap, productionSnap] = await Promise.all([
       getDocs(collection(db, "finance_payroll")),
       getDocs(collection(db, "finance_expenses")),
       getDocs(collection(db, "finance_purchases")),
@@ -178,6 +194,9 @@ function Finance() {
       getDocs(collection(db, "accounts")),
       getDocs(collection(db, "invoices")),
       getDocs(collection(db, "bank_transactions")),
+      getDocs(collection(db, "orders")),
+      getDocs(collection(db, "order_costs")),
+      getDocs(collection(db, "production")),
     ]);
 
     setEmployees(employeesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status !== "Inactive"));
@@ -247,6 +266,44 @@ function Finance() {
     setAccounts(accs);
 
     setInvoices(invSnap.docs.map(d => d.data()));
+
+    // Orders
+    const orderRows = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    orderRows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    setOrders(orderRows);
+
+    // Order costs — keyed by orderId (doc ID = orderId)
+    const costsMap = {};
+    costsSnap.docs.forEach(d => { costsMap[d.id] = { id: d.id, ...d.data() }; });
+    setOrderCosts(costsMap);
+
+    // Auto labour rate: last month's payroll ÷ last month's units passed
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthKey = lastMonth.toISOString().slice(0, 7); // "YYYY-MM"
+    const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const lastMonthName = MONTH_NAMES[lastMonth.getMonth()];
+    const lastMonthYear = lastMonth.getFullYear();
+
+    const payrollData = payrollSnap.docs.map(d => d.data());
+    const allEmployees = employeesSnap.docs.map(d => d.data());
+    const productionWorkers = new Set(
+      allEmployees.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase())
+    );
+    // Only use production workers' payroll if any are tagged; otherwise fall back to all
+    const lastMonthPayroll = payrollData
+      .filter(r => r.month === lastMonthName && Number(r.year) === lastMonthYear)
+      .filter(r => productionWorkers.size === 0 || productionWorkers.has((r.staffName || "").toLowerCase()))
+      .reduce((s, r) => s + Number(r.netNPR || 0), 0);
+
+    const productionData = productionSnap.docs.map(d => d.data());
+    const lastMonthUnits = productionData
+      .filter(b => (b.date || "").slice(0, 7) === lastMonthKey)
+      .reduce((s, b) => s + Number(b.passed || 0), 0);
+
+    if (lastMonthPayroll > 0 && lastMonthUnits > 0) {
+      setLabourRatePerUnit(lastMonthPayroll / lastMonthUnits);
+    }
   }
 
   useEffect(() => { loadData().catch(console.error); }, []);
@@ -364,6 +421,40 @@ function Finance() {
       createdBy: profile?.name || "Unknown", createdAt: serverTimestamp()
     });
     setJournalForm(emptyJournalForm); await loadData(); setJournalSubmitting(false);
+  }
+
+  /* ── Order P&L handlers ── */
+  function openOplPanel(order) {
+    setOplSelectedId(order.id);
+    const existing = orderCosts[order.orderId || order.id] || orderCosts[order.id] || {};
+    const autoLabour = (existing.labour == null && labourRatePerUnit)
+      ? String(Math.round(labourRatePerUnit * Number(order.quantity || 0)))
+      : "";
+    setOplCostForm({
+      material: existing.material != null ? String(existing.material) : "",
+      labour:   existing.labour   != null ? String(existing.labour)   : autoLabour,
+      overhead: existing.overhead != null ? String(existing.overhead) : "",
+      shipping: existing.shipping != null ? String(existing.shipping) : "",
+    });
+  }
+
+  async function saveOplCosts(e) {
+    e.preventDefault();
+    if (!oplSelectedId) return;
+    setOplSaving(true);
+    const order = orders.find(o => o.id === oplSelectedId);
+    const costKey = order?.orderId || order?.id || oplSelectedId;
+    await setDoc(doc(db, "order_costs", costKey), {
+      orderId:  costKey,
+      material: Number(oplCostForm.material || 0),
+      labour:   Number(oplCostForm.labour   || 0),
+      overhead: Number(oplCostForm.overhead  || 0),
+      shipping: Number(oplCostForm.shipping  || 0),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await loadData();
+    setOplSaving(false);
+    setOplSelectedId(null);
   }
 
   /* ── Memos ── */
@@ -1243,6 +1334,327 @@ function Finance() {
             </div>
           </>
         )}
+
+        {/* ── Order P&L ── */}
+        {activeTab === "order p&l" && (() => {
+          // Filtered orders
+          const filteredOrders = orders.filter(o => {
+            if (oplStatusFilter !== "all") {
+              const st = (o.status || o.stage || "").toLowerCase();
+              if (oplStatusFilter === "active"    && (st === "completed" || st === "cancelled")) return false;
+              if (oplStatusFilter === "completed" && st !== "completed") return false;
+            }
+            if (oplDateFrom && o.createdAt?.seconds) {
+              const d = new Date(o.createdAt.seconds * 1000).toISOString().slice(0, 10);
+              if (d < oplDateFrom) return false;
+            }
+            if (oplDateTo && o.createdAt?.seconds) {
+              const d = new Date(o.createdAt.seconds * 1000).toISOString().slice(0, 10);
+              if (d > oplDateTo) return false;
+            }
+            return true;
+          });
+
+          // Per-order P&L rows
+          const rows = filteredOrders.map(o => {
+            const costKey = o.orderId || o.id;
+            const costs   = orderCosts[costKey] || {};
+            const revenue = Number(o.totalValueNPR || 0);
+            const mat     = Number(costs.material || 0);
+            // Auto-calculate labour from rate if not manually entered
+            const hasManualLabour = costs.labour != null && costs.labour !== "";
+            const autoLab = (!hasManualLabour && labourRatePerUnit)
+              ? Math.round(labourRatePerUnit * Number(o.quantity || 0))
+              : 0;
+            const lab     = hasManualLabour ? Number(costs.labour) : autoLab;
+            const labIsAuto = !hasManualLabour && autoLab > 0;
+            const ovh     = Number(costs.overhead  || 0);
+            const shp     = Number(costs.shipping  || 0);
+            const totalCost = mat + lab + ovh + shp;
+            const profit    = revenue - totalCost;
+            const margin    = revenue > 0 ? (profit / revenue) * 100 : null;
+            const hasCosts  = mat + lab + ovh + shp > 0;
+            return { ...o, costKey, revenue, mat, lab, labIsAuto, ovh, shp, totalCost, profit, margin, hasCosts };
+          });
+
+          // KPI summary
+          const kpiRevenue  = rows.reduce((s, r) => s + r.revenue,   0);
+          const kpiCost     = rows.reduce((s, r) => s + r.totalCost, 0);
+          const kpiProfit   = rows.reduce((s, r) => s + r.profit,    0);
+          const withMargin  = rows.filter(r => r.revenue > 0 && r.hasCosts);
+          const avgMargin   = withMargin.length
+            ? withMargin.reduce((s, r) => s + r.margin, 0) / withMargin.length
+            : null;
+
+          // Currently open order
+          const openOrder = oplSelectedId ? orders.find(o => o.id === oplSelectedId) : null;
+          const openCosts = openOrder ? (orderCosts[openOrder.orderId || openOrder.id] || {}) : {};
+          const openRevenue = Number(openOrder?.totalValueNPR || 0);
+          const previewMat  = Number(oplCostForm.material || 0);
+          const previewLab  = Number(oplCostForm.labour   || 0);
+          const previewOvh  = Number(oplCostForm.overhead  || 0);
+          const previewShp  = Number(oplCostForm.shipping  || 0);
+          const previewTotal  = previewMat + previewLab + previewOvh + previewShp;
+          const previewProfit = openRevenue - previewTotal;
+          const previewMargin = openRevenue > 0 ? (previewProfit / openRevenue) * 100 : null;
+
+          function marginPill(m) {
+            if (m === null) return <span className="kopl-margin-pill kopl-margin-pill--warn">—</span>;
+            const cls = m >= 20 ? "kopl-margin-pill--good" : m >= 0 ? "kopl-margin-pill--warn" : "kopl-margin-pill--bad";
+            return <span className={`kopl-margin-pill ${cls}`}>{m.toFixed(1)}%</span>;
+          }
+
+          return (
+            <>
+              {/* KPI strip */}
+              <div className="kopl-kpis">
+                {[
+                  { label: "Total Revenue",  value: kpiRevenue,  color: "var(--mint-deep)" },
+                  { label: "Total Costs",    value: kpiCost,     color: "var(--terra)"     },
+                  { label: "Total Profit",   value: kpiProfit,   color: kpiProfit >= 0 ? "var(--mint-deep)" : "var(--terra)" },
+                  { label: "Avg Margin",     value: avgMargin,   color: avgMargin != null && avgMargin >= 0 ? "var(--mint-deep)" : "var(--terra)", isMargin: true },
+                ].map(({ label, value, color, isMargin }) => (
+                  <div key={label} className="kopl-kpi">
+                    <p className="kopl-kpi-label">{label}</p>
+                    <p className="kopl-kpi-value" style={{ color }}>
+                      {isMargin
+                        ? (value != null ? `${value.toFixed(1)}%` : "—")
+                        : fmt.npr(value)}
+                    </p>
+                    {!isMargin && (
+                      <p className="kopl-kpi-sub">{asCurrency(value / GBP_RATE, "GBP")}</p>
+                    )}
+                    {isMargin && (
+                      <p className="kopl-kpi-sub">{withMargin.length} orders with cost data</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Labour rate banner */}
+              {labourRatePerUnit && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--mint-soft)", borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
+                  <span style={{ color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Auto labour rate:</span>
+                  <span style={{ color: "var(--ink-2)" }}>
+                    {fmtC(labourRatePerUnit)}/unit — based on last month's payroll ÷ units produced
+                  </span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-4)" }}>Override per order by entering a manual labour cost</span>
+                </div>
+              )}
+
+              {/* Filters */}
+              <div className="kfin-block">
+                <div className="kopl-filters">
+                  <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>Status</span>
+                    <select className="kfin-select" value={oplStatusFilter} onChange={e => setOplStatusFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }}>
+                      <option value="all">All orders</option>
+                      <option value="active">Active</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </label>
+                  <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>From</span>
+                    <input type="date" className="kfin-input" value={oplDateFrom} onChange={e => setOplDateFrom(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }} />
+                  </label>
+                  <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>To</span>
+                    <input type="date" className="kfin-input" value={oplDateTo} onChange={e => setOplDateTo(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }} />
+                  </label>
+                  {(oplStatusFilter !== "all" || oplDateFrom || oplDateTo) && (
+                    <button className="ghost-button" style={{ fontSize: 12, padding: "6px 12px" }}
+                      onClick={() => { setOplStatusFilter("all"); setOplDateFrom(""); setOplDateTo(""); }}>
+                      Clear filters
+                    </button>
+                  )}
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink-4)" }}>
+                    {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""}
+                    {filteredOrders.length !== orders.length && ` (of ${orders.length})`}
+                  </span>
+                </div>
+
+                {/* Table */}
+                <div className="kopl-tbl-wrap">
+                  <table className="kopl-tbl">
+                    <thead>
+                      <tr>
+                        <th>Order ID</th>
+                        <th>Customer</th>
+                        <th>Qty</th>
+                        <th>Revenue (NPR)</th>
+                        <th>Material</th>
+                        <th>Labour</th>
+                        <th>Overhead</th>
+                        <th>Shipping</th>
+                        <th>Total Cost</th>
+                        <th>Profit</th>
+                        <th>Margin %</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.length === 0 && (
+                        <tr>
+                          <td colSpan={13} style={{ textAlign: "center", color: "var(--ink-4)", padding: "32px 0" }}>
+                            No orders found. {orders.length === 0 ? "Orders will appear here once created." : "Try adjusting your filters."}
+                          </td>
+                        </tr>
+                      )}
+                      {rows.map(row => (
+                        <tr key={row.id} className={oplSelectedId === row.id ? "kopl-tbl-selected" : ""}
+                          onClick={() => openOplPanel(row)}>
+                          <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{row.orderId || row.id}</td>
+                          <td style={{ fontWeight: 500 }}>{row.customerName || "—"}</td>
+                          <td style={{ fontFamily: "var(--mono)" }}>{Number(row.quantity || 0).toLocaleString()}</td>
+                          <td style={{ fontFamily: "var(--mono)", fontWeight: 600, color: "var(--mint-deep)" }}>
+                            {fmtC(row.revenue)}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", color: row.mat ? "var(--ink)" : "var(--ink-5)" }}>
+                            {row.mat ? fmtC(row.mat) : "—"}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", color: row.lab ? "var(--ink)" : "var(--ink-5)" }}>
+                            {row.lab ? fmtC(row.lab) : "—"}
+                            {row.labIsAuto && <span title="Auto-calculated from payroll" style={{ marginLeft: 4, fontSize: 10, color: "var(--mint-deep)", fontFamily: "var(--font)" }}>⚡</span>}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", color: row.ovh ? "var(--ink)" : "var(--ink-5)" }}>
+                            {row.ovh ? fmtC(row.ovh) : "—"}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", color: row.shp ? "var(--ink)" : "var(--ink-5)" }}>
+                            {row.shp ? fmtC(row.shp) : "—"}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", color: "var(--terra)" }}>
+                            {row.hasCosts ? fmtC(row.totalCost) : "—"}
+                          </td>
+                          <td style={{ fontFamily: "var(--mono)", fontWeight: 600,
+                            color: !row.hasCosts ? "var(--ink-5)" : row.profit >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
+                            {row.hasCosts ? (row.profit >= 0 ? "+" : "") + fmtC(row.profit) : "—"}
+                          </td>
+                          <td>{row.hasCosts ? marginPill(row.margin) : <span className="kopl-margin-pill kopl-margin-pill--warn">No costs</span>}</td>
+                          <td>
+                            <span style={{
+                              display: "inline-block", padding: "2px 8px", borderRadius: "var(--r-pill)",
+                              fontSize: 11.5, fontWeight: 600,
+                              background: (row.status || "").toLowerCase() === "completed" ? "var(--mint-soft)" : "var(--blue-soft)",
+                              color:      (row.status || "").toLowerCase() === "completed" ? "var(--mint-deep)" : "var(--blue)",
+                            }}>
+                              {row.status || row.stage || "Active"}
+                            </span>
+                          </td>
+                          <td>
+                            <button className="ghost-button" style={{ fontSize: 11, padding: "4px 10px" }}
+                              onClick={ev => { ev.stopPropagation(); openOplPanel(row); }}>
+                              {orderCosts[row.costKey] ? "Edit costs" : "Add costs"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Cost entry side panel */}
+              {oplSelectedId && openOrder && (
+                <div className="kopl-overlay" onClick={() => setOplSelectedId(null)}>
+                  <div className="kopl-panel" onClick={e => e.stopPropagation()}>
+                    <div className="kopl-panel-hd">
+                      <div>
+                        <p className="kopl-panel-title">Cost Entry</p>
+                        <p className="kopl-panel-sub">
+                          {openOrder.orderId || openOrder.id} · {openOrder.customerName || "—"} · {Number(openOrder.quantity || 0).toLocaleString()} pcs
+                        </p>
+                      </div>
+                      <button className="kopl-panel-close" onClick={() => setOplSelectedId(null)}>×</button>
+                    </div>
+
+                    <div className="kopl-panel-body">
+                      {/* Revenue summary */}
+                      <div className="kopl-panel-summary">
+                        <div className="kopl-panel-summary-row">
+                          <span>Revenue</span>
+                          <span style={{ fontFamily: "var(--mono)", fontWeight: 600, color: "var(--mint-deep)" }}>
+                            {fmtC(openRevenue)}
+                          </span>
+                        </div>
+                        <div className="kopl-panel-summary-row">
+                          <span>Material</span>
+                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewMat)}</span>
+                        </div>
+                        <div className="kopl-panel-summary-row">
+                          <span>Labour</span>
+                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewLab)}</span>
+                        </div>
+                        <div className="kopl-panel-summary-row">
+                          <span>Overhead</span>
+                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewOvh)}</span>
+                        </div>
+                        <div className="kopl-panel-summary-row">
+                          <span>Shipping</span>
+                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewShp)}</span>
+                        </div>
+                        <div className="kopl-panel-summary-row total">
+                          <span>Total Cost</span>
+                          <span style={{ fontFamily: "var(--mono)", color: "var(--terra)" }}>{fmtC(previewTotal)}</span>
+                        </div>
+                        <div className={`kopl-panel-summary-row ${previewProfit >= 0 ? "profit-row" : "loss-row"}`}>
+                          <span>{previewProfit >= 0 ? "Profit" : "Loss"}</span>
+                          <span style={{ fontFamily: "var(--mono)" }}>
+                            {fmtC(Math.abs(previewProfit))}
+                            {previewMargin !== null && (
+                              <span style={{ marginLeft: 6, fontSize: 12, opacity: 0.8 }}>
+                                ({previewMargin.toFixed(1)}%)
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Cost fields */}
+                      <form id="opl-cost-form" onSubmit={saveOplCosts} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {[
+                          { key: "material", label: "Material Cost (NPR)", placeholder: "Fabric, trims, thread…" },
+                          { key: "labour",   label: "Labour Cost (NPR)",   placeholder: "Cutting, sewing, finishing…" },
+                          { key: "overhead", label: "Overhead (NPR)",      placeholder: "Factory, utilities, depreciation…" },
+                          { key: "shipping", label: "Shipping (NPR)",      placeholder: "Freight, packaging, customs…" },
+                        ].map(({ key, label, placeholder }) => (
+                          <label key={key} className="kfin-label" style={{ fontSize: 13, gap: 5 }}>
+                            {label}
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              className="kfin-input"
+                              value={oplCostForm[key]}
+                              placeholder={placeholder}
+                              onChange={e => setOplCostForm(f => ({ ...f, [key]: e.target.value }))}
+                              disabled={!canEdit}
+                            />
+                          </label>
+                        ))}
+                        {!canEdit && (
+                          <div className="kfin-notice" style={{ margin: 0 }}>ℹ View-only — only Nepal staff can edit costs.</div>
+                        )}
+                      </form>
+                    </div>
+
+                    <div className="kopl-panel-foot">
+                      {canEdit && (
+                        <button form="opl-cost-form" type="submit" className="primary-button" style={{ flex: 1 }} disabled={oplSaving}>
+                          {oplSaving ? "Saving…" : "Save Costs"}
+                        </button>
+                      )}
+                      <button className="ghost-button" style={{ flex: canEdit ? "0 0 auto" : 1, padding: "9px 16px" }}
+                        onClick={() => setOplSelectedId(null)}>
+                        {canEdit ? "Cancel" : "Close"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
       </div>
     </AppLayout>

@@ -18,6 +18,7 @@ export const DEFAULT_NEPAL_ADMIN_PERMISSIONS = {
     pl:           true,
     balanceSheet: true,
     bank:         true,
+    orderPl:      true,
   },
 };
 
@@ -67,10 +68,10 @@ export function sectionVisible(profile, sectionKey) {
   if (!profile) return false;
   const role = appRole(profile);
   const NAV_BY_ROLE = {
-    nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger"],
-    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger"],
-    employee:    ["dashboard","tasks","attendance"],
-    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger"],
+    nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger","library"],
+    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger","library"],
+    employee:    ["dashboard","tasks","attendance","library"],
+    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger","library"],
   };
   const base = new Set(NAV_BY_ROLE[role] || []);
   if (base.has(sectionKey)) return true;
@@ -108,4 +109,5 @@ export const FINANCE_TAB_KEYS = {
   "p&l":           "pl",
   "balance sheet": "balanceSheet",
   "bank":          "bank",
+  "order p&l":     "orderPl",
 };

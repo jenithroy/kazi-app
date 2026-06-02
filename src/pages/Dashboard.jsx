@@ -1,12 +1,14 @@
 import { useEffect, useState, useMemo } from "react";
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
+import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M } from "../constants";
 import { todayDate, startOfWeekDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
+import { useCurrency } from "../context/CurrencyContext";
 import { AreaChart, AttendanceRing, ProductionPipeline, QCDial, Donut, Bars } from "../components/viz";
 import ClockInCard from "../components/ClockInCard";
 
@@ -52,51 +54,43 @@ function NepalAdminDash() {
       const today = todayDate();
       const weekStart = startOfWeekDate();
 
-      // Use allSettled so a permissions error on one collection doesn't crash the whole dashboard
-      const results = await Promise.allSettled([
-        getDocs(collection(db, "attendance")),
-        getDocs(collection(db, "production")),
-        getDocs(collection(db, "qc_logs")),
-        getDocs(collection(db, "inventory")),
-        getDocs(collection(db, "tasks")),
-        getDocs(collection(db, "budget_requests")),
-        getDocs(collection(db, "orders")),
-        getDocs(collection(db, "finance_expenses")),
-        getDocs(collection(db, "users")),
-      ]);
+      // loadCollections uses Promise.allSettled internally — a permissions error
+      // on one collection returns [] for that key and never crashes the dashboard.
+      const {
+        attendance, production: prodRows, qc_logs: qcLogs, inventory,
+        tasks, budget_requests: budgetRequests, orders, finance_expenses: expenses, users,
+        order_costs: orderCosts,
+      } = await loadCollections({
+        attendance:       "attendance",
+        production:       "production",
+        qc_logs:          "qc_logs",
+        inventory:        "inventory",
+        tasks:            "tasks",
+        budget_requests:  "budget_requests",
+        orders:           "orders",
+        finance_expenses: "finance_expenses",
+        users:            "users",
+        order_costs:      "order_costs",
+      });
 
-      // Helper: extract docs from settled result, fallback to empty array
-      const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-
-      const [attSnap, prodSnap, qcSnap, invSnap, tasksSnap, budgetSnap, ordersSnap, expSnap, usersSnap]
-        = results.map(docs);
-
-      const attendance = attSnap.map(d => d.data());
       const todayAtt = attendance.filter(r => r.date === today);
       const presentToday = todayAtt.filter(r => ["Present", "Late", "Half-day"].includes(r.status)).length;
       const lateToday = todayAtt.filter(r => r.status === "Late").length;
       const leaveToday = todayAtt.filter(r => r.status === "Leave").length;
-      const totalStaff = usersSnap.filter(d => {
-        const r = d.data().role;
-        return ["nepal_admin","employee","nepal_staff"].includes(r);
-      }).length || 7;
+      const totalStaff = users.filter(u => ["nepal_admin","employee","nepal_staff"].includes(u.role)).length || users.length || 7;
       const absent = Math.max(0, totalStaff - presentToday - leaveToday);
 
-      const production = prodSnap.map(d => ({ id: d.id, ...d.data() }));
-      const weeklyUnits = production.filter(b => b.date >= weekStart).reduce((s, b) => s + Number(b.passed || 0), 0);
+      const weeklyUnits = prodRows.filter(b => b.date >= weekStart).reduce((s, b) => s + Number(b.passed || 0), 0);
 
-      const qcLogs = qcSnap.map(d => d.data());
       const totalInsp = qcLogs.reduce((s, r) => s + Number(r.inspected || r.checked || 0), 0);
       const totalPass = qcLogs.reduce((s, r) => s + Number(r.passed || 0), 0);
       const qcPassRate = totalInsp ? ((totalPass / totalInsp) * 100).toFixed(1) : "0.0";
 
-      const inventory = invSnap.map(d => d.data());
       const lowStockItems = inventory.filter(item => {
         const closing = Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0);
         return closing <= Number(item.minLevel || 0);
       }).slice(0, 4);
 
-      const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
       const tasksByCol = {
         todo:       tasks.filter(t => t.status === "To Do").length,
         in_progress:tasks.filter(t => t.status === "In Progress").length,
@@ -105,15 +99,34 @@ function NepalAdminDash() {
       };
       const recentTasks = tasks.filter(t => t.status !== "Done").slice(0, 5);
 
-      const budgetRequests = budgetSnap.map(d => ({ id: d.id, ...d.data() }));
       const pendingBudget = budgetRequests.filter(b => b.status === "Pending" || !b.status);
 
-      const orders = ordersSnap.map(d => ({ id: d.id, ...d.data() }));
-      const activeOrders = orders.filter(o => !["Delivered", "Cancelled", "Shipped"].includes(o.stage));
+      // Fix: filter by status not stage so On Hold orders aren't counted as active
+      const activeOrders = orders.filter(o => o.status === "Active");
 
-      const expenses = expSnap.map(d => d.data());
       const thisMonth = new Date().toISOString().slice(0, 7);
       const monthExpNPR = expenses.filter(e => (e.date || "").slice(0, 7) === thisMonth).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
+
+      // Real weekly expense trend (last 7 weeks)
+      const weeklyExpTrend = Array.from({ length: 7 }, (_, i) => {
+        const wEnd = new Date(); wEnd.setDate(wEnd.getDate() - i * 7);
+        const wStart = new Date(wEnd); wStart.setDate(wStart.getDate() - 6);
+        const wKey = wStart.toISOString().slice(0, 10);
+        const wKeyEnd = wEnd.toISOString().slice(0, 10);
+        return expenses.filter(e => e.date >= wKey && e.date <= wKeyEnd).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
+      }).reverse();
+      const weeklyExpLabels = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(); d.setDate(d.getDate() - (6 - i) * 7);
+        return `W${Math.ceil(d.getDate() / 7)}`;
+      });
+
+      // Revenue & P&L from orders + order_costs
+      const costsMap = Object.fromEntries(orderCosts.map(c => [c.id, c]));
+      const totalRevNPR = orders.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
+      const thisMonthRevNPR = orders.filter(o => (o.date || "").slice(0, 7) === thisMonth).reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
+      const totalCostNPR = orderCosts.reduce((s, c) => s + Number(c.material || 0) + Number(c.labour || 0) + Number(c.overhead || 0) + Number(c.shipping || 0), 0);
+      const totalProfitNPR = totalRevNPR - totalCostNPR;
+      const avgMargin = totalRevNPR > 0 ? ((totalProfitNPR / totalRevNPR) * 100).toFixed(1) : "0.0";
 
       const recentBatches = [...qcLogs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5).map(b => {
         const insp = Number(b.inspected || b.checked || 0);
@@ -130,11 +143,15 @@ function NepalAdminDash() {
 
       setData({
         presentToday, lateToday, leaveToday, absent, totalStaff, weeklyUnits, qcPassRate,
-        lowStockItems, tasksByCol, recentTasks, pendingBudget, activeOrders, orders, monthExpNPR, recentBatches, attTrend,
+        lowStockItems, tasksByCol, recentTasks, pendingBudget, activeOrders, orders, monthExpNPR,
+        weeklyExpTrend, weeklyExpLabels, thisMonthRevNPR, totalRevNPR, totalCostNPR, totalProfitNPR, avgMargin,
+        recentBatches, attTrend,
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
   }, []);
+
+  const { fmt: fmtC } = useCurrency();
 
   if (loadErr) return (
     <AppLayout>
@@ -157,9 +174,8 @@ function NepalAdminDash() {
             spark={<Spark data={data.attTrend} color="var(--mint-2)" fill="var(--mint-soft)" />}
           />
           <KPI label="Active orders" value={data.activeOrders.length} unit={`/${data.orders.length}`}
-            delta={data.activeOrders.length > 3 ? 8 : null} deltaLabel="vs last week"
+            deltaLabel={`${data.orders.filter(o => o.status === "Completed").length} completed`}
             icon={<Icons.Production size={14} sw={1.8}/>}
-            spark={<Spark data={[3,4,5,5,6,6,data.activeOrders.length]} color="var(--mint-deep)" fill="var(--mint-soft)" />}
           />
           <KPI label="Open tasks" value={data.tasksByCol.todo + data.tasksByCol.in_progress}
             deltaLabel={`${data.tasksByCol.blocked} blocked`}
@@ -285,13 +301,22 @@ function NepalAdminDash() {
             action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/finance'}>Finance</Btn>}>
             <div className="kna-fin">
               <div className="kna-fin-top">
-                <div>
-                  <div className="kna-fin-l">Expenses (NPR)</div>
-                  <div className="num-xl" style={{ fontSize: 28 }}>₨ {data.monthExpNPR.toLocaleString("en-IN")}</div>
-                  <div className="kna-fin-sub">≈ £{Math.round(data.monthExpNPR / GBP_RATE).toLocaleString()}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div>
+                    <div className="kna-fin-l">This month revenue</div>
+                    <div className="num-xl" style={{ fontSize: 24 }}>{fmtC(data.thisMonthRevNPR)}</div>
+                  </div>
+                  <div>
+                    <div className="kna-fin-l">This month expenses</div>
+                    <div className="num-xl" style={{ fontSize: 24, color: "var(--terra)" }}>{fmtC(data.monthExpNPR)}</div>
+                  </div>
+                  <div>
+                    <div className="kna-fin-l">Overall margin</div>
+                    <div className="num-xl" style={{ fontSize: 20, color: Number(data.avgMargin) >= 20 ? "var(--mint-deep)" : "var(--amber)" }}>{data.avgMargin}%</div>
+                  </div>
                 </div>
                 <div className="kna-fin-bar">
-                  <Bars data={[68,82,74,91,88,95,72]} labels={["W14","W15","W16","W17","W18","W19","W20"]} color="var(--mint-deep)" height={80}/>
+                  <Bars data={data.weeklyExpTrend} labels={data.weeklyExpLabels} color="var(--mint-deep)" height={80}/>
                 </div>
               </div>
               <Divider />
@@ -412,10 +437,13 @@ function UKAdminDash() {
         { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--ink-5)" },
       ];
 
+      const results2 = await Promise.allSettled([getDocs(collection(db, "finance_payroll"))]);
+      const payrollDocs = results2[0].status === "fulfilled" ? results2[0].value.docs.map(d => d.data()) : [];
+      const payrollNPR = payrollDocs.filter(p => (p.date || p.month || "").slice(0, 7) === thisMonth).reduce((s, p) => s + Number(p.amountNPR || p.amount || 0), 0);
+
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
-        pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff,
-        payrollNPR: 640000,
+        pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR,
       });
     }
     load().catch(e => { console.error(e); setData({}); });
@@ -428,7 +456,7 @@ function UKAdminDash() {
       <div className="kdash fade-in">
         {/* KPI Row */}
         <div className="kgrid kgrid--4">
-          <KPI label="Revenue · MTD" value={fmt.gbp((data.totalPaidNPR || 0) / GBP_RATE)} delta={18.4} deltaLabel="vs last month"
+          <KPI label="Revenue · MTD" value={fmtC(data.totalPaidNPR || 0)} delta={18.4} deltaLabel="vs last month"
             icon={<Icons.Finance size={14} sw={1.8}/>}
             spark={<Spark data={data.revData.slice(-14)} color="var(--mint-deep)" fill="var(--mint-soft)" />}
           />
@@ -558,9 +586,27 @@ function UKAdminDash() {
 }
 
 function BudgetApprovalCard({ br }) {
-  const [state, setState] = useState(null);
+  const [state, setState] = useState(br.status === "Approved" ? "approved" : br.status === "Rejected" ? "rejected" : null);
+  const [saving, setSaving] = useState(false);
   const amtNPR = Number(br.amountNPR || br.amount || 0);
   const urgencyTone = br.urgency === "high" ? "terra" : br.urgency === "med" || br.urgency === "medium" ? "amber" : "neutral";
+
+  async function handleDecision(decision) {
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "budget_requests", br.id), {
+        status: decision === "approved" ? "Approved" : "Rejected",
+        reviewedAt: serverTimestamp(),
+      });
+      setState(decision);
+    } catch (err) {
+      console.error("Failed to update budget request:", err);
+      alert("Failed to update budget request: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className={cn("kbr", state && `kbr--${state}`)}>
       <div className="kbr-h">
@@ -580,8 +626,8 @@ function BudgetApprovalCard({ br }) {
         </div>
         {state === null && (
           <div className="kbr-actions">
-            <Btn kind="soft" size="sm" icon={<Icons.X size={13} sw={2.2}/>} onClick={() => setState("rejected")}>Reject</Btn>
-            <Btn kind="mint" size="sm" icon={<Icons.Check size={13} sw={2.4}/>} onClick={() => setState("approved")}>Approve</Btn>
+            <Btn kind="soft" size="sm" icon={<Icons.X size={13} sw={2.2}/>} disabled={saving} onClick={() => handleDecision("rejected")}>Reject</Btn>
+            <Btn kind="mint" size="sm" icon={<Icons.Check size={13} sw={2.4}/>} disabled={saving} onClick={() => handleDecision("approved")}>Approve</Btn>
           </div>
         )}
         {state === "approved" && <Pill tone="mint" icon={<Icons.Check size={12} sw={2.4}/>}>Approved</Pill>}

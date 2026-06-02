@@ -16,8 +16,108 @@ const emptyForm = {
   name: "", role: "", department: "Operations", email: "", phone: "",
   address: "", panNumber: "", bankAccount: "", bankName: "", bankBranch: "",
   joinDate: new Date().toISOString().slice(0, 10),
-  basicSalaryNPR: "", location: "nepal", status: "Active"
+  basicSalaryNPR: "", location: "nepal", status: "Active",
+  reportsTo: "", isProductionWorker: false,
 };
+
+/* ── Org chart ───────────────────────────────────────── */
+const ORG_CSS = `
+.korg { overflow-x: auto; padding: 32px 16px; min-height: 300px; }
+.korg-tree { display: inline-flex; flex-direction: column; align-items: center; min-width: 100%; }
+.korg-roots { display: flex; gap: 0; justify-content: center; }
+.korg-level { display: flex; gap: 0; justify-content: center; position: relative; padding-top: 22px; }
+.korg-level::before { content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 2px; height: 22px; background: var(--line); }
+.korg-branch { display: flex; flex-direction: column; align-items: center; padding: 0 10px; position: relative; }
+.korg-branch::before { content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 2px; height: 22px; background: var(--line); }
+.korg-branch::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--line); }
+.korg-branch:first-child::after { left: 50%; }
+.korg-branch:last-child::after { right: 50%; }
+.korg-branch:only-child::before { display: none; }
+.korg-branch:only-child::after { display: none; }
+.korg-card { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 148px; max-width: 190px; text-align: center; transition: border-color .15s, box-shadow .15s; }
+.korg-card:hover { border-color: var(--mint-deep); box-shadow: 0 0 0 3px var(--mint-soft); }
+.korg-card--prod { border-color: var(--mint-deep); background: var(--mint-soft); }
+.korg-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; margin: 0 auto 8px; }
+.korg-name { font-weight: 600; font-size: 13px; color: var(--ink); line-height: 1.2; }
+.korg-role { font-size: 11px; color: var(--ink-4); margin-top: 3px; }
+.korg-tags { display: flex; gap: 4px; justify-content: center; margin-top: 8px; flex-wrap: wrap; }
+.korg-tag { font-size: 10px; padding: 2px 7px; border-radius: 99px; font-weight: 500; }
+.korg-tag--prod { background: var(--mint-soft); color: var(--mint-deep); }
+.korg-tag--uk { background: var(--bg-2); color: var(--ink-3); }
+.korg-tag--np { background: var(--bg-2); color: var(--ink-3); }
+`;
+
+const HUE_MAP = { Management: 145, Operations: 200, Production: 35, Finance: 260, HR: 310, Marketing: 10, IT: 190, Other: 90 };
+
+function OrgCard({ emp }) {
+  const hue = HUE_MAP[emp.department] ?? 145;
+  const bg = `oklch(0.78 0.08 ${hue})`;
+  const fg = `oklch(0.28 0.08 ${hue})`;
+  const initials = (emp.name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <div className={`korg-card${emp.isProductionWorker ? " korg-card--prod" : ""}`}>
+      <div className="korg-avatar" style={{ background: bg, color: fg }}>{initials}</div>
+      <div className="korg-name">{emp.name}</div>
+      <div className="korg-role">{emp.role}</div>
+      <div className="korg-tags">
+        {emp.isProductionWorker && <span className="korg-tag korg-tag--prod">⚡ Production</span>}
+        <span className={`korg-tag korg-tag--${emp.location === "uk" ? "uk" : "np"}`}>
+          {emp.location === "uk" ? "🇬🇧 UK" : "🇳🇵 Nepal"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function OrgNode({ emp, allEmps }) {
+  const children = allEmps.filter(e => (e.reportsTo || "").toLowerCase() === emp.name.toLowerCase() && e.status !== "Inactive");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <OrgCard emp={emp} />
+      {children.length > 0 && (
+        <div className="korg-level">
+          {children.map(child => (
+            <div key={child.id} className="korg-branch">
+              <OrgNode emp={child} allEmps={allEmps} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrgChart({ employees }) {
+  const active = employees.filter(e => e.status !== "Inactive");
+  const roots = active.filter(e => !e.reportsTo || !active.find(a => a.name.toLowerCase() === e.reportsTo.toLowerCase()));
+  const prodCount = active.filter(e => e.isProductionWorker).length;
+
+  return (
+    <div>
+      <style>{ORG_CSS}</style>
+      <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ padding: "10px 16px", background: "var(--card)", borderRadius: 10, border: "1.5px solid var(--line)", fontSize: 13 }}>
+          <span style={{ fontWeight: 600 }}>{active.length}</span> <span style={{ color: "var(--ink-4)" }}>active staff</span>
+        </div>
+        <div style={{ padding: "10px 16px", background: "var(--mint-soft)", borderRadius: 10, border: "1.5px solid var(--mint-deep)", fontSize: 13, color: "var(--mint-deep)" }}>
+          <span style={{ fontWeight: 600 }}>⚡ {prodCount}</span> <span>production workers</span>
+        </div>
+        {prodCount === 0 && (
+          <div style={{ padding: "10px 16px", background: "rgba(230,81,0,0.08)", borderRadius: 10, border: "1.5px solid rgba(230,81,0,0.3)", fontSize: 13, color: "var(--terra)" }}>
+            Tag production workers in Directory → labour costs auto-calculate in Finance
+          </div>
+        )}
+      </div>
+      <div className="korg">
+        <div className="korg-tree">
+          <div className="korg-roots" style={{ display: "flex", gap: 32 }}>
+            {roots.map(emp => <OrgNode key={emp.id} emp={emp} allEmps={active} />)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function statusBadge(status) {
   return status === "Active"
@@ -269,12 +369,13 @@ function Employees() {
         ) : null}
       />
 
-      {canViewPayroll && (
-        <div className="kfin-tabs" style={{ marginBottom: 20 }}>
-          <button className={`kfin-tab ${activeTab === "directory" ? "kfin-tab--on" : ""}`} onClick={() => setActiveTab("directory")}>Directory</button>
+      <div className="kfin-tabs" style={{ marginBottom: 20 }}>
+        <button className={`kfin-tab ${activeTab === "directory" ? "kfin-tab--on" : ""}`} onClick={() => setActiveTab("directory")}>Directory</button>
+        <button className={`kfin-tab ${activeTab === "org" ? "kfin-tab--on" : ""}`} onClick={() => setActiveTab("org")}>Org Chart</button>
+        {canViewPayroll && (
           <button className={`kfin-tab ${activeTab === "payroll" ? "kfin-tab--on" : ""}`} onClick={() => setActiveTab("payroll")}>Payroll</button>
-        </div>
-      )}
+        )}
+      </div>
 
       {activeTab === "directory" && (
         <>
@@ -374,11 +475,31 @@ function Employees() {
                   </select>
                 </label>
                 <label>
+                  Reports To
+                  <select value={form.reportsTo} onChange={e => setForm(f => ({ ...f, reportsTo: e.target.value }))}>
+                    <option value="">— No manager —</option>
+                    {employees.filter(e => e.name !== form.name).map(e => (
+                      <option key={e.id} value={e.name}>{e.name} ({e.role})</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
                   Status
                   <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                     <option>Active</option>
                     <option>Inactive</option>
                   </select>
+                </label>
+                <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: 12 }}>
+                  <input type="checkbox" checked={!!form.isProductionWorker}
+                    onChange={e => setForm(f => ({ ...f, isProductionWorker: e.target.checked }))}
+                    style={{ width: 16, height: 16, accentColor: "var(--mint-deep)" }} />
+                  <span>
+                    <strong>Production worker</strong>
+                    <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 6, fontSize: 12 }}>
+                      — includes this person's salary in the auto labour cost calculation for Order P&L
+                    </span>
+                  </span>
                 </label>
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
                   <button type="submit" className="primary-button" disabled={submitting}>
@@ -413,6 +534,8 @@ function Employees() {
                     <th>Basic Salary</th>
                     <th>PAN</th>
                     <th>Bank Details</th>
+                    <th>Reports To</th>
+                    <th>Production</th>
                     <th>Status</th>
                     {canEdit && <th>Actions</th>}
                   </tr>
@@ -442,6 +565,8 @@ function Employees() {
                         {emp.bankName ? `${emp.bankName}${emp.bankBranch ? ` (${emp.bankBranch})` : ""}` : (emp.bankAccount ? "Bank Account" : "—")}
                         {emp.bankAccount && <div style={{ fontFamily: "monospace", marginTop: 2 }}>{emp.bankAccount}</div>}
                       </td>
+                      <td style={{ fontSize: "0.82rem", color: "var(--ink-4)" }}>{emp.reportsTo || "—"}</td>
+                      <td>{emp.isProductionWorker ? <span style={{ fontSize: 12, color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Yes</span> : <span style={{ fontSize: 12, color: "var(--ink-5)" }}>—</span>}</td>
                       <td>{statusBadge(emp.status)}</td>
                       {canEdit && (
                         <td>
@@ -463,6 +588,12 @@ function Employees() {
             </div>
           </section>
         </>
+      )}
+
+      {activeTab === "org" && (
+        <section className="panel">
+          <OrgChart employees={employees} />
+        </section>
       )}
 
       {activeTab === "payroll" && canViewPayroll && (

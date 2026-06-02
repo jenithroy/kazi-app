@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   collection, getDocs, addDoc, updateDoc, deleteDoc,
   doc, serverTimestamp, query, orderBy,
@@ -9,6 +9,8 @@ import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { Icons } from "../components/ui";
+// eslint-disable-next-line no-unused-vars
+import { KANBAN_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
 
 const STAGES = ["Ordered", "Cutting", "Sewing", "Printing", "QC", "Shipping", "Delivered"];
 
@@ -91,6 +93,7 @@ function OrderManagement() {
       setShowForm(false);
       await loadOrders();
     } catch (err) {
+      console.error("Failed to create order:", err);
       alert("Failed to create order: " + err.message);
     }
     setSaving(false);
@@ -112,6 +115,7 @@ function OrderManagement() {
       });
       await loadOrders();
     } catch (err) {
+      console.error("Failed to create order:", err);
       alert("Failed to create order: " + err.message);
     }
     setSaving(false);
@@ -162,9 +166,9 @@ function OrderManagement() {
     await loadOrders();
   }
 
-  const active    = orders.filter(o => o.status !== "Cancelled" && o.status !== "Delivered");
-  const delivered = orders.filter(o => o.status === "Delivered");
-  const cancelled = orders.filter(o => o.status === "Cancelled");
+  const active    = useMemo(() => orders.filter(o => o.status !== "Cancelled" && o.status !== "Delivered"), [orders]);
+  const delivered = useMemo(() => orders.filter(o => o.status === "Delivered"), [orders]);
+  const cancelled = useMemo(() => orders.filter(o => o.status === "Cancelled"), [orders]);
 
   return (
     <AppLayout>

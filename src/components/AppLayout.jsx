@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { cn, Icons, Avatar } from "./ui";
 
 const ROUTE_LABEL = {
@@ -21,6 +22,7 @@ const ROUTE_LABEL = {
 
 function Topbar({ collapsed, onMobileMenuToggle }) {
   const { profile } = useAuth();
+  const { currency, toggle: toggleCurrency } = useCurrency();
   const location = useLocation();
   const routeKey = location.pathname.replace("/", "") || "dashboard";
   const routeLabel = ROUTE_LABEL[routeKey] || routeKey;
@@ -59,6 +61,23 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
 
       {/* Right */}
       <div className="ktop-r">
+        {/* Currency toggle */}
+        <button
+          onClick={toggleCurrency}
+          title={`Switch to ${currency === "NPR" ? "GBP" : "NPR"}`}
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "4px 10px", borderRadius: 8,
+            border: "1.5px solid var(--line)",
+            background: currency === "GBP" ? "var(--mint-soft)" : "transparent",
+            color: currency === "GBP" ? "var(--mint-deep)" : "var(--ink-3)",
+            fontSize: 12, fontWeight: 600, fontFamily: "var(--mono)",
+            cursor: "pointer", transition: "all 0.15s",
+          }}
+        >
+          {currency === "NPR" ? "₨ NPR" : "£ GBP"}
+        </button>
+
         {/* Search */}
         <button className="ktop-iconbtn" title="Search (⌘K)">
           <Icons.Search size={16} sw={1.8} />
