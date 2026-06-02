@@ -335,7 +335,7 @@ function NepalAdminDash() {
                       <div>{br.title || br.item || "Budget request"}</div>
                       <div className="kna-br-s"><span className="mono">{br.id?.slice(-8)}</span> · {br.submittedBy || "—"}</div>
                     </div>
-                    <div className="mono kna-br-amt">£{Math.round(Number(br.amountNPR || br.amount || 0) / GBP_RATE).toLocaleString()}</div>
+                    <div className="mono kna-br-amt">{fmtC(Number(br.amountNPR || br.amount || 0))}</div>
                   </div>
                 ))}
               </div>
@@ -439,7 +439,13 @@ function UKAdminDash() {
 
       const results2 = await Promise.allSettled([getDocs(collection(db, "finance_payroll"))]);
       const payrollDocs = results2[0].status === "fulfilled" ? results2[0].value.docs.map(d => d.data()) : [];
-      const payrollNPR = payrollDocs.filter(p => (p.date || p.month || "").slice(0, 7) === thisMonth).reduce((s, p) => s + Number(p.amountNPR || p.amount || 0), 0);
+      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const nowDate = new Date();
+      const curMonthName = MONTH_NAMES[nowDate.getMonth()];
+      const curYear = nowDate.getFullYear();
+      const payrollNPR = payrollDocs
+        .filter(p => p.month === curMonthName && Number(p.year) === curYear)
+        .reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
 
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
@@ -462,8 +468,8 @@ function UKAdminDash() {
             icon={<Icons.Finance size={14} sw={1.8}/>}
             spark={<Spark data={data.revData.slice(-14)} color="var(--mint-deep)" fill="var(--mint-soft)" />}
           />
-          <KPI label="Outstanding" value={fmt.gbp(data.outstandingNPR / GBP_RATE)}
-            deltaLabel={data.overdueNPR > 0 ? `${fmt.gbp(data.overdueNPR / GBP_RATE)} overdue` : "None overdue"}
+          <KPI label="Outstanding" value={fmtC(data.outstandingNPR)}
+            deltaLabel={data.overdueNPR > 0 ? `${fmtC(data.overdueNPR)} overdue` : "None overdue"}
             icon={<Icons.Billing size={14} sw={1.8}/>}
             spark={<Spark data={[14,15,14,12,11,12,11]} color="var(--terra)" fill="var(--terra-soft)" />}
           />
@@ -472,8 +478,7 @@ function UKAdminDash() {
             icon={<Icons.Production size={14} sw={1.8}/>}
             spark={<Spark data={[2,3,3,4,4,5,data.inProgress]} color="var(--mint-2)" fill="var(--mint-soft)" />}
           />
-          <KPI label="Payroll · month" value={fmt.gbp(data.payrollNPR / GBP_RATE)}
-            deltaLabel={`₨ ${data.payrollNPR.toLocaleString("en-IN")}`}
+          <KPI label="Payroll · month" value={fmtC(data.payrollNPR)}
             icon={<Icons.Employees size={14} sw={1.8}/>}
             spark={<Spark data={[3.0,3.1,3.2,3.1,3.2,3.2,3.2]} color="var(--blue)" fill="var(--blue-soft)" />}
           />
@@ -516,9 +521,9 @@ function UKAdminDash() {
                 <Donut size={140} thickness={18} segments={data.invoiceSegments}/>
                 <div className="kuk-inv-leg">
                   {[
-                    { label: "Paid",        color: "var(--mint-2)",  v: fmt.gbp(data.totalPaidNPR / GBP_RATE) },
-                    { label: "Outstanding", color: "var(--amber)",   v: fmt.gbp((data.outstandingNPR - data.overdueNPR) / GBP_RATE) },
-                    { label: "Overdue",     color: "var(--terra)",   v: fmt.gbp(data.overdueNPR / GBP_RATE) },
+                    { label: "Paid",        color: "var(--mint-2)",  v: fmtC(data.totalPaidNPR) },
+                    { label: "Outstanding", color: "var(--amber)",   v: fmtC(data.outstandingNPR - data.overdueNPR) },
+                    { label: "Overdue",     color: "var(--terra)",   v: fmtC(data.overdueNPR) },
                   ].map(r => (
                     <div key={r.label} className="klegrow">
                       <span className="klegrow-d" style={{ background: r.color }}/>
@@ -539,7 +544,7 @@ function UKAdminDash() {
                         <div className="kuk-inv-c">{i.clientName || "—"}</div>
                       </div>
                       <div className="kuk-inv-end">
-                        <div className="num-xl mono" style={{ fontSize: 15 }}>{fmt.gbp(Number(i.totalNPR||0) / GBP_RATE)}</div>
+                        <div className="num-xl mono" style={{ fontSize: 15 }}>{fmtC(Number(i.totalNPR||0))}</div>
                         <Pill tone={tone}>{i.status || "Draft"}</Pill>
                       </div>
                     </div>
@@ -590,6 +595,7 @@ function UKAdminDash() {
 function BudgetApprovalCard({ br }) {
   const [state, setState] = useState(br.status === "Approved" ? "approved" : br.status === "Rejected" ? "rejected" : null);
   const [saving, setSaving] = useState(false);
+  const { fmt: fmtC } = useCurrency();
   const amtNPR = Number(br.amountNPR || br.amount || 0);
   const urgencyTone = br.urgency === "high" ? "terra" : br.urgency === "med" || br.urgency === "medium" ? "amber" : "neutral";
 
@@ -623,7 +629,7 @@ function BudgetApprovalCard({ br }) {
       {br.reason && <div className="kbr-reason">{br.reason}</div>}
       <div className="kbr-amt-row">
         <div>
-          <div className="num-xl" style={{ fontSize: 22 }}>£{Math.round(amtNPR / GBP_RATE).toLocaleString()}</div>
+          <div className="num-xl" style={{ fontSize: 22 }}>{fmtC(amtNPR)}</div>
           <div className="kbr-amt-s mono">₨ {amtNPR.toLocaleString("en-IN")}</div>
         </div>
         {state === null && (
