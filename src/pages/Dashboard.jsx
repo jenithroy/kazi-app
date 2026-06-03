@@ -399,6 +399,12 @@ function NepalAdminDash() {
                     <div className="kna-fin-l">Overall margin</div>
                     <div className="num-xl" style={{ fontSize: 20, color: Number(data.avgMargin) >= 20 ? "var(--mint-deep)" : "var(--amber)" }}>{data.avgMargin}%</div>
                   </div>
+                  <div>
+                    <div className="kna-fin-l">Estimated profit</div>
+                    <div className="num-xl" style={{ fontSize: 20, color: data.totalCostNPR > 0 ? (data.totalProfitNPR >= 0 ? "var(--mint-deep)" : "var(--terra)") : "var(--ink-4)" }}>
+                      {data.totalCostNPR > 0 ? fmtC(data.totalProfitNPR) : "—"}
+                    </div>
+                  </div>
                 </div>
                 <div className="kna-fin-bar">
                   <Bars data={data.weeklyExpTrend} labels={data.weeklyExpLabels} color="var(--mint-deep)" height={80}/>
@@ -504,9 +510,11 @@ function UKAdminDash() {
         getDocs(collection(db, "attendance")),
         getDocs(collection(db, "budget_requests")),
         getDocs(collection(db, "users")),
+        getDocs(collection(db, "finance_payroll")),
+        getDocs(collection(db, "order_costs")),
       ]);
       const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap] = results.map(docs);
+      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap] = results.map(docs);
 
       const totalStaff = usersSnap.filter(d => {
         const r = d.data().role;
@@ -520,10 +528,37 @@ function UKAdminDash() {
       const budgetRequests = budgetSnap.map(d => ({ id: d.id, ...d.data() }));
 
       const thisMonth = new Date().toISOString().slice(0, 7);
-      const monthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === thisMonth);
-      const totalPaidNPR = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+
+      // Revenue MTD — this month's paid invoices, fall back to last month if none yet
+      let revMonth = thisMonth;
+      let paidInvoices = invoices.filter(i => i.status === "Paid" && (i.date || "").slice(0, 7) === thisMonth);
+      if (paidInvoices.length === 0) {
+        revMonth = lastMonth;
+        paidInvoices = invoices.filter(i => i.status === "Paid" && (i.date || "").slice(0, 7) === lastMonth);
+      }
+      const totalPaidNPR = paidInvoices.reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+
+      // Payroll — same fallback pattern
+      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const payrollData = payrollSnap.map(d => d.data());
+      const curMonthName = MONTH_NAMES[new Date().getMonth()];
+      const curYear = new Date().getFullYear();
+      let payrollRecs = payrollData.filter(p => p.month === curMonthName && Number(p.year) === curYear);
+      if (payrollRecs.length === 0) {
+        const lastDate = new Date(); lastDate.setDate(1); lastDate.setMonth(lastDate.getMonth() - 1);
+        const lastMName = MONTH_NAMES[lastDate.getMonth()];
+        payrollRecs = payrollData.filter(p => p.month === lastMName && Number(p.year) === lastDate.getFullYear());
+      }
+
+      // Estimated profit from order_costs
+      const orderCostsData = costsSnap.map(d => d.data());
+      const totalCostNPR = orderCostsData.reduce((s, c) => s + Number(c.material || 0) + Number(c.labour || 0) + Number(c.overhead || 0) + Number(c.shipping || 0), 0);
+      const totalRevAllNPR = orders.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
+      const estProfitNPR = totalRevAllNPR - totalCostNPR;
+      const estMargin = totalRevAllNPR > 0 ? ((estProfitNPR / totalRevAllNPR) * 100).toFixed(1) : null;
 
       const presentToday = attendance.filter(r => r.date === today && ["Present","Late","Half-day"].includes(r.status)).length;
       const lateToday    = attendance.filter(r => r.date === today && r.status === "Late").length;
@@ -553,42 +588,27 @@ function UKAdminDash() {
         { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--ink-5)" },
       ];
 
-      const results2 = await Promise.allSettled([getDocs(collection(db, "finance_payroll"))]);
-      const payrollDocs = results2[0].status === "fulfilled" ? results2[0].value.docs.map(d => d.data()) : [];
-      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      const nowDate = new Date();
-      const curMonthName = MONTH_NAMES[nowDate.getMonth()];
-      const curYear = nowDate.getFullYear();
-      // Try current month first, fall back to most recent month with data
-      let payrollDocs2 = payrollDocs.filter(p => p.month === curMonthName && Number(p.year) === curYear);
-      if (payrollDocs2.length === 0) {
-        // Find the most recent month that has records
-        const sorted = [...payrollDocs].sort((a, b) => {
-          const aIdx = MONTH_NAMES.indexOf(a.month) + (Number(a.year) || 0) * 12;
-          const bIdx = MONTH_NAMES.indexOf(b.month) + (Number(b.year) || 0) * 12;
-          return bIdx - aIdx;
-        });
-        const latest = sorted[0];
-        if (latest) payrollDocs2 = payrollDocs.filter(p => p.month === latest.month && Number(p.year) === Number(latest.year));
-      }
-      const payrollNPR = payrollDocs2.reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
-
+      const payrollNPR = payrollRecs.reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
 
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
         pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR,
-        salesTarget,
+        salesTarget, estProfitNPR, estMargin, totalRevAllNPR, totalCostNPR,
       });
     }
     load().catch(e => { console.error(e); setData({}); });
   }, []);
 
-  // Live invoice listener for sales target + revenue KPIs
+  // Live invoice listener — updates revenue MTD, outstanding, and sales target instantly
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "invoices"), (snap) => {
       const invoices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const totalPaidNPR = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const tm = new Date().toISOString().slice(0, 7);
+      const lm = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
+      let paid = invoices.filter(i => i.status === "Paid" && (i.date||"").slice(0,7) === tm);
+      if (paid.length === 0) paid = invoices.filter(i => i.status === "Paid" && (i.date||"").slice(0,7) === lm);
+      const totalPaidNPR = paid.reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
@@ -627,6 +647,25 @@ function UKAdminDash() {
         </div>
 
         <SalesTargetCard salesTarget={data.salesTarget} />
+
+        {/* Estimated Profit */}
+        {data.totalRevAllNPR > 0 && (
+          <div className="kgrid kgrid--3">
+            <Card title="Total Revenue" sub="All orders · incl. unpaid" accent="var(--mint-deep)">
+              <div className="num-xl" style={{ fontSize: 32, fontWeight: 700, color: "var(--mint-deep)" }}>{fmtC(data.totalRevAllNPR)}</div>
+            </Card>
+            <Card title="Total Costs" sub="From Order P&L entries" accent="var(--terra)">
+              <div className="num-xl" style={{ fontSize: 32, fontWeight: 700, color: data.totalCostNPR > 0 ? "var(--terra)" : "var(--ink-4)" }}>
+                {data.totalCostNPR > 0 ? fmtC(data.totalCostNPR) : "No costs entered yet"}
+              </div>
+            </Card>
+            <Card title="Estimated Profit" sub={data.estMargin ? `${data.estMargin}% margin` : "Enter costs in Finance → Order P&L"} accent={data.estProfitNPR >= 0 ? "var(--mint-deep)" : "var(--terra)"}>
+              <div className="num-xl" style={{ fontSize: 32, fontWeight: 700, color: data.totalCostNPR > 0 ? (data.estProfitNPR >= 0 ? "var(--mint-deep)" : "var(--terra)") : "var(--ink-4)" }}>
+                {data.totalCostNPR > 0 ? fmtC(data.estProfitNPR) : "—"}
+              </div>
+            </Card>
+          </div>
+        )}
 
         {/* Revenue chart */}
         <Card title="Revenue · 30 days" sub="Paid invoices · in GBP" accent="var(--mint-deep)"
