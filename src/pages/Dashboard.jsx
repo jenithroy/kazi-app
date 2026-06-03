@@ -64,7 +64,8 @@ function getSalesTargetInfo(invoices) {
 
 function SalesTargetCard({ salesTarget }) {
   if (!salesTarget) return null;
-  const { currentSalesNPR, currentSalesGBP, targetNPR, targetGBP, pct } = salesTarget;
+  const { currentSalesNPR, targetNPR, pct } = salesTarget;
+  const { fmt: fmtC } = useCurrency();
   return (
     <Card title="Monthly Sales Target" sub="Target vs Actual Revenue" accent="var(--mint-deep)">
       <div className="ksales-target" style={{ padding: "4px 0" }}>
@@ -72,24 +73,23 @@ function SalesTargetCard({ salesTarget }) {
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Revenue MTD</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
-              <span className="num-xl" style={{ fontSize: 24, fontWeight: 700 }}>£{Math.round(currentSalesGBP).toLocaleString()}</span>
-              <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>₨ {Math.round(currentSalesNPR).toLocaleString()}</span>
+              <span className="num-xl" style={{ fontSize: 24, fontWeight: 700 }}>{fmtC(currentSalesNPR)}</span>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Target: £{targetGBP.toLocaleString()}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Target: {fmtC(targetNPR)}</div>
             <div className="num-xl" style={{ fontSize: 18, color: "var(--mint-deep)", marginTop: 4 }}>{pct}% Achieved</div>
           </div>
         </div>
-        
+
         <div style={{ background: "rgba(15,46,34,.07)", borderRadius: 10, padding: "2px", position: "relative", marginBottom: 8 }}>
           <Progress pct={pct} color="var(--mint-deep)" h={12} />
         </div>
-        
+
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-4)", fontFamily: "var(--mono)" }}>
-          <span>₨ 0</span>
+          <span>{fmtC(0)}</span>
           <span>50%</span>
-          <span>₨ {targetNPR.toLocaleString("en-IN")}</span>
+          <span>{fmtC(targetNPR)}</span>
         </div>
       </div>
     </Card>
