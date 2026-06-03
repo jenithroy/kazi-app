@@ -647,6 +647,7 @@ function Production() {
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [orderCosts, setOrderCosts] = useState({});
+  const [labourRatePerUnit, setLabourRatePerUnit] = useState(null);
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -713,12 +714,13 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchSnap, orderSnap, empSnap, invSnap, costsSnap] = await Promise.all([
+    const [batchSnap, orderSnap, empSnap, invSnap, costsSnap, payrollSnap] = await Promise.all([
       getDocs(collection(db, "production")),
       getDocs(collection(db, "orders")),
       getDocs(collection(db, "employees")),
       getDocs(collection(db, "invoices")),
       getDocs(collection(db, "order_costs")),
+      getDocs(collection(db, "finance_payroll")),
     ]);
     const batchRows = batchSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     batchRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -734,6 +736,30 @@ function Production() {
     const costs = {};
     costsSnap.docs.forEach(d => { costs[d.id] = d.data(); });
     setOrderCosts(costs);
+
+    // Auto labour rate: last month payroll ÷ units produced
+    const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthName = MONTHS[lastMonth.getMonth()];
+    const lastMonthYear = lastMonth.getFullYear();
+    const lastMonthKey = lastMonth.toISOString().slice(0, 7);
+
+    const payrollData = payrollSnap.docs.map(d => d.data());
+    const empData = empSnap.docs.map(d => d.data());
+    const prodWorkers = new Set(empData.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase()));
+    const lastMonthPayroll = payrollData
+      .filter(p => p.month === lastMonthName && Number(p.year) === lastMonthYear)
+      .filter(p => prodWorkers.size === 0 || prodWorkers.has((p.staffName || "").toLowerCase()))
+      .reduce((s, p) => s + Number(p.netNPR || 0), 0);
+
+    const lastMonthUnits = batchRows
+      .filter(b => (b.date || "").slice(0, 7) === lastMonthKey)
+      .reduce((s, b) => s + Number(b.passed || 0), 0);
+
+    if (lastMonthPayroll > 0 && lastMonthUnits > 0) {
+      setLabourRatePerUnit(lastMonthPayroll / lastMonthUnits);
+    }
   }
 
   function nextInvoiceNumber(currentInvoices) {
@@ -1459,7 +1485,12 @@ function Production() {
                       const costs = orderCosts[costKey] || {};
                       const revenue = Number(order.totalValueNPR || 0);
                       const mat = Number(costs.material || 0);
-                      const lab = Number(costs.labour || 0);
+                      const hasManualLabour = costs.labour != null && costs.labour !== "";
+                      const autoLab = (!hasManualLabour && labourRatePerUnit)
+                        ? Math.round(labourRatePerUnit * Number(order.quantity || 0))
+                        : 0;
+                      const lab = hasManualLabour ? Number(costs.labour) : autoLab;
+                      const labIsAuto = !hasManualLabour && autoLab > 0;
                       const ovh = Number(costs.overhead || 0);
                       const shp = Number(costs.shipping || 0);
                       const totalCost = mat + lab + ovh + shp;
@@ -1473,11 +1504,11 @@ function Production() {
                             {[
                               { label: "Revenue", value: fmtC(revenue), color: "var(--mint-deep)" },
                               { label: "Materials", value: hasCosts ? fmtC(mat) : "—", color: "var(--ink-3)" },
-                              { label: "Labour", value: hasCosts ? fmtC(lab) : "—", color: "var(--ink-3)" },
+                              { label: labIsAuto ? "Labour ⚡" : "Labour", value: (hasCosts || labIsAuto) ? fmtC(lab) : "—", color: "var(--ink-3)" },
                               { label: "Overhead", value: hasCosts ? fmtC(ovh) : "—", color: "var(--ink-3)" },
                               { label: "Shipping", value: hasCosts ? fmtC(shp) : "—", color: "var(--ink-3)" },
-                              { label: "Profit", value: hasCosts ? fmtC(profit) : "—", color: hasCosts ? (profit >= 0 ? "var(--mint-deep)" : "var(--terra)") : "var(--ink-4)" },
-                              ...(margin !== null && hasCosts ? [{ label: "Margin", value: `${margin}%`, color: Number(margin) >= 20 ? "var(--mint-deep)" : Number(margin) >= 0 ? "var(--amber)" : "var(--terra)" }] : []),
+                              { label: "Profit", value: (hasCosts || labIsAuto) ? fmtC(profit) : "—", color: (hasCosts || labIsAuto) ? (profit >= 0 ? "var(--mint-deep)" : "var(--terra)") : "var(--ink-4)" },
+                              ...(margin !== null && (hasCosts || labIsAuto) ? [{ label: "Margin", value: `${margin}%`, color: Number(margin) >= 20 ? "var(--mint-deep)" : Number(margin) >= 0 ? "var(--amber)" : "var(--terra)" }] : []),
                             ].map(({ label, value, color }) => (
                               <div key={label} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                 <span style={{ fontSize: 10, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</span>
@@ -1485,9 +1516,14 @@ function Production() {
                               </div>
                             ))}
                           </div>
-                          {!hasCosts && (
+                          {labIsAuto && (
+                            <p style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 6 }}>
+                              ⚡ Labour auto-calculated from last month's payroll ÷ units
+                            </p>
+                          )}
+                          {!hasCosts && !labIsAuto && (
                             <p style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 8 }}>
-                              Enter costs in Finance → Order P&L to see profit
+                              No payroll data yet — enter costs in Finance → Order P&L
                             </p>
                           )}
                         </div>

@@ -4,6 +4,7 @@ import AppLayout from "../components/AppLayout";
 import DocPreview from "../components/DocPreview";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit } from "../utils/permissions";
 import {
   DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
@@ -125,6 +126,7 @@ function FXPopover({ idx, onApply, onClose }) {
 function Billing() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "billing");
+  const { fmt: fmtC } = useCurrency();
 
   const [tab, setTab]               = useState("invoice");
   const [invoices, setInvoices]     = useState([]);
@@ -417,7 +419,7 @@ function Billing() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1f6e4c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20"/></svg>
             </div>
             <p className="kfin-kpi-label">Total {meta.label}s</p>
-            <p className="kfin-kpi-value">{fmtNPR(summary.total)}</p>
+            <p className="kfin-kpi-value">{fmtC(summary.total)}</p>
             <p className="kfin-kpi-sub">{summary.count} record{summary.count !== 1 ? "s" : ""}</p>
           </div>
           <div className="kfin-kpi">
@@ -425,14 +427,14 @@ function Billing() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5688b0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </div>
             <p className="kfin-kpi-label">{tab === "invoice" ? "Collected" : tab === "challan" ? "Delivered" : "Accepted"}</p>
-            <p className="kfin-kpi-value">{fmtNPR(summary.paid)}</p>
+            <p className="kfin-kpi-value">{fmtC(summary.paid)}</p>
           </div>
           <div className="kfin-kpi">
             <div className="kfin-kpi-ico" style={{ background: "rgba(196,101,74,.12)" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c4654a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             </div>
             <p className="kfin-kpi-label">Credit Outstanding</p>
-            <p className="kfin-kpi-value">{fmtNPR(summary.pending)}</p>
+            <p className="kfin-kpi-value">{fmtC(summary.pending)}</p>
           </div>
           {tab === "invoice" && (
             <div className="kfin-kpi">
@@ -440,7 +442,7 @@ function Billing() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b4821e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
               </div>
               <p className="kfin-kpi-label">VAT Collected</p>
-              <p className="kfin-kpi-value">{fmtNPR(summary.vatCollected)}</p>
+              <p className="kfin-kpi-value">{fmtC(summary.vatCollected)}</p>
               <p className="kfin-kpi-sub">13% VAT · paid invoices</p>
             </div>
           )}
