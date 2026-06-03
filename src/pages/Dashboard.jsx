@@ -43,31 +43,32 @@ function Loading() {
 
 /* ── Sales Target Helper & Card ──────────────────────── */
 function getSalesTargetInfo(invoices) {
-  const targetGBP = 2000; // Monthly target of £2,000 (NPR 400,000)
+  const targetGBP = 2000;
   const targetNPR = targetGBP * GBP_RATE;
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const currentMonthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === thisMonth);
-  const currentSalesNPR = currentMonthInvoices
-    .filter(inv => inv.status !== "Cancelled")
-    .reduce((sum, inv) => sum + Number(inv.totalNPR || 0), 0);
-  const currentSalesGBP = currentSalesNPR / GBP_RATE;
+  const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+
+  // Try current month first, fall back to last month if no invoices yet
+  let monthKey = thisMonth;
+  let monthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === thisMonth && inv.status !== "Cancelled");
+  if (monthInvoices.length === 0) {
+    monthKey = lastMonth;
+    monthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === lastMonth && inv.status !== "Cancelled");
+  }
+
+  const currentSalesNPR = monthInvoices.reduce((sum, inv) => sum + Number(inv.totalNPR || 0), 0);
   const pct = Math.min(Math.round((currentSalesNPR / targetNPR) * 100), 100);
-  
-  return {
-    currentSalesNPR,
-    currentSalesGBP,
-    targetNPR,
-    targetGBP,
-    pct
-  };
+  const isLastMonth = monthKey === lastMonth && monthKey !== thisMonth;
+
+  return { currentSalesNPR, targetNPR, pct, isLastMonth };
 }
 
 function SalesTargetCard({ salesTarget }) {
   if (!salesTarget) return null;
-  const { currentSalesNPR, targetNPR, pct } = salesTarget;
+  const { currentSalesNPR, targetNPR, pct, isLastMonth } = salesTarget;
   const { fmt: fmtC } = useCurrency();
   return (
-    <Card title="Monthly Sales Target" sub="Target vs Actual Revenue" accent="var(--mint-deep)">
+    <Card title="Monthly Sales Target" sub={isLastMonth ? "Showing last month — no invoices this month yet" : "Target vs Actual Revenue"} accent="var(--mint-deep)">
       <div className="ksales-target" style={{ padding: "4px 0" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 12 }}>
           <div>
@@ -155,6 +156,21 @@ function NepalAdminDash() {
       };
       const recentTasks = tasks.filter(t => t.status !== "Done").slice(0, 5);
 
+      // KPI targets — task completion by assignee
+      const TASK_TARGET = 10; // tickets per person per month
+      const doneTasks = tasks.filter(t => t.status === "Done");
+      const taskByAssignee = {};
+      doneTasks.forEach(t => {
+        const name = t.assignee || "Unassigned";
+        taskByAssignee[name] = (taskByAssignee[name] || 0) + 1;
+      });
+      const kpiAssignees = Object.entries(taskByAssignee)
+        .map(([name, count]) => ({ name, count, pct: Math.min(Math.round((count / TASK_TARGET) * 100), 100) }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 6);
+      const totalDone = doneTasks.length;
+      const totalTarget = Math.max(users.length, 1) * TASK_TARGET;
+
       const pendingBudget = budgetRequests.filter(b => b.status === "Pending" || !b.status);
 
       // Fix: filter by status not stage so On Hold orders aren't counted as active
@@ -203,7 +219,7 @@ function NepalAdminDash() {
         presentToday, lateToday, leaveToday, absent, totalStaff, weeklyUnits, qcPassRate,
         lowStockItems, tasksByCol, recentTasks, pendingBudget, activeOrders, orders, monthExpNPR,
         weeklyExpTrend, weeklyExpLabels, thisMonthRevNPR, totalRevNPR, totalCostNPR, totalProfitNPR, avgMargin,
-        recentBatches, attTrend, salesTarget,
+        recentBatches, attTrend, salesTarget, kpiAssignees, totalDone, totalTarget,
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
@@ -425,6 +441,37 @@ function NepalAdminDash() {
             </div>
           </Card>
         </div>
+
+        {/* Ticket Targets */}
+        <Card title="Ticket Targets" sub="Tickets completed — team performance" accent="var(--blue)"
+          action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/tasks'}>Tasks</Btn>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Team total bar */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Team total</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{data.totalDone} / {data.totalTarget} target</span>
+              </div>
+              <Progress pct={Math.min(Math.round((data.totalDone / data.totalTarget) * 100), 100)} color="var(--blue)" h={10} />
+            </div>
+            <Divider />
+            {/* Per-person bars */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {data.kpiAssignees.length === 0
+                ? <p style={{ fontSize: 13, color: "var(--ink-4)", textAlign: "center", padding: "12px 0" }}>No completed tasks yet — move tasks to Done to track progress</p>
+                : data.kpiAssignees.map(({ name, count, pct }) => (
+                  <div key={name}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{name}</span>
+                      <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{count} done</span>
+                    </div>
+                    <Progress pct={pct} color={pct >= 100 ? "var(--mint-deep)" : pct >= 50 ? "var(--blue)" : "var(--amber)"} h={6} />
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        </Card>
       </div>
     </AppLayout>
   );
@@ -755,7 +802,9 @@ function EmployeeDash() {
       late:    monthAtt.filter(r => r.status === "Late").length,
       leave:   monthAtt.filter(r => r.status === "Leave").length,
     };
-    setData({ myRecord, myTasks, counts, monthAtt, salesTarget });
+    const myDone = myTasks.filter(t => t.status === "Done").length;
+    const PERSONAL_TARGET = 10;
+    setData({ myRecord, myTasks, counts, monthAtt, salesTarget, myDone, PERSONAL_TARGET });
   }
 
   useEffect(() => {
@@ -817,6 +866,26 @@ function EmployeeDash() {
             </div>
           </Card>
         </div>
+
+        {/* Ticket Targets */}
+        <Card title="Ticket Targets" sub="Your completed tasks" accent="var(--blue)">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span className="num-xl" style={{ fontSize: 36, fontWeight: 700, color: "var(--blue)" }}>{data.myDone}</span>
+              <span style={{ fontSize: 13, color: "var(--ink-3)" }}>Target: {data.PERSONAL_TARGET} tickets</span>
+            </div>
+            <Progress
+              pct={Math.min(Math.round((data.myDone / data.PERSONAL_TARGET) * 100), 100)}
+              color={data.myDone >= data.PERSONAL_TARGET ? "var(--mint-deep)" : "var(--blue)"}
+              h={14}
+            />
+            <p style={{ fontSize: 12, color: "var(--ink-4)" }}>
+              {data.myDone >= data.PERSONAL_TARGET
+                ? "🎉 Target hit! Great work."
+                : `${data.PERSONAL_TARGET - data.myDone} more to hit your target`}
+            </p>
+          </div>
+        </Card>
       </div>
     </AppLayout>
   );
