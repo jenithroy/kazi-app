@@ -14,6 +14,7 @@ import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
 import { notifyStageChange } from "../utils/telegram";
+import { useCurrency } from "../context/CurrencyContext";
 // eslint-disable-next-line no-unused-vars
 import { ORDER_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
 
@@ -628,6 +629,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
 function Production() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "production");
+  const { fmt: fmtC } = useCurrency();
 
   const [activeTab, setActiveTab] = useState("pipeline");
 
@@ -644,6 +646,7 @@ function Production() {
   const [editingOrder, setEditingOrder] = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [employees, setEmployees] = useState([]);
+  const [orderCosts, setOrderCosts] = useState({});
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -710,11 +713,12 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchSnap, orderSnap, empSnap, invSnap] = await Promise.all([
+    const [batchSnap, orderSnap, empSnap, invSnap, costsSnap] = await Promise.all([
       getDocs(collection(db, "production")),
       getDocs(collection(db, "orders")),
       getDocs(collection(db, "employees")),
       getDocs(collection(db, "invoices")),
+      getDocs(collection(db, "order_costs")),
     ]);
     const batchRows = batchSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     batchRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -726,6 +730,10 @@ function Production() {
 
     setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status !== "Inactive"));
     setInvoices(invSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+    const costs = {};
+    costsSnap.docs.forEach(d => { costs[d.id] = d.data(); });
+    setOrderCosts(costs);
   }
 
   function nextInvoiceNumber(currentInvoices) {
@@ -1445,6 +1453,46 @@ function Production() {
                         </button>
                       </div>
                     )}
+
+                    {isExpanded && (() => {
+                      const costKey = order.orderId || order.id;
+                      const costs = orderCosts[costKey] || {};
+                      const revenue = Number(order.totalValueNPR || 0);
+                      const mat = Number(costs.material || 0);
+                      const lab = Number(costs.labour || 0);
+                      const ovh = Number(costs.overhead || 0);
+                      const shp = Number(costs.shipping || 0);
+                      const totalCost = mat + lab + ovh + shp;
+                      const profit = revenue - totalCost;
+                      const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : null;
+                      const hasCosts = totalCost > 0;
+                      return (
+                        <div style={{ marginTop: 14, padding: "12px 14px", background: "var(--bg-2)", borderRadius: 10, border: "1px solid var(--line)" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 10 }}>P&L</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10 }}>
+                            {[
+                              { label: "Revenue", value: fmtC(revenue), color: "var(--mint-deep)" },
+                              { label: "Materials", value: hasCosts ? fmtC(mat) : "—", color: "var(--ink-3)" },
+                              { label: "Labour", value: hasCosts ? fmtC(lab) : "—", color: "var(--ink-3)" },
+                              { label: "Overhead", value: hasCosts ? fmtC(ovh) : "—", color: "var(--ink-3)" },
+                              { label: "Shipping", value: hasCosts ? fmtC(shp) : "—", color: "var(--ink-3)" },
+                              { label: "Profit", value: hasCosts ? fmtC(profit) : "—", color: hasCosts ? (profit >= 0 ? "var(--mint-deep)" : "var(--terra)") : "var(--ink-4)" },
+                              ...(margin !== null && hasCosts ? [{ label: "Margin", value: `${margin}%`, color: Number(margin) >= 20 ? "var(--mint-deep)" : Number(margin) >= 0 ? "var(--amber)" : "var(--terra)" }] : []),
+                            ].map(({ label, value, color }) => (
+                              <div key={label} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={{ fontSize: 10, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</span>
+                                <span style={{ fontSize: 14, fontWeight: 600, color, fontFamily: "var(--mono)" }}>{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {!hasCosts && (
+                            <p style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 8 }}>
+                              Enter costs in Finance → Order P&L to see profit
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {isExpanded && (
                       <div style={{ marginTop: 16, borderTop: "1.5px solid var(--line)", paddingTop: 14 }}>
