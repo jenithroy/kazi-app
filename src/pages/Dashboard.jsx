@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
@@ -223,6 +223,15 @@ function NepalAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
+  }, []);
+
+  // Live listener — sales target updates the moment any invoice is created/updated
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "invoices"), (snap) => {
+      const invoices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setData(prev => prev ? { ...prev, salesTarget: getSalesTargetInfo(invoices) } : prev);
+    });
+    return () => unsub();
   }, []);
 
   const { fmt: fmtC } = useCurrency();
@@ -573,6 +582,19 @@ function UKAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setData({}); });
+  }, []);
+
+  // Live invoice listener for sales target + revenue KPIs
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "invoices"), (snap) => {
+      const invoices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const totalPaidNPR = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const salesTarget = getSalesTargetInfo(invoices);
+      setData(prev => prev ? { ...prev, totalPaidNPR, outstandingNPR, overdueNPR, salesTarget } : prev);
+    });
+    return () => unsub();
   }, []);
 
   const { fmt: fmtC } = useCurrency();
