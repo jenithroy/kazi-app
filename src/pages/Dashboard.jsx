@@ -503,9 +503,19 @@ function UKAdminDash() {
       const nowDate = new Date();
       const curMonthName = MONTH_NAMES[nowDate.getMonth()];
       const curYear = nowDate.getFullYear();
-      const payrollNPR = payrollDocs
-        .filter(p => p.month === curMonthName && Number(p.year) === curYear)
-        .reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
+      // Try current month first, fall back to most recent month with data
+      let payrollDocs2 = payrollDocs.filter(p => p.month === curMonthName && Number(p.year) === curYear);
+      if (payrollDocs2.length === 0) {
+        // Find the most recent month that has records
+        const sorted = [...payrollDocs].sort((a, b) => {
+          const aIdx = MONTH_NAMES.indexOf(a.month) + (Number(a.year) || 0) * 12;
+          const bIdx = MONTH_NAMES.indexOf(b.month) + (Number(b.year) || 0) * 12;
+          return bIdx - aIdx;
+        });
+        const latest = sorted[0];
+        if (latest) payrollDocs2 = payrollDocs.filter(p => p.month === latest.month && Number(p.year) === Number(latest.year));
+      }
+      const payrollNPR = payrollDocs2.reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
 
       const salesTarget = getSalesTargetInfo(invoices);
 

@@ -20,6 +20,22 @@ const ROUTE_LABEL = {
   messenger:  "Messenger Chat",
 };
 
+function useKTMTime() {
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return now.toLocaleTimeString("en-GB", { timeZone: "Asia/Kathmandu", hour: "2-digit", minute: "2-digit" });
+  });
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setTime(now.toLocaleTimeString("en-GB", { timeZone: "Asia/Kathmandu", hour: "2-digit", minute: "2-digit" }));
+    };
+    const id = setInterval(tick, 10000);
+    return () => clearInterval(id);
+  }, []);
+  return time;
+}
+
 function Topbar({ collapsed, onMobileMenuToggle }) {
   const { profile } = useAuth();
   const { currency, toggle: toggleCurrency } = useCurrency();
@@ -27,14 +43,15 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
   const routeKey = location.pathname.replace("/", "") || "dashboard";
   const routeLabel = ROUTE_LABEL[routeKey] || routeKey;
   const isDashboard = routeKey === "dashboard";
+  const ktmTime = useKTMTime();
 
   const greeting = useMemo(() => {
-    const h = new Date().getHours();
+    const h = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kathmandu" })).getHours();
     return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   }, []);
 
   const dateStr = new Date().toLocaleDateString("en-GB", {
-    weekday: "long", day: "numeric", month: "long",
+    timeZone: "Asia/Kathmandu", weekday: "long", day: "numeric", month: "long",
   });
 
   return (
@@ -54,7 +71,7 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
         {isDashboard && profile && (
           <div className="ktop-greet">
             <h1>{greeting}, {profile.name?.split(" ")[0]}</h1>
-            <span className="ktop-greet-sub">{dateStr} · Kathmandu HQ</span>
+            <span className="ktop-greet-sub">{dateStr} · Kathmandu HQ · 🕐 {ktmTime} KTM</span>
           </div>
         )}
       </div>
