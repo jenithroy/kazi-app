@@ -115,7 +115,7 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers 
 }
 
 /* ── Task card ────────────────────────────────────── */
-function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
+function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
   const [hover, setHover] = useState(false);
   const pDot = PRIORITY_DOT[task.priority] || "var(--ink-5)";
   const displayId = taskDisplayId(task, idx);
@@ -130,8 +130,9 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
       onDragStart={onDragStart}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onClick={() => onEdit && onEdit(task)}
       className="ktasks-card"
-      style={{ cursor: "grab", position: "relative" }}
+      style={{ cursor: "pointer", position: "relative" }}
     >
       <div className="ktasks-card-h">
         {task.customer ? (
@@ -192,7 +193,7 @@ function TaskCard({ task, idx, canEdit, onDelete, onDragStart }) {
 }
 
 /* ── Kanban column ────────────────────────────────── */
-function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onDrop, onDeleteColumn, onColumnDrop, defaultAssignee, customers }) {
+function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onEdit, onDrop, onDeleteColumn, onColumnDrop, defaultAssignee, customers }) {
   const [adding, setAdding]       = useState(false);
   const [dragOver, setDragOver]   = useState(false);
   const [colDragOver, setColDragOver] = useState(false);
@@ -240,6 +241,7 @@ function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onDrop, 
           <TaskCard
             key={task.id} task={task} idx={i} canEdit={canEdit}
             onDelete={onDelete}
+            onEdit={onEdit}
             onDragStart={e => e.dataTransfer.setData("taskId", task.id)}
           />
         ))}
@@ -365,6 +367,9 @@ function Tasks() {
   const [showFilters,  setShowFilters] = useState(false);
   const [showNew,      setShowNew]     = useState(false);
   const [newForm,      setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
+  const [editTask,     setEditTask]    = useState(null);
+  const [editForm,     setEditForm]    = useState({});
+  const [editSaving,   setEditSaving]  = useState(false);
 
   async function loadColumns() {
     const snap = await getDocs(collection(db, "task_columns"));
@@ -445,6 +450,45 @@ function Tasks() {
     if (!task || task.status === newStatus) return;
     await updateDoc(doc(db, "tasks", taskId), { status: newStatus });
     setTasks(cur => cur.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+  }
+
+  function handleOpenEdit(task) {
+    setEditTask(task);
+    setEditForm({
+      title:       task.title       || "",
+      description: task.description || "",
+      assignee:    task.assignee    || "",
+      priority:    task.priority    || "med",
+      dueDate:     task.dueDate     || "",
+      orderRef:    task.orderRef    || "",
+      category:    task.category    || "",
+      customer:    task.customer    || "",
+      status:      task.status      || "To Do",
+    });
+  }
+
+  async function handleEditSave() {
+    if (!editTask || !editForm.title.trim()) return;
+    setEditSaving(true);
+    try {
+      await updateDoc(doc(db, "tasks", editTask.id), {
+        title:       editForm.title.trim(),
+        description: editForm.description,
+        assignee:    editForm.assignee,
+        priority:    editForm.priority,
+        dueDate:     editForm.dueDate,
+        orderRef:    editForm.orderRef,
+        category:    editForm.category,
+        customer:    editForm.customer,
+        status:      editForm.status,
+      });
+      setTasks(cur => cur.map(t => t.id === editTask.id ? { ...t, ...editForm, title: editForm.title.trim() } : t));
+      setEditTask(null);
+    } catch (err) {
+      console.error("Failed to update task:", err);
+      alert("Failed to save changes. Please try again.");
+    }
+    setEditSaving(false);
   }
 
   async function handleAddColumn(label, tone) {
@@ -603,6 +647,7 @@ function Tasks() {
                 customers={customers}
                 onAdd={handleAdd}
                 onDelete={handleDelete}
+                onEdit={handleOpenEdit}
                 onDrop={handleDrop}
                 onDeleteColumn={handleDeleteColumn}
                 onColumnDrop={handleColumnReorder}
@@ -676,6 +721,71 @@ function Tasks() {
                 setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
                 setShowNew(false);
               }}>Create task</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Edit task modal */}
+      {editTask && (
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(10,28,20,.4)", backdropFilter: "blur(3px)", zIndex: 50 }} onClick={() => setEditTask(null)} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 51, background: "#fff", borderRadius: 14, padding: 24, width: "min(480px, 92vw)", boxShadow: "var(--shadow-pop)", display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Edit task</h3>
+              <button onClick={() => setEditTask(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--ink-4)", lineHeight: 1 }}>×</button>
+            </div>
+            <div className="grid-form" style={{ gridTemplateColumns: "1fr" }}>
+              <label>Title
+                <input type="text" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} placeholder="Task title…" autoFocus />
+              </label>
+              <label>Customer
+                <select value={editForm.customer} onChange={e => setEditForm(f => ({ ...f, customer: e.target.value }))}>
+                  <option value="">— None —</option>
+                  {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </label>
+              <label>Description
+                <textarea value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} placeholder="What needs to be done…" rows={3} style={{ resize: "vertical" }} />
+              </label>
+              <label>Order ref
+                <input type="text" value={editForm.orderRef} onChange={e => setEditForm(f => ({ ...f, orderRef: e.target.value }))} placeholder="e.g. KZ-2418" />
+              </label>
+            </div>
+            <div className="grid-form">
+              <label>Assign to
+                <select value={editForm.assignee} onChange={e => setEditForm(f => ({ ...f, assignee: e.target.value }))}>
+                  <option value="">— Select —</option>
+                  {TEAM_MEMBERS.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                </select>
+              </label>
+              <label>Priority
+                <select value={editForm.priority} onChange={e => setEditForm(f => ({ ...f, priority: e.target.value }))}>
+                  <option value="high">High</option>
+                  <option value="med">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+              <label>Column
+                <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}>
+                  {columns.map(c => <option key={c.id} value={c.label}>{c.label}</option>)}
+                </select>
+              </label>
+              <label>Category
+                <select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}>
+                  <option value="">— None —</option>
+                  {TASK_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+                </select>
+              </label>
+              <label>Due date
+                <input type="date" value={editForm.dueDate} onChange={e => setEditForm(f => ({ ...f, dueDate: e.target.value }))} />
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="ghost-button" onClick={() => setEditTask(null)}>Cancel</button>
+              <button className="primary-button" disabled={editSaving} onClick={handleEditSave}>
+                {editSaving ? "Saving…" : "Save changes"}
+              </button>
             </div>
           </div>
         </>

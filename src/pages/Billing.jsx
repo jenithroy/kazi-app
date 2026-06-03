@@ -6,6 +6,7 @@ import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit } from "../utils/permissions";
+import { GBP_RATE } from "../constants";
 import {
   DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
@@ -127,6 +128,12 @@ function Billing() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "billing");
   const { fmt: fmtC } = useCurrency();
+
+  // Convert a stored value to NPR for use with fmtC.
+  // GBP-denominated documents store amounts in GBP (not NPR), so multiply up.
+  function toNPR(val, currency) {
+    return currency === "GBP" ? Number(val || 0) * GBP_RATE : Number(val || 0);
+  }
 
   const [tab, setTab]               = useState("invoice");
   const [invoices, setInvoices]     = useState([]);
@@ -746,14 +753,14 @@ function Billing() {
                           <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDate(row.validUntil)}</td>
                         )}
 
-                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.subtotalNPR || 0, row.currency)}</td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.subtotalNPR, row.currency))}</td>
                         {tab === "invoice" && (
                           <td style={{ textAlign: "right", fontSize: 12, color: "var(--terra)", fontVariantNumeric: "tabular-nums" }}>
                             {row.discountPct > 0 ? `${row.discountPct}%` : "—"}
                           </td>
                         )}
-                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.vatAmountNPR || 0, row.currency)}</td>}
-                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--mint-deep)", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.totalNPR || 0, row.currency)}</td>
+                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.vatAmountNPR, row.currency))}</td>}
+                        <td style={{ textAlign: "right", fontWeight: 700, color: "var(--mint-deep)", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.totalNPR, row.currency))}</td>
 
                         {/* Credit Due column — invoices only */}
                         {tab === "invoice" && (
@@ -761,7 +768,7 @@ function Billing() {
                             {row.status === "Cancelled" ? (
                               <span style={{ color: "var(--ink-4)", fontSize: 12 }}>—</span>
                             ) : creditDue > 0 ? (
-                              <span style={{ color: "var(--terra)", fontWeight: 700, fontSize: 12 }}>{fmtCurrency(creditDue, row.currency)}</span>
+                              <span style={{ color: "var(--terra)", fontWeight: 700, fontSize: 12 }}>{fmtC(toNPR(creditDue, row.currency))}</span>
                             ) : (
                               <span style={{ color: "var(--mint-deep)", fontSize: 12 }}>Settled</span>
                             )}
@@ -877,14 +884,14 @@ function Billing() {
                           <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDate(row.validUntil)}</td>
                         )}
 
-                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.subtotalNPR || 0, row.currency)}</td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.subtotalNPR, row.currency))}</td>
                         {tab === "invoice" && (
                           <td style={{ textAlign: "right", fontSize: 12, color: "var(--terra)", fontVariantNumeric: "tabular-nums" }}>
                             {row.discountPct > 0 ? `${row.discountPct}%` : "—"}
                           </td>
                         )}
-                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.vatAmountNPR || 0, row.currency)}</td>}
-                        <td style={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmtCurrency(row.totalNPR || 0, row.currency)}</td>
+                        {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.vatAmountNPR, row.currency))}</td>}
+                        <td style={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.totalNPR, row.currency))}</td>
                         <td>{statusBadge(row.status)}</td>
                         <td>
                           <button className="kbil-tbl-btn kbil-tbl-btn--primary" onClick={() => setPreviewDoc({ data: row, docType: tab })}>View</button>

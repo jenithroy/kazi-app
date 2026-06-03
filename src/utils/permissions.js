@@ -54,9 +54,9 @@ export function sectionCanEdit(profile, section) {
   }
   const hasPerm = perm === true || (typeof perm === "object" && perm !== null);
 
-  // uk_admin — read-only by default, but can edit tasks
+  // uk_admin — read-only by default, but can edit tasks and library
   if (role === "uk_admin") {
-    if (section === "tasks") return true;
+    if (section === "tasks" || section === "library") return true;
     return hasPerm;
   }
   // nepal_admin — check granted permissions
