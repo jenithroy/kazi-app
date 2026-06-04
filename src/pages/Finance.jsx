@@ -138,6 +138,13 @@ function Finance() {
   const canEditTab  = (tabLabel) => sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS[tabLabel]);
   const canEdit     = canEditTab(activeTab);
 
+  /* ── Fix 3: page-level error banner (auto-clears after 5s) ── */
+  const [pageError, setPageError] = useState("");
+  function showError(msg) {
+    setPageError(msg);
+    setTimeout(() => setPageError(""), 5000);
+  }
+
   /* ── State ── */
   const [payroll, setPayroll]         = useState([]);
   const [employees, setEmployees]     = useState([]);
@@ -317,21 +324,33 @@ function Finance() {
 
   async function addPurchase(e) {
     e.preventDefault(); setSubmitting(true);
-    await addDoc(collection(db, "finance_purchases"), {
-      expenseId: nextExpenseId(), expenseItem: purchaseForm.expenseItem,
-      category: purchaseForm.category, vatBill: purchaseForm.vatBill,
-      amountNPR: Number(purchaseForm.amountNPR), date: purchaseForm.date, createdAt: serverTimestamp()
-    });
-    setPurchaseForm(emptyPurchaseForm);
-    await loadData(); setSubmitting(false);
+    try {
+      await addDoc(collection(db, "finance_purchases"), {
+        expenseId: nextExpenseId(), expenseItem: purchaseForm.expenseItem,
+        category: purchaseForm.category, vatBill: purchaseForm.vatBill,
+        amountNPR: Number(purchaseForm.amountNPR), date: purchaseForm.date, createdAt: serverTimestamp()
+      });
+      setPurchaseForm(emptyPurchaseForm);
+      await loadData();
+    } catch (err) {
+      console.error("Failed to add purchase:", err);
+      showError("Failed to save purchase. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function saveEdit(id) {
-    await fsUpdateDoc(doc(db, "finance_purchases", id), {
-      expenseItem: editForm.expenseItem, category: editForm.category,
-      vatBill: editForm.vatBill, amountNPR: Number(editForm.amountNPR), date: editForm.date
-    });
-    setEditingId(null); await loadData();
+    try {
+      await fsUpdateDoc(doc(db, "finance_purchases", id), {
+        expenseItem: editForm.expenseItem, category: editForm.category,
+        vatBill: editForm.vatBill, amountNPR: Number(editForm.amountNPR), date: editForm.date
+      });
+      setEditingId(null); await loadData();
+    } catch (err) {
+      console.error("Failed to update purchase:", err);
+      showError("Failed to update purchase. Please try again.");
+    }
   }
 
   async function deletePurchase(id) {
@@ -416,11 +435,18 @@ function Finance() {
     e.preventDefault();
     if (journalForm.debitAccount === journalForm.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
     setJournalSubmitting(true);
-    await addDoc(collection(db, "journal_entries"), {
-      ...journalForm, amountNPR: Number(journalForm.amountNPR),
-      createdBy: profile?.name || "Unknown", createdAt: serverTimestamp()
-    });
-    setJournalForm(emptyJournalForm); await loadData(); setJournalSubmitting(false);
+    try {
+      await addDoc(collection(db, "journal_entries"), {
+        ...journalForm, amountNPR: Number(journalForm.amountNPR),
+        createdBy: profile?.name || "Unknown", createdAt: serverTimestamp()
+      });
+      setJournalForm(emptyJournalForm); await loadData();
+    } catch (err) {
+      console.error("Failed to post journal entry:", err);
+      showError("Failed to post journal entry. Please try again.");
+    } finally {
+      setJournalSubmitting(false);
+    }
   }
 
   /* ── Order P&L handlers ── */
@@ -442,19 +468,25 @@ function Finance() {
     e.preventDefault();
     if (!oplSelectedId) return;
     setOplSaving(true);
-    const order = orders.find(o => o.id === oplSelectedId);
-    const costKey = order?.orderId || order?.id || oplSelectedId;
-    await setDoc(doc(db, "order_costs", costKey), {
-      orderId:  costKey,
-      material: Number(oplCostForm.material || 0),
-      labour:   Number(oplCostForm.labour   || 0),
-      overhead: Number(oplCostForm.overhead  || 0),
-      shipping: Number(oplCostForm.shipping  || 0),
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-    await loadData();
-    setOplSaving(false);
-    setOplSelectedId(null);
+    try {
+      const order = orders.find(o => o.id === oplSelectedId);
+      const costKey = order?.orderId || order?.id || oplSelectedId;
+      await setDoc(doc(db, "order_costs", costKey), {
+        orderId:  costKey,
+        material: Number(oplCostForm.material || 0),
+        labour:   Number(oplCostForm.labour   || 0),
+        overhead: Number(oplCostForm.overhead  || 0),
+        shipping: Number(oplCostForm.shipping  || 0),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      await loadData();
+      setOplSelectedId(null);
+    } catch (err) {
+      console.error("Failed to save order costs:", err);
+      showError("Failed to save order costs. Please try again.");
+    } finally {
+      setOplSaving(false);
+    }
   }
 
   /* ── Memos ── */
@@ -538,6 +570,17 @@ function Finance() {
   return (
     <AppLayout>
       <div className="kfin-wrap">
+
+        {/* Fix 3: error banner */}
+        {pageError && (
+          <div style={{
+            background: "var(--terra-soft, #fdf2ef)", color: "var(--terra)",
+            border: "1px solid rgba(196,101,74,.3)", borderRadius: 8,
+            padding: "10px 14px", marginBottom: 14, fontSize: 13, fontWeight: 500,
+          }}>
+            {pageError}
+          </div>
+        )}
 
         {/* ── KPI strip ── */}
         <div className="kfin-kpis">

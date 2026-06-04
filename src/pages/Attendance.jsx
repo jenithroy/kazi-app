@@ -137,7 +137,12 @@ function Attendance() {
   const [editingRow, setEditingRow] = useState(null);
   const [monthRecords, setMonthRecords] = useState([]);
 
-  useEffect(() => { loadAll().catch(console.error); }, [selectedDate, currentMonthDate]);
+  useEffect(() => {
+    loadAll().catch(err => {
+      console.error("Failed to load attendance data:", err);
+      setMessage("Could not load attendance data. Please refresh.");
+    });
+  }, [selectedDate, currentMonthDate]);
 
   async function loadAll() {
     setLoading(true);
@@ -204,7 +209,7 @@ function Attendance() {
       await batch.commit();
       setMessage("Attendance saved.");
       await loadAll();
-    } catch { setMessage("Could not save."); }
+    } catch (err) { console.error("Failed to save attendance:", err); setMessage("Could not save attendance. Please check your connection and try again."); }
     finally { setSaving(false); }
   }
 
