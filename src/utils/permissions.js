@@ -46,6 +46,7 @@ export function sectionCanEdit(profile, section) {
 
   // Check explicit override first (e.g. for employee overrides like Monika)
   let perm = profile.permissions?.[section];
+  if (perm === false) return false;
   if (perm === true || (typeof perm === "object" && perm !== null)) {
     return true;
   }
@@ -71,6 +72,13 @@ export function sectionCanEdit(profile, section) {
 // Can the user see this nav section at all?
 export function sectionVisible(profile, sectionKey) {
   if (!profile) return false;
+
+  // Explicit override takes precedence
+  let perm = profile.permissions?.[sectionKey];
+  if (perm === false) return false;
+  if (perm === true || (typeof perm === "object" && perm !== null)) return true;
+
+  // Otherwise fall back to role default
   const role = appRole(profile);
   const NAV_BY_ROLE = {
     nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger","library"],
@@ -80,26 +88,22 @@ export function sectionVisible(profile, sectionKey) {
     super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger","library"],
   };
   const base = new Set(NAV_BY_ROLE[role] || []);
-  if (base.has(sectionKey)) return true;
-  // Per-user permission override (e.g. a uk_admin granted tasks access)
-  let perm = profile.permissions?.[sectionKey];
-  if (perm === undefined && role === "nepal_admin") {
-    perm = DEFAULT_NEPAL_ADMIN_PERMISSIONS[sectionKey];
-  }
-  return perm === true || (typeof perm === "object" && perm !== null);
+  return base.has(sectionKey);
 }
 
 // Is a Finance tab visible (and editable) for this user?
 export function financeTabAllowed(profile, tabKey) {
   if (!profile) return false;
+
+  // Explicit finance override takes precedence
+  let val = profile.permissions?.finance?.[tabKey];
+  if (val === false) return false;
+  if (val === true) return true;
+
   const role = appRole(profile);
   if (role === "super_admin") return true;
   if (role === "uk_admin") return true;   // UK admins see all finance tabs (read-only)
   
-  // Check explicit override first (e.g. for employee overrides like Monika)
-  let val = profile.permissions?.finance?.[tabKey];
-  if (val === true) return true;
-
   if (role === "employee" || role === "nepal_staff") return false;
   // nepal_admin
   if (val === undefined) {

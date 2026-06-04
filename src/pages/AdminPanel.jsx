@@ -4,7 +4,7 @@ import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { TEAM_MEMBERS } from "../constants";
-import { DEFAULT_NEPAL_ADMIN_PERMISSIONS } from "../utils/permissions";
+import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { Avatar, cn } from "../components/ui";
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -15,7 +15,7 @@ const SECTIONS = [
   { key: "inventory",  label: "Inventory",        icon: "📦" },
   { key: "qc",         label: "Quality Control",  icon: "🛡" },
   { key: "billing",    label: "Billing",          icon: "📄" },
-  { key: "employees",  label: "Employee and HR",        icon: "👥" },
+  { key: "employees",  label: "Employee and HR",  icon: "👥" },
   { key: "budget",     label: "Budget & Reqs",    icon: "💷" },
 ];
 
@@ -33,8 +33,9 @@ const FINANCE_TABS = [
 const ROLE_META = {
   super_admin:  { label: "Super Admin",  tone: "amber",   desc: "Full access to everything" },
   nepal_admin:  { label: "Nepal Admin",  tone: "mint",    desc: "Configurable edit access" },
-  uk_admin:     { label: "UK Admin",     tone: "blue",    desc: "View-only on UK sections" },
-  employee:     { label: "Employee",     tone: "neutral", desc: "Own tasks & attendance only" },
+  uk_admin:     { label: "UK Admin",     tone: "blue",    desc: "Configurable edit access" },
+  employee:     { label: "Employee",     tone: "neutral", desc: "Configurable edit access" },
+  nepal_staff:  { label: "Nepal Staff",  tone: "neutral", desc: "Configurable edit access" },
 };
 
 function hueFromName(name = "") {
@@ -117,7 +118,7 @@ export default function AdminPanel() {
         const stub = {
           name: m.name, role: m.appRole, jobRole: m.role,
           email: m.email, location: m.location, isStub: true,
-          ...(m.appRole === "nepal_admin" ? { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS } : {}),
+          permissions: {}
         };
         await setDoc(doc(db, "users", stubId), stub, { merge: true });
         emailToDoc.set(m.email.toLowerCase(), { id: stubId, ...stub });
@@ -126,9 +127,9 @@ export default function AdminPanel() {
           await updateDoc(doc(db, "users", existing.id), { role: m.appRole, name: m.name });
           existing.role = m.appRole; existing.name = m.name;
         }
-        if (m.appRole === "nepal_admin" && !existing.permissions) {
-          await updateDoc(doc(db, "users", existing.id), { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS });
-          existing.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
+        if (!existing.permissions) {
+          await updateDoc(doc(db, "users", existing.id), { permissions: {} });
+          existing.permissions = {};
         }
       }
     }
@@ -138,8 +139,8 @@ export default function AdminPanel() {
     rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setUsers(rows);
 
-    // Auto-select first nepal_admin
-    const firstEditable = rows.find(u => u.role === "nepal_admin");
+    // Auto-select first editable user
+    const firstEditable = rows.find(u => u.role !== "super_admin");
     if (firstEditable) setSelected(firstEditable.id);
   }
 
@@ -162,8 +163,8 @@ export default function AdminPanel() {
 
   async function resetToDefault(user) {
     if (!window.confirm(`Reset ${user.name}'s permissions to defaults?`)) return;
-    await updateDoc(doc(db, "users", user.id), { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS });
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS } : u));
+    await updateDoc(doc(db, "users", user.id), { permissions: {} });
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, permissions: {} } : u));
   }
 
   const isAdmin = ["super_admin", "uk_admin"].includes(profile?.role) || ["super_admin", "uk_admin"].includes(profile?.appRole);
@@ -180,9 +181,9 @@ export default function AdminPanel() {
   }
 
   const selectedUser = users.find(u => u.id === selected);
-  const canEdit      = selectedUser?.role === "nepal_admin";
-  const nepals       = users.filter(u => u.role === "nepal_admin");
-  const others       = users.filter(u => u.role !== "nepal_admin");
+  const canEdit      = selectedUser && selectedUser.role !== "super_admin";
+  const admins       = users.filter(u => ["super_admin", "uk_admin", "nepal_admin"].includes(u.role));
+  const staff        = users.filter(u => !["super_admin", "uk_admin", "nepal_admin"].includes(u.role));
 
   return (
     <AppLayout>
@@ -195,38 +196,11 @@ export default function AdminPanel() {
             <span className="kadm-sidebar-count">{users.length}</span>
           </div>
 
-          {/* Nepal admins (editable) */}
-          {nepals.length > 0 && (
+          {/* Administrators */}
+          {admins.length > 0 && (
             <div className="kadm-section-group">
-              <div className="kadm-group-label">Nepal Admin</div>
-              {nepals.map(u => (
-                <button
-                  key={u.id}
-                  className={cn("kadm-user-row", selected === u.id && "kadm-user-row--active")}
-                  onClick={() => setSelected(u.id)}
-                >
-                  <Avatar name={u.name} hue={hueFromName(u.name)} size={32} />
-                  <div className="kadm-user-info">
-                    <span className="kadm-user-name">{u.name}</span>
-                    <span className="kadm-user-sub">{u.jobRole || "Nepal Admin"}</span>
-                  </div>
-                  {/* Mini access count */}
-                  {(() => {
-                    const count = SECTIONS.filter(s => u.permissions?.[s.key]).length;
-                    return count > 0
-                      ? <span className="kadm-user-badge">{count}</span>
-                      : null;
-                  })()}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Other roles (read-only) */}
-          {others.length > 0 && (
-            <div className="kadm-section-group">
-              <div className="kadm-group-label">Fixed Access</div>
-              {others.map(u => (
+              <div className="kadm-group-label">Administrators</div>
+              {admins.map(u => (
                 <button
                   key={u.id}
                   className={cn("kadm-user-row", selected === u.id && "kadm-user-row--active")}
@@ -237,6 +211,40 @@ export default function AdminPanel() {
                     <span className="kadm-user-name">{u.name}</span>
                     <span className="kadm-user-sub">{ROLE_META[u.role]?.label || u.role}</span>
                   </div>
+                  {/* Access count badge */}
+                  {(() => {
+                    const count = SECTIONS.filter(s => sectionCanEdit(u, s.key)).length;
+                    return count > 0
+                      ? <span className="kadm-user-badge">{count}</span>
+                      : null;
+                  })()}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Staff & Employees */}
+          {staff.length > 0 && (
+            <div className="kadm-section-group">
+              <div className="kadm-group-label">Staff & Employees</div>
+              {staff.map(u => (
+                <button
+                  key={u.id}
+                  className={cn("kadm-user-row", selected === u.id && "kadm-user-row--active")}
+                  onClick={() => setSelected(u.id)}
+                >
+                  <Avatar name={u.name} hue={hueFromName(u.name)} size={32} />
+                  <div className="kadm-user-info">
+                    <span className="kadm-user-name">{u.name}</span>
+                    <span className="kadm-user-sub">{ROLE_META[u.role]?.label || u.role}</span>
+                  </div>
+                  {/* Access count badge */}
+                  {(() => {
+                    const count = SECTIONS.filter(s => sectionCanEdit(u, s.key)).length;
+                    return count > 0
+                      ? <span className="kadm-user-badge">{count}</span>
+                      : null;
+                  })()}
                 </button>
               ))}
             </div>
@@ -291,13 +299,13 @@ export default function AdminPanel() {
                   <span className="kadm-perm-block-title">Page Edit Access</span>
                   {canEdit && (
                     <span className="kadm-perm-block-note">
-                      {SECTIONS.filter(s => selectedUser.permissions?.[s.key]).length} of {SECTIONS.length} enabled
+                      {SECTIONS.filter(s => sectionCanEdit(selectedUser, s.key)).length} of {SECTIONS.length} enabled
                     </span>
                   )}
                 </div>
                 <div className="kadm-perm-grid">
                   {SECTIONS.map(sec => {
-                    const val  = canEdit ? (selectedUser.permissions?.[sec.key] === true) : true;
+                    const val  = sectionCanEdit(selectedUser, sec.key);
                     const key  = selectedUser.id + sec.key;
                     return (
                       <PermRow
@@ -323,7 +331,7 @@ export default function AdminPanel() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {canEdit && (
                       <span className="kadm-perm-block-note">
-                        {FINANCE_TABS.filter(t => selectedUser.permissions?.finance?.[t.key]).length} of {FINANCE_TABS.length} enabled
+                        {FINANCE_TABS.filter(t => financeTabAllowed(selectedUser, t.key)).length} of {FINANCE_TABS.length} enabled
                       </span>
                     )}
                     <span className={cn("kadm-chevron", finOpen && "kadm-chevron--open")}>▾</span>
@@ -333,7 +341,7 @@ export default function AdminPanel() {
                 {finOpen && (
                   <div className="kadm-perm-grid">
                     {FINANCE_TABS.map(tab => {
-                      const val  = canEdit ? (selectedUser.permissions?.finance?.[tab.key] === true) : true;
+                      const val  = financeTabAllowed(selectedUser, tab.key);
                       const path = `finance.${tab.key}`;
                       const key  = selectedUser.id + path;
                       return (

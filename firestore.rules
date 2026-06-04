@@ -25,32 +25,43 @@ service cloud.firestore {
     function changingOnlyStatus() {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly(["status"]);
     }
+    
+    // Dynamic permission check connected to the user doc in Firestore
+    function hasPermission(section) {
+      return isSignedIn() && (
+        userDoc().data.role == "super_admin" ||
+        ("permissions" in userDoc().data && (
+          userDoc().data.permissions[section] == true ||
+          (userDoc().data.permissions[section] != null && userDoc().data.permissions[section] != false)
+        ))
+      );
+    }
 
     match /{document=**} {
       allow read: if isSignedIn();
     }
     match /attendance/{id} {
-      allow create, update: if isNepalStaff() || isSuperAdmin();
+      allow create, update: if hasPermission("attendance") || isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /clock_ins/{id} {
       allow create, update: if isSignedIn();
     }
     match /production/{id} {
-      allow create, update: if isNepalStaff() || isSuperAdmin();
+      allow create, update: if hasPermission("production") || isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /inventory/{id} {
-      allow create, update: if isNepalStaff() || isSuperAdmin();
+      allow create, update: if hasPermission("inventory") || isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /qc_logs/{id} {
-      allow create, update: if isNepalStaff() || isSuperAdmin();
+      allow create, update: if hasPermission("qc") || isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /tasks/{id} {
-      allow create, update: if isNepalStaff() || isUkAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("tasks") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("tasks") || isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /task_columns/{id} {
       allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
@@ -60,12 +71,12 @@ service cloud.firestore {
       allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /content/{id} {
-      allow create: if isNepalStaff() || isSuperAdmin();
-      allow update: if isNepalStaff() || isSuperAdmin() || (isUkAdmin() && changingOnlyStatus());
+      allow create: if hasPermission("budget") || isNepalStaff() || isSuperAdmin();
+      allow update: if hasPermission("budget") || isNepalStaff() || isSuperAdmin() || (isUkAdmin() && changingOnlyStatus());
       allow delete: if false;
     }
     match /finance_expenses/{id} {
-      allow create, update: if isNepalStaff() || isSuperAdmin();
+      allow create, update: if hasPermission("finance") || isNepalStaff() || isSuperAdmin();
       allow delete: if false;
     }
     match /users/{id} {
@@ -74,55 +85,55 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /finance_payroll/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
       allow delete: if false;
     }
     match /finance_purchases/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
       allow delete: if false;
     }
     match /finance_vat/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
       allow delete: if false;
     }
     match /finance_journal/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
       allow delete: if false;
     }
     match /budget_requests/{id} {
       allow create, update: if isSignedIn();
-      allow delete: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("budget") || isNepalAdmin() || isSuperAdmin();
     }
     match /orders/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("production") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("production") || isNepalAdmin() || isSuperAdmin();
     }
     match /invoices/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
     }
     match /challans/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
     }
     match /quotations/{id} {
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
     }
     match /counters/{id} {
       allow create, update: if isSignedIn();
     }
     match /customers/{id} {
-      allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+      allow create, update, delete: if hasPermission("employees") || isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /employees/{id} {
-      allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+      allow create, update, delete: if hasPermission("employees") || isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
 
     // This allows the Cloudflare worker to write to the 'messages' collection
     match /messages/{document=**} {
       allow write: if true;
-      allow read: if true; // (Update this later to restrict who can read them)
+      allow read: if true; 
     }
   }
 }
