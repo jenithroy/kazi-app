@@ -44,11 +44,16 @@ export function sectionCanEdit(profile, section) {
     }
   }
 
+  // Check explicit override first (e.g. for employee overrides like Monika)
+  let perm = profile.permissions?.[section];
+  if (perm === true || (typeof perm === "object" && perm !== null)) {
+    return true;
+  }
+
   const role = appRole(profile);
   if (role === "super_admin") return true;
   if (role === "employee" || role === "nepal_staff") return false;
   
-  let perm = profile.permissions?.[section];
   if (perm === undefined && role === "nepal_admin") {
     perm = DEFAULT_NEPAL_ADMIN_PERMISSIONS[section];
   }
@@ -90,9 +95,13 @@ export function financeTabAllowed(profile, tabKey) {
   const role = appRole(profile);
   if (role === "super_admin") return true;
   if (role === "uk_admin") return true;   // UK admins see all finance tabs (read-only)
-  if (role === "employee") return false;
-  // nepal_admin
+  
+  // Check explicit override first (e.g. for employee overrides like Monika)
   let val = profile.permissions?.finance?.[tabKey];
+  if (val === true) return true;
+
+  if (role === "employee" || role === "nepal_staff") return false;
+  // nepal_admin
   if (val === undefined) {
     val = DEFAULT_NEPAL_ADMIN_PERMISSIONS.finance?.[tabKey];
   }
