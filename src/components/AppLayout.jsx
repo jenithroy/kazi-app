@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, NavLink } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
@@ -64,7 +64,7 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
       {/* Left */}
       <div className="ktop-l">
         <div className="ktop-bread">
-          <span className="ktop-bread-l">Kazi</span>
+          <NavLink to="/dashboard" className="ktop-bread-l" style={{ textDecoration: "none", color: "inherit" }}>Kazi</NavLink>
           <Icons.ChevronRight size={12} />
           <span className="ktop-bread-c">{routeLabel}</span>
         </div>
@@ -93,17 +93,6 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
           }}
         >
           {currency === "NPR" ? "₨ NPR" : "£ GBP"}
-        </button>
-
-        {/* Search */}
-        <button className="ktop-iconbtn" title="Search (⌘K)">
-          <Icons.Search size={16} sw={1.8} />
-        </button>
-
-        {/* Notifications */}
-        <button className="ktop-iconbtn ktop-iconbtn--badge" title="Notifications">
-          <Icons.Bell size={16} sw={1.8} />
-          <span className="ktop-badgedot" />
         </button>
 
         {/* User */}

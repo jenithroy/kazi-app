@@ -114,6 +114,17 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers 
   );
 }
 
+function dueDateTone(dueDate) {
+  if (!dueDate) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(dueDate); due.setHours(0,0,0,0);
+  const diff = Math.round((due - today) / 86400000);
+  if (diff < 0) return { label: `${Math.abs(diff)}d overdue`, color: "var(--terra)", bg: "var(--terra-soft)" };
+  if (diff === 0) return { label: "Due today", color: "var(--amber-deep)", bg: "var(--amber-soft)" };
+  if (diff <= 3) return { label: `Due in ${diff}d`, color: "var(--amber-deep)", bg: "var(--amber-soft)" };
+  return { label: `Due ${new Date(dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, color: "var(--ink-4)", bg: "transparent" };
+}
+
 /* ── Task card ────────────────────────────────────── */
 function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
   const [hover, setHover] = useState(false);
@@ -157,6 +168,15 @@ function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
         </div>
       )}
       <div className="ktasks-card-t">{task.title}</div>
+      {(() => {
+        const tone = dueDateTone(task.dueDate);
+        if (!tone) return null;
+        return (
+          <span style={{ fontSize: 10, fontWeight: 600, color: tone.color, background: tone.bg, padding: "2px 6px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 3 }}>
+            ⏰ {tone.label}
+          </span>
+        );
+      })()}
       {task.description && (
         <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4, marginTop: 2 }}>
           {task.description.length > 80 ? task.description.slice(0, 80) + "…" : task.description}

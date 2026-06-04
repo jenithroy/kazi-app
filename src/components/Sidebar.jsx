@@ -3,17 +3,17 @@ import { useAuth } from "../context/AuthContext";
 import { cn, Icons, Avatar } from "./ui";
 import { sectionVisible } from "../utils/permissions";
 
-// Nav items with optional badges
+// Nav items — badges are null by default (no fake counts)
 const NAV_ITEMS = [
-  { to: "/dashboard",  label: "Dashboard",  Icon: Icons.Dashboard,  group: "main" },
-  { to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks,      group: "main", badge: 7 },
-  { to: "/attendance", label: "Attendance", Icon: Icons.Attendance, group: "main" },
-  { to: "/production", label: "Production", Icon: Icons.Production, group: "ops" },
+  { to: "/dashboard",  label: "Dashboard",  Icon: Icons.Dashboard,  group: "main", shortcut: "⌘1" },
+  { to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks,      group: "main", shortcut: "⌘2" },
+  { to: "/attendance", label: "Attendance", Icon: Icons.Attendance, group: "main", shortcut: "⌘3" },
+  { to: "/production", label: "Production", Icon: Icons.Production, group: "main", shortcut: "⌘4" },
   { to: "/qc",         label: "QC",         Icon: Icons.QC,         group: "ops" },
-  { to: "/inventory",  label: "Inventory",  Icon: Icons.Inventory,  group: "ops", badge: 4, badgeTone: "amber" },
+  { to: "/inventory",  label: "Inventory",  Icon: Icons.Inventory,  group: "ops", badgeTone: "amber" },
   { to: "/finance",    label: "Finance",    Icon: Icons.Finance,    group: "biz" },
-  { to: "/billing",    label: "Billing",    Icon: Icons.Billing,    group: "biz" },
-  { to: "/content",    label: "Budget",     Icon: Icons.Budget,     group: "biz", badge: 4 },
+  { to: "/billing",    label: "Billing",    Icon: Icons.Billing,    group: "biz", shortcut: "⌘5" },
+  { to: "/content",    label: "Budget",     Icon: Icons.Budget,     group: "biz" },
   { to: "/employees",  label: "Employee and HR",  Icon: Icons.Employees,  group: "biz" },
   { to: "/admin",      label: "Admin",      Icon: Icons.Admin,      group: "biz" },
   { to: "/directors",  label: "Directors",  Icon: Icons.Directors,  group: "biz" },
@@ -113,6 +113,9 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
                     <span className={cn("kside-badge", item.badgeTone && `kside-badge--${item.badgeTone}`)}>
                       {item.badge}
                     </span>
+                  )}
+                  {!collapsed && item.shortcut && (
+                    <span className="kside-shortcut">{item.shortcut}</span>
                   )}
                 </NavLink>
               );

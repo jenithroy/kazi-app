@@ -212,6 +212,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   color: var(--mint); border-radius: 999px; font-weight: 600; font-family: var(--mono);
 }
 .kside-badge--amber { background: rgba(212,160,74,.18); color: #e9c486; }
+.kside-shortcut { font-size: 10px; color: var(--ink-5); font-family: var(--mono); margin-left: auto; opacity: 0.7; }
 
 .kside-user {
   display: flex; align-items: center; gap: 10px; padding: 10px;
@@ -450,6 +451,73 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 
 .kdot { color: var(--ink-5); padding: 0 2px; }
+
+/* ── Quick Actions bar ── */
+.kdash-qa {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-1);
+}
+.kdash-qa-label {
+  font-size: 11px; font-weight: 600; color: var(--ink-4);
+  letter-spacing: .08em; text-transform: uppercase; margin-right: 4px;
+}
+.kdash-qa .kbtn--ghost {
+  border: 1px solid var(--line-strong);
+}
+
+/* ── Ops Alerts Strip ── */
+.kops-alerts {
+  display: flex; gap: 10px; flex-wrap: wrap;
+}
+.kops-alert-card {
+  display: flex; align-items: center; gap: 10px;
+  flex: 1; min-width: 200px;
+  padding: 10px 14px; border-radius: var(--r-card);
+  border: 1px solid transparent;
+  cursor: pointer; font-family: var(--font); font-size: 13px;
+  text-align: left; transition: filter .15s;
+}
+.kops-alert-card:hover { filter: brightness(.96); }
+.kops-alert-ico {
+  display: inline-flex; padding: 7px; border-radius: 8px; flex-shrink: 0;
+}
+.kops-alert-body {
+  display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px;
+}
+.kops-alert-val {
+  font-size: 20px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.kops-alert-lbl {
+  font-size: 11.5px; font-weight: 500; line-height: 1.3;
+}
+.kops-alert-sub {
+  font-size: 11px; opacity: .75; white-space: nowrap; flex-shrink: 0;
+  font-family: var(--mono);
+}
+.kops-alert-card svg { flex-shrink: 0; opacity: .6; }
+
+/* ── Active Orders Row ── */
+.kactive-orders {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.kactive-orders-hd {
+  display: grid; grid-template-columns: 100px 1fr 130px 110px;
+  gap: 12px; padding: 4px 8px 8px;
+  font-size: 10.5px; font-weight: 600; color: var(--ink-4);
+  letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--line);
+}
+.kactive-order-row {
+  display: grid; grid-template-columns: 100px 1fr 130px 110px;
+  gap: 12px; padding: 8px 8px; border-radius: 6px; align-items: center; cursor: pointer;
+  transition: background .12s;
+}
+.kactive-order-row:hover { background: var(--bg-2); }
+.kactive-order-ref { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.kactive-order-client { font-size: 13px; color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kactive-order-due { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-family: var(--mono); color: var(--ink-3); }
 
 /* Nepal admin attendance section */
 .kna-att { display: grid; grid-template-columns: 180px 1fr; gap: 16px; align-items: center; }
@@ -943,10 +1011,27 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .grid-form .full-width { grid-column: span 2; }
 
 /* Table wrapper */
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-wrap table {
   width: 100%; border-collapse: collapse; font-size: 13px;
 }
+@media (max-width: 768px) {
+  .table-wrap table { min-width: 600px; }
+  .kscr { padding: 12px; }
+  .kph { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .kph-a { width: 100%; }
+  .kph-a > * { width: 100%; }
+}
+
+/* Attendance calendar grid */
+.katt-grid { display: grid; grid-template-columns: 350px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .katt-grid { grid-template-columns: 1fr; } }
+
+/* Loading skeletons */
+.kskel { background: linear-gradient(90deg, var(--bg-2) 25%, var(--line) 50%, var(--bg-2) 75%); background-size: 200% 100%; animation: kskel-shimmer 1.4s infinite; border-radius: 6px; }
+@keyframes kskel-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.kskel-row { height: 44px; margin-bottom: 8px; }
+.kskel-card { height: 120px; margin-bottom: 12px; }
 .table-wrap th {
   text-align: left; padding: 9px 12px;
   font-size: 11px; font-weight: 600; color: var(--ink-4);

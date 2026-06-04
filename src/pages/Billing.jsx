@@ -804,7 +804,11 @@ function Billing() {
           </div>
 
           {activeDocs.length === 0 ? (
-            <p style={{ color: "var(--ink-3)", fontSize: "0.9rem", padding: "8px 0" }}>No {meta.label.toLowerCase()}s yet. Create your first one above.</p>
+            <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>No invoices found</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Try clearing your search or create a new invoice</div>
+            </div>
           ) : (
             <div className="kfin-tbl-wrap">
               <table className="kfin-tbl">
