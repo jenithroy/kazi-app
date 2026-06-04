@@ -45,10 +45,11 @@ export function AuthProvider({ children }) {
           try {
             await setDoc(profileRef, profileData, { merge: true });
 
-            // Init or read permissions for nepal_admin
+            // Read permissions from Firestore for all roles (to support custom overrides like Monika)
+            const snap = await getDoc(profileRef);
+            const data = snap.data();
+
             if (teamMember.appRole === "nepal_admin") {
-              const snap = await getDoc(profileRef);
-              const data = snap.data();
               if (!data?.permissions) {
                 await updateDoc(profileRef, { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS });
                 profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
@@ -64,6 +65,8 @@ export function AuthProvider({ children }) {
                 }
                 profileData.permissions = existingPerms;
               }
+            } else if (data?.permissions) {
+              profileData.permissions = data.permissions;
             }
           } catch (syncErr) {
             console.warn("Firestore sync failed (rules may need deploying):", syncErr.message);
