@@ -31,7 +31,7 @@ export const TEAM_MEMBERS = [
   // Employees
   { name: "Monika", role: "Marketing Co-ordinator", location: "nepal", email: "bhusal.monika14@gmail.com", appRole: "employee" },
   { name: "Sudhansu", role: "Operations Assistant", location: "nepal", email: "sa4715666@gmail.com", appRole: "employee" },
-  { name: "Bedhant", role: "Management", location: "nepal", email: "bedhant@kazi.com", appRole: "employee" },
+  { name: "Bedhant", role: "Management", location: "nepal", email: "bedantrana@gmail.com", appRole: "employee" },
 ];
 
 export const EMPLOYEE_SCHEDULES = {
