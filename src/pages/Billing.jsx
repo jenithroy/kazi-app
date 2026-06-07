@@ -662,7 +662,15 @@ function Billing() {
                 </label>
                 <label className="kfin-label">
                   Client Address
-                  <textarea className="kfin-input" value={form.clientAddress} placeholder="Street, Ward No., City" rows={2} style={{ resize: "vertical", fontFamily: "var(--font)" }} onChange={e => setF("clientAddress", e.target.value)} />
+                  <textarea
+                    className="kfin-input"
+                    value={form.clientAddress}
+                    placeholder="Street, Ward No., City"
+                    rows={2}
+                    style={{ resize: "vertical", fontFamily: "var(--font)" }}
+                    onChange={e => setF("clientAddress", e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") e.stopPropagation(); }}
+                  />
                 </label>
               </div>
 
@@ -787,14 +795,29 @@ function Billing() {
               {tab === "quotation" && (
                 <label className="kfin-label" style={{ marginTop: 16 }}>
                   Terms &amp; Conditions
-                  <textarea className="kfin-input" value={form.terms || ""} rows={4} style={{ resize: "vertical", fontFamily: "var(--font)", marginTop: 4 }} onChange={e => setF("terms", e.target.value)} />
+                  <textarea
+                    className="kfin-input"
+                    value={form.terms || ""}
+                    rows={4}
+                    style={{ resize: "vertical", fontFamily: "var(--font)", marginTop: 4 }}
+                    onChange={e => setF("terms", e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") e.stopPropagation(); }}
+                  />
                 </label>
               )}
 
               {/* Notes / Bank Details */}
               <label className="kfin-label" style={{ marginTop: 16 }}>
                 Notes / Bank Details / Remarks
-                <textarea className="kfin-input" value={form.note} rows={3} placeholder={"Bank: \nAccount No.: \nBranch:"} style={{ resize: "vertical", fontFamily: "var(--font)", marginTop: 4 }} onChange={e => setF("note", e.target.value)} />
+                <textarea
+                  className="kfin-input"
+                  value={form.note}
+                  rows={3}
+                  placeholder={"Bank: \nAccount No.: \nBranch:"}
+                  style={{ resize: "vertical", fontFamily: "var(--font)", marginTop: 4 }}
+                  onChange={e => setF("note", e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") e.stopPropagation(); }}
+                />
               </label>
 
               <div className="kbil-form-actions">
