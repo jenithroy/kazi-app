@@ -639,6 +639,13 @@ function Production() {
   const [batchForm, setBatchForm] = useState(initialBatchForm);
   const [saving, setSaving] = useState(false);
 
+  /* ── Fix 3: page-level error state (auto-clears after 5s) ── */
+  const [pageError, setPageError] = useState("");
+  function showError(msg) {
+    setPageError(msg);
+    setTimeout(() => setPageError(""), 5000);
+  }
+
   /* ── Order state ── */
   const [orders, setOrders] = useState([]);
   const [orderForm, setOrderForm] = useState(emptyOrderForm);
@@ -833,6 +840,9 @@ function Production() {
       });
       setBatchForm(initialBatchForm);
       await loadData();
+    } catch (err) {
+      console.error("Failed to save batch:", err);
+      showError("Failed to save batch. Please check your connection and try again.");
     } finally {
       setSaving(false);
     }
@@ -848,6 +858,7 @@ function Production() {
     e.preventDefault();
     setSavingOrder(true);
     const total = Number(orderForm.quantity || 0) * Number(orderForm.pricePerPcNPR || 0);
+    try {
 
     if (editingOrder) {
       // Edit existing order
@@ -890,12 +901,17 @@ function Production() {
       }
     }
 
-    setOrderForm(emptyOrderForm);
-    setIssueInvoice(false);
-    setInvFields(emptyInvFields);
-    setShowOrderForm(false);
-    await loadData();
-    setSavingOrder(false);
+      setOrderForm(emptyOrderForm);
+      setIssueInvoice(false);
+      setInvFields(emptyInvFields);
+      setShowOrderForm(false);
+      await loadData();
+    } catch (err) {
+      console.error("Failed to save order:", err);
+      showError("Failed to save order. Please check your connection and try again.");
+    } finally {
+      setSavingOrder(false);
+    }
   }
 
   /* ── Issue invoice for existing order ── */
@@ -974,6 +990,12 @@ function Production() {
       />
 
       {!canEdit && <p className="banner-warning">UK admin view-only mode enabled.</p>}
+      {/* Fix 3: error banner */}
+      {pageError && (
+        <p className="banner-warning" style={{ background: "var(--terra-soft, #fdf2ef)", color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }}>
+          {pageError}
+        </p>
+      )}
 
       {/* ── Tabs ── */}
       <div className="tab-row">

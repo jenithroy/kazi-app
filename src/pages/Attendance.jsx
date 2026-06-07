@@ -136,8 +136,14 @@ function Attendance() {
   const [clockIns,   setClockIns]   = useState([]);
   const [editingRow, setEditingRow] = useState(null);
   const [monthRecords, setMonthRecords] = useState([]);
+  const [confirmPending, setConfirmPending] = useState(null);
 
-  useEffect(() => { loadAll().catch(console.error); }, [selectedDate, currentMonthDate]);
+  useEffect(() => {
+    loadAll().catch(err => {
+      console.error("Failed to load attendance data:", err);
+      setMessage("Could not load attendance data. Please refresh.");
+    });
+  }, [selectedDate, currentMonthDate]);
 
   async function loadAll() {
     setLoading(true);
@@ -204,7 +210,7 @@ function Attendance() {
       await batch.commit();
       setMessage("Attendance saved.");
       await loadAll();
-    } catch { setMessage("Could not save."); }
+    } catch (err) { console.error("Failed to save attendance:", err); setMessage("Could not save attendance. Please check your connection and try again."); }
     finally { setSaving(false); }
   }
 
@@ -274,7 +280,7 @@ function Attendance() {
         {!canEdit && <p className="banner-warning">UK admin — view only.</p>}
         {message   && <p className="banner-info">{message}</p>}
 
-        <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: 20, alignItems: "start" }}>
+        <div className="katt-grid">
           {/* Left: Month Calendar */}
           <MonthCalendar 
             currentMonthDate={currentMonthDate} 
@@ -291,7 +297,15 @@ function Attendance() {
               <div style={{ fontSize: 13, color: "var(--ink)", marginTop: 4, fontWeight: 500 }}>{selectedDateStrFormatted}</div>
             </div>
             {loading ? (
-              <div style={{ padding: "24px 20px", color: "var(--ink-4)" }}>Loading data for {selectedDate}…</div>
+              <div style={{ padding: "16px 20px" }}>
+                {[1,2,3,4,5].map(i => <div key={i} className="kskel kskel-row" />)}
+              </div>
+            ) : rows.length === 0 ? (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>No staff records for this date</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>Staff will appear here once added to the system</div>
+              </div>
             ) : (
               <div className="table-wrap">
                 <table>
@@ -340,11 +354,16 @@ function Attendance() {
                               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                 <select value={row.status} onChange={e => {
                                   const newStatus = e.target.value;
-                                  setRows(cur => cur.map((r,j) => j===i ? {
-                                    ...r, 
-                                    status: newStatus,
-                                    lateCutApplied: newStatus === "Late" ? r.lateCutApplied : false
-                                  } : r));
+                                  const oldStatus = row.status;
+                                  if (newStatus !== oldStatus && oldStatus === "Late") {
+                                    setConfirmPending({ rowIndex: i, oldStatus, newStatus });
+                                  } else {
+                                    setRows(cur => cur.map((r,j) => j===i ? {
+                                      ...r,
+                                      status: newStatus,
+                                      lateCutApplied: newStatus === "Late" ? r.lateCutApplied : false
+                                    } : r));
+                                  }
                                 }}
                                   style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12, fontFamily: "var(--font)", width: "100px" }}>
                                   {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
@@ -405,6 +424,29 @@ function Attendance() {
         </div>
 
       </div>
+
+      {/* ─── Late-status change confirmation modal ─── */}
+      {confirmPending && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "var(--bg)", borderRadius: 12, padding: "24px 28px", maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Change attendance status?</div>
+            <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 20 }}>
+              Changing from <strong>{confirmPending.oldStatus}</strong> → <strong>{confirmPending.newStatus}</strong> will remove the late salary deduction record for this staff member.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="ghost-button" onClick={() => setConfirmPending(null)}>Cancel</button>
+              <button style={{ background: "var(--terra)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}
+                onClick={() => {
+                  const { rowIndex, newStatus } = confirmPending;
+                  setRows(cur => cur.map((r, j) => j === rowIndex ? { ...r, status: newStatus, lateCutApplied: false } : r));
+                  setConfirmPending(null);
+                }}>
+                Yes, change status
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

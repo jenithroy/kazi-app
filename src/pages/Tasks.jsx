@@ -114,6 +114,17 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers 
   );
 }
 
+function dueDateTone(dueDate) {
+  if (!dueDate) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(dueDate); due.setHours(0,0,0,0);
+  const diff = Math.round((due - today) / 86400000);
+  if (diff < 0) return { label: `${Math.abs(diff)}d overdue`, color: "var(--terra)", bg: "var(--terra-soft)" };
+  if (diff === 0) return { label: "Due today", color: "var(--amber-deep)", bg: "var(--amber-soft)" };
+  if (diff <= 3) return { label: `Due in ${diff}d`, color: "var(--amber-deep)", bg: "var(--amber-soft)" };
+  return { label: `Due ${new Date(dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, color: "var(--ink-4)", bg: "transparent" };
+}
+
 /* ── Task card ────────────────────────────────────── */
 function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
   const [hover, setHover] = useState(false);
@@ -157,6 +168,15 @@ function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
         </div>
       )}
       <div className="ktasks-card-t">{task.title}</div>
+      {(() => {
+        const tone = dueDateTone(task.dueDate);
+        if (!tone) return null;
+        return (
+          <span style={{ fontSize: 10, fontWeight: 600, color: tone.color, background: tone.bg, padding: "2px 6px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 3 }}>
+            ⏰ {tone.label}
+          </span>
+        );
+      })()}
       {task.description && (
         <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4, marginTop: 2 }}>
           {task.description.length > 80 ? task.description.slice(0, 80) + "…" : task.description}
@@ -361,7 +381,11 @@ function Tasks() {
   const [columns,  setColumns]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [customers,    setCustomers]   = useState([]);
-  const [filter,       setFilter]      = useState(null);
+  // Fix 4: assignee filter — "all" means no filter, otherwise a name string
+  const [filterAssignee, setFilterAssignee] = useState("all");
+  // Alias: keep legacy `filter` in sync with `filterAssignee` for visibleTasks/AssignFilter
+  const filter = filterAssignee === "all" ? null : filterAssignee;
+  const setFilter = (val) => setFilterAssignee(val === null ? "all" : val);
   const [catFilter,    setCatFilter]   = useState(null);
   const [custFilter,   setCustFilter]  = useState(null);
   const [showFilters,  setShowFilters] = useState(false);
@@ -559,6 +583,47 @@ function Tasks() {
             </div>
           );
         })()}
+
+        {/* Fix 4: always-visible assignee quick-filter bar (admins only) */}
+        {canEdit && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, padding: "4px 0" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Assignee:</span>
+            <button
+              onClick={() => setFilterAssignee("all")}
+              style={{
+                padding: "4px 12px", borderRadius: "var(--r-pill)", fontSize: 12, fontWeight: 600,
+                cursor: "pointer", fontFamily: "var(--font)",
+                background: filterAssignee === "all" ? "var(--mint-deep)" : "var(--card)",
+                color: filterAssignee === "all" ? "#fff" : "var(--ink-3)",
+                border: filterAssignee === "all" ? "none" : "1px solid var(--line-strong)",
+              }}
+            >All</button>
+            {TEAM_MEMBERS.map(m => {
+              const active = filterAssignee === m.name;
+              const count = tasks.filter(t => t.assignee === m.name).length;
+              return (
+                <button key={m.name} onClick={() => setFilterAssignee(active ? "all" : m.name)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "3px 10px 3px 5px", borderRadius: "var(--r-pill)", fontSize: 12,
+                    fontWeight: 500, cursor: "pointer", fontFamily: "var(--font)",
+                    background: active ? "var(--mint-deep)" : "var(--card)",
+                    color: active ? "#fff" : "var(--ink-2)",
+                    border: active ? "none" : "1px solid var(--line-strong)",
+                  }}>
+                  <div style={{
+                    width: 20, height: 20, borderRadius: "50%",
+                    background: active ? "rgba(255,255,255,.25)" : `oklch(55% .16 ${hueFromName(m.name)})`,
+                    color: "#fff", fontSize: 9, fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>{initials(m.name)}</div>
+                  {m.name}
+                  {count > 0 && <span style={{ fontSize: 11, opacity: .7 }}>{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Collapsible filter panel */}
         {showFilters && (

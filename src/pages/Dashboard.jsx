@@ -97,6 +97,127 @@ function SalesTargetCard({ salesTarget }) {
   );
 }
 
+/* ── Ops Alerts Strip ─────────────────────────────── */
+function OpsAlerts({ overdueInvoices = [], overdueInvoiceTotalNPR = 0, overdueTasks = [], presentToday = 0, lateToday = 0, absent = 0, totalStaff = 0, lowInventoryCount = 0 }) {
+  const { fmt: fmtC } = useCurrency();
+  const alerts = [
+    {
+      key: "invoices",
+      hide: overdueInvoices.length === 0,
+      tone: "terra",
+      icon: <Icons.Billing size={15} sw={1.8}/>,
+      value: overdueInvoices.length,
+      label: "overdue invoice" + (overdueInvoices.length !== 1 ? "s" : ""),
+      sub: fmtC(overdueInvoiceTotalNPR),
+      href: "/billing",
+    },
+    {
+      key: "tasks",
+      hide: overdueTasks.length === 0,
+      tone: "amber",
+      icon: <Icons.Tasks size={15} sw={1.8}/>,
+      value: overdueTasks.length,
+      label: "overdue task" + (overdueTasks.length !== 1 ? "s" : ""),
+      sub: "past due date",
+      href: "/tasks",
+    },
+    {
+      key: "attendance",
+      hide: false,
+      tone: absent > 0 ? "amber" : "mint",
+      icon: <Icons.Attendance size={15} sw={1.8}/>,
+      value: presentToday,
+      label: `/${totalStaff} present today`,
+      sub: `${lateToday} late · ${absent} absent`,
+      href: "/attendance",
+    },
+    {
+      key: "inventory",
+      hide: lowInventoryCount === 0,
+      tone: "amber",
+      icon: <Icons.Inventory size={15} sw={1.8}/>,
+      value: lowInventoryCount,
+      label: "low stock item" + (lowInventoryCount !== 1 ? "s" : ""),
+      sub: "at or below reorder point",
+      href: "/inventory",
+    },
+  ];
+
+  const visible = alerts.filter(a => !a.hide);
+  if (visible.length === 0) return null;
+
+  const toneStyles = {
+    terra: { bg: "var(--terra-soft)", border: "rgba(196,101,74,.25)", color: "#6a2e1c", iconBg: "rgba(196,101,74,.15)" },
+    amber: { bg: "var(--amber-soft)", border: "rgba(212,160,74,.3)",  color: "#7a5418", iconBg: "rgba(212,160,74,.18)" },
+    mint:  { bg: "var(--mint-soft)",  border: "rgba(90,185,138,.3)",  color: "var(--mint-deep)", iconBg: "rgba(90,185,138,.18)" },
+  };
+
+  return (
+    <div className="kops-alerts">
+      {visible.map(a => {
+        const s = toneStyles[a.tone] || toneStyles.amber;
+        return (
+          <button key={a.key} className="kops-alert-card" onClick={() => window.location.href = a.href}
+            style={{ background: s.bg, borderColor: s.border, color: s.color }}>
+            <span className="kops-alert-ico" style={{ background: s.iconBg, color: s.color }}>{a.icon}</span>
+            <div className="kops-alert-body">
+              <span className="kops-alert-val">{a.value}</span>
+              <span className="kops-alert-lbl">{a.label}</span>
+            </div>
+            {a.sub && <span className="kops-alert-sub">{a.sub}</span>}
+            <Icons.ArrowRight size={13} sw={2}/>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Active Orders Row ────────────────────────────── */
+function ActiveOrdersRow({ orders = [] }) {
+  if (orders.length === 0) return null;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const stageTone = (stage) => {
+    if (!stage) return "neutral";
+    const s = stage.toLowerCase();
+    if (s.includes("sample") || s.includes("design")) return "blue";
+    if (s.includes("cut") || s.includes("sew") || s.includes("production") || s.includes("in progress")) return "amber";
+    if (s.includes("qc") || s.includes("quality")) return "amber";
+    if (s.includes("ship") || s.includes("dispatch") || s.includes("deliver")) return "mint";
+    if (s.includes("complet") || s.includes("done")) return "mint";
+    return "neutral";
+  };
+
+  return (
+    <Card title="Active orders" sub="5 most recent in-progress orders" accent="var(--mint-deep)"
+      action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/production'}>View all</Btn>}>
+      <div className="kactive-orders">
+        <div className="kactive-orders-hd">
+          <span>Order ref</span>
+          <span>Customer</span>
+          <span>Stage</span>
+          <span>Due date</span>
+        </div>
+        {orders.map(o => {
+          const isOverdue = o.dueDate && o.dueDate < today;
+          return (
+            <div key={o.id} className="kactive-order-row" onClick={() => window.location.href='/production'}>
+              <span className="mono kactive-order-ref">{o.orderNumber || o.id?.slice(-8) || "—"}</span>
+              <span className="kactive-order-client">{o.clientName || o.customer || "—"}</span>
+              <span><Pill tone={stageTone(o.stage || o.status)}>{o.stage || o.status || "—"}</Pill></span>
+              <span className="kactive-order-due" style={{ color: isOverdue ? "var(--terra)" : undefined }}>
+                {o.dueDate ? o.dueDate : "—"}
+                {isOverdue && <Icons.Alert size={12} sw={2} style={{ marginLeft: 4 }}/>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 /* ══════════════════════════════════════════════════════
    NEPAL ADMIN DASHBOARD
 ══════════════════════════════════════════════════════ */
@@ -215,11 +336,29 @@ function NepalAdminDash() {
 
       const salesTarget = getSalesTargetInfo(invoices);
 
+      // Ops alerts
+      const todayStr = today;
+      const overdueInvoices = invoices.filter(inv => inv.dueDate && inv.dueDate < todayStr && inv.status !== "Paid" && inv.status !== "Cancelled");
+      const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+      const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < todayStr && t.status !== "Done");
+      const lowInventoryCount = inventory.filter(item => {
+        const qty = Number(item.quantity ?? (Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0)));
+        const reorder = Number(item.reorderPoint ?? item.minLevel ?? 0);
+        return reorder > 0 && qty <= reorder;
+      }).length;
+
+      // Active orders row — 5 most recent non-completed, sorted by date desc
+      const activeOrdersRow = [...orders]
+        .filter(o => !["Completed","Cancelled","Delivered"].includes(o.status) && !["Delivered","Cancelled"].includes(o.stage))
+        .sort((a, b) => (b.date || b.createdAt || "").localeCompare(a.date || a.createdAt || ""))
+        .slice(0, 5);
+
       setData({
         presentToday, lateToday, leaveToday, absent, totalStaff, weeklyUnits, qcPassRate,
         lowStockItems, tasksByCol, recentTasks, pendingBudget, activeOrders, orders, monthExpNPR,
         weeklyExpTrend, weeklyExpLabels, thisMonthRevNPR, totalRevNPR, totalCostNPR, totalProfitNPR, avgMargin,
         recentBatches, attTrend, salesTarget, kpiAssignees, totalDone, totalTarget,
+        overdueInvoices, overdueInvoiceTotalNPR, overdueTasks, lowInventoryCount, activeOrdersRow,
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
@@ -249,6 +388,27 @@ function NepalAdminDash() {
   return (
     <AppLayout>
       <div className="kdash fade-in">
+        {/* Quick actions */}
+        <div className="kdash-qa">
+          <span className="kdash-qa-label">Quick actions</span>
+          <Btn kind="ghost" size="sm" icon={<Icons.Billing size={13}/>} onClick={() => window.location.href='/billing'}>New Invoice</Btn>
+          <Btn kind="ghost" size="sm" icon={<Icons.Production size={13}/>} onClick={() => window.location.href='/production'}>New Order</Btn>
+          <Btn kind="ghost" size="sm" icon={<Icons.Attendance size={13}/>} onClick={() => window.location.href='/attendance'}>Log Attendance</Btn>
+          <Btn kind="ghost" size="sm" icon={<Icons.Tasks size={13}/>} onClick={() => window.location.href='/tasks'}>Add Task</Btn>
+        </div>
+
+        {/* Ops Alerts */}
+        <OpsAlerts
+          overdueInvoices={data.overdueInvoices}
+          overdueInvoiceTotalNPR={data.overdueInvoiceTotalNPR}
+          overdueTasks={data.overdueTasks}
+          presentToday={data.presentToday}
+          lateToday={data.lateToday}
+          absent={data.absent}
+          totalStaff={data.totalStaff}
+          lowInventoryCount={data.lowInventoryCount}
+        />
+
         {/* KPI Row */}
         <div className="kgrid kgrid--4">
           <KPI label="Staff in today" value={data.presentToday} unit={`/${data.totalStaff}`}
@@ -272,6 +432,9 @@ function NepalAdminDash() {
         </div>
 
         <SalesTargetCard salesTarget={data.salesTarget} />
+
+        {/* Active Orders at a glance */}
+        <ActiveOrdersRow orders={data.activeOrdersRow} />
 
         {/* Production pipeline */}
         <Card
@@ -512,9 +675,11 @@ function UKAdminDash() {
         getDocs(collection(db, "users")),
         getDocs(collection(db, "finance_payroll")),
         getDocs(collection(db, "order_costs")),
+        getDocs(collection(db, "tasks")),
+        getDocs(collection(db, "inventory")),
       ]);
       const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap] = results.map(docs);
+      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap, tasksSnap, inventorySnap] = results.map(docs);
 
       const totalStaff = usersSnap.filter(d => {
         const r = d.data().role;
@@ -591,10 +756,29 @@ function UKAdminDash() {
       const payrollNPR = payrollRecs.reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
 
+      // Ops alerts
+      const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
+      const inventory = inventorySnap.map(d => ({ id: d.id, ...d.data() }));
+      const overdueInvoices = invoices.filter(inv => inv.dueDate && inv.dueDate < today && inv.status !== "Paid" && inv.status !== "Cancelled");
+      const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+      const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
+      const lowInventoryCount = inventory.filter(item => {
+        const qty = Number(item.quantity ?? (Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0)));
+        const reorder = Number(item.reorderPoint ?? item.minLevel ?? 0);
+        return reorder > 0 && qty <= reorder;
+      }).length;
+
+      // Active orders row — 5 most recent non-completed
+      const activeOrdersRow = [...orders]
+        .filter(o => !["Completed","Cancelled","Delivered"].includes(o.status) && !["Delivered","Cancelled"].includes(o.stage))
+        .sort((a, b) => (b.date || b.createdAt || "").localeCompare(a.date || a.createdAt || ""))
+        .slice(0, 5);
+
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
         pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR,
         salesTarget, estProfitNPR, estMargin, totalRevAllNPR, totalCostNPR,
+        overdueInvoices, overdueInvoiceTotalNPR, overdueTasks, lowInventoryCount, activeOrdersRow,
       });
     }
     load().catch(e => { console.error(e); setData({}); });
@@ -624,6 +808,27 @@ function UKAdminDash() {
   return (
     <AppLayout>
       <div className="kdash fade-in">
+        {/* Quick actions */}
+        <div className="kdash-qa">
+          <span className="kdash-qa-label">Quick actions</span>
+          <Btn kind="ghost" size="sm" icon={<Icons.Billing size={13}/>} onClick={() => window.location.href='/billing'}>New Invoice</Btn>
+          <Btn kind="ghost" size="sm" icon={<Icons.Production size={13}/>} onClick={() => window.location.href='/production'}>New Order</Btn>
+          <Btn kind="ghost" size="sm" icon={<Icons.Attendance size={13}/>} onClick={() => window.location.href='/attendance'}>Log Attendance</Btn>
+          <Btn kind="ghost" size="sm" icon={<Icons.Tasks size={13}/>} onClick={() => window.location.href='/tasks'}>Add Task</Btn>
+        </div>
+
+        {/* Ops Alerts */}
+        <OpsAlerts
+          overdueInvoices={data.overdueInvoices}
+          overdueInvoiceTotalNPR={data.overdueInvoiceTotalNPR}
+          overdueTasks={data.overdueTasks}
+          presentToday={data.presentToday}
+          lateToday={data.lateToday}
+          absent={Math.max(0, data.totalStaff - data.presentToday - data.leaveToday)}
+          totalStaff={data.totalStaff}
+          lowInventoryCount={data.lowInventoryCount}
+        />
+
         {/* KPI Row */}
         <div className="kgrid kgrid--4">
           <KPI label="Revenue · MTD" value={fmtC(data.totalPaidNPR || 0)} delta={18.4} deltaLabel="vs last month"
@@ -647,6 +852,9 @@ function UKAdminDash() {
         </div>
 
         <SalesTargetCard salesTarget={data.salesTarget} />
+
+        {/* Active Orders at a glance */}
+        <ActiveOrdersRow orders={data.activeOrdersRow} />
 
         {/* Estimated Profit */}
         {data.totalRevAllNPR > 0 && (

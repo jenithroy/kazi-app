@@ -148,9 +148,16 @@ function Billing() {
 
   const [showCancelled, setShowCancelled] = useState(false);
 
+  // Search/filter state (Fix 1)
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Payment modal state
   const [payModal, setPayModal]     = useState(null); // { id, docNum, totalNPR, currentPaid, coll }
   const [payAmt, setPayAmt]         = useState("");
+  const [payError, setPayError]     = useState(""); // Fix 6: payment ceiling error
+
+  // Fix 6: PAN validation error
+  const [panError, setPanError] = useState("");
 
   /* ── Load data ── */
   async function loadAll() {
@@ -178,8 +185,20 @@ function Billing() {
   /* ── Active list & meta ── */
   const activeList     = tab === "invoice" ? invoices : tab === "challan" ? challans : quotations;
   const meta           = DOC_TYPES[tab];
-  const activeDocs     = activeList.filter(r => r.status !== "Cancelled");
-  const cancelledDocs  = activeList.filter(r => r.status === "Cancelled");
+
+  // Fix 1: filter by search query (client name, invoice number, or status)
+  const filteredList = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return activeList;
+    return activeList.filter(r =>
+      (r.clientName  || "").toLowerCase().includes(q) ||
+      (r[DOC_TYPES[tab].numberField] || "").toLowerCase().includes(q) ||
+      (r.status      || "").toLowerCase().includes(q)
+    );
+  }, [activeList, searchQuery, tab]);
+
+  const activeDocs     = filteredList.filter(r => r.status !== "Cancelled");
+  const cancelledDocs  = filteredList.filter(r => r.status === "Cancelled");
 
   /* ── Form totals (live preview) ── */
   const formTotals = useMemo(
@@ -232,6 +251,16 @@ function Billing() {
     if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
       return;
     }
+    // Fix 6: PAN required if invoice total > 50000 NPR
+    if (tab === "invoice") {
+      const applyVATPreview = form.applyVAT;
+      const { total: previewTotal } = calcTotals(form.items, applyVATPreview, form.discountPct || 0);
+      if (previewTotal > 50000 && !form.clientPAN?.trim()) {
+        setPanError("PAN number is required for invoices exceeding NPR 50,000 (Nepal IRD regulation).");
+        return;
+      }
+    }
+    setPanError("");
     setSubmitting(true);
     try {
       const applyVAT = tab === "invoice" && form.applyVAT;
@@ -308,7 +337,14 @@ function Billing() {
   async function recordPayment() {
     if (!payModal) return;
     const newAmt = Number(payAmt);
-    if (isNaN(newAmt) || newAmt <= 0) { alert("Enter a valid payment amount."); return; }
+    if (isNaN(newAmt) || newAmt <= 0) { setPayError("Enter a valid payment amount."); return; }
+    // Fix 6: payment ceiling — cannot exceed outstanding balance
+    const outstanding = payModal.totalNPR - payModal.currentPaid;
+    if (newAmt > outstanding + 0.005) {
+      setPayError(`Payment of ${fmtNPR(newAmt)} exceeds the outstanding balance of ${fmtNPR(outstanding)}. Please enter a smaller amount.`);
+      return;
+    }
+    setPayError("");
     const totalPaid = Math.min(payModal.currentPaid + newAmt, payModal.totalNPR);
     const creditLeft = payModal.totalNPR - totalPaid;
     const newStatus  = creditLeft <= 0.005 ? "Paid" : "Partial";
@@ -380,6 +416,31 @@ function Billing() {
       alert("Conversion failed.");
     }
     setSubmitting(false);
+  }
+
+  /* ── Fix 5: CSV export for displayed invoices ── */
+  function exportCSV() {
+    const rows = activeDocs; // already filtered by searchQuery via activeDocs
+    const numField = meta.numberField;
+    const header = ["Invoice #", "Client", "Date", "Amount (NPR)", "Status"];
+    const lines = [
+      header.join(","),
+      ...rows.map(r => [
+        `"${r[numField] || ""}"`,
+        `"${(r.clientName || "").replace(/"/g, '""')}"`,
+        `"${r.date || ""}"`,
+        r.totalNPR != null ? r.totalNPR : "",
+        `"${r.status || ""}"`,
+      ].join(","))
+    ];
+    const csv = lines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${tab}s-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   /* ── Form item helpers ── */
@@ -583,7 +644,17 @@ function Billing() {
                 </label>
                 <label className="kfin-label">
                   Client PAN
-                  <input className="kfin-input" type="text" value={form.clientPAN} placeholder="9-digit PAN (required if > NPR 50,000)" onChange={e => setF("clientPAN", e.target.value)} />
+                  <input
+                    className="kfin-input"
+                    type="text"
+                    value={form.clientPAN}
+                    placeholder="9-digit PAN (required if > NPR 50,000)"
+                    onChange={e => { setF("clientPAN", e.target.value); if (panError) setPanError(""); }}
+                    style={panError ? { borderColor: "var(--terra)" } : undefined}
+                  />
+                  {panError && (
+                    <span style={{ fontSize: 12, color: "var(--terra)", marginTop: 4, display: "block" }}>{panError}</span>
+                  )}
                 </label>
                 <label className="kfin-label">
                   Client Phone
@@ -740,12 +811,44 @@ function Billing() {
         <div className="kfin-block">
           <div className="kfin-block-hd">
             <h2 className="kfin-block-title">
-              {meta.label}s <span className="kfin-block-sub">({activeDocs.length})</span>
+              {meta.label}s <span className="kfin-block-sub">({activeDocs.length}{searchQuery ? ` of ${activeList.filter(r => r.status !== "Cancelled").length}` : ""})</span>
             </h2>
+            {/* Fix 5: export button */}
+            {activeDocs.length > 0 && (
+              <button
+                className="kbil-btn-ghost"
+                style={{ fontSize: 12, padding: "5px 12px" }}
+                onClick={exportCSV}
+                title="Export visible rows to CSV"
+              >
+                ↓ Export CSV
+              </button>
+            )}
+          </div>
+          {/* Fix 1: search input */}
+          <div style={{ marginBottom: 12 }}>
+            <input
+              className="kfin-input"
+              type="text"
+              placeholder={`Search by client, ${meta.numberField.replace("Number", " #")}, or status…`}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ maxWidth: 360 }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
+              >✕ Clear</button>
+            )}
           </div>
 
           {activeDocs.length === 0 ? (
-            <p style={{ color: "var(--ink-3)", fontSize: "0.9rem", padding: "8px 0" }}>No {meta.label.toLowerCase()}s yet. Create your first one above.</p>
+            <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>No invoices found</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Try clearing your search or create a new invoice</div>
+            </div>
           ) : (
             <div className="kfin-tbl-wrap">
               <table className="kfin-tbl">
@@ -968,7 +1071,7 @@ function Billing() {
                 type="number" min="1" step="any"
                 value={payAmt}
                 autoFocus
-                onChange={e => setPayAmt(e.target.value)}
+                onChange={e => { setPayAmt(e.target.value); if (payError) setPayError(""); }}
                 placeholder={`Up to ${(payModal.totalNPR - payModal.currentPaid).toFixed(2)}`}
                 style={{ marginTop: 4 }}
               />
@@ -981,9 +1084,15 @@ function Billing() {
                 </strong>
               </div>
             )}
+            {/* Fix 6: payment ceiling inline error */}
+            {payError && (
+              <div style={{ fontSize: 12, color: "var(--terra)", marginTop: 8, padding: "8px 12px", background: "var(--terra-soft, #fdf2ef)", borderRadius: 8, border: "1px solid rgba(196,101,74,.25)" }}>
+                {payError}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
               <button className="kbil-btn-primary" onClick={recordPayment}>Save Payment</button>
-              <button className="kbil-btn-ghost" onClick={() => { setPayModal(null); setPayAmt(""); }}>Cancel</button>
+              <button className="kbil-btn-ghost" onClick={() => { setPayModal(null); setPayAmt(""); setPayError(""); }}>Cancel</button>
             </div>
           </div>
         </div>
