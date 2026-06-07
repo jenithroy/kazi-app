@@ -123,6 +123,86 @@ function TotRow({ label, value, labelStyle, valueStyle, isGrand }) {
   );
 }
 
+function formatDescriptionPDF(desc) {
+  if (!desc) return <Text style={[S.tblCell, S.cDesc]}>—</Text>;
+
+  let normalizedDesc = desc;
+  if (!normalizedDesc.includes("\n") && normalizedDesc.includes("•")) {
+    const segments = normalizedDesc.split(/\s*•\s*/);
+    if (segments.length > 1) {
+      normalizedDesc = segments.map((seg, idx) => {
+        if (idx === 0) return seg;
+        return `• ${seg}`;
+      }).join("\n");
+    }
+  }
+
+  const lines = normalizedDesc.split("\n");
+
+  return (
+    <View style={[S.cDesc, { display: "flex", flexDirection: "column", gap: 2 }]}>
+      {lines.map((line, idx) => {
+        const indentMatch = line.match(/^(\s+)/);
+        const indentLevel = indentMatch ? indentMatch[1].length : 0;
+        const trimmedLine = line.trim();
+
+        if (!trimmedLine) {
+          return <View key={idx} style={{ height: 4 }} />;
+        }
+
+        // Detect bullet points
+        const bulletMatch = trimmedLine.match(/^([•\-\*])\s*(.*)/);
+        let bullet = null;
+        let content = trimmedLine;
+
+        if (bulletMatch) {
+          bullet = bulletMatch[1];
+          content = bulletMatch[2];
+        }
+
+        // Detect colon label
+        const colonMatch = content.match(/^([A-Za-z0-9\s&\/]+:)\s*(.*)/);
+        let label = null;
+        let mainText = content;
+
+        if (colonMatch) {
+          label = colonMatch[1];
+          mainText = colonMatch[2];
+        }
+
+        // Render bold text matching **bold**
+        const renderTextWithBold = (text) => {
+          const parts = text.split(/\*\*([^*]+)\*\*/g);
+          return parts.map((part, i) => {
+            if (i % 2 === 1) {
+              return <Text key={i} style={{ fontFamily: "Helvetica-Bold" }}>{part}</Text>;
+            }
+            return part;
+          });
+        };
+
+        const paddingLeft = indentLevel * 6 + (bullet ? 8 : 0);
+
+        return (
+          <View key={idx} style={{ flexDirection: "row", paddingLeft: paddingLeft, alignItems: "flex-start", lineHeight: 1.3 }}>
+            {bullet && (
+              <Text style={{ marginRight: 4, color: G, fontFamily: "Helvetica-Bold", fontSize: 9 }}>
+                {bullet}
+              </Text>
+            )}
+            <Text style={[S.tblCell, { flex: 1, fontSize: 9 }]}>
+              {label && (
+                <Text style={{ fontFamily: "Helvetica-Bold", color: "#111" }}>{label} </Text>
+              )}
+              {renderTextWithBold(mainText)}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 /* ── Main PDF Document ───────────────────────────── */
 export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
   const docNum = data.invoiceNumber || data.challanNumber || data.quotationNumber || "—";
@@ -221,7 +301,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
           {items.length > 0 ? items.map((it, i) => (
             <View key={i} style={[S.tblRow, i % 2 === 1 ? S.tblEven : {}]}>
               <Text style={[S.tblCell, S.cNo]}>{i + 1}</Text>
-              <Text style={[S.tblCell, S.cDesc]}>{it.description || "—"}</Text>
+              {formatDescriptionPDF(it.description)}
               <Text style={[S.tblCell, S.cQty]}>{Number(it.qty) % 1 === 0 ? it.qty : Number(it.qty).toFixed(2)}</Text>
               <Text style={[S.tblCell, S.cUnit]}>{it.unit || "Pcs"}</Text>
               <Text style={[S.tblCell, S.cRate]}>{fmtCurrency(Number(it.rate || 0), currency)}</Text>

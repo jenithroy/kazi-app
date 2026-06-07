@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { InvoicePDFDoc } from "./InvoicePDF";
-import { fmtCurrency, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
+import { fmtCurrency, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
 
 const TITLES = {
   invoice:   "Tax Invoice",
@@ -199,7 +199,9 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {items.length > 0 ? items.map((it, i) => (
                   <tr key={i} style={{ background: i % 2 === 1 ? "rgba(26,92,26,0.025)" : "transparent" }}>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333" }}>{i + 1}</td>
-                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333" }}>{it.description || "—"}</td>
+                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333" }}>
+                      {formatDescription(it.description)}
+                    </td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "center" }}>{Number(it.qty) % 1 === 0 ? it.qty : Number(it.qty).toFixed(2)}</td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "center" }}>{it.unit || "Pcs"}</td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrency(Number(it.rate || 0), currency)}</td>

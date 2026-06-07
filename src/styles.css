@@ -2529,7 +2529,7 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   display: grid;
   grid-template-columns: 1fr 80px 72px 120px 120px 36px;
   gap: 8px 10px;
-  align-items: center;
+  align-items: flex-start;
   padding: 7px 2px;
   border-bottom: 1px solid var(--line);
   transition: background .1s;

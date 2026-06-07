@@ -191,15 +191,47 @@ function Billing() {
   function openEdit(row) {
     // Load the row data into the form, stripping Firestore-only fields
     const { id, ...rest } = row;
-    setForm({ ...makeEmptyForm(tab), ...rest });
+    const items = (row.items || []).map(it => {
+      let desc = it.description || "";
+      if (!desc.includes("\n") && desc.includes("•")) {
+        const segments = desc.split(/\s*•\s*/);
+        if (segments.length > 1) {
+          desc = segments.map((seg, idx) => {
+            if (idx === 0) return seg.trim();
+            return `• ${seg.trim()}`;
+          }).join("\n");
+        }
+      }
+      return { ...it, description: desc };
+    });
+    setForm({ ...makeEmptyForm(tab), ...rest, items });
     setEditingId(id);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  /* ── Submit: create OR update ── */
+  /* ── Intercept Enter Key to prevent premature form submission ── */
+  function handleKeyDown(e) {
+    if (e.key === "Enter") {
+      // If it's a textarea, let it handle newlines naturally
+      if (e.target.tagName === "TEXTAREA") {
+        e.stopPropagation();
+        return;
+      }
+      // If it's the submit button, allow submission
+      if (e.target.type === "submit" || (e.target.tagName === "BUTTON" && e.target.type !== "button")) {
+        return;
+      }
+      // Block submission on Enter for all other inputs
+      e.preventDefault();
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
+    if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
+      return;
+    }
     setSubmitting(true);
     try {
       const applyVAT = tab === "invoice" && form.applyVAT;
@@ -466,7 +498,7 @@ function Billing() {
                   : `Number auto-assigned (${meta.prefix}-###) · FY ${form.fiscalYear || "—"}`}
               </span>
             </div>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
               <div className="kfin-form" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
 
                 {/* Date */}
@@ -579,7 +611,15 @@ function Billing() {
                 </div>
                 {form.items.map((item, idx) => (
                   <div className="kbil-item-row" key={idx}>
-                    <input className="kfin-input" type="text" value={item.description} placeholder="Item or service" onChange={e => updateItem(idx, "description", e.target.value)} />
+                    <textarea
+                      className="kfin-input"
+                      value={item.description}
+                      placeholder="Item or service (Supports multiline & formatting)"
+                      rows={2}
+                      style={{ resize: "vertical", fontFamily: "var(--font)", minHeight: "38px", padding: "6px 8px" }}
+                      onChange={e => updateItem(idx, "description", e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") e.stopPropagation(); }}
+                    />
                     <input className="kfin-input" type="number" min="0" step="any" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} />
                     <input className="kfin-input" type="text" value={item.unit} placeholder="Pcs" onChange={e => updateItem(idx, "unit", e.target.value)} />
                     {/* Rate with FX converter button */}

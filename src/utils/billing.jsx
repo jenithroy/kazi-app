@@ -174,3 +174,103 @@ export function statusBadge(status) {
   };
   return <span className={map[status] || "kbil-badge kbil-badge--muted"}>{status}</span>;
 }
+
+export function formatDescription(desc) {
+  if (!desc) return "—";
+
+  let normalizedDesc = desc;
+  if (!normalizedDesc.includes("\n") && normalizedDesc.includes("•")) {
+    const segments = normalizedDesc.split(/\s*•\s*/);
+    if (segments.length > 1) {
+      normalizedDesc = segments.map((seg, idx) => {
+        if (idx === 0) return seg;
+        return `• ${seg}`;
+      }).join("\n");
+    }
+  }
+
+  const lines = normalizedDesc.split("\n");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "2px 0" }}>
+      {lines.map((line, idx) => {
+        const indentMatch = line.match(/^(\s+)/);
+        const indentLevel = indentMatch ? indentMatch[1].length : 0;
+        const trimmedLine = line.trim();
+
+        if (!trimmedLine) {
+          return <div key={idx} style={{ height: "6px" }} />;
+        }
+
+        // Detect bullet points
+        const bulletMatch = trimmedLine.match(/^([•\-\*])\s*(.*)/);
+        let bullet = null;
+        let content = trimmedLine;
+
+        if (bulletMatch) {
+          bullet = bulletMatch[1];
+          content = bulletMatch[2];
+        }
+
+        // Detect colon label
+        const colonMatch = content.match(/^([A-Za-z0-9\s&\/]+:)\s*(.*)/);
+        let label = null;
+        let mainText = content;
+
+        if (colonMatch) {
+          label = colonMatch[1];
+          mainText = colonMatch[2];
+        }
+
+        // Render bold markers **text**
+        const renderTextWithBold = (text) => {
+          const parts = text.split(/\*\*([^*]+)\*\*/g);
+          return parts.map((part, i) => {
+            if (i % 2 === 1) {
+              return <strong key={i} style={{ fontWeight: 700, color: "var(--ink)" }}>{part}</strong>;
+            }
+            return part;
+          });
+        };
+
+        const paddingLeft = indentLevel * 8 + (bullet ? 12 : 0);
+
+        return (
+          <div
+            key={idx}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              paddingLeft: paddingLeft,
+              lineHeight: 1.45,
+              fontSize: "11px",
+              color: "var(--ink-2)",
+              textAlign: "left"
+            }}
+          >
+            {bullet && (
+              <span style={{ 
+                marginRight: "6px", 
+                color: "var(--mint-deep)", 
+                fontWeight: "bold",
+                display: "inline-block",
+                width: "8px",
+                textAlign: "center"
+              }}>
+                {bullet}
+              </span>
+            )}
+            <span style={{ flex: 1 }}>
+              {label && (
+                <strong style={{ fontWeight: 700, color: "var(--ink)", marginRight: "4px" }}>
+                  {label}
+                </strong>
+              )}
+              {renderTextWithBold(mainText)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

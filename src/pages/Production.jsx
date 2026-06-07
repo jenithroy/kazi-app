@@ -55,15 +55,16 @@ const FABRIC_TYPES = [
 ];
 
 function parseInvoiceDescription(desc) {
-  let styleName = desc || "";
+  const firstLine = (desc || "").split("\n")[0] || "";
+  let styleName = firstLine;
   let fabricType = "Terry Cotton";
   let colorway = "";
 
-  const colorMatch = desc.match(/\(([^)]+)\)$/);
-  let baseDesc = desc;
+  const colorMatch = firstLine.match(/\(([^)]+)\)$/);
+  let baseDesc = firstLine;
   if (colorMatch) {
     colorway = colorMatch[1];
-    baseDesc = desc.replace(/\s*\([^)]+\)$/, "");
+    baseDesc = firstLine.replace(/\s*\([^)]+\)$/, "");
   }
 
   const parts = baseDesc.split(/\s*(?:—|-)\s*/);
