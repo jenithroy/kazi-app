@@ -407,16 +407,17 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
         });
 
         // Format message
-        const npr = n => `₨${Math.round(n).toLocaleString("en-IN")}`;
+        const GBP_RATE = 200;
+        const gbp = n => `£${(n / GBP_RATE).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
         const flag = (n, warn = 1) => n >= warn ? "🔴" : "🟢";
 
         const lines = [
           `📊 *Kazi Dashboard* — ${today}`,
           ``,
           `💰 *Revenue*`,
-          `  MTD: *${npr(revMTD)}*`,
+          `  MTD: *${gbp(revMTD)}*`,
           overdueInvs.length
-            ? `  ${flag(overdueInvs.length)} Overdue invoices: *${overdueInvs.length}* (${npr(overdueAmt)})`
+            ? `  ${flag(overdueInvs.length)} Overdue invoices: *${overdueInvs.length}* (${gbp(overdueAmt)})`
             : `  🟢 No overdue invoices`,
           ``,
           `🏭 *Production*`,
@@ -563,13 +564,16 @@ exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
       })
       .map(item => ({ id: item.id, name: item.name || item.itemName, stock: item.closingStock ?? null }));
 
+    const GBP_RATE = 200;
     res.json({
       generatedAt: new Date().toISOString(),
       todayKTM: today,
       invoices: {
         overdueCount: overdueInvoices.length,
         overdueAmountNPR: unpaidTotal,
+        overdueAmountGBP: +(unpaidTotal / GBP_RATE).toFixed(2),
         revenueThisMonthNPR: revenueThisMonth,
+        revenueThisMonthGBP: +(revenueThisMonth / GBP_RATE).toFixed(2),
         overdue: overdueInvoices.map(inv => ({
           id: inv.id,
           client: inv.clientName || inv.customerName,
