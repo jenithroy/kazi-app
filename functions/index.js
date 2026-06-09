@@ -360,3 +360,134 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
     logger.error("TELEGRAM_BOT_ERROR", { error: err.message });
   }
 });
+
+/* ── Dashboard API ────────────────────────────────────────────────────────────
+   GET https://<region>-kazi-manufacturing.cloudfunctions.net/dashboardApi
+   Header: Authorization: Bearer <DASHBOARD_API_KEY>
+   Returns a JSON ops snapshot for Finn's dashboard integrations.
+──────────────────────────────────────────────────────────────────────────── */
+const DASHBOARD_API_KEY = process.env.DASHBOARD_API_KEY || "kazi-dash-2026";
+
+exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
+  // Auth check
+  const auth = req.headers["authorization"] || "";
+  if (auth !== `Bearer ${DASHBOARD_API_KEY}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const db = admin.firestore();
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" }); // YYYY-MM-DD in KTM
+
+    // Fetch all collections in parallel
+    const [invoicesSnap, ordersSnap, attSnap, tasksSnap, inventorySnap, usersSnap] = await Promise.all([
+      db.collection("invoices").get(),
+      db.collection("orders").get(),
+      db.collection("attendance").where("date", "==", today).get(),
+      db.collection("tasks").get(),
+      db.collection("inventory").get(),
+      db.collection("users").where("role", "in", ["nepal_admin", "employee", "nepal_staff"]).get(),
+    ]);
+
+    const invoices  = invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const orders    = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const attendance = attSnap.docs.map(d => d.data());
+    const tasks     = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const inventory = inventorySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const totalStaff = usersSnap.size;
+
+    // ── Invoices ──
+    const overdueInvoices = invoices.filter(inv =>
+      inv.dueDate && inv.dueDate < today && inv.status !== "Paid" && inv.status !== "Cancelled"
+    );
+    const unpaidTotal = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+    const thisMonth = today.slice(0, 7);
+    const revenueThisMonth = invoices
+      .filter(inv => (inv.date || "").slice(0, 7) === thisMonth && inv.status !== "Cancelled")
+      .reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+
+    // ── Orders ──
+    const activeOrders = orders
+      .filter(o => o.status !== "Completed" && o.status !== "Cancelled")
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      .slice(0, 10)
+      .map(o => ({
+        id: o.id,
+        ref: o.orderRef || o.id,
+        customer: o.customerName || o.clientName || "—",
+        stage: o.stage || o.status || "—",
+        dueDate: o.dueDate || null,
+        overdue: o.dueDate ? o.dueDate < today : false,
+        quantity: o.quantity || null,
+      }));
+
+    // ── Attendance ──
+    const present = attendance.filter(r => ["Present", "Late", "Half-day"].includes(r.status)).length;
+    const late    = attendance.filter(r => r.status === "Late").length;
+    const absent  = attendance.filter(r => r.status === "Absent").length;
+    const onLeave = attendance.filter(r => r.status === "Leave").length;
+
+    // ── Tasks ──
+    const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
+    const tasksByStatus = {
+      todo:        tasks.filter(t => t.status === "To Do").length,
+      in_progress: tasks.filter(t => t.status === "In Progress").length,
+      blocked:     tasks.filter(t => t.status === "Blocked").length,
+      done:        tasks.filter(t => t.status === "Done").length,
+    };
+
+    // ── Inventory ──
+    const lowStockItems = inventory
+      .filter(item => {
+        const stock = Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0);
+        return stock <= Number(item.minLevel || 0);
+      })
+      .map(item => ({ id: item.id, name: item.name || item.itemName, stock: item.closingStock ?? null }));
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      todayKTM: today,
+      invoices: {
+        overdueCount: overdueInvoices.length,
+        overdueAmountNPR: unpaidTotal,
+        revenueThisMonthNPR: revenueThisMonth,
+        overdue: overdueInvoices.map(inv => ({
+          id: inv.id,
+          client: inv.clientName || inv.customerName,
+          amountNPR: inv.totalNPR,
+          dueDate: inv.dueDate,
+          status: inv.status,
+        })),
+      },
+      orders: {
+        activeCount: activeOrders.length,
+        items: activeOrders,
+      },
+      attendance: {
+        date: today,
+        totalStaff,
+        present,
+        late,
+        absent,
+        onLeave,
+      },
+      tasks: {
+        overdueCount: overdueTasks.length,
+        byStatus: tasksByStatus,
+        overdue: overdueTasks.slice(0, 10).map(t => ({
+          id: t.id,
+          title: t.title,
+          assignee: t.assignee,
+          dueDate: t.dueDate,
+        })),
+      },
+      inventory: {
+        lowStockCount: lowStockItems.length,
+        lowStockItems,
+      },
+    });
+  } catch (err) {
+    logger.error("DASHBOARD_API_ERROR", { error: err.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
