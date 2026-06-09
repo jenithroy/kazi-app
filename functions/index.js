@@ -352,9 +352,128 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
       return;
     }
 
+    // ── Admin-only commands ──────────────────────────────────
+    const isAdmin = ["uk_admin", "nepal_admin", "super_admin"].includes(profile.role) ||
+                    ["uk_admin", "nepal_admin", "super_admin"].includes(profile.appRole);
+
+    if ((text === "/dashboard" || text === "/report" || text === "/d") && isAdmin) {
+      await tgReply(chatId, "Fetching dashboard…");
+      try {
+        const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" });
+        const thisMonth = today.slice(0, 7);
+
+        const [invoicesSnap, ordersSnap, attSnap, tasksSnap, inventorySnap, usersSnap] = await Promise.all([
+          db.collection("invoices").get(),
+          db.collection("orders").get(),
+          db.collection("attendance").where("date", "==", today).get(),
+          db.collection("tasks").get(),
+          db.collection("inventory").get(),
+          db.collection("users").where("role", "in", ["nepal_admin", "employee", "nepal_staff"]).get(),
+        ]);
+
+        const invoices   = invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const orders     = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const attendance = attSnap.docs.map(d => d.data());
+        const tasks      = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const inventory  = inventorySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const totalStaff = usersSnap.size;
+
+        // Invoices
+        const overdueInvs = invoices.filter(inv =>
+          inv.dueDate && inv.dueDate < today && inv.status !== "Paid" && inv.status !== "Cancelled"
+        );
+        const overdueAmt = overdueInvs.reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+        const revMTD = invoices
+          .filter(i => (i.date || "").slice(0, 7) === thisMonth && i.status !== "Cancelled")
+          .reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+
+        // Orders
+        const activeOrders = orders.filter(o => o.status !== "Completed" && o.status !== "Cancelled");
+        const overdueOrders = activeOrders.filter(o => o.dueDate && o.dueDate < today);
+
+        // Attendance
+        const present = attendance.filter(r => ["Present", "Late", "Half-day"].includes(r.status)).length;
+        const late    = attendance.filter(r => r.status === "Late").length;
+        const absent  = attendance.filter(r => r.status === "Absent").length;
+
+        // Tasks
+        const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
+        const blocked = tasks.filter(t => t.status === "Blocked").length;
+
+        // Inventory
+        const lowStock = inventory.filter(item => {
+          const stock = Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0);
+          return stock <= Number(item.minLevel || 0);
+        });
+
+        // Format message
+        const npr = n => `₨${Math.round(n).toLocaleString("en-IN")}`;
+        const flag = (n, warn = 1) => n >= warn ? "🔴" : "🟢";
+
+        const lines = [
+          `📊 *Kazi Dashboard* — ${today}`,
+          ``,
+          `💰 *Revenue*`,
+          `  MTD: *${npr(revMTD)}*`,
+          overdueInvs.length
+            ? `  ${flag(overdueInvs.length)} Overdue invoices: *${overdueInvs.length}* (${npr(overdueAmt)})`
+            : `  🟢 No overdue invoices`,
+          ``,
+          `🏭 *Production*`,
+          `  Active orders: *${activeOrders.length}*`,
+          overdueOrders.length
+            ? `  🔴 Overdue orders: *${overdueOrders.length}*`
+            : `  🟢 All orders on track`,
+          ``,
+          `👥 *Attendance today*`,
+          `  Present: *${present}/${totalStaff}* · Late: ${late} · Absent: ${absent}`,
+          ``,
+          `✅ *Tasks*`,
+          overdueTasks.length ? `  🔴 Overdue: *${overdueTasks.length}*` : `  🟢 No overdue tasks`,
+          blocked ? `  ⚠️ Blocked: *${blocked}*` : null,
+          ``,
+          lowStock.length
+            ? `📦 *Low stock: ${lowStock.length} item${lowStock.length > 1 ? "s" : ""}*\n  ${lowStock.slice(0, 3).map(i => i.name || i.itemName || i.id).join(", ")}${lowStock.length > 3 ? ` +${lowStock.length - 3} more` : ""}`
+            : `📦 *Stock:* all OK`,
+          ``,
+          `_Reply /orders for active order list_`,
+        ].filter(l => l !== null).join("\n");
+
+        await tgReply(chatId, lines);
+      } catch (err) {
+        logger.error("DASHBOARD_CMD_ERROR", { error: err.message });
+        await tgReply(chatId, "Failed to load dashboard. Try again in a moment.");
+      }
+      return;
+    }
+
+    if (text === "/orders" && isAdmin) {
+      const activeOrders = (await db.collection("orders").get()).docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(o => o.status !== "Completed" && o.status !== "Cancelled")
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+        .slice(0, 15);
+
+      if (!activeOrders.length) { await tgReply(chatId, "No active orders."); return; }
+
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" });
+      const lines = activeOrders.map((o, i) => {
+        const overdue = o.dueDate && o.dueDate < today ? " 🔴" : "";
+        return `${i + 1}. *${o.orderId || o.id.slice(0,8)}* — ${o.customerName || "—"} [${o.stage || o.status}]${overdue}`;
+      });
+      await tgReply(chatId, `*Active Orders (${activeOrders.length})*\n\n${lines.join("\n")}`);
+      return;
+    }
+
+    if ((text === "/dashboard" || text === "/report" || text === "/orders") && !isAdmin) {
+      await tgReply(chatId, "This command is for admins only.");
+      return;
+    }
+
     // Help fallback
+    const adminHelp = isAdmin ? `\n/dashboard — ops snapshot\n/orders — active order list` : "";
     await tgReply(chatId,
-      `*Kazi Worker Bot*\n\n/in — check in\n/out — check out\n/queue — see active orders\n/start <id> — set active order\n/done — mark stage complete\n/issue — flag a problem\n\nSend a photo to attach to your current order.`
+      `*Kazi Worker Bot*\n\n/in — check in\n/out — check out\n/queue — see active orders\n/start <id> — set active order\n/done — mark stage complete\n/issue — flag a problem${adminHelp}\n\nSend a photo to attach to your current order.`
     );
   } catch (err) {
     logger.error("TELEGRAM_BOT_ERROR", { error: err.message });
