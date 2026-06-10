@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: "/production", label: "Production", Icon: Icons.Production, group: "main", shortcut: "⌘4" },
   { to: "/qc",         label: "QC",         Icon: Icons.QC,         group: "ops" },
   { to: "/inventory",  label: "Inventory",  Icon: Icons.Inventory,  group: "ops", badgeTone: "amber" },
+  { to: "/sales",      label: "Sales",      Icon: Icons.Sales,      group: "sales" },
   { to: "/finance",    label: "Finance",    Icon: Icons.Finance,    group: "biz" },
   { to: "/billing",    label: "Billing",    Icon: Icons.Billing,    group: "biz", shortcut: "⌘5" },
   { to: "/content",    label: "Budget",     Icon: Icons.Budget,     group: "biz" },
@@ -22,9 +23,10 @@ const NAV_ITEMS = [
 ];
 
 const GROUPS = [
-  { id: "main", label: "Workspace" },
-  { id: "ops",  label: "Operations" },
-  { id: "biz",  label: "Business" },
+  { id: "main",  label: "Workspace" },
+  { id: "ops",   label: "Operations" },
+  { id: "sales", label: "Sales" },
+  { id: "biz",   label: "Business" },
 ];
 
 function routeKey(path) {

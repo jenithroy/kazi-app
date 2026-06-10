@@ -183,6 +183,7 @@ export function Ico({ d, s, size = 18, sw = 1.6, fill, ...rest }) {
 
 /* ── Common icons ─────────────────────────────────────── */
 export const Icons = {
+  Sales:      (p) => <Ico {...p} s={<><path d="M3 17l4-7 4 3 4-5 4 3"/><path d="M3 21h18"/><circle cx="7" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="11" r="1.2" fill="currentColor" stroke="none"/></>}/>,
   Dashboard:  (p) => <Ico {...p} s={<><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></>}/>,
   Tasks:      (p) => <Ico {...p} s={<><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M7 9h10M7 13h6M7 17h8"/></>}/>,
   Attendance: (p) => <Ico {...p} s={<><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9h17M8 3v4M16 3v4"/><circle cx="9" cy="14" r="1" fill="currentColor" stroke="none"/><circle cx="13" cy="14" r="1" fill="currentColor" stroke="none"/><circle cx="17" cy="14" r="1" fill="currentColor" stroke="none"/></>}/>,
