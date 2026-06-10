@@ -38,7 +38,7 @@ service cloud.firestore {
     }
 
     match /{document=**} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && request.path[3] != 'bank_transactions';
     }
     match /attendance/{id} {
       allow create, update: if hasPermission("attendance") || isNepalStaff() || isSuperAdmin();
@@ -67,6 +67,12 @@ service cloud.firestore {
       allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
     match /bank_transactions/{id} {
+      allow read: if isSignedIn() && (
+        request.auth.token.email == "hi.zenuk@gmail.com" ||
+        request.auth.token.email == "finnqrk@gmail.com" ||
+        request.auth.token.email == "wilsonshah98765@gmail.com" ||
+        request.auth.token.email == "admin@kazi.com"
+      );
       allow create, update: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
       allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }

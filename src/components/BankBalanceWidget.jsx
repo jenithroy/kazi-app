@@ -3,13 +3,23 @@ import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestor
 import { db } from "../firebase";
 import { useCurrency } from "../context/CurrencyContext";
 import { Card, Icons } from "./ui";
+import { useAuth } from "../context/AuthContext";
 
 export default function BankBalanceWidget() {
+  const { profile } = useAuth();
   const [txn, setTxn] = useState(null);
   const [loading, setLoading] = useState(true);
   const { fmt: fmtC } = useCurrency();
 
   useEffect(() => {
+    if (!profile) return;
+    const name = (profile.name || "").toLowerCase();
+    const allowedNames = ["zen", "finn", "wilson", "admin"];
+    if (!allowedNames.includes(name)) {
+      setLoading(false);
+      return;
+    }
+
     const q = query(
       collection(db, "bank_transactions"),
       orderBy("timestamp", "desc"),
@@ -29,7 +39,12 @@ export default function BankBalanceWidget() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [profile]);
+
+  if (!profile) return null;
+  const name = (profile.name || "").toLowerCase();
+  const allowedNames = ["zen", "finn", "wilson", "admin"];
+  if (!allowedNames.includes(name)) return null;
 
   if (loading) {
     return (
