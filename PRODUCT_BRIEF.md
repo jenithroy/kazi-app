@@ -9,7 +9,7 @@
 
 There are three completely separate Dashboard views, one per role group. Each user sees a different Overview:
 
-### 1. Nepal Admin (Wilson, Anmol)
+### 1. Nepal Admin (Wilson, Anmol, Anusha, Monika)
 The most important user of the Overview. They run day-to-day factory operations. Their Overview must surface:
 - How many staff are in today (attendance count)
 - Active production orders and what stage each is at
@@ -26,7 +26,7 @@ Remote business owners based in the UK. They check in once or twice a day to see
 - Budget request approvals pending their sign-off
 - Headline attendance and staff count
 
-### 3. Employee (Monika, Anusha, Sudhansu, Bedhant)
+### 3. Employee (Sudhansu, Bedhant, Sarbagya)
 Factory floor / operations staff. Their "Overview" is essentially a personal dashboard:
 - Their own clock-in status for today (large, prominent — the primary action)
 - Their own assigned tasks
@@ -195,10 +195,11 @@ The app is deployed as a static web application backed by Firebase (Firestore + 
 | Wilson | Operations Head | Nepal | nepal_admin |
 | Anmol | Operations Intern | Nepal | nepal_admin |
 | Admin | System Admin | Nepal | super_admin |
-| Monika | Marketing | Nepal | employee |
-| Anusha | Fashion | Nepal | employee |
+| Monika | Marketing | Nepal | nepal_admin |
+| Anusha | Fashion | Nepal | nepal_admin |
 | Sudhansu | Operations Assistant | Nepal | employee |
 | Bedhant | Management | Nepal | employee |
+| Sarbagya | Content Coordinator | Nepal | employee |
 
 ### Internal terminology
 - **Kazi** — the company name (also the app name)

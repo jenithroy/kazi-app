@@ -11,6 +11,7 @@ import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn 
 import { useCurrency } from "../context/CurrencyContext";
 import { AreaChart, AttendanceRing, ProductionPipeline, QCDial, Donut, Bars } from "../components/viz";
 import ClockInCard from "../components/ClockInCard";
+import BankBalanceWidget from "../components/BankBalanceWidget";
 
 /* ── Helpers ─────────────────────────────────────────── */
 function getLast6Months() {
@@ -431,7 +432,10 @@ function NepalAdminDash() {
           />
         </div>
 
-        <SalesTargetCard salesTarget={data.salesTarget} />
+        <div className="kgrid kgrid--3-2">
+          <SalesTargetCard salesTarget={data.salesTarget} />
+          <BankBalanceWidget />
+        </div>
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
@@ -851,7 +855,10 @@ function UKAdminDash() {
           />
         </div>
 
-        <SalesTargetCard salesTarget={data.salesTarget} />
+        <div className="kgrid kgrid--3-2">
+          <SalesTargetCard salesTarget={data.salesTarget} />
+          <BankBalanceWidget />
+        </div>
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />

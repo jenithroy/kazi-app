@@ -481,9 +481,9 @@ There are four roles. Role is stored on each user's Firestore document and synce
 | Role | Who | What they can do |
 |---|---|---|
 | `super_admin` | Admin (admin@kazi.com) | Full access to everything including the Admin Panel |
-| `nepal_admin` | Wilson, Anmol | Can edit sections they've been granted permission for (configurable per-user by super_admin) |
+| `nepal_admin` | Wilson, Anmol, Anusha, Monika | Can edit sections they've been granted permission for (configurable per-user by super_admin) |
 | `uk_admin` | Fin, Zen (UK directors) | View-only across all sections; can approve Budget Requests |
-| `employee` | Monika, Anusha, Sudhansu, Bedhant | See only their own attendance and tasks |
+| `employee` | Sudhansu, Bedhant, Sarbagya | See only their own attendance and tasks |
 
 ### Permission System (nepal_admin)
 Nepal admins have a `permissions` object on their Firestore user doc. The super admin can toggle each section on/off per user in the Admin Panel. Example structure:

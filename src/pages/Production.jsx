@@ -633,6 +633,12 @@ function Production() {
   const { fmt: fmtC } = useCurrency();
 
   const [activeTab, setActiveTab] = useState("pipeline");
+  const [currentMonthOnly, setCurrentMonthOnly] = useState(false);
+
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`; // "YYYY-MM"
+  const currentMonthName = now.toLocaleDateString("en-US", { month: "long", year: "numeric" }); // "June 2026"
+  const inCurrentMonth = (date) => (date || "").slice(0, 7) === currentMonthKey;
 
   /* ── Batch state ── */
   const [batches, setBatches] = useState([]);
@@ -968,14 +974,22 @@ function Production() {
     await loadData();
   }
 
+  const filteredOrdersForList = useMemo(() => {
+    return orders.filter(o => !currentMonthOnly || inCurrentMonth(o.date) || inCurrentMonth(o.deliveryDate));
+  }, [orders, currentMonthOnly, currentMonthKey]);
+
+  const filteredBatches = useMemo(() => {
+    return batches.filter(b => !currentMonthOnly || inCurrentMonth(b.date));
+  }, [batches, currentMonthOnly, currentMonthKey]);
+
   /* ── Stats ── */
   const orderStats = useMemo(() => ({
-    total: orders.length,
-    active: orders.filter(o => o.status === "Active").length,
-    completed: orders.filter(o => o.status === "Completed").length,
-    totalUnits: orders.filter(o => o.status === "Active").reduce((s, o) => s + Number(o.quantity || 0), 0),
-    totalValue: orders.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0)
-  }), [orders]);
+    total: filteredOrdersForList.length,
+    active: filteredOrdersForList.filter(o => o.status === "Active").length,
+    completed: filteredOrdersForList.filter(o => o.status === "Completed").length,
+    totalUnits: filteredOrdersForList.filter(o => o.status === "Active").reduce((s, o) => s + Number(o.quantity || 0), 0),
+    totalValue: filteredOrdersForList.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0)
+  }), [filteredOrdersForList]);
 
   return (
     <AppLayout>
@@ -997,20 +1011,38 @@ function Production() {
         </p>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="tab-row">
-        <button className={cn("tab-button", activeTab === "pipeline" && "active")} onClick={() => setActiveTab("pipeline")}>
-          Pipeline
-        </button>
-        <button className={cn("tab-button", activeTab === "orders" && "active")} onClick={() => setActiveTab("orders")}>
-          Order Management
-        </button>
-        <button className={cn("tab-button", activeTab === "calendar" && "active")} onClick={() => setActiveTab("calendar")}>
-          Timeline &amp; Calendar
-        </button>
-        <button className={cn("tab-button", activeTab === "batches" && "active")} onClick={() => setActiveTab("batches")}>
-          Batch Tracking
-        </button>
+      {/* ── Tabs & Monthly View Toggle ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div className="tab-row" style={{ marginBottom: 0 }}>
+          <button className={cn("tab-button", activeTab === "pipeline" && "active")} onClick={() => setActiveTab("pipeline")}>
+            Pipeline
+          </button>
+          <button className={cn("tab-button", activeTab === "orders" && "active")} onClick={() => setActiveTab("orders")}>
+            Order Management
+          </button>
+          <button className={cn("tab-button", activeTab === "calendar" && "active")} onClick={() => setActiveTab("calendar")}>
+            Timeline &amp; Calendar
+          </button>
+          <button className={cn("tab-button", activeTab === "batches" && "active")} onClick={() => setActiveTab("batches")}>
+            Batch Tracking
+          </button>
+        </div>
+
+        {activeTab !== "calendar" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>
+              Current Month Only ({currentMonthName})
+            </span>
+            <button
+              type="button"
+              className={cn("kadm-toggle", currentMonthOnly && "kadm-toggle--on")}
+              onClick={() => setCurrentMonthOnly(v => !v)}
+              style={{ display: "flex", alignItems: "center" }}
+            >
+              <span className="kadm-toggle-knob" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ══════════════════ PIPELINE KANBAN ══════════════════ */}
@@ -1038,7 +1070,7 @@ function Production() {
           {/* Board */}
           <div className="kprod-board">
             {PIPELINE_COLS.map(col => {
-              const colOrders = orders.filter(
+              const colOrders = filteredOrdersForList.filter(
                 o => col.stages.includes(o.stage) &&
                      o.status !== "Cancelled" &&
                      o.status !== "Completed"
@@ -1365,8 +1397,8 @@ function Production() {
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No orders yet. Create your first production order above.</p>
             </section>
           ) : (() => {
-            const activeOrders = orders.filter(o => o.status === "Active" || o.status === "On Hold");
-            const doneOrders   = orders.filter(o => o.status === "Completed" || o.status === "Cancelled");
+            const activeOrders = filteredOrdersForList.filter(o => o.status === "Active" || o.status === "On Hold");
+            const doneOrders   = filteredOrdersForList.filter(o => o.status === "Completed" || o.status === "Cancelled");
 
             const renderOrderCard = (order) => {
                 const curIdx = STAGES.indexOf(order.stage);
@@ -1693,7 +1725,13 @@ function Production() {
                   </tr>
                 </thead>
                 <tbody>
-                  {batches.map(batch => {
+                  {filteredBatches.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px" }}>
+                        No batches found for this month.
+                      </td>
+                    </tr>
+                  ) : filteredBatches.map(batch => {
                     const inspected = Number(batch.passed || 0) + Number(batch.rejected || 0);
                     const passRate = inspected ? ((Number(batch.passed || 0) / inspected) * 100).toFixed(1) : "0.0";
                     return (

@@ -55,15 +55,38 @@ export function AuthProvider({ children }) {
                 profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
               } else {
                 let existingPerms = data.permissions;
+                let needsUpdate = false;
+                const updatedPerms = { ...existingPerms };
+
+                // Merge default permissions if they are missing
+                Object.keys(DEFAULT_NEPAL_ADMIN_PERMISSIONS).forEach(key => {
+                  if (key === "finance") {
+                    updatedPerms.finance = {
+                      ...DEFAULT_NEPAL_ADMIN_PERMISSIONS.finance,
+                      ...(existingPerms.finance || {})
+                    };
+                    if (JSON.stringify(updatedPerms.finance) !== JSON.stringify(existingPerms.finance || {})) {
+                      needsUpdate = true;
+                    }
+                  } else if (existingPerms[key] === undefined) {
+                    updatedPerms[key] = DEFAULT_NEPAL_ADMIN_PERMISSIONS[key];
+                    needsUpdate = true;
+                  }
+                });
+
                 // Force production: true for Wilson, Anmol, Anusha
                 const nameLower = teamMember.name.toLowerCase();
                 if (["wilson", "anmol", "anusha"].includes(nameLower)) {
-                  if (existingPerms.production !== true) {
-                    existingPerms = { ...existingPerms, production: true };
-                    await updateDoc(profileRef, { "permissions.production": true });
+                  if (updatedPerms.production !== true) {
+                    updatedPerms.production = true;
+                    needsUpdate = true;
                   }
                 }
-                profileData.permissions = existingPerms;
+
+                if (needsUpdate) {
+                  await updateDoc(profileRef, { permissions: updatedPerms });
+                }
+                profileData.permissions = updatedPerms;
               }
             } else if (data?.permissions) {
               profileData.permissions = data.permissions;

@@ -12,8 +12,8 @@ The app defines five distinct roles for team members. Navigation links and write
 | :--- | :--- | :--- | :--- |
 | **Super Admin** | Admin (`admin@kazi.com`) | All | All (Full Access) |
 | **UK Admin** | Finn, Zen | `dashboard`, `finance` (read-only), `production`, `billing`, `content` (Budget), `tasks`, `directors`, `customers`, `admin`, `messenger`, `library` | `tasks` (Read-only for others unless explicitly overridden) |
-| **Nepal Admin** | Wilson, Anmol, Anusha | `dashboard`, `tasks`, `attendance`, `production`, `qc`, `inventory`, `finance`, `billing`, `content` (Budget), `employees`, `customers`, `messenger`, `library` | All default Nepal Operations ( Wilson, Anmol, & Anusha have forced `production` write access) |
-| **Employee** | Monika, Sudhansu, Bedhant | `dashboard`, `tasks`, `attendance`, `library` | None (Read-only views for assigned tasks and self clock-in) |
+| **Nepal Admin** | Wilson, Anmol, Anusha, Monika | `dashboard`, `tasks`, `attendance`, `production`, `qc`, `inventory`, `finance`, `billing`, `content` (Budget), `employees`, `customers`, `messenger`, `library` | All default Nepal Operations ( Wilson, Anmol, & Anusha have forced `production` write access) |
+| **Employee** | Sudhansu, Bedhant, Sarbagya | `dashboard`, `tasks`, `attendance`, `library` | None (Read-only views for assigned tasks and self clock-in) |
 | **Nepal Staff** | *(Stitchers/Workers)* | `dashboard`, `tasks`, `attendance`, `library`, `production`, `qc`, `inventory`, `content` (Budget) | None (Read-only views for work assignments and self clock-in) |
 
 ---
@@ -43,17 +43,7 @@ Controls access to the sub-sections of the **Finance** module:
 
 Individual user overrides are loaded dynamically in the [AuthContext.jsx](file:///c:/Users/acer/Claude%20FIles/code/kazi-app/src/context/AuthContext.jsx) from Firestore.
 
-### Monika (`bhusal.monika14@gmail.com`)
-- **Base Role**: `employee`
-- **Overrides**: Enabled to access the **Finance** section and add **Expenses**.
-- **Firestore Permission Object**:
-  ```json
-  "permissions": {
-    "finance": {
-      "expenses": true
-    }
-  }
-  ```
+*(None currently active. Monika was upgraded to Nepal Admin on 2026-06-09)*
 
 ---
 

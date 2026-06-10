@@ -1,0 +1,111 @@
+import { useEffect, useState } from "react";
+import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
+import { useCurrency } from "../context/CurrencyContext";
+import { Card, Icons } from "./ui";
+
+export default function BankBalanceWidget() {
+  const [txn, setTxn] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const { fmt: fmtC } = useCurrency();
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "bank_transactions"),
+      orderBy("timestamp", "desc"),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setTxn(snapshot.docs[0].data());
+      } else {
+        setTxn(null);
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching bank balance:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <Card title="Cash at Bank" accent="var(--blue)">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", color: "var(--ink-4)", fontSize: 13 }}>
+          <span className="kskel" style={{ width: "100%", height: 32 }} />
+        </div>
+      </Card>
+    );
+  }
+
+  if (!txn) {
+    return (
+      <Card title="Cash at Bank" accent="var(--blue)">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 0", color: "var(--ink-4)", fontSize: 13, textAlign: "center" }}>
+          <div style={{ fontSize: 24, marginBottom: 4 }}>🏦</div>
+          <div style={{ fontWeight: 500, color: "var(--ink-3)" }}>No bank data available</div>
+          <div style={{ fontSize: 11, color: "var(--ink-4)" }}>Waiting for incoming webhook transaction...</div>
+        </div>
+      </Card>
+    );
+  }
+
+  const isDebit = txn.type?.toLowerCase() === "debit";
+
+  return (
+    <Card 
+      title="Cash at Bank" 
+      sub={`Last updated: ${txn.date || txn.timestamp}`} 
+      accent="var(--blue)"
+      className="kbank-balance-card"
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "4px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+          <span className="num-xl" style={{ fontSize: 28, fontWeight: 800, color: "var(--blue)" }}>
+            {fmtC(txn.balance)}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              padding: "2px 8px",
+              borderRadius: "4px",
+              background: isDebit ? "var(--terra-soft, #fff5f5)" : "var(--mint-soft, #f0fdf4)",
+              color: isDebit ? "var(--terra, #9b1c1c)" : "var(--mint-deep, #166534)",
+            }}>
+              {isDebit ? "Debit" : "Credit"}
+            </span>
+            <span className="mono" style={{ fontSize: 12, fontWeight: 600, color: isDebit ? "var(--terra)" : "var(--mint-deep)" }}>
+              {isDebit ? "-" : "+"} {fmtC(txn.amount)}
+            </span>
+          </div>
+        </div>
+
+        {txn.remarks && (
+          <div 
+            style={{ 
+              fontSize: 11, 
+              color: "var(--ink-4)", 
+              background: "var(--bg-2, #f8fafc)",
+              padding: "8px 12px",
+              borderRadius: "8px",
+              border: "1.5px solid var(--line, #dde8dd)",
+              whiteSpace: "nowrap", 
+              overflow: "hidden", 
+              textOverflow: "ellipsis",
+              marginTop: 4
+            }} 
+            title={txn.remarks}
+          >
+            <span style={{ fontWeight: 600, color: "var(--ink-3)", marginRight: 4 }}>Remarks:</span>
+            {txn.remarks}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
