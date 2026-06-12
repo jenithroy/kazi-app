@@ -224,15 +224,80 @@ function ActiveOrdersRow({ orders = [] }) {
    NEPAL ADMIN DASHBOARD
 ══════════════════════════════════════════════════════ */
 /* ── Product P&L Card ────────────────────────────────── */
-function ProductPnLCard() {
-  const GBP = n => n != null ? `£${(n / GBP_RATE).toFixed(2)}` : "—";
-  const COLS = ["fabric", "rib", "trims", "labour", "others"];
+const EMPTY_PRODUCT = { code: "", name: "", fabric: "", rib: "", trims: "", labour: "", others: "" };
+const COST_COLS = ["fabric", "rib", "trims", "labour", "others"];
+
+function ProductPnLCard({ canEdit }) {
+  const GBP = n => (n != null && n !== "" && !isNaN(n)) ? `£${(Number(n) / GBP_RATE).toFixed(2)}` : "—";
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [editId, setEditId]     = useState(null); // doc id being edited, or "new"
+  const [form, setForm]         = useState(EMPTY_PRODUCT);
+  const [saving, setSaving]     = useState(false);
+
+  // Load from Firestore; seed from constants if empty
+  useEffect(() => {
+    async function load() {
+      const snap = await getDocs(collection(db, "product_costs"));
+      if (snap.empty) {
+        // First load — seed from constants
+        const batch = [];
+        for (const p of PRODUCT_COSTS) {
+          batch.push(setDoc(doc(db, "product_costs", p.code), { ...p, updatedAt: new Date().toISOString() }));
+        }
+        await Promise.all(batch);
+        setProducts(PRODUCT_COSTS.map(p => ({ id: p.code, ...p })));
+      } else {
+        setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.code.localeCompare(b.code)));
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const computedTotal = f => {
+    const vals = COST_COLS.map(c => Number(f[c]) || 0);
+    return vals.reduce((s, v) => s + v, 0);
+  };
+
+  async function handleSave() {
+    if (!form.code.trim() || !form.name.trim()) return;
+    setSaving(true);
+    const total = computedTotal(form);
+    const data = { ...form, total, updatedAt: new Date().toISOString() };
+    COST_COLS.forEach(c => { data[c] = Number(data[c]) || 0; });
+    await setDoc(doc(db, "product_costs", form.code.trim()), data);
+    setProducts(prev => {
+      const exists = prev.find(p => p.id === form.code.trim());
+      const updated = { id: form.code.trim(), ...data };
+      return exists
+        ? prev.map(p => p.id === form.code.trim() ? updated : p)
+        : [...prev, updated].sort((a, b) => a.code.localeCompare(b.code));
+    });
+    setEditId(null);
+    setForm(EMPTY_PRODUCT);
+    setSaving(false);
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm(`Delete ${id}?`)) return;
+    const { deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(db, "product_costs", id));
+    setProducts(prev => prev.filter(p => p.id !== id));
+  }
+
+  const inp = { border: "1px solid var(--line-strong)", borderRadius: 5, padding: "3px 6px", fontSize: 12, fontFamily: "var(--font)", background: "#fff", width: "100%" };
 
   return (
     <Card
       title="Product Costing (COGS)"
-      sub="Per unit cost breakdown · source: cost.xlsx"
+      sub="Per unit cost breakdown · editable by admins"
       accent="var(--mint-deep)"
+      action={canEdit && editId !== "new" && (
+        <Btn kind="ghost" size="sm" onClick={() => { setForm(EMPTY_PRODUCT); setEditId("new"); }}>
+          + Add product
+        </Btn>
+      )}
     >
       <div className="table-wrap">
         <table>
@@ -246,28 +311,63 @@ function ProductPnLCard() {
               <th style={{ textAlign: "right" }}>Labour</th>
               <th style={{ textAlign: "right" }}>Others</th>
               <th style={{ textAlign: "right", fontWeight: 700 }}>Total</th>
+              {canEdit && <th />}
             </tr>
           </thead>
           <tbody>
-            {PRODUCT_COSTS.map(p => (
-              <tr key={p.code}>
-                <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>#{p.code}</td>
-                <td style={{ fontWeight: 500 }}>{p.name}</td>
-                {COLS.map(c => (
-                  <td key={c} style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13 }}>
-                    {GBP(p[c])}
+            {loading ? (
+              <tr><td colSpan={canEdit ? 9 : 8} style={{ padding: "16px 8px" }}><div className="kskel kskel-row" /></td></tr>
+            ) : products.map(p => (
+              editId === p.id ? (
+                <tr key={p.id} style={{ background: "var(--mint-soft)" }}>
+                  <td><input style={inp} value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="kazi100x" /></td>
+                  <td><input style={{ ...inp, width: 160 }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Product name" /></td>
+                  {COST_COLS.map(c => (
+                    <td key={c}><input style={{ ...inp, textAlign: "right", width: 60 }} type="number" value={form[c]} onChange={e => setForm(f => ({ ...f, [c]: e.target.value }))} /></td>
+                  ))}
+                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{GBP(computedTotal(form))}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button style={{ ...inp, background: "var(--mint-deep)", color: "#fff", border: "none", cursor: "pointer", marginRight: 4 }} onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</button>
+                    <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditId(null)}>✕</button>
                   </td>
+                </tr>
+              ) : (
+                <tr key={p.id}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>#{p.code}</td>
+                  <td style={{ fontWeight: 500 }}>{p.name}</td>
+                  {COST_COLS.map(c => (
+                    <td key={c} style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13 }}>{GBP(p[c])}</td>
+                  ))}
+                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>{GBP(p.total)}</td>
+                  {canEdit && (
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button style={{ ...inp, cursor: "pointer", marginRight: 4, fontSize: 11 }} onClick={() => { setForm({ ...p }); setEditId(p.id); }}>Edit</button>
+                      <button style={{ ...inp, cursor: "pointer", fontSize: 11, color: "var(--terra)" }} onClick={() => handleDelete(p.id)}>✕</button>
+                    </td>
+                  )}
+                </tr>
+              )
+            ))}
+            {/* New row form */}
+            {editId === "new" && (
+              <tr style={{ background: "var(--mint-soft)" }}>
+                <td><input style={inp} value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="kazi100x" /></td>
+                <td><input style={{ ...inp, width: 160 }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Product name" /></td>
+                {COST_COLS.map(c => (
+                  <td key={c}><input style={{ ...inp, textAlign: "right", width: 60 }} type="number" value={form[c]} onChange={e => setForm(f => ({ ...f, [c]: e.target.value }))} /></td>
                 ))}
-                <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: p.total ? "var(--ink)" : "var(--ink-4)" }}>
-                  {GBP(p.total)}
+                <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{GBP(computedTotal(form))}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  <button style={{ ...inp, background: "var(--mint-deep)", color: "#fff", border: "none", cursor: "pointer", marginRight: 4 }} onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</button>
+                  <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditId(null)}>✕</button>
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
       <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 10 }}>
-        All values in GBP (÷{GBP_RATE} NPR) · — = total not yet set in spreadsheet
+        All values in GBP (÷{GBP_RATE} NPR) · Total auto-calculated from components
       </div>
     </Card>
   );
@@ -492,7 +592,7 @@ function NepalAdminDash() {
         <ActiveOrdersRow orders={data.activeOrdersRow} />
 
         {/* Product COGS */}
-        <ProductPnLCard />
+        <ProductPnLCard canEdit={["nepal_admin","uk_admin","super_admin"].includes(profile?.appRole || profile?.role)} />
 
         {/* Production pipeline */}
         <Card
