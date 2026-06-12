@@ -1,10 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
-import { addDoc, collection, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
-import { useLeaderboard } from "../hooks/useLeaderboard";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M } from "../constants";
 import { todayDate, startOfWeekDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
@@ -375,81 +374,61 @@ function ProductPnLCard({ canEdit }) {
 }
 
 /* ── Leaderboard Card ────────────────────────────────── */
-function LeaderboardCard({ profile }) {
-  const { allTime, weekly, loading } = useLeaderboard();
-  const [tab, setTab] = useState("weekly");
+/* ── My Points Card ──────────────────────────────────── */
+const LEVELS = [
+  { label: "Apprentice",    min: 0,    max: 200,  color: "var(--ink-4)" },
+  { label: "Craftsperson",  min: 200,  max: 600,  color: "var(--amber-deep)" },
+  { label: "Senior Tailor", min: 600,  max: 1500, color: "var(--mint-deep)" },
+  { label: "Master Tailor", min: 1500, max: Infinity, color: "#7c3aed" },
+];
+function getLevel(pts) {
+  return LEVELS.findLast(l => pts >= l.min) || LEVELS[0];
+}
 
-  const entries = tab === "weekly" ? weekly : allTime;
-  const top5 = entries.slice(0, 5);
-  const currentUid = profile?.uid;
+function MyPointsCard({ profile }) {
+  const [pts, setPts] = useState(null);
+  const uid = profile?.uid;
 
-  const tabBtn = (id, label) => (
-    <button
-      onClick={() => setTab(id)}
-      style={{
-        padding: "4px 12px", fontSize: 12, borderRadius: 20, border: "1.5px solid",
-        cursor: "pointer", fontWeight: tab === id ? 600 : 400,
-        background: tab === id ? "var(--mint-deep)" : "transparent",
-        color: tab === id ? "#fff" : "var(--ink-3)",
-        borderColor: tab === id ? "var(--mint-deep)" : "var(--line)",
-        transition: "all .15s",
-      }}
-    >
-      {label}
-    </button>
-  );
+  useEffect(() => {
+    if (!uid) return;
+    getDoc(doc(db, "user_points", uid)).then(snap => {
+      if (snap.exists()) setPts(snap.data());
+    });
+  }, [uid]);
+
+  const total   = pts?.totalPoints  || 0;
+  const weekly  = pts?.weeklyPoints || 0;
+  const level   = getLevel(total);
+  const nextLvl = LEVELS[LEVELS.indexOf(level) + 1];
+  const pct     = nextLvl ? Math.min(Math.round(((total - level.min) / (nextLvl.min - level.min)) * 100), 100) : 100;
 
   return (
-    <Card
-      title="Leaderboard"
-      sub="Points earned by completing tasks"
-      accent="var(--mint-deep)"
-      action={
-        <div style={{ display: "flex", gap: 6 }}>
-          {tabBtn("weekly", "This Week")}
-          {tabBtn("allTime", "All Time")}
+    <Card title="My Points" sub="Your contribution score" accent="var(--mint-deep)">
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--mint-deep)", lineHeight: 1 }}>{total}</div>
+          <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>all time</div>
         </div>
-      }
-    >
-      {loading ? (
-        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0" }}>Loading…</div>
-      ) : top5.length === 0 ? (
-        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0", textAlign: "center" }}>
-          No points yet — complete tasks to get on the board
+        <div style={{ width: 1, height: 36, background: "var(--line)" }} />
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--ink-2)", lineHeight: 1 }}>{weekly}</div>
+          <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>this week</div>
         </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {top5.map((entry) => {
-            const isMe = currentUid && entry.uid === currentUid;
-            return (
-              <div key={entry.uid}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
-                  borderRadius: 10,
-                  background: isMe ? "var(--mint-soft)" : "transparent",
-                  border: isMe ? "1.5px solid var(--mint-deep)" : "1.5px solid transparent",
-                }}
-              >
-                <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)", minWidth: 18, textAlign: "right" }}>
-                  {entry.rank}
-                </span>
-                <Avatar name={entry.displayName || "?"} hue={entry.rank === 1 ? 50 : 145} size={28} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: isMe ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {entry.displayName || "Unknown"}
-                  </div>
-                  {entry.rank === 1 && tab === "weekly" && (
-                    <div style={{ fontSize: 10, color: "var(--mint-deep)", fontWeight: 500 }}>
-                      Most points this week
-                    </div>
-                  )}
-                </div>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 600, color: "var(--ink-2)", whiteSpace: "nowrap" }}>
-                  {(tab === "weekly" ? entry.weeklyPoints : entry.totalPoints) ?? 0} pts
-                </span>
-              </div>
-            );
-          })}
+        <div style={{ flex: 1 }} />
+        <Pill tone="mint">{level.label}</Pill>
+      </div>
+      {nextLvl && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-4)", marginBottom: 4 }}>
+            <span>{level.label}</span>
+            <span>{nextLvl.min - total} pts to {nextLvl.label}</span>
+          </div>
+          <Progress pct={pct} color="var(--mint-deep)" h={8} />
+        </div>
+      )}
+      {total === 0 && (
+        <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 8 }}>
+          Complete tasks, clock in on time, or advance production orders to earn points.
         </div>
       )}
     </Card>
@@ -678,7 +657,7 @@ function NepalAdminDash() {
         <ProductPnLCard canEdit={["nepal_admin","uk_admin","super_admin"].includes(profile?.appRole || profile?.role)} />
 
         {/* Leaderboard */}
-        <LeaderboardCard profile={profile} />
+        <MyPointsCard profile={profile} />
 
         {/* Production pipeline */}
         <Card
@@ -1104,7 +1083,7 @@ function UKAdminDash() {
         <ActiveOrdersRow orders={data.activeOrdersRow} />
 
         {/* Leaderboard */}
-        <LeaderboardCard profile={profile} />
+        <MyPointsCard profile={profile} />
 
         {/* Estimated Profit */}
         {data.totalRevAllNPR > 0 && (
