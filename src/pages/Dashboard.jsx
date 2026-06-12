@@ -12,6 +12,7 @@ import { useCurrency } from "../context/CurrencyContext";
 import { AreaChart, AttendanceRing, ProductionPipeline, QCDial, Donut, Bars } from "../components/viz";
 import ClockInCard from "../components/ClockInCard";
 import BankBalanceWidget from "../components/BankBalanceWidget";
+import { PRODUCT_COSTS } from "../constants/productCosts";
 
 /* ── Helpers ─────────────────────────────────────────── */
 function getLast6Months() {
@@ -222,6 +223,56 @@ function ActiveOrdersRow({ orders = [] }) {
 /* ══════════════════════════════════════════════════════
    NEPAL ADMIN DASHBOARD
 ══════════════════════════════════════════════════════ */
+/* ── Product P&L Card ────────────────────────────────── */
+function ProductPnLCard() {
+  const GBP = n => n != null ? `£${(n / GBP_RATE).toFixed(2)}` : "—";
+  const COLS = ["fabric", "rib", "trims", "labour", "others"];
+
+  return (
+    <Card
+      title="Product Costing (COGS)"
+      sub="Per unit cost breakdown · source: cost.xlsx"
+      accent="var(--mint-deep)"
+    >
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Item</th>
+              <th style={{ textAlign: "right" }}>Fabric</th>
+              <th style={{ textAlign: "right" }}>Rib</th>
+              <th style={{ textAlign: "right" }}>Trims</th>
+              <th style={{ textAlign: "right" }}>Labour</th>
+              <th style={{ textAlign: "right" }}>Others</th>
+              <th style={{ textAlign: "right", fontWeight: 700 }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PRODUCT_COSTS.map(p => (
+              <tr key={p.code}>
+                <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>#{p.code}</td>
+                <td style={{ fontWeight: 500 }}>{p.name}</td>
+                {COLS.map(c => (
+                  <td key={c} style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13 }}>
+                    {GBP(p[c])}
+                  </td>
+                ))}
+                <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: p.total ? "var(--ink)" : "var(--ink-4)" }}>
+                  {GBP(p.total)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 10 }}>
+        All values in GBP (÷{GBP_RATE} NPR) · — = total not yet set in spreadsheet
+      </div>
+    </Card>
+  );
+}
+
 function NepalAdminDash() {
   const { profile } = useAuth();
   const [data, setData]       = useState(null);
@@ -439,6 +490,9 @@ function NepalAdminDash() {
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
+
+        {/* Product COGS */}
+        <ProductPnLCard />
 
         {/* Production pipeline */}
         <Card
