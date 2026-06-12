@@ -4,6 +4,7 @@ import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
+import { useLeaderboard } from "../hooks/useLeaderboard";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M } from "../constants";
 import { todayDate, startOfWeekDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
@@ -373,6 +374,88 @@ function ProductPnLCard({ canEdit }) {
   );
 }
 
+/* ── Leaderboard Card ────────────────────────────────── */
+function LeaderboardCard({ profile }) {
+  const { allTime, weekly, loading } = useLeaderboard();
+  const [tab, setTab] = useState("weekly");
+
+  const entries = tab === "weekly" ? weekly : allTime;
+  const top5 = entries.slice(0, 5);
+  const currentUid = profile?.uid;
+
+  const tabBtn = (id, label) => (
+    <button
+      onClick={() => setTab(id)}
+      style={{
+        padding: "4px 12px", fontSize: 12, borderRadius: 20, border: "1.5px solid",
+        cursor: "pointer", fontWeight: tab === id ? 600 : 400,
+        background: tab === id ? "var(--mint-deep)" : "transparent",
+        color: tab === id ? "#fff" : "var(--ink-3)",
+        borderColor: tab === id ? "var(--mint-deep)" : "var(--line)",
+        transition: "all .15s",
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <Card
+      title="Leaderboard"
+      sub="Points earned by completing tasks"
+      accent="var(--mint-deep)"
+      action={
+        <div style={{ display: "flex", gap: 6 }}>
+          {tabBtn("weekly", "This Week")}
+          {tabBtn("allTime", "All Time")}
+        </div>
+      }
+    >
+      {loading ? (
+        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0" }}>Loading…</div>
+      ) : top5.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0", textAlign: "center" }}>
+          No points yet — complete tasks to get on the board
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {top5.map((entry) => {
+            const isMe = currentUid && entry.uid === currentUid;
+            return (
+              <div key={entry.uid}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                  borderRadius: 10,
+                  background: isMe ? "var(--mint-soft)" : "transparent",
+                  border: isMe ? "1.5px solid var(--mint-deep)" : "1.5px solid transparent",
+                }}
+              >
+                <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)", minWidth: 18, textAlign: "right" }}>
+                  {entry.rank}
+                </span>
+                <Avatar name={entry.displayName || "?"} hue={entry.rank === 1 ? 50 : 145} size={28} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: isMe ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {entry.displayName || "Unknown"}
+                  </div>
+                  {entry.rank === 1 && tab === "weekly" && (
+                    <div style={{ fontSize: 10, color: "var(--mint-deep)", fontWeight: 500 }}>
+                      Most points this week
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 600, color: "var(--ink-2)", whiteSpace: "nowrap" }}>
+                  {(tab === "weekly" ? entry.weeklyPoints : entry.totalPoints) ?? 0} pts
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function NepalAdminDash() {
   const { profile } = useAuth();
   const [data, setData]       = useState(null);
@@ -593,6 +676,9 @@ function NepalAdminDash() {
 
         {/* Product COGS */}
         <ProductPnLCard canEdit={["nepal_admin","uk_admin","super_admin"].includes(profile?.appRole || profile?.role)} />
+
+        {/* Leaderboard */}
+        <LeaderboardCard profile={profile} />
 
         {/* Production pipeline */}
         <Card
@@ -1016,6 +1102,9 @@ function UKAdminDash() {
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
+
+        {/* Leaderboard */}
+        <LeaderboardCard profile={profile} />
 
         {/* Estimated Profit */}
         {data.totalRevAllNPR > 0 && (

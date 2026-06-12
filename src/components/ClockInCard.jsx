@@ -5,10 +5,13 @@ import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus } from "../constants";
 import { todayDate } from "../utils/date";
 import { Icons, Btn, Card, Pill } from "./ui";
+import { awardPoints } from "../utils/rewardService";
+import { useReward } from "../context/RewardContext";
 
 export default function ClockInCard({ profile, onClockChange }) {
   const today = todayDate();
   const staffId = profile?.uid || profile?.id || "";
+  const { showPointsToast } = useReward();
 
   const [status, setStatus] = useState("checking_status"); // checking_status, idle, locating, success, far, low-accuracy, clocked
   const [clockDist, setClockDist] = useState(null);
@@ -154,7 +157,19 @@ export default function ClockInCard({ profile, onClockChange }) {
 
       setClockedAtStr(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
       setStatus("clocked");
-      
+
+      // Award attendance points if clocked in on time
+      if (statusCalc.status === "Present" && staffId) {
+        const pts = await awardPoints({
+          uid: staffId,
+          displayName: profile?.name || "",
+          eventType: "attendance_present",
+          sourceId: staffId + "_" + today,
+          reason: "On-time attendance",
+        });
+        if (pts) showPointsToast(pts, "On-time attendance");
+      }
+
       if (onClockChange) onClockChange();
     } catch (err) {
       console.error("Error clocking in:", err);

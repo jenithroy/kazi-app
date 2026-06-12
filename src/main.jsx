@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
+import { RewardProvider } from "./context/RewardContext";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -11,7 +12,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <AuthProvider>
         <CurrencyProvider>
-          <App />
+          <RewardProvider>
+            <App />
+          </RewardProvider>
         </CurrencyProvider>
       </AuthProvider>
     </BrowserRouter>
