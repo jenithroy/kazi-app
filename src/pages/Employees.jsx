@@ -49,7 +49,7 @@ const ORG_CSS = `
 
 const HUE_MAP = { Management: 145, Operations: 200, Production: 35, Finance: 260, HR: 310, Marketing: 10, IT: 190, Other: 90 };
 
-function OrgCard({ emp }) {
+function OrgCard({ emp, points }) {
   const hue = HUE_MAP[emp.department] ?? 145;
   const bg = `oklch(0.78 0.08 ${hue})`;
   const fg = `oklch(0.28 0.08 ${hue})`;
@@ -65,20 +65,25 @@ function OrgCard({ emp }) {
           {emp.location === "uk" ? "🇬🇧 UK" : "🇳🇵 Nepal"}
         </span>
       </div>
+      {points != null && (
+        <div style={{ fontSize: 11, color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 6 }}>
+          ⭐ {points} pts
+        </div>
+      )}
     </div>
   );
 }
 
-function OrgNode({ emp, allEmps }) {
+function OrgNode({ emp, allEmps, pointsMap }) {
   const children = allEmps.filter(e => (e.reportsTo || "").toLowerCase() === emp.name.toLowerCase() && e.status !== "Inactive");
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <OrgCard emp={emp} />
+      <OrgCard emp={emp} points={pointsMap[(emp.email || "").toLowerCase()]} />
       {children.length > 0 && (
         <div className="korg-level">
           {children.map(child => (
             <div key={child.id} className="korg-branch">
-              <OrgNode emp={child} allEmps={allEmps} />
+              <OrgNode emp={child} allEmps={allEmps} pointsMap={pointsMap} />
             </div>
           ))}
         </div>
@@ -87,7 +92,7 @@ function OrgNode({ emp, allEmps }) {
   );
 }
 
-function OrgChart({ employees }) {
+function OrgChart({ employees, pointsMap = {} }) {
   const active = employees.filter(e => e.status !== "Inactive");
   const roots = active.filter(e => !e.reportsTo || !active.find(a => a.name.toLowerCase() === e.reportsTo.toLowerCase()));
   const prodCount = active.filter(e => e.isProductionWorker).length;
@@ -111,7 +116,7 @@ function OrgChart({ employees }) {
       <div className="korg">
         <div className="korg-tree">
           <div className="korg-roots" style={{ display: "flex", gap: 32 }}>
-            {roots.map(emp => <OrgNode key={emp.id} emp={emp} allEmps={active} />)}
+            {roots.map(emp => <OrgNode key={emp.id} emp={emp} allEmps={active} pointsMap={pointsMap} />)}
           </div>
         </div>
       </div>
@@ -132,6 +137,36 @@ function Employees() {
   const canEditPayroll = canEdit && canViewPayroll;
 
   const [activeTab, setActiveTab] = useState("directory");
+
+  /* ── Points map: email → totalPoints ── */
+  const [pointsMap, setPointsMap] = useState({});
+
+  useEffect(() => {
+    async function loadPoints() {
+      try {
+        const [usersSnap, pointsSnap] = await Promise.all([
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "user_points")),
+        ]);
+        // uid → totalPoints
+        const uidToPoints = {};
+        pointsSnap.docs.forEach(d => { uidToPoints[d.id] = d.data().totalPoints || 0; });
+        // email (lowercased) → totalPoints via uid
+        const map = {};
+        usersSnap.docs.forEach(d => {
+          const { email, uid } = d.data();
+          const id = uid || d.id;
+          if (email && uidToPoints[id] != null) {
+            map[email.toLowerCase()] = uidToPoints[id];
+          }
+        });
+        setPointsMap(map);
+      } catch (err) {
+        console.error("loadPoints:", err);
+      }
+    }
+    loadPoints();
+  }, []);
 
   /* ── Directory State ── */
   const [employees, setEmployees] = useState([]);
@@ -592,7 +627,7 @@ function Employees() {
 
       {activeTab === "org" && (
         <section className="panel">
-          <OrgChart employees={employees} />
+          <OrgChart employees={employees} pointsMap={pointsMap} />
         </section>
       )}
 

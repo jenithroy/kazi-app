@@ -10,6 +10,8 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { cn, Avatar, Pill, Btn, Icons } from "../components/ui";
 import { TASK_CATEGORIES } from "../constants";
+import { awardPoints, resolveUidByName } from "../utils/rewardService";
+import { useReward } from "../context/RewardContext";
 
 const CAT_MAP = Object.fromEntries(TASK_CATEGORIES.map(c => [c.label, c.color]));
 
@@ -376,6 +378,7 @@ function Tasks() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "tasks");
   const role = profile?.appRole || profile?.role;
+  const { showPointsToast } = useReward();
 
   const [tasks,    setTasks]    = useState([]);
   const [columns,  setColumns]  = useState([]);
@@ -474,6 +477,24 @@ function Tasks() {
     if (!task || task.status === newStatus) return;
     await updateDoc(doc(db, "tasks", taskId), { status: newStatus });
     setTasks(cur => cur.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    if (newStatus === "Done" && task.assignee) {
+      const uid = await resolveUidByName(task.assignee);
+      if (uid) {
+        const eventType = task.priority === "high" ? "task_completed_high" : "task_completed";
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const isEarly = task.dueDate && today <= new Date(task.dueDate);
+        const bonusPoints = isEarly ? 10 : 0;
+        const pts = await awardPoints({
+          uid,
+          displayName: task.assignee,
+          eventType,
+          sourceId: taskId,
+          reason: task.title,
+          bonusPoints,
+        });
+        if (pts) showPointsToast(pts, task.title);
+      }
+    }
   }
 
   function handleOpenEdit(task) {
@@ -507,6 +528,24 @@ function Tasks() {
         status:      editForm.status,
       });
       setTasks(cur => cur.map(t => t.id === editTask.id ? { ...t, ...editForm, title: editForm.title.trim() } : t));
+      if (editForm.status === "Done" && editTask.status !== "Done" && editForm.assignee) {
+        const uid = await resolveUidByName(editForm.assignee);
+        if (uid) {
+          const eventType = editForm.priority === "high" ? "task_completed_high" : "task_completed";
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const isEarly = editForm.dueDate && today <= new Date(editForm.dueDate);
+          const bonusPoints = isEarly ? 10 : 0;
+          const pts = await awardPoints({
+            uid,
+            displayName: editForm.assignee,
+            eventType,
+            sourceId: editTask.id,
+            reason: editForm.title.trim(),
+            bonusPoints,
+          });
+          if (pts) showPointsToast(pts, editForm.title.trim());
+        }
+      }
       setEditTask(null);
     } catch (err) {
       console.error("Failed to update task:", err);

@@ -17,6 +17,8 @@ import { notifyStageChange } from "../utils/telegram";
 import { useCurrency } from "../context/CurrencyContext";
 // eslint-disable-next-line no-unused-vars
 import { ORDER_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
+import { awardPoints, resolveUidByName } from "../utils/rewardService";
+import { useReward } from "../context/RewardContext";
 
 const VAT_RATE = 0.13;
 
@@ -631,6 +633,7 @@ function Production() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "production");
   const { fmt: fmtC } = useCurrency();
+  const { showPointsToast } = useReward();
 
   const [activeTab, setActiveTab] = useState("pipeline");
   const [currentMonthOnly, setCurrentMonthOnly] = useState(false);
@@ -833,19 +836,42 @@ function Production() {
     if (!canEdit) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "production"), {
+      const passed  = Number(batchForm.passed  || 0);
+      const rejected = Number(batchForm.rejected || 0);
+      const batchRef = await addDoc(collection(db, "production"), {
         batchId: nextBatchId,
         date: batchForm.date,
         cut: Number(batchForm.cut || 0),
         stitched: Number(batchForm.stitched || 0),
-        passed: Number(batchForm.passed || 0),
-        rejected: Number(batchForm.rejected || 0),
+        passed,
+        rejected,
         note: batchForm.note,
         loggedBy: profile?.name || "Unknown",
         createdAt: serverTimestamp()
       });
       setBatchForm(initialBatchForm);
       await loadData();
+      // Award QC points to the logger
+      const total = passed + rejected;
+      if (total > 0 && profile?.name) {
+        const uid = await resolveUidByName(profile.name);
+        if (uid) {
+          const passRate = passed / total;
+          let qcEventType = null;
+          if (passRate === 1) qcEventType = "qc_batch_perfect";
+          else if (passRate >= 0.9) qcEventType = "qc_batch_good";
+          if (qcEventType) {
+            const pts = await awardPoints({
+              uid,
+              displayName: profile.name,
+              eventType: qcEventType,
+              sourceId: batchRef.id,
+              reason: `Batch ${nextBatchId}`,
+            });
+            if (pts) showPointsToast(pts, `Batch ${nextBatchId} QC`);
+          }
+        }
+      }
     } catch (err) {
       console.error("Failed to save batch:", err);
       showError("Failed to save batch. Please check your connection and try again.");
@@ -941,6 +967,34 @@ function Production() {
     await updateDoc(doc(db, "orders", order.id), { stage: newStage, status: newStatus, stageHistory: history });
     notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: newStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
     await loadData();
+    if (profile?.name) {
+      const uid = await resolveUidByName(profile.name);
+      if (uid) {
+        if (newStage === "Delivered") {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const isOnTime = order.deliveryDate && today <= new Date(order.deliveryDate);
+          const bonusPoints = isOnTime ? 20 : 0;
+          const pts = await awardPoints({
+            uid,
+            displayName: profile.name,
+            eventType: "order_delivered",
+            sourceId: order.id + "_delivered",
+            reason: order.orderId || order.id,
+            bonusPoints,
+          });
+          if (pts) showPointsToast(pts, `Order ${order.orderId || order.id} delivered`);
+        } else {
+          const pts = await awardPoints({
+            uid,
+            displayName: profile.name,
+            eventType: "order_stage_advanced",
+            sourceId: order.id + "_" + newStage,
+            reason: `${order.orderId || order.id} → ${newStage}`,
+          });
+          if (pts) showPointsToast(pts, `${order.orderId || order.id} → ${newStage}`);
+        }
+      }
+    }
   }
 
   async function reverseStage(order) {

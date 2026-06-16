@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { addDoc, collection, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
@@ -12,6 +12,7 @@ import { useCurrency } from "../context/CurrencyContext";
 import { AreaChart, AttendanceRing, ProductionPipeline, QCDial, Donut, Bars } from "../components/viz";
 import ClockInCard from "../components/ClockInCard";
 import BankBalanceWidget from "../components/BankBalanceWidget";
+import { PRODUCT_COSTS } from "../constants/productCosts";
 
 /* ── Helpers ─────────────────────────────────────────── */
 function getLast6Months() {
@@ -222,6 +223,278 @@ function ActiveOrdersRow({ orders = [] }) {
 /* ══════════════════════════════════════════════════════
    NEPAL ADMIN DASHBOARD
 ══════════════════════════════════════════════════════ */
+/* ── Product P&L Card ────────────────────────────────── */
+const EMPTY_PRODUCT = { code: "", name: "", fabric: "", rib: "", trims: "", labour: "", others: "" };
+const COST_COLS = ["fabric", "rib", "trims", "labour", "others"];
+
+function ProductPnLCard({ canEdit }) {
+  const GBP = n => (n != null && n !== "" && !isNaN(n)) ? `£${(Number(n) / GBP_RATE).toFixed(2)}` : "—";
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [editId, setEditId]     = useState(null); // doc id being edited, or "new"
+  const [form, setForm]         = useState(EMPTY_PRODUCT);
+  const [saving, setSaving]     = useState(false);
+
+  // Load from Firestore; seed from constants if empty
+  useEffect(() => {
+    async function load() {
+      const snap = await getDocs(collection(db, "product_costs"));
+      if (snap.empty) {
+        // First load — seed from constants
+        const batch = [];
+        for (const p of PRODUCT_COSTS) {
+          batch.push(setDoc(doc(db, "product_costs", p.code), { ...p, updatedAt: new Date().toISOString() }));
+        }
+        await Promise.all(batch);
+        setProducts(PRODUCT_COSTS.map(p => ({ id: p.code, ...p })));
+      } else {
+        setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.code.localeCompare(b.code)));
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const computedTotal = f => {
+    const vals = COST_COLS.map(c => Number(f[c]) || 0);
+    return vals.reduce((s, v) => s + v, 0);
+  };
+
+  async function handleSave() {
+    if (!form.code.trim() || !form.name.trim()) return;
+    setSaving(true);
+    const total = computedTotal(form);
+    const data = { ...form, total, updatedAt: new Date().toISOString() };
+    COST_COLS.forEach(c => { data[c] = Number(data[c]) || 0; });
+    await setDoc(doc(db, "product_costs", form.code.trim()), data);
+    setProducts(prev => {
+      const exists = prev.find(p => p.id === form.code.trim());
+      const updated = { id: form.code.trim(), ...data };
+      return exists
+        ? prev.map(p => p.id === form.code.trim() ? updated : p)
+        : [...prev, updated].sort((a, b) => a.code.localeCompare(b.code));
+    });
+    setEditId(null);
+    setForm(EMPTY_PRODUCT);
+    setSaving(false);
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm(`Delete ${id}?`)) return;
+    const { deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(db, "product_costs", id));
+    setProducts(prev => prev.filter(p => p.id !== id));
+  }
+
+  const inp = { border: "1px solid var(--line-strong)", borderRadius: 5, padding: "3px 6px", fontSize: 12, fontFamily: "var(--font)", background: "#fff", width: "100%" };
+
+  return (
+    <Card
+      title="Product Costing (COGS)"
+      sub="Per unit cost breakdown · editable by admins"
+      accent="var(--mint-deep)"
+      action={canEdit && editId !== "new" && (
+        <Btn kind="ghost" size="sm" onClick={() => { setForm(EMPTY_PRODUCT); setEditId("new"); }}>
+          + Add product
+        </Btn>
+      )}
+    >
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Item</th>
+              <th style={{ textAlign: "right" }}>Fabric</th>
+              <th style={{ textAlign: "right" }}>Rib</th>
+              <th style={{ textAlign: "right" }}>Trims</th>
+              <th style={{ textAlign: "right" }}>Labour</th>
+              <th style={{ textAlign: "right" }}>Others</th>
+              <th style={{ textAlign: "right", fontWeight: 700 }}>Total</th>
+              {canEdit && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={canEdit ? 9 : 8} style={{ padding: "16px 8px" }}><div className="kskel kskel-row" /></td></tr>
+            ) : products.map(p => (
+              editId === p.id ? (
+                <tr key={p.id} style={{ background: "var(--mint-soft)" }}>
+                  <td><input style={inp} value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="kazi100x" /></td>
+                  <td><input style={{ ...inp, width: 160 }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Product name" /></td>
+                  {COST_COLS.map(c => (
+                    <td key={c}><input style={{ ...inp, textAlign: "right", width: 60 }} type="number" value={form[c]} onChange={e => setForm(f => ({ ...f, [c]: e.target.value }))} /></td>
+                  ))}
+                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{GBP(computedTotal(form))}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button style={{ ...inp, background: "var(--mint-deep)", color: "#fff", border: "none", cursor: "pointer", marginRight: 4 }} onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</button>
+                    <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditId(null)}>✕</button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={p.id}>
+                  <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>#{p.code}</td>
+                  <td style={{ fontWeight: 500 }}>{p.name}</td>
+                  {COST_COLS.map(c => (
+                    <td key={c} style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13 }}>{GBP(p[c])}</td>
+                  ))}
+                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>{GBP(p.total)}</td>
+                  {canEdit && (
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button style={{ ...inp, cursor: "pointer", marginRight: 4, fontSize: 11 }} onClick={() => { setForm({ ...p }); setEditId(p.id); }}>Edit</button>
+                      <button style={{ ...inp, cursor: "pointer", fontSize: 11, color: "var(--terra)" }} onClick={() => handleDelete(p.id)}>✕</button>
+                    </td>
+                  )}
+                </tr>
+              )
+            ))}
+            {/* New row form */}
+            {editId === "new" && (
+              <tr style={{ background: "var(--mint-soft)" }}>
+                <td><input style={inp} value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="kazi100x" /></td>
+                <td><input style={{ ...inp, width: 160 }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Product name" /></td>
+                {COST_COLS.map(c => (
+                  <td key={c}><input style={{ ...inp, textAlign: "right", width: 60 }} type="number" value={form[c]} onChange={e => setForm(f => ({ ...f, [c]: e.target.value }))} /></td>
+                ))}
+                <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{GBP(computedTotal(form))}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  <button style={{ ...inp, background: "var(--mint-deep)", color: "#fff", border: "none", cursor: "pointer", marginRight: 4 }} onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</button>
+                  <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditId(null)}>✕</button>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 10 }}>
+        All values in GBP (÷{GBP_RATE} NPR) · Total auto-calculated from components
+      </div>
+    </Card>
+  );
+}
+
+/* ── Leaderboard Card ────────────────────────────────── */
+/* ── My Points Card ──────────────────────────────────── */
+const LEVELS = [
+  { label: "Apprentice",    min: 0,    max: 200,  color: "var(--ink-4)" },
+  { label: "Craftsperson",  min: 200,  max: 600,  color: "var(--amber-deep)" },
+  { label: "Senior Tailor", min: 600,  max: 1500, color: "var(--mint-deep)" },
+  { label: "Master Tailor", min: 1500, max: Infinity, color: "#7c3aed" },
+];
+function getLevel(pts) {
+  return LEVELS.findLast(l => pts >= l.min) || LEVELS[0];
+}
+
+function MyPointsCard({ profile }) {
+  const [pts, setPts] = useState(null);
+  const uid = profile?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    getDoc(doc(db, "user_points", uid)).then(snap => {
+      if (snap.exists()) setPts(snap.data());
+    });
+  }, [uid]);
+
+  const total   = pts?.totalPoints  || 0;
+  const weekly  = pts?.weeklyPoints || 0;
+  const level   = getLevel(total);
+  const nextLvl = LEVELS[LEVELS.indexOf(level) + 1];
+  const pct     = nextLvl ? Math.min(Math.round(((total - level.min) / (nextLvl.min - level.min)) * 100), 100) : 100;
+
+  return (
+    <Card title="My Points" sub="Your contribution score" accent="var(--mint-deep)">
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--mint-deep)", lineHeight: 1 }}>{total}</div>
+          <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>all time</div>
+        </div>
+        <div style={{ width: 1, height: 36, background: "var(--line)" }} />
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--ink-2)", lineHeight: 1 }}>{weekly}</div>
+          <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>this week</div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <Pill tone="mint">{level.label}</Pill>
+      </div>
+      {nextLvl && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-4)", marginBottom: 4 }}>
+            <span>{level.label}</span>
+            <span>{nextLvl.min - total} pts to {nextLvl.label}</span>
+          </div>
+          <Progress pct={pct} color="var(--mint-deep)" h={8} />
+        </div>
+      )}
+      {total === 0 && (
+        <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 8 }}>
+          Complete tasks, clock in on time, or advance production orders to earn points.
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ── Team Points Card (directors/admins only) ────────── */
+function TeamPointsCard() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getDocs(collection(db, "user_points")).then(snap => {
+      const data = snap.docs
+        .map(d => ({ uid: d.id, ...d.data() }))
+        .filter(e => e.displayName)
+        .sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
+      setEntries(data);
+      setLoading(false);
+    });
+  }, []);
+
+  return (
+    <Card title="Team Points" sub="All staff · director view" accent="var(--mint-deep)">
+      {loading ? (
+        <div className="kskel kskel-row" />
+      ) : entries.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0" }}>
+          No points recorded yet — points appear as the team completes actions.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {entries.map(e => {
+            const total  = e.totalPoints  || 0;
+            const weekly = e.weeklyPoints || 0;
+            const level  = getLevel(total);
+            const nextLvl = LEVELS[LEVELS.indexOf(level) + 1];
+            const pct = nextLvl ? Math.min(Math.round(((total - level.min) / (nextLvl.min - level.min)) * 100), 100) : 100;
+            return (
+              <div key={e.uid} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, background: "var(--bg-2)" }}>
+                <Avatar name={e.displayName} hue={145} size={30} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{e.displayName}</span>
+                    <Pill tone="ghost" style={{ fontSize: 10 }}>{level.label}</Pill>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ flex: 1, background: "var(--line)", borderRadius: 4, height: 4, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: "var(--mint-2)", borderRadius: 4, transition: "width .4s" }} />
+                    </div>
+                    {nextLvl && <span style={{ fontSize: 10, color: "var(--ink-4)", whiteSpace: "nowrap" }}>{nextLvl.min - total} to next</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", minWidth: 60 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 14, fontWeight: 700, color: "var(--mint-deep)" }}>{total} pts</div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-4)" }}>+{weekly} wk</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function NepalAdminDash() {
   const { profile } = useAuth();
   const [data, setData]       = useState(null);
@@ -439,6 +712,13 @@ function NepalAdminDash() {
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
+
+        {/* Product COGS */}
+        <ProductPnLCard canEdit={["nepal_admin","uk_admin","super_admin"].includes(profile?.appRole || profile?.role)} />
+
+        {/* Leaderboard */}
+        <MyPointsCard profile={profile} />
+        <TeamPointsCard />
 
         {/* Production pipeline */}
         <Card
@@ -862,6 +1142,10 @@ function UKAdminDash() {
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
+
+        {/* Leaderboard */}
+        <MyPointsCard profile={profile} />
+        <TeamPointsCard />
 
         {/* Estimated Profit */}
         {data.totalRevAllNPR > 0 && (
