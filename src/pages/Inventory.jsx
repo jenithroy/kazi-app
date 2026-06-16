@@ -398,7 +398,7 @@ function Inventory() {
   const { profile } = useAuth();
   const canEditInventory = sectionCanEdit(profile, "inventory");
   const canEditLibrary = sectionCanEdit(profile, "library");
-  const canEditUnitEconomics = canEditLibrary || profile?.role === "nepal_staff" || profile?.appRole === "nepal_staff";
+  const canEditUnitEconomics = canEditLibrary || canEditInventory || profile?.role === "nepal_staff" || profile?.appRole === "nepal_staff";
 
   const showInventory = sectionVisible(profile, "inventory");
   const showLibrary = sectionVisible(profile, "library");
@@ -407,6 +407,9 @@ function Inventory() {
 
   // Dynamic Allowed Tabs Setup
   const allowedTabs = [];
+  if (showLibrary || showInventory) {
+    allowedTabs.push({ key: "unit_economics", label: "Items Cost" });
+  }
   if (showInventory) {
     allowedTabs.push({ key: "stock", label: "Stock Levels" });
     allowedTabs.push({ key: "details", label: "Item Details" });
@@ -415,7 +418,6 @@ function Inventory() {
     allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
     allowedTabs.push({ key: "processes", label: "Processes" });
     allowedTabs.push({ key: "patterns", label: "Patterns" });
-    allowedTabs.push({ key: "unit_economics", label: "Unit Economics" });
   }
 
   const [activeTab, setActiveTab] = useState(() => {
@@ -453,9 +455,11 @@ function Inventory() {
       let patternsIdx = -1;
       let unitEconomicsIdx = -1;
 
-      if (showInventory) {
+      if (showInventory || showLibrary) {
         inventoryIdx = promises.length;
         promises.push(getDocs(collection(db, "inventory")));
+        unitEconomicsIdx = promises.length;
+        promises.push(getDocs(collection(db, "unit_economics")));
       }
       if (showLibrary) {
         fabricsIdx = promises.length;
@@ -464,8 +468,6 @@ function Inventory() {
         promises.push(getDocs(collection(db, "processes")));
         patternsIdx = promises.length;
         promises.push(getDocs(collection(db, "patterns")));
-        unitEconomicsIdx = promises.length;
-        promises.push(getDocs(collection(db, "unit_economics")));
       }
 
       const results = await Promise.allSettled(promises);
@@ -1048,12 +1050,13 @@ function Inventory() {
           </div>
         )}
         {/* ── Unit Economics costing spreadsheet grid ── */}
-        {activeTab === "unit_economics" && showLibrary && (
+        {activeTab === "unit_economics" && (showLibrary || showInventory) && (
           <div className="kinv-table-wrap">
             <table className="kinv-table">
               <thead>
                 <tr>
-                  <th>Product</th>
+                  <th>Item ID</th>
+                  <th>Item</th>
                   <th style={{ textAlign: "right" }}>Fabric (NPR)</th>
                   <th style={{ textAlign: "right" }}>Rib (NPR)</th>
                   <th style={{ textAlign: "right" }}>Trims (NPR)</th>
@@ -1067,16 +1070,16 @@ function Inventory() {
                 </tr>
               </thead>
               <tbody>
-                {patterns.length === 0 && (
+                {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
-                      No patterns found. Add a pattern under the "Patterns" tab first.
+                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                      No items found. Add an item under the "Stock Levels" tab first.
                     </td>
                   </tr>
                 )}
-                {patterns.map(pattern => {
-                  const savedCost = unitEconomics[pattern.id] || {};
-                  const draftCost = draftEconomics[pattern.id] || {};
+                {filtered.map(row => {
+                  const savedCost = unitEconomics[row.id] || {};
+                  const draftCost = draftEconomics[row.id] || {};
 
                   const fabric       = draftCost.fabric       !== undefined ? draftCost.fabric       : (savedCost.fabric       || 0);
                   const rib          = draftCost.rib          !== undefined ? draftCost.rib          : (savedCost.rib          || 0);
@@ -1119,7 +1122,7 @@ function Inventory() {
                                   draftCost.others !== undefined || 
                                   draftCost.targetPrice !== undefined;
 
-                  const saving = savingRow === pattern.id;
+                  const saving = savingRow === row.id;
 
                   // Margin color tone
                   let marginColor = "var(--ink-4)";
@@ -1130,43 +1133,44 @@ function Inventory() {
                   }
 
                   return (
-                    <tr key={pattern.id} className="kinv-row">
+                    <tr key={row.id} className="kinv-row">
+                      <td><span className="kinv-id">{row.itemId}</span></td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{pattern.name}</div>
-                        {pattern.product_type && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{pattern.product_type}</div>}
+                        <span className="kinv-name" style={{ fontWeight: 600 }}>{row.item}</span>
+                        {row.category && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{row.category}</div>}
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
                           value={fabric}
-                          onChange={val => updateDraftEconomics(pattern.id, "fabric", val)}
+                          onChange={val => updateDraftEconomics(row.id, "fabric", val)}
                           disabled={!canEditUnitEconomics}
                         />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
                           value={rib}
-                          onChange={val => updateDraftEconomics(pattern.id, "rib", val)}
+                          onChange={val => updateDraftEconomics(row.id, "rib", val)}
                           disabled={!canEditUnitEconomics}
                         />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
                           value={trims}
-                          onChange={val => updateDraftEconomics(pattern.id, "trims", val)}
+                          onChange={val => updateDraftEconomics(row.id, "trims", val)}
                           disabled={!canEditUnitEconomics}
                         />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
                           value={directLabour}
-                          onChange={val => updateDraftEconomics(pattern.id, "directLabour", val)}
+                          onChange={val => updateDraftEconomics(row.id, "directLabour", val)}
                           disabled={!canEditUnitEconomics}
                         />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
                           value={others}
-                          onChange={val => updateDraftEconomics(pattern.id, "others", val)}
+                          onChange={val => updateDraftEconomics(row.id, "others", val)}
                           disabled={!canEditUnitEconomics}
                         />
                       </td>
@@ -1177,7 +1181,7 @@ function Inventory() {
                       <td style={{ textAlign: "right" }}>
                         <CostCell
                           value={targetPrice}
-                          onChange={val => updateDraftEconomics(pattern.id, "targetPrice", val)}
+                          onChange={val => updateDraftEconomics(row.id, "targetPrice", val)}
                           disabled={!canEditUnitEconomics}
                         />
                         {targetPrice > 0 && (
@@ -1208,7 +1212,7 @@ function Inventory() {
                         <button
                           className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
                           disabled={!canEditUnitEconomics || saving}
-                          onClick={() => saveEconomicsRow(pattern.id)}
+                          onClick={() => saveEconomicsRow(row.id)}
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
