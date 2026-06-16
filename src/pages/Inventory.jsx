@@ -114,6 +114,47 @@ function CostCell({ value, onChange, disabled }) {
   );
 }
 
+/* ── Text spreadsheet cell input ────────────────────────── */
+function TextCell({ value, onChange, disabled }) {
+  const [localVal, setLocalVal] = useState(value ?? "");
+
+  useEffect(() => {
+    setLocalVal(value ?? "");
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      value={localVal}
+      disabled={disabled}
+      onChange={e => setLocalVal(e.target.value)}
+      onBlur={() => {
+        if (localVal !== value) {
+          onChange(localVal);
+        }
+      }}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          e.target.blur();
+        }
+      }}
+      style={{
+        width: "110px",
+        padding: "4px 6px",
+        fontSize: "12.5px",
+        fontFamily: "var(--mono)",
+        textAlign: "left",
+        border: "1px solid var(--line-strong)",
+        borderRadius: "4px",
+        background: disabled ? "var(--bg-2)" : "#fff",
+        color: "var(--ink-2)",
+        outline: "none",
+        transition: "border-color 0.15s, box-shadow 0.15s"
+      }}
+    />
+  );
+}
+
 /* ── Icons ─────────────────────────────────────────────── */
 function TrashIcon({ size = 15 }) {
   return (
@@ -602,6 +643,19 @@ function Inventory() {
         ...prev,
         [patternId]: payload
       }));
+
+      const cogsNpr = payload.fabric + payload.rib + payload.trims + payload.directLabour + payload.others;
+      const invUpdates = {
+        unitCostNPR: cogsNpr,
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        updatedBy: profile?.name || "Unknown"
+      };
+      if (draftData.itemId !== undefined) {
+        invUpdates.itemId = draftData.itemId;
+      }
+      await updateDoc(doc(db, "inventory", patternId), invUpdates);
+      setRows(prev => prev.map(r => r.id === patternId ? { ...r, ...invUpdates } : r));
+
       setDraftEconomics(prev => {
         const copy = { ...prev };
         delete copy[patternId];
@@ -1070,6 +1124,8 @@ function Inventory() {
                   <th style={{ textAlign: "right" }}>Labour</th>
                   <th style={{ textAlign: "right" }}>others</th>
                   <th style={{ textAlign: "right" }}>total</th>
+                  <th style={{ textAlign: "right" }}>Stock</th>
+                  <th style={{ textAlign: "right" }}>Stock Value</th>
                   <th style={{ textAlign: "right" }}>Target Price</th>
                   <th style={{ textAlign: "right" }}>GP & Margin</th>
                   <th>Cost Driver & 50% Target</th>
@@ -1079,7 +1135,7 @@ function Inventory() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={13} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={15} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found. Add an item under the "Stock Levels" tab first.
                     </td>
                   </tr>
@@ -1127,7 +1183,8 @@ function Inventory() {
                                   draftCost.trims !== undefined || 
                                   draftCost.directLabour !== undefined || 
                                   draftCost.others !== undefined || 
-                                  draftCost.targetPrice !== undefined;
+                                  draftCost.targetPrice !== undefined ||
+                                  draftCost.itemId !== undefined;
 
                   const saving = savingRow === row.id;
 
@@ -1142,7 +1199,13 @@ function Inventory() {
                   return (
                     <tr key={row.id} className="kinv-row">
                       <td>{idx + 1}</td>
-                      <td><span className="kinv-id">{row.itemId}</span></td>
+                      <td>
+                        <TextCell
+                          value={draftCost.itemId !== undefined ? draftCost.itemId : row.itemId}
+                          onChange={val => updateDraftEconomics(row.id, "itemId", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                      </td>
                       <td>
                         <span className="kinv-name" style={{ fontWeight: 600 }}>{row.item}</span>
                         {row.category && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{row.category}</div>}
@@ -1185,6 +1248,14 @@ function Inventory() {
                       <td style={{ textAlign: "right" }}>
                         <div style={{ fontWeight: 600, fontSize: "13px" }}>NPR {cogsNpr.toLocaleString()}</div>
                         <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{cogsGbp.toFixed(2)}</div>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className="kinv-num">{getClosing(row).toLocaleString()}</span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 600, fontSize: "13px" }}>
+                          NPR {(getClosing(row) * cogsNpr).toLocaleString()}
+                        </div>
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
