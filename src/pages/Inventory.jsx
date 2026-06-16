@@ -115,7 +115,7 @@ function CostCell({ value, onChange, disabled }) {
 }
 
 /* ── Text spreadsheet cell input ────────────────────────── */
-function TextCell({ value, onChange, disabled }) {
+function TextCell({ value, onChange, disabled, width = "110px", style = {} }) {
   const [localVal, setLocalVal] = useState(value ?? "");
 
   useEffect(() => {
@@ -139,7 +139,7 @@ function TextCell({ value, onChange, disabled }) {
         }
       }}
       style={{
-        width: "110px",
+        width,
         padding: "4px 6px",
         fontSize: "12.5px",
         fontFamily: "var(--mono)",
@@ -149,7 +149,8 @@ function TextCell({ value, onChange, disabled }) {
         background: disabled ? "var(--bg-2)" : "#fff",
         color: "var(--ink-2)",
         outline: "none",
-        transition: "border-color 0.15s, box-shadow 0.15s"
+        transition: "border-color 0.15s, box-shadow 0.15s",
+        ...style
       }}
     />
   );
@@ -653,6 +654,9 @@ function Inventory() {
       if (draftData.itemId !== undefined) {
         invUpdates.itemId = draftData.itemId;
       }
+      if (draftData.item !== undefined) {
+        invUpdates.item = draftData.item;
+      }
       await updateDoc(doc(db, "inventory", patternId), invUpdates);
       setRows(prev => prev.map(r => r.id === patternId ? { ...r, ...invUpdates } : r));
 
@@ -1123,7 +1127,7 @@ function Inventory() {
                   <th style={{ textAlign: "right" }}>Trims</th>
                   <th style={{ textAlign: "right" }}>Labour</th>
                   <th style={{ textAlign: "right" }}>others</th>
-                  <th style={{ textAlign: "right" }}>total</th>
+                  <th style={{ textAlign: "right", minWidth: "130px" }}>total</th>
                   <th style={{ textAlign: "right" }}>Stock</th>
                   <th style={{ textAlign: "right" }}>Stock Value</th>
                   <th style={{ textAlign: "right" }}>Target Price</th>
@@ -1184,7 +1188,8 @@ function Inventory() {
                                   draftCost.directLabour !== undefined || 
                                   draftCost.others !== undefined || 
                                   draftCost.targetPrice !== undefined ||
-                                  draftCost.itemId !== undefined;
+                                  draftCost.itemId !== undefined ||
+                                  draftCost.item !== undefined;
 
                   const saving = savingRow === row.id;
 
@@ -1204,11 +1209,18 @@ function Inventory() {
                           value={draftCost.itemId !== undefined ? draftCost.itemId : row.itemId}
                           onChange={val => updateDraftEconomics(row.id, "itemId", val)}
                           disabled={!canEditUnitEconomics}
+                          width="110px"
                         />
                       </td>
                       <td>
-                        <span className="kinv-name" style={{ fontWeight: 600 }}>{row.item}</span>
-                        {row.category && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{row.category}</div>}
+                        <TextCell
+                          value={draftCost.item !== undefined ? draftCost.item : row.item}
+                          onChange={val => updateDraftEconomics(row.id, "item", val)}
+                          disabled={!canEditUnitEconomics}
+                          width="240px"
+                          style={{ fontFamily: "inherit", fontWeight: 600 }}
+                        />
+                        {row.category && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2, paddingLeft: 6 }}>{row.category}</div>}
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
@@ -1245,9 +1257,9 @@ function Inventory() {
                           disabled={!canEditUnitEconomics}
                         />
                       </td>
-                      <td style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 600, fontSize: "13px" }}>NPR {cogsNpr.toLocaleString()}</div>
-                        <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{cogsGbp.toFixed(2)}</div>
+                      <td style={{ textAlign: "right", minWidth: "130px" }}>
+                        <div style={{ fontWeight: 600, fontSize: "15px", color: "var(--ink-1)" }}>NPR {cogsNpr.toLocaleString()}</div>
+                        <div style={{ fontSize: "12px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{cogsGbp.toFixed(2)}</div>
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <span className="kinv-num">{getClosing(row).toLocaleString()}</span>
