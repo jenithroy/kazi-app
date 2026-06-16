@@ -435,6 +435,66 @@ function MyPointsCard({ profile }) {
   );
 }
 
+/* ── Team Points Card (directors/admins only) ────────── */
+function TeamPointsCard() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getDocs(collection(db, "user_points")).then(snap => {
+      const data = snap.docs
+        .map(d => ({ uid: d.id, ...d.data() }))
+        .filter(e => e.displayName)
+        .sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
+      setEntries(data);
+      setLoading(false);
+    });
+  }, []);
+
+  return (
+    <Card title="Team Points" sub="All staff · director view" accent="var(--mint-deep)">
+      {loading ? (
+        <div className="kskel kskel-row" />
+      ) : entries.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0" }}>
+          No points recorded yet — points appear as the team completes actions.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {entries.map(e => {
+            const total  = e.totalPoints  || 0;
+            const weekly = e.weeklyPoints || 0;
+            const level  = getLevel(total);
+            const nextLvl = LEVELS[LEVELS.indexOf(level) + 1];
+            const pct = nextLvl ? Math.min(Math.round(((total - level.min) / (nextLvl.min - level.min)) * 100), 100) : 100;
+            return (
+              <div key={e.uid} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, background: "var(--bg-2)" }}>
+                <Avatar name={e.displayName} hue={145} size={30} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{e.displayName}</span>
+                    <Pill tone="ghost" style={{ fontSize: 10 }}>{level.label}</Pill>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ flex: 1, background: "var(--line)", borderRadius: 4, height: 4, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: "var(--mint-2)", borderRadius: 4, transition: "width .4s" }} />
+                    </div>
+                    {nextLvl && <span style={{ fontSize: 10, color: "var(--ink-4)", whiteSpace: "nowrap" }}>{nextLvl.min - total} to next</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", minWidth: 60 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 14, fontWeight: 700, color: "var(--mint-deep)" }}>{total} pts</div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-4)" }}>+{weekly} wk</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function NepalAdminDash() {
   const { profile } = useAuth();
   const [data, setData]       = useState(null);
@@ -658,6 +718,7 @@ function NepalAdminDash() {
 
         {/* Leaderboard */}
         <MyPointsCard profile={profile} />
+        <TeamPointsCard />
 
         {/* Production pipeline */}
         <Card
@@ -1084,6 +1145,7 @@ function UKAdminDash() {
 
         {/* Leaderboard */}
         <MyPointsCard profile={profile} />
+        <TeamPointsCard />
 
         {/* Estimated Profit */}
         {data.totalRevAllNPR > 0 && (
