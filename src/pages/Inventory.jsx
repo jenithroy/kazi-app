@@ -23,6 +23,12 @@ const emptyItemForm = {
 };
 
 function nextItemId(rows) {
+  const kaziRows = rows.filter(r => r.itemId && r.itemId.toLowerCase().includes("kazi"));
+  if (kaziRows.length > 0) {
+    const nums = kaziRows.map(r => parseInt(r.itemId.replace(/\D/g, ""), 10)).filter(n => !isNaN(n));
+    const nextNum = nums.length ? Math.max(...nums) + 1 : 1001;
+    return `#kazi${nextNum}`;
+  }
   const nums = rows.map(r => parseInt((r.itemId || "ITEM000").replace(/\D/g, ""), 10)).filter(n => !isNaN(n));
   return `IT${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
 }
@@ -1055,15 +1061,16 @@ function Inventory() {
             <table className="kinv-table">
               <thead>
                 <tr>
-                  <th>Item ID</th>
-                  <th>Item</th>
-                  <th style={{ textAlign: "right" }}>Fabric (NPR)</th>
-                  <th style={{ textAlign: "right" }}>Rib (NPR)</th>
-                  <th style={{ textAlign: "right" }}>Trims (NPR)</th>
-                  <th style={{ textAlign: "right" }}>Labour (NPR)</th>
-                  <th style={{ textAlign: "right" }}>Others (NPR)</th>
-                  <th style={{ textAlign: "right" }}>COGS (NPR / GBP)</th>
-                  <th style={{ textAlign: "right" }}>Target Price (NPR)</th>
+                  <th>S.NO</th>
+                  <th>Code</th>
+                  <th>Items</th>
+                  <th style={{ textAlign: "right" }}>Fabric</th>
+                  <th style={{ textAlign: "right" }}>Rib</th>
+                  <th style={{ textAlign: "right" }}>Trims</th>
+                  <th style={{ textAlign: "right" }}>Labour</th>
+                  <th style={{ textAlign: "right" }}>others</th>
+                  <th style={{ textAlign: "right" }}>total</th>
+                  <th style={{ textAlign: "right" }}>Target Price</th>
                   <th style={{ textAlign: "right" }}>GP & Margin</th>
                   <th>Cost Driver & 50% Target</th>
                   <th>Action</th>
@@ -1072,12 +1079,12 @@ function Inventory() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={13} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found. Add an item under the "Stock Levels" tab first.
                     </td>
                   </tr>
                 )}
-                {filtered.map(row => {
+                {filtered.map((row, idx) => {
                   const savedCost = unitEconomics[row.id] || {};
                   const draftCost = draftEconomics[row.id] || {};
 
@@ -1134,6 +1141,7 @@ function Inventory() {
 
                   return (
                     <tr key={row.id} className="kinv-row">
+                      <td>{idx + 1}</td>
                       <td><span className="kinv-id">{row.itemId}</span></td>
                       <td>
                         <span className="kinv-name" style={{ fontWeight: 600 }}>{row.item}</span>
