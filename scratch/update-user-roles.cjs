@@ -20,11 +20,15 @@ async function updateUsers() {
     
     if (docSnap.exists) {
       console.log(`Updating ${u.name}...`);
-      await docRef.update({
+      const updateData = {
         role: u.role,
         email: u.email,
         "permissions.production": true
-      });
+      };
+      if (u.name === "Anusha") {
+        updateData["permissions.tasks"] = true;
+      }
+      await docRef.update(updateData);
       console.log(`Updated ${u.name} successfully.`);
     } else {
       console.log(`User ${u.name} (ID: ${u.id}) not found!`);

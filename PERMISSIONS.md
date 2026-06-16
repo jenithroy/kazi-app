@@ -12,7 +12,7 @@ The app defines five distinct roles for team members. Navigation links and write
 | :--- | :--- | :--- | :--- |
 | **Super Admin** | Admin (`admin@kazi.com`) | All | All (Full Access) |
 | **UK Admin** | Finn, Zen | `dashboard`, `finance` (read-only), `production`, `billing`, `content` (Budget), `tasks`, `directors`, `customers`, `admin`, `messenger`, `library` | `tasks` (Read-only for others unless explicitly overridden) |
-| **Nepal Admin** | Wilson, Anmol, Anusha, Monika | `dashboard`, `tasks`, `attendance`, `production`, `qc`, `inventory`, `finance`, `billing`, `content` (Budget), `employees`, `customers`, `messenger`, `library` | All default Nepal Operations ( Wilson, Anmol, & Anusha have forced `production` write access) |
+| **Nepal Admin** | Wilson, Anmol, Anusha, Monika | `dashboard`, `tasks`, `attendance`, `production`, `qc`, `inventory`, `finance`, `billing`, `content` (Budget), `employees`, `customers`, `messenger`, `library` | All default Nepal Operations (Wilson, Anmol, & Anusha have forced `production` write access; Anusha also has forced `tasks` write/edit access) |
 | **Employee** | Sudhansu, Bedhant, Sarbagya | `dashboard`, `tasks`, `attendance`, `library` | None (Read-only views for assigned tasks and self clock-in) |
 | **Nepal Staff** | *(Stitchers/Workers)* | `dashboard`, `tasks`, `attendance`, `library`, `production`, `qc`, `inventory`, `content` (Budget) | None (Read-only views for work assignments and self clock-in) |
 

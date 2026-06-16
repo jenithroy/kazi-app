@@ -83,6 +83,14 @@ export function AuthProvider({ children }) {
                   }
                 }
 
+                // Force tasks: true for Anusha
+                if (nameLower === "anusha") {
+                  if (updatedPerms.tasks !== true) {
+                    updatedPerms.tasks = true;
+                    needsUpdate = true;
+                  }
+                }
+
                 if (needsUpdate) {
                   await updateDoc(profileRef, { permissions: updatedPerms });
                 }

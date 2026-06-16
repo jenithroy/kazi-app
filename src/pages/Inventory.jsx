@@ -66,6 +66,48 @@ function Stepper({ value, onChange, disabled, min = 0 }) {
   );
 }
 
+/* ── Cost spreadsheet cell input ────────────────────────── */
+function CostCell({ value, onChange, disabled }) {
+  const [localVal, setLocalVal] = useState(value ?? "");
+
+  useEffect(() => {
+    setLocalVal(value ?? "");
+  }, [value]);
+
+  return (
+    <input
+      type="number"
+      value={localVal === 0 && localVal !== "0" ? "" : localVal}
+      disabled={disabled}
+      onChange={e => setLocalVal(e.target.value)}
+      onBlur={() => {
+        const num = localVal === "" ? 0 : Number(localVal);
+        if (num !== Number(value)) {
+          onChange(num);
+        }
+      }}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          e.target.blur();
+        }
+      }}
+      style={{
+        width: "80px",
+        padding: "4px 6px",
+        fontSize: "12.5px",
+        fontFamily: "var(--mono)",
+        textAlign: "right",
+        border: "1px solid var(--line-strong)",
+        borderRadius: "4px",
+        background: disabled ? "var(--bg-2)" : "#fff",
+        color: "var(--ink-2)",
+        outline: "none",
+        transition: "border-color 0.15s, box-shadow 0.15s"
+      }}
+    />
+  );
+}
+
 /* ── Icons ─────────────────────────────────────────────── */
 function TrashIcon({ size = 15 }) {
   return (
@@ -356,6 +398,7 @@ function Inventory() {
   const { profile } = useAuth();
   const canEditInventory = sectionCanEdit(profile, "inventory");
   const canEditLibrary = sectionCanEdit(profile, "library");
+  const canEditUnitEconomics = canEditLibrary || profile?.role === "nepal_staff" || profile?.appRole === "nepal_staff";
 
   const showInventory = sectionVisible(profile, "inventory");
   const showLibrary = sectionVisible(profile, "library");
@@ -372,6 +415,7 @@ function Inventory() {
     allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
     allowedTabs.push({ key: "processes", label: "Processes" });
     allowedTabs.push({ key: "patterns", label: "Patterns" });
+    allowedTabs.push({ key: "unit_economics", label: "Unit Economics" });
   }
 
   const [activeTab, setActiveTab] = useState(() => {
@@ -382,6 +426,8 @@ function Inventory() {
   const [fabrics, setFabrics] = useState([]);
   const [processes, setProcesses] = useState([]);
   const [patterns, setPatterns] = useState([]);
+  const [unitEconomics, setUnitEconomics] = useState({});
+  const [draftEconomics, setDraftEconomics] = useState({});
   const [loading, setLoading] = useState(true);
 
   const [draft, setDraft] = useState({});
@@ -405,6 +451,7 @@ function Inventory() {
       let fabricsIdx = -1;
       let processesIdx = -1;
       let patternsIdx = -1;
+      let unitEconomicsIdx = -1;
 
       if (showInventory) {
         inventoryIdx = promises.length;
@@ -417,6 +464,8 @@ function Inventory() {
         promises.push(getDocs(collection(db, "processes")));
         patternsIdx = promises.length;
         promises.push(getDocs(collection(db, "patterns")));
+        unitEconomicsIdx = promises.length;
+        promises.push(getDocs(collection(db, "unit_economics")));
       }
 
       const results = await Promise.allSettled(promises);
@@ -445,6 +494,16 @@ function Inventory() {
         const res = results[patternsIdx];
         if (res.status === "fulfilled") {
           setPatterns(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+      if (unitEconomicsIdx !== -1) {
+        const res = results[unitEconomicsIdx];
+        if (res.status === "fulfilled") {
+          const uMap = {};
+          res.value.docs.forEach(d => {
+            uMap[d.id] = d.data();
+          });
+          setUnitEconomics(uMap);
         }
       }
     } finally {
@@ -509,6 +568,53 @@ function Inventory() {
     setShowAddForm(false);
     await loadData();
     setAddingItem(false);
+  }
+
+  /* ── Unit Economics handlers ── */
+  async function saveEconomicsRow(patternId) {
+    if (!canEditUnitEconomics) return;
+    setSavingRow(patternId);
+    const draftData = draftEconomics[patternId] || {};
+    const currentData = unitEconomics[patternId] || {};
+
+    const payload = {
+      fabric:       Number(draftData.fabric       ?? currentData.fabric       ?? 0),
+      rib:          Number(draftData.rib          ?? currentData.rib          ?? 0),
+      trims:        Number(draftData.trims        ?? currentData.trims        ?? 0),
+      directLabour: Number(draftData.directLabour ?? currentData.directLabour ?? 0),
+      others:       Number(draftData.others       ?? currentData.others       ?? 0),
+      targetPrice:  Number(draftData.targetPrice  ?? currentData.targetPrice  ?? 0),
+      updatedAt:    serverTimestamp(),
+      updatedBy:    profile?.name || "Unknown"
+    };
+
+    try {
+      await setDoc(doc(db, "unit_economics", patternId), payload, { merge: true });
+      setUnitEconomics(prev => ({
+        ...prev,
+        [patternId]: payload
+      }));
+      setDraftEconomics(prev => {
+        const copy = { ...prev };
+        delete copy[patternId];
+        return copy;
+      });
+    } catch (err) {
+      console.error("Failed to save unit economics:", err);
+      alert("Error saving: " + err.message);
+    } finally {
+      setSavingRow(null);
+    }
+  }
+
+  function updateDraftEconomics(patternId, field, value) {
+    setDraftEconomics(prev => ({
+      ...prev,
+      [patternId]: {
+        ...(prev[patternId] || {}),
+        [field]: value
+      }
+    }));
   }
 
   /* ── Library handlers ── */
@@ -934,6 +1040,196 @@ function Inventory() {
                       </td>
                       <td><span className="kinv-num">{row.minLevel || 0}</span></td>
                       <td style={{ fontSize: 11, color: "var(--ink-4)" }}>{row.lastUpdated || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {/* ── Unit Economics costing spreadsheet grid ── */}
+        {activeTab === "unit_economics" && showLibrary && (
+          <div className="kinv-table-wrap">
+            <table className="kinv-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th style={{ textAlign: "right" }}>Fabric (NPR)</th>
+                  <th style={{ textAlign: "right" }}>Rib (NPR)</th>
+                  <th style={{ textAlign: "right" }}>Trims (NPR)</th>
+                  <th style={{ textAlign: "right" }}>Labour (NPR)</th>
+                  <th style={{ textAlign: "right" }}>Others (NPR)</th>
+                  <th style={{ textAlign: "right" }}>COGS (NPR / GBP)</th>
+                  <th style={{ textAlign: "right" }}>Target Price (NPR)</th>
+                  <th style={{ textAlign: "right" }}>GP & Margin</th>
+                  <th>Cost Driver & 50% Target</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {patterns.length === 0 && (
+                  <tr>
+                    <td colSpan={11} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                      No patterns found. Add a pattern under the "Patterns" tab first.
+                    </td>
+                  </tr>
+                )}
+                {patterns.map(pattern => {
+                  const savedCost = unitEconomics[pattern.id] || {};
+                  const draftCost = draftEconomics[pattern.id] || {};
+
+                  const fabric       = draftCost.fabric       !== undefined ? draftCost.fabric       : (savedCost.fabric       || 0);
+                  const rib          = draftCost.rib          !== undefined ? draftCost.rib          : (savedCost.rib          || 0);
+                  const trims        = draftCost.trims        !== undefined ? draftCost.trims        : (savedCost.trims        || 0);
+                  const directLabour = draftCost.directLabour !== undefined ? draftCost.directLabour : (savedCost.directLabour || 0);
+                  const others       = draftCost.others       !== undefined ? draftCost.others       : (savedCost.others       || 0);
+                  const targetPrice  = draftCost.targetPrice  !== undefined ? draftCost.targetPrice  : (savedCost.targetPrice  || 0);
+
+                  const cogsNpr = fabric + rib + trims + directLabour + others;
+                  const cogsGbp = cogsNpr / 200;
+
+                  const targetPriceGbp = targetPrice / 200;
+
+                  const gpNpr = targetPrice - cogsNpr;
+                  const gpGbp = gpNpr / 200;
+
+                  const marginPct = targetPrice > 0 ? (gpNpr / targetPrice) * 100 : 0;
+
+                  // Microeconomics Insights
+                  const components = [
+                    { name: "Fabric", val: fabric },
+                    { name: "Rib", val: rib },
+                    { name: "Trims", val: trims },
+                    { name: "Direct Labour", val: directLabour },
+                    { name: "Others", val: others }
+                  ];
+                  components.sort((a, b) => b.val - a.val);
+                  const highestComp = components[0];
+                  const driverText = cogsNpr > 0 && highestComp.val > 0 
+                    ? `${highestComp.name} (${((highestComp.val / cogsNpr) * 100).toFixed(1)}%)`
+                    : "—";
+
+                  const target50Npr = cogsNpr * 2;
+                  const target50Gbp = target50Npr / 200;
+
+                  const isDirty = draftCost.fabric !== undefined || 
+                                  draftCost.rib !== undefined || 
+                                  draftCost.trims !== undefined || 
+                                  draftCost.directLabour !== undefined || 
+                                  draftCost.others !== undefined || 
+                                  draftCost.targetPrice !== undefined;
+
+                  const saving = savingRow === pattern.id;
+
+                  // Margin color tone
+                  let marginColor = "var(--ink-4)";
+                  if (targetPrice > 0) {
+                    if (marginPct < 0) marginColor = "var(--terra)";
+                    else if (marginPct < 30) marginColor = "var(--amber)";
+                    else marginColor = "var(--mint-deep)";
+                  }
+
+                  return (
+                    <tr key={pattern.id} className="kinv-row">
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{pattern.name}</div>
+                        {pattern.product_type && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{pattern.product_type}</div>}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <CostCell
+                          value={fabric}
+                          onChange={val => updateDraftEconomics(pattern.id, "fabric", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <CostCell
+                          value={rib}
+                          onChange={val => updateDraftEconomics(pattern.id, "rib", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <CostCell
+                          value={trims}
+                          onChange={val => updateDraftEconomics(pattern.id, "trims", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <CostCell
+                          value={directLabour}
+                          onChange={val => updateDraftEconomics(pattern.id, "directLabour", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <CostCell
+                          value={others}
+                          onChange={val => updateDraftEconomics(pattern.id, "others", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 600, fontSize: "13px" }}>NPR {cogsNpr.toLocaleString()}</div>
+                        <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{cogsGbp.toFixed(2)}</div>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <CostCell
+                          value={targetPrice}
+                          onChange={val => updateDraftEconomics(pattern.id, "targetPrice", val)}
+                          disabled={!canEditUnitEconomics}
+                        />
+                        {targetPrice > 0 && (
+                          <div style={{ fontSize: "10px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{targetPriceGbp.toFixed(2)}</div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {targetPrice > 0 ? (
+                          <>
+                            <div style={{ fontWeight: 600, color: marginColor }}>{marginPct.toFixed(1)}%</div>
+                            <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>
+                              GP: NPR {gpNpr.toLocaleString()} (£{gpGbp.toFixed(2)})
+                            </div>
+                          </>
+                        ) : (
+                          <span style={{ color: "var(--ink-5)" }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: "12px", color: "var(--ink-2)" }}>
+                          <strong>Driver:</strong> {driverText}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--ink-4)", marginTop: 2 }}>
+                          <strong>50% SP:</strong> NPR {target50Npr.toLocaleString()} (£{target50Gbp.toFixed(2)})
+                        </div>
+                      </td>
+                      <td>
+                        <button
+                          className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
+                          disabled={!canEditUnitEconomics || saving}
+                          onClick={() => saveEconomicsRow(pattern.id)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            padding: "6px 12px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: 500,
+                            cursor: canEditUnitEconomics && isDirty ? "pointer" : "default"
+                          }}
+                        >
+                          {saving ? (
+                            <span>…</span>
+                          ) : (
+                            <>
+                              <SaveIcon size={12} />
+                              <span>Save</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}

@@ -44,6 +44,18 @@ export function sectionCanEdit(profile, section) {
     }
   }
 
+  // Explicitly grant tasks edit/add access to Anusha
+  if (section === "tasks") {
+    const nameLower = profile.name?.toLowerCase();
+    const emailLower = profile.email?.toLowerCase();
+    if (
+      nameLower === "anusha" ||
+      emailLower === "anushapantaa@gmail.com"
+    ) {
+      return true;
+    }
+  }
+
   // Check explicit override first (e.g. for employee overrides like Monika)
   let perm = profile.permissions?.[section];
   if (perm === false) return false;

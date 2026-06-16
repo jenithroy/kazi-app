@@ -66,6 +66,10 @@ service cloud.firestore {
     match /task_columns/{id} {
       allow create, update, delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
     }
+    match /unit_economics/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isNepalStaff() || isUkAdmin() || isSuperAdmin();
+    }
     match /bank_transactions/{id} {
       allow read: if isSignedIn() && (
         request.auth.token.email == "hi.zenuk@gmail.com" ||
