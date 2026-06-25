@@ -4,6 +4,7 @@ export const DEFAULT_NEPAL_ADMIN_PERMISSIONS = {
   attendance: true,
   production: true,
   inventory:  true,
+  library:    true,
   qc:         true,
   billing:    true,
   employees:  true,
