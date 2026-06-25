@@ -961,9 +961,10 @@ function UKAdminDash() {
         getDocs(collection(db, "order_costs")),
         getDocs(collection(db, "tasks")),
         getDocs(collection(db, "inventory")),
+        getDocs(collection(db, "employees")),
       ]);
       const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap, tasksSnap, inventorySnap] = results.map(docs);
+      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap, tasksSnap, inventorySnap, employeesSnap] = results.map(docs);
 
       const totalStaff = usersSnap.filter(d => {
         const r = d.data().role;
@@ -990,16 +991,21 @@ function UKAdminDash() {
       const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
 
-      // Payroll — same fallback pattern
+      // Payroll — current month first, last month fallback, then employee base salaries
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
       const payrollData = payrollSnap.map(d => d.data());
       const curMonthName = MONTH_NAMES[new Date().getMonth()];
       const curYear = new Date().getFullYear();
       let payrollRecs = payrollData.filter(p => p.month === curMonthName && Number(p.year) === curYear);
+      let payrollIsEstimate = false;
       if (payrollRecs.length === 0) {
         const lastDate = new Date(); lastDate.setDate(1); lastDate.setMonth(lastDate.getMonth() - 1);
         const lastMName = MONTH_NAMES[lastDate.getMonth()];
         payrollRecs = payrollData.filter(p => p.month === lastMName && Number(p.year) === lastDate.getFullYear());
+      }
+      // If still no records, estimate from employee base salaries
+      if (payrollRecs.length === 0) {
+        payrollIsEstimate = true;
       }
 
       // Estimated profit from order_costs
@@ -1037,7 +1043,9 @@ function UKAdminDash() {
         { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--ink-5)" },
       ];
 
-      const payrollNPR = payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
+      const payrollNPR = payrollIsEstimate
+        ? employeesSnap.map(d => d.data()).filter(e => e.status === "Active").reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0)
+        : payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
 
       // Ops alerts
@@ -1060,7 +1068,7 @@ function UKAdminDash() {
 
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
-        pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR,
+        pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR, payrollIsEstimate,
         salesTarget, estProfitNPR, estMargin, totalRevAllNPR, totalCostNPR,
         overdueInvoices, overdueInvoiceTotalNPR, overdueTasks, lowInventoryCount, activeOrdersRow,
       });
@@ -1129,7 +1137,7 @@ function UKAdminDash() {
             icon={<Icons.Production size={14} sw={1.8}/>}
             spark={<Spark data={[2,3,3,4,4,5,data.inProgress]} color="var(--mint-2)" fill="var(--mint-soft)" />}
           />
-          <KPI label="Payroll · month" value={fmtC(data.payrollNPR)}
+          <KPI label={data.payrollIsEstimate ? "Payroll · est." : "Payroll · month"} value={fmtC(data.payrollNPR)}
             icon={<Icons.Employees size={14} sw={1.8}/>}
             spark={<Spark data={[3.0,3.1,3.2,3.1,3.2,3.2,3.2]} color="var(--blue)" fill="var(--blue-soft)" />}
           />
