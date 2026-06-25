@@ -1,4 +1,5 @@
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -283,6 +284,249 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
       }
       await tgReply(chatId, "Issue logged and management notified. Type /queue to see orders.");
       return;
+    }
+
+    // ── Dispatch assignment responses ─────────────────────────
+    if (text === "yes" || text === "/yes") {
+      // Find most recent pending assignment for this worker
+      const assignSnap = await db.collection("order_assignments")
+        .where("workerId", "==", profile.id)
+        .where("status", "==", "pending")
+        .orderBy("assignedAt", "desc")
+        .limit(1)
+        .get();
+
+      if (assignSnap.empty) {
+        await tgReply(chatId, "No pending assignment found.");
+        return;
+      }
+
+      const assignDoc = assignSnap.docs[0];
+      const assignment = assignDoc.data();
+      await assignDoc.ref.update({
+        status: "accepted",
+        acceptedAt: admin.firestore.Timestamp.now(),
+      });
+
+      await tgReply(chatId, `✅ Order *${assignment.orderRef}* accepted! Reply *DONE* when your ${assignment.stage} stage is complete.`);
+      return;
+    }
+
+    if (text === "skip" || text === "/skip") {
+      // Find most recent pending assignment for this worker
+      const assignSnap = await db.collection("order_assignments")
+        .where("workerId", "==", profile.id)
+        .where("status", "==", "pending")
+        .orderBy("assignedAt", "desc")
+        .limit(1)
+        .get();
+
+      if (assignSnap.empty) {
+        await tgReply(chatId, "No pending assignment found.");
+        return;
+      }
+
+      const assignDoc = assignSnap.docs[0];
+      const assignment = assignDoc.data();
+      await assignDoc.ref.update({ status: "declined" });
+
+      // Find next worker in stage_config with next-lowest backlog
+      const stageConfigSnap = await db.collection("stage_config").doc(assignment.stage).get();
+      if (stageConfigSnap.exists) {
+        const stageConfig = stageConfigSnap.data();
+        const workerUids = (stageConfig.workerUids || []).filter(uid => uid !== profile.id);
+
+        if (workerUids.length > 0) {
+          // Count active backlog for remaining workers
+          const activeSnap = await db.collection("order_assignments")
+            .where("stage", "==", assignment.stage)
+            .where("status", "in", ["pending", "accepted", "in_progress"])
+            .get();
+
+          const backlog = {};
+          for (const uid of workerUids) backlog[uid] = 0;
+          for (const doc of activeSnap.docs) {
+            const wid = doc.data().workerId;
+            if (wid in backlog) backlog[wid]++;
+          }
+
+          let chosenUid = workerUids[0];
+          let minCount = backlog[workerUids[0]];
+          for (let i = 1; i < workerUids.length; i++) {
+            if (backlog[workerUids[i]] < minCount) {
+              minCount = backlog[workerUids[i]];
+              chosenUid = workerUids[i];
+            }
+          }
+
+          const workerIndex = (stageConfig.workerUids || []).indexOf(chosenUid);
+          const workerName = (stageConfig.workerNames || [])[workerIndex] || chosenUid;
+
+          const workerDocSnap = await db.collection("users").doc(chosenUid).get();
+          const workerTelegramId = workerDocSnap.exists ? (workerDocSnap.data().telegramId || null) : null;
+
+          const now = admin.firestore.Timestamp.now();
+          const timeoutHours = stageConfig.timeoutHours || 6;
+          const timeoutAt = admin.firestore.Timestamp.fromMillis(
+            now.toMillis() + timeoutHours * 60 * 60 * 1000
+          );
+
+          await db.collection("order_assignments").add({
+            orderId: assignment.orderId,
+            orderRef: assignment.orderRef,
+            customerName: assignment.customerName,
+            quantity: assignment.quantity,
+            stage: assignment.stage,
+            workerId: chosenUid,
+            workerName,
+            workerTelegramId,
+            status: "pending",
+            assignedAt: now,
+            acceptedAt: null,
+            completedAt: null,
+            timeoutAt,
+            notifiedManager: false,
+          });
+
+          if (workerTelegramId) {
+            await tgReply(
+              workerTelegramId,
+              `🧵 New order assigned!\n\nOrder: *${assignment.orderRef}*\nCustomer: ${assignment.customerName}\nQty: ${assignment.quantity} pcs\nYour stage: *${assignment.stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
+            );
+          }
+        }
+      }
+
+      await tgReply(chatId, "Skipped. Order reassigned.");
+      return;
+    }
+
+    if (text === "done" || text === "/done") {
+      // Check for an accepted or in_progress dispatch assignment first
+      const assignSnap = await db.collection("order_assignments")
+        .where("workerId", "==", profile.id)
+        .where("status", "in", ["accepted", "in_progress"])
+        .orderBy("acceptedAt", "desc")
+        .limit(1)
+        .get();
+
+      if (!assignSnap.empty) {
+        const assignDoc = assignSnap.docs[0];
+        const assignment = assignDoc.data();
+
+        await assignDoc.ref.update({
+          status: "done",
+          completedAt: admin.firestore.Timestamp.now(),
+        });
+
+        // Also advance the order stage in Firestore
+        const orderDocRef = db.collection("orders").doc(assignment.orderId);
+        const orderDocSnap = await orderDocRef.get();
+        let nextStageForReply = null;
+        let nextWorkerName = null;
+
+        if (orderDocSnap.exists) {
+          const orderData = orderDocSnap.data();
+          const nextStage = NEXT_STAGE[assignment.stage];
+          if (nextStage) {
+            const newStatus = nextStage === "Delivered" ? "Completed" : orderData.status;
+            const history = [...(orderData.stageHistory || []), {
+              stage: nextStage,
+              date: new Date().toISOString().slice(0, 10),
+              by: profile.name,
+            }];
+            await orderDocRef.update({ stage: nextStage, status: newStatus, stageHistory: history });
+
+            // Dispatch the next stage
+            try {
+              const dispatchResult = await (async () => {
+                const stageConfigSnap = await db.collection("stage_config").doc(nextStage).get();
+                if (!stageConfigSnap.exists || !stageConfigSnap.data().enabled) return null;
+                const sc = stageConfigSnap.data();
+                const workerUids = sc.workerUids || [];
+                if (workerUids.length === 0) return null;
+
+                const activeSnap = await db.collection("order_assignments")
+                  .where("stage", "==", nextStage)
+                  .where("status", "in", ["pending", "accepted", "in_progress"])
+                  .get();
+                const backlog = {};
+                for (const uid of workerUids) backlog[uid] = 0;
+                for (const doc of activeSnap.docs) {
+                  const wid = doc.data().workerId;
+                  if (wid in backlog) backlog[wid]++;
+                }
+                let chosenUid = workerUids[0];
+                let minCount = backlog[workerUids[0]];
+                for (let i = 1; i < workerUids.length; i++) {
+                  if (backlog[workerUids[i]] < minCount) {
+                    minCount = backlog[workerUids[i]];
+                    chosenUid = workerUids[i];
+                  }
+                }
+                const wIdx = workerUids.indexOf(chosenUid);
+                const wName = (sc.workerNames || [])[wIdx] || chosenUid;
+                const wDocSnap = await db.collection("users").doc(chosenUid).get();
+                const wTgId = wDocSnap.exists ? (wDocSnap.data().telegramId || null) : null;
+
+                const now = admin.firestore.Timestamp.now();
+                const timeoutHours = sc.timeoutHours || 6;
+                const timeoutAt = admin.firestore.Timestamp.fromMillis(
+                  now.toMillis() + timeoutHours * 60 * 60 * 1000
+                );
+
+                await db.collection("order_assignments").add({
+                  orderId: assignment.orderId,
+                  orderRef: assignment.orderRef,
+                  customerName: assignment.customerName,
+                  quantity: assignment.quantity,
+                  stage: nextStage,
+                  workerId: chosenUid,
+                  workerName: wName,
+                  workerTelegramId: wTgId,
+                  status: "pending",
+                  assignedAt: now,
+                  acceptedAt: null,
+                  completedAt: null,
+                  timeoutAt,
+                  notifiedManager: false,
+                });
+
+                if (wTgId) {
+                  await tgReply(
+                    wTgId,
+                    `🧵 New order assigned!\n\nOrder: *${assignment.orderRef}*\nCustomer: ${assignment.customerName}\nQty: ${assignment.quantity} pcs\nYour stage: *${nextStage}*\n\nReply *YES* to accept or *SKIP* to pass.`
+                  );
+                }
+
+                return { workerName: wName };
+              })();
+
+              nextStageForReply = nextStage;
+              nextWorkerName = dispatchResult ? dispatchResult.workerName : null;
+            } catch (dispatchErr) {
+              logger.error("DISPATCH_NEXT_STAGE_ERROR", { error: dispatchErr.message });
+            }
+
+            if (TELEGRAM_CHAT_ID) {
+              await tgReply(TELEGRAM_CHAT_ID, `📋 *${assignment.orderRef}* → *${nextStage}*\n${assignment.quantity} pcs · ${assignment.customerName}\nBy ${profile.name}`);
+            }
+
+            if (nextStage === "Delivered") {
+              await tgReply(chatId, `🎉 Order *${assignment.orderRef}* is complete!`);
+            } else {
+              const assignedTo = nextWorkerName ? ` Assigned to ${nextWorkerName}.` : "";
+              await tgReply(chatId, `✅ Stage complete! *${nextStage}* has been assigned.${assignedTo}`);
+            }
+          } else {
+            await tgReply(chatId, `🎉 Order *${assignment.orderRef}* is complete!`);
+          }
+        } else {
+          await tgReply(chatId, `✅ Stage *${assignment.stage}* marked complete.`);
+        }
+        return;
+      }
+      // No dispatch assignment found — fall through to existing /done logic below
     }
 
     // Commands
@@ -613,4 +857,133 @@ exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
     logger.error("DASHBOARD_API_ERROR", { error: err.message });
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+/* ── Dispatch Stage (callable) ───────────────────────────────────────────────
+   Called from the React frontend or other Cloud Functions to assign a stage
+   to the least-loaded available worker.
+──────────────────────────────────────────────────────────────────────────── */
+exports.dispatchStage = onCall(async (request) => {
+  const { orderId, stage } = request.data;
+  if (!orderId || !stage) {
+    throw new Error("Missing orderId or stage");
+  }
+
+  const db = admin.firestore();
+
+  // 1. Get order from Firestore
+  const orderSnap = await db.collection("orders").doc(orderId).get();
+  if (!orderSnap.exists) {
+    return { dispatched: false, reason: "Order not found" };
+  }
+  const order = orderSnap.data();
+
+  // 2. Get stage_config for this stage
+  const stageConfigSnap = await db.collection("stage_config").doc(stage).get();
+  if (!stageConfigSnap.exists) {
+    return { dispatched: false, reason: `No stage_config for stage: ${stage}` };
+  }
+  const stageConfig = stageConfigSnap.data();
+
+  // 3. Check enabled and workers
+  if (!stageConfig.enabled) {
+    return { dispatched: false, reason: `Stage "${stage}" is disabled` };
+  }
+  const workerUids = stageConfig.workerUids || [];
+  if (workerUids.length === 0) {
+    return { dispatched: false, reason: `No workers configured for stage "${stage}"` };
+  }
+
+  // 4. Count active assignments per worker
+  const activeSnap = await db.collection("order_assignments")
+    .where("stage", "==", stage)
+    .where("status", "in", ["pending", "accepted", "in_progress"])
+    .get();
+
+  const backlog = {};
+  for (const uid of workerUids) backlog[uid] = 0;
+  for (const doc of activeSnap.docs) {
+    const wid = doc.data().workerId;
+    if (wid in backlog) backlog[wid]++;
+  }
+
+  // 5. Pick worker with minimum count (first on tie)
+  let chosenUid = workerUids[0];
+  let minCount = backlog[workerUids[0]];
+  for (let i = 1; i < workerUids.length; i++) {
+    if (backlog[workerUids[i]] < minCount) {
+      minCount = backlog[workerUids[i]];
+      chosenUid = workerUids[i];
+    }
+  }
+
+  const workerIndex = workerUids.indexOf(chosenUid);
+  const workerName = (stageConfig.workerNames || [])[workerIndex] || chosenUid;
+
+  // Look up the worker's Telegram ID from the users collection
+  const workerSnap = await db.collection("users").doc(chosenUid).get();
+  const workerTelegramId = workerSnap.exists ? (workerSnap.data().telegramId || null) : null;
+
+  // 6. Create order_assignments doc
+  const now = admin.firestore.Timestamp.now();
+  const timeoutHours = stageConfig.timeoutHours || 6;
+  const timeoutAt = admin.firestore.Timestamp.fromMillis(
+    now.toMillis() + timeoutHours * 60 * 60 * 1000
+  );
+
+  const assignmentRef = await db.collection("order_assignments").add({
+    orderId,
+    orderRef: order.orderRef || order.orderId || orderId,
+    customerName: order.customerName || order.clientName || "",
+    quantity: order.quantity || 0,
+    stage,
+    workerId: chosenUid,
+    workerName,
+    workerTelegramId,
+    status: "pending",
+    assignedAt: now,
+    acceptedAt: null,
+    completedAt: null,
+    timeoutAt,
+    notifiedManager: false,
+  });
+
+  // 7. Send Telegram message to worker
+  if (workerTelegramId) {
+    const orderRef = order.orderRef || order.orderId || orderId;
+    await tgReply(
+      workerTelegramId,
+      `🧵 New order assigned!\n\nOrder: *${orderRef}*\nCustomer: ${order.customerName || order.clientName || ""}\nQty: ${order.quantity || 0} pcs\nYour stage: *${stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
+    );
+  }
+
+  logger.info("DISPATCH_STAGE", { orderId, stage, workerId: chosenUid, workerName, assignmentId: assignmentRef.id });
+  return { dispatched: true, workerId: chosenUid, workerName, assignmentId: assignmentRef.id };
+});
+
+/* ── Timeout checker (scheduled every hour) ──────────────────────────────── */
+exports.checkDispatchTimeouts = onSchedule("every 1 hours", async () => {
+  const now = admin.firestore.Timestamp.now();
+  const db = admin.firestore();
+
+  // Find all pending/accepted assignments past their timeoutAt
+  const snap = await db.collection("order_assignments")
+    .where("status", "in", ["pending", "accepted"])
+    .where("timeoutAt", "<=", now)
+    .where("notifiedManager", "==", false)
+    .get();
+
+  for (const doc of snap.docs) {
+    const a = doc.data();
+    await doc.ref.update({ notifiedManager: true, status: "timed_out" });
+
+    // Alert manager via Telegram
+    if (TELEGRAM_CHAT_ID) {
+      await tgReply(TELEGRAM_CHAT_ID,
+        `⚠️ *Dispatch timeout*\n\nOrder: *${a.orderRef}*\nStage: ${a.stage}\nAssigned to: ${a.workerName}\nNo response after ${a.timeoutHours || 6} hours.\n\nPlease follow up or reassign manually.`
+      );
+    }
+  }
+
+  logger.info("CHECK_DISPATCH_TIMEOUTS", { timedOut: snap.size });
 });

@@ -177,6 +177,31 @@ function OpsAlerts({ overdueInvoices = [], overdueInvoiceTotalNPR = 0, overdueTa
 
 /* ── Active Orders Row ────────────────────────────── */
 function ActiveOrdersRow({ orders = [] }) {
+  const [assignments, setAssignments] = useState({});
+
+  useEffect(() => {
+    async function loadAssignments() {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "order_assignments"),
+            where("status", "in", ["pending", "accepted", "in_progress"])
+          )
+        );
+        const map = {};
+        snap.docs.forEach(d => {
+          const a = { id: d.id, ...d.data() };
+          // keep the most recent assignment per order
+          if (!map[a.orderId] || (a.assignedAt?.seconds || 0) > (map[a.orderId].assignedAt?.seconds || 0)) {
+            map[a.orderId] = a;
+          }
+        });
+        setAssignments(map);
+      } catch (_) { /* non-critical */ }
+    }
+    loadAssignments();
+  }, []);
+
   if (orders.length === 0) return null;
   const today = new Date().toISOString().slice(0, 10);
 
@@ -191,6 +216,16 @@ function ActiveOrdersRow({ orders = [] }) {
     return "neutral";
   };
 
+  function AssignmentBadge({ assignment }) {
+    if (!assignment) return null;
+    const { status, workerName } = assignment;
+    if (status === "timed_out") return <Pill tone="terra">⚠️ No response</Pill>;
+    if (status === "pending")   return <Pill tone="amber">⏳ Awaiting {workerName}</Pill>;
+    if (status === "accepted")  return <Pill tone="mint">✓ {workerName} on it</Pill>;
+    if (status === "in_progress") return <Pill tone="mint">🔨 {workerName} working</Pill>;
+    return null;
+  }
+
   return (
     <Card title="Active orders" sub="5 most recent in-progress orders" accent="var(--mint-deep)"
       action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/production'}>View all</Btn>}>
@@ -200,9 +235,11 @@ function ActiveOrdersRow({ orders = [] }) {
           <span>Customer</span>
           <span>Stage</span>
           <span>Due date</span>
+          <span>Dispatch</span>
         </div>
         {orders.map(o => {
           const isOverdue = o.dueDate && o.dueDate < today;
+          const assignment = assignments[o.id];
           return (
             <div key={o.id} className="kactive-order-row" onClick={() => window.location.href='/production'}>
               <span className="mono kactive-order-ref">{o.orderNumber || o.id?.slice(-8) || "—"}</span>
@@ -212,10 +249,76 @@ function ActiveOrdersRow({ orders = [] }) {
                 {o.dueDate ? o.dueDate : "—"}
                 {isOverdue && <Icons.Alert size={12} sw={2} style={{ marginLeft: 4 }}/>}
               </span>
+              <span><AssignmentBadge assignment={assignment} /></span>
             </div>
           );
         })}
       </div>
+    </Card>
+  );
+}
+
+/* ── Dispatch Queue Card ─────────────────────────── */
+function DispatchQueueCard() {
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "order_assignments"),
+            where("status", "in", ["pending", "accepted", "in_progress", "timed_out"])
+          )
+        );
+        setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (_) { /* non-critical */ }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  function timeSince(ts) {
+    if (!ts) return "—";
+    const secs = ts.seconds ? ts.seconds : Math.floor(new Date(ts).getTime() / 1000);
+    const diff = Math.floor(Date.now() / 1000) - secs;
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  const statusOrder = { timed_out: 0, pending: 1, accepted: 2, in_progress: 3 };
+  const sorted = [...assignments].sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+
+  function statusPill(status) {
+    if (status === "timed_out")  return <Pill tone="terra">⚠️ Timed out</Pill>;
+    if (status === "pending")    return <Pill tone="amber">⏳ Pending</Pill>;
+    if (status === "accepted")   return <Pill tone="mint">✓ Accepted</Pill>;
+    if (status === "in_progress") return <Pill tone="mint">🔨 In progress</Pill>;
+    return <Pill tone="neutral">{status}</Pill>;
+  }
+
+  return (
+    <Card title="Dispatch Queue" sub="Live assignment status" accent="var(--mint-deep)">
+      {loading ? (
+        <div className="kskel kskel-row" />
+      ) : sorted.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0" }}>No active dispatches</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {sorted.map(a => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderRadius: 8, background: "var(--bg-2)", fontSize: 12 }}>
+              <span className="mono" style={{ color: "var(--ink-3)", minWidth: 72 }}>{a.orderRef || a.orderId?.slice(-8) || "—"}</span>
+              <span style={{ flex: 1, color: "var(--ink-2)", fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.stage || "—"}</span>
+              <span style={{ color: "var(--ink-3)", minWidth: 80 }}>{a.workerName || "—"}</span>
+              {statusPill(a.status)}
+              <span className="mono" style={{ color: "var(--ink-4)", fontSize: 11, whiteSpace: "nowrap" }}>{timeSince(a.assignedAt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -713,6 +816,9 @@ function NepalAdminDash() {
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
 
+        {/* Dispatch Queue */}
+        <DispatchQueueCard />
+
         {/* Product COGS */}
         <ProductPnLCard canEdit={["nepal_admin","uk_admin","super_admin"].includes(profile?.appRole || profile?.role)} />
 
@@ -1150,6 +1256,9 @@ function UKAdminDash() {
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
+
+        {/* Dispatch Queue */}
+        <DispatchQueueCard />
 
         {/* Leaderboard */}
         <MyPointsCard profile={profile} />
