@@ -11,6 +11,9 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 
+// Set to false to pause all point awards without removing the integration code
+const REWARDS_ENABLED = false;
+
 // ---------------------------------------------------------------------------
 // Point values
 // ---------------------------------------------------------------------------
@@ -97,6 +100,7 @@ export async function awardPoints({
   reason,
   bonusPoints = 0,
 }) {
+  if (!REWARDS_ENABLED) return null;
   if (!uid || !eventType || !sourceId) {
     console.error("awardPoints: uid, eventType, and sourceId are required.");
     return null;

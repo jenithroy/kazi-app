@@ -1037,7 +1037,7 @@ function UKAdminDash() {
         { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--ink-5)" },
       ];
 
-      const payrollNPR = payrollRecs.reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
+      const payrollNPR = payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
 
       // Ops alerts
