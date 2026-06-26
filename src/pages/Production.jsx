@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteDoc
+  addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, deleteDoc, where, orderBy, limit
 } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
@@ -274,6 +275,42 @@ function orderStatusBadge(status) {
 function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, canEdit, profile, onUpdate }) {
   const pri = orderPriority(order);
   const pct = stageProgress(order.stage);
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchMsg, setDispatchMsg] = useState(null); // { type: "success"|"error", text }
+  const [latestAssignment, setLatestAssignment] = useState(null);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
+
+  // Load latest assignment when card is expanded
+  useEffect(() => {
+    if (!expanded) return;
+    setAssignmentLoading(true);
+    getDocs(
+      query(
+        collection(db, "order_assignments"),
+        where("orderId", "==", order.id),
+        orderBy("assignedAt", "desc"),
+        limit(1)
+      )
+    ).then(snap => {
+      setLatestAssignment(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() });
+    }).catch(() => {}).finally(() => setAssignmentLoading(false));
+  }, [expanded, order.id]);
+
+  async function handleDispatch(e) {
+    e.stopPropagation();
+    setDispatching(true);
+    setDispatchMsg(null);
+    try {
+      const dispatchStage = httpsCallable(getFunctions(), "dispatchStage");
+      const result = await dispatchStage({ orderId: order.id, stage: order.stage });
+      const workerName = result?.data?.workerName || "worker";
+      setDispatchMsg({ type: "success", text: `Dispatched to ${workerName}` });
+    } catch (err) {
+      setDispatchMsg({ type: "error", text: err.message || "Dispatch failed" });
+    } finally {
+      setDispatching(false);
+    }
+  }
 
   return (
     <div
@@ -317,8 +354,19 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, ca
           {order.invoiceRef && (
             <div style={{ color: "var(--ink-4)", marginTop: 2 }}>Ref: {order.invoiceRef}</div>
           )}
+
+          {/* Current assignment */}
+          {assignmentLoading ? (
+            <div style={{ color: "var(--ink-4)", marginTop: 4 }}>Loading assignment…</div>
+          ) : latestAssignment ? (
+            <div style={{ color: "var(--ink-4)", marginTop: 4 }}>
+              Assigned: <strong style={{ color: "var(--ink-2)" }}>{latestAssignment.workerName}</strong>
+              {" "}({latestAssignment.status})
+            </div>
+          ) : null}
+
           {canEdit && order.status === "Active" && (
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
               <button
                 className="ghost-button"
                 style={{ fontSize: 11, padding: "3px 8px" }}
@@ -331,8 +379,29 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, ca
                 onClick={e => { e.stopPropagation(); onAdvance(); }}
                 disabled={STAGES.indexOf(order.stage) === STAGES.length - 1}
               >{STAGES.indexOf(order.stage) === STAGES.length - 2 ? "Deliver" : "Next →"}</button>
+              <button
+                className="ghost-button"
+                style={{ fontSize: 11, padding: "3px 8px", borderColor: "var(--mint-deep)", color: "var(--mint-deep)" }}
+                onClick={handleDispatch}
+                disabled={dispatching}
+              >{dispatching ? "Dispatching…" : "Dispatch"}</button>
             </div>
           )}
+
+          {/* Dispatch feedback message */}
+          {dispatchMsg && (
+            <div style={{
+              marginTop: 6,
+              fontSize: 11,
+              padding: "4px 8px",
+              borderRadius: 6,
+              background: dispatchMsg.type === "success" ? "var(--mint-soft)" : "var(--terra-soft)",
+              color: dispatchMsg.type === "success" ? "var(--mint-deep)" : "var(--terra)",
+            }}>
+              {dispatchMsg.text}
+            </div>
+          )}
+
           <OrderNotesSection
             order={order}
             canEdit={canEdit}

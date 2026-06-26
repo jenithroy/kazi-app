@@ -301,7 +301,7 @@ function Finance() {
     const lastMonthPayroll = payrollData
       .filter(r => r.month === lastMonthName && Number(r.year) === lastMonthYear)
       .filter(r => productionWorkers.size === 0 || productionWorkers.has((r.staffName || "").toLowerCase()))
-      .reduce((s, r) => s + Number(r.netNPR || 0), 0);
+      .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
 
     const productionData = productionSnap.docs.map(d => d.data());
     const lastMonthUnits = productionData
@@ -496,7 +496,7 @@ function Finance() {
     const curYear  = now.getFullYear();
     const payrollNPR  = payroll
       .filter(r => r.month === curMonth && Number(r.year) === curYear)
-      .reduce((s, r) => s + Number(r.netNPR || 0), 0);
+      .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
     const expensesNPR = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchNPR    = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const totalNPR    = payrollNPR + expensesNPR + purchNPR;
@@ -527,7 +527,7 @@ function Finance() {
     const totalIncome   = salesRevenue + otherIncome;
     const expensesTotal = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchasesTotal= purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-    const payrollTotal  = payroll.reduce((s, r) => s + Number(r.netNPR || 0), 0);
+    const payrollTotal  = payroll.reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
     const journalExpenses = entries.filter(e => accounts.find(a => a.name === e.debitAccount && a.type === "Expense")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
     const totalExpenses = expensesTotal + purchasesTotal + payrollTotal + journalExpenses;
     return { salesRevenue, otherIncome, totalIncome, expensesTotal, purchasesTotal, payrollTotal, journalExpenses, totalExpenses, netProfit: totalIncome - totalExpenses };

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { collection, getDocs, doc, updateDoc, setDoc } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
@@ -42,6 +42,209 @@ function hueFromName(name = "") {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
   return h % 360;
+}
+
+/* ── Production Chain constants ─────────────────────────── */
+const DISPATCH_STAGES = [
+  { stage: "Order Received",        order: 0, enabled: false, timeoutHours: 2  },
+  { stage: "Fabric Sourcing",       order: 1, enabled: true,  timeoutHours: 8  },
+  { stage: "Cutting",               order: 2, enabled: true,  timeoutHours: 8  },
+  { stage: "Stitching",             order: 3, enabled: true,  timeoutHours: 12 },
+  { stage: "Finishing & Pressing",  order: 4, enabled: true,  timeoutHours: 8  },
+  { stage: "Quality Check",         order: 5, enabled: true,  timeoutHours: 6  },
+  { stage: "Packing",               order: 6, enabled: true,  timeoutHours: 4  },
+  { stage: "Shipped",               order: 7, enabled: false, timeoutHours: 2  },
+  { stage: "Delivered",             order: 8, enabled: false, timeoutHours: 2  },
+];
+
+const WORKER_ROLES = ["nepal_admin", "employee", "nepal_staff"];
+
+/* ── StageRow ────────────────────────────────────────────── */
+function StageRow({ stageDoc, workerPool, onUpdate }) {
+  const { stage, enabled, timeoutHours, workerUids = [] } = stageDoc;
+  const [savingToggle,   setSavingToggle]   = useState(false);
+  const [savingTimeout,  setSavingTimeout]  = useState(false);
+  const [savingWorkers,  setSavingWorkers]  = useState(false);
+  const [localTimeout,   setLocalTimeout]   = useState(timeoutHours);
+
+  async function handleToggle() {
+    setSavingToggle(true);
+    const ref = doc(db, "stage_config", stage);
+    await setDoc(ref, { enabled: !enabled }, { merge: true });
+    onUpdate(stage, { enabled: !enabled });
+    setSavingToggle(false);
+  }
+
+  async function handleTimeoutBlur() {
+    const val = Math.max(2, Math.min(24, Number(localTimeout) || timeoutHours));
+    setLocalTimeout(val);
+    if (val === timeoutHours) return;
+    setSavingTimeout(true);
+    const ref = doc(db, "stage_config", stage);
+    await setDoc(ref, { timeoutHours: val }, { merge: true });
+    onUpdate(stage, { timeoutHours: val });
+    setSavingTimeout(false);
+  }
+
+  async function handleWorkerToggle(uid) {
+    setSavingWorkers(true);
+    const isChecked = workerUids.includes(uid);
+    const newUids = isChecked
+      ? workerUids.filter(id => id !== uid)
+      : [...workerUids, uid];
+    const newNames = newUids.map(id => workerPool.find(w => w.id === id)?.name || id);
+    const ref = doc(db, "stage_config", stage);
+    await setDoc(ref, { workerUids: newUids, workerNames: newNames }, { merge: true });
+    onUpdate(stage, { workerUids: newUids, workerNames: newNames });
+    setSavingWorkers(false);
+  }
+
+  return (
+    <div className="kpc-stage-row">
+      {/* Stage name + enabled toggle */}
+      <div className="kpc-stage-hd">
+        <div className="kpc-stage-name-wrap">
+          <span className={cn("kpc-stage-order", enabled && "kpc-stage-order--on")}>
+            {stageDoc.order + 1}
+          </span>
+          <span className="kpc-stage-name">{stage}</span>
+          {/* Telegram badge */}
+          <span className="kpc-badge-telegram">Telegram (WhatsApp ready)</span>
+        </div>
+        <div className="kpc-stage-hd-r">
+          {savingToggle
+            ? <span className="kadm-saving">…</span>
+            : <Toggle checked={enabled} onChange={handleToggle} />
+          }
+          <span className={cn("kpc-stage-status", enabled ? "kpc-stage-status--on" : "kpc-stage-status--off")}>
+            {enabled ? "Auto-dispatch" : "Manual"}
+          </span>
+        </div>
+      </div>
+
+      {/* No-workers warning */}
+      {enabled && workerUids.length === 0 && (
+        <div className="kpc-warn">
+          ⚠ No workers assigned — orders will not be auto-dispatched
+        </div>
+      )}
+
+      {/* Worker assignment */}
+      <div className="kpc-workers-section">
+        <div className="kpc-section-label">Assigned workers {savingWorkers && <span className="kadm-saving">…</span>}</div>
+        {workerPool.length === 0 ? (
+          <span style={{ fontSize: 12, color: "var(--ink-4)" }}>No eligible workers found</span>
+        ) : (
+          <div className="kpc-worker-list">
+            {workerPool.map(w => (
+              <label key={w.id} className="kpc-worker-check">
+                <input
+                  type="checkbox"
+                  checked={workerUids.includes(w.id)}
+                  onChange={() => handleWorkerToggle(w.id)}
+                />
+                <Avatar name={w.name} hue={hueFromName(w.name)} size={22} />
+                <span className="kpc-worker-name">{w.name}</span>
+                <span className="kpc-worker-role">{ROLE_META[w.role]?.label || w.role}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Timeout hours */}
+      <div className="kpc-timeout-section">
+        <label className="kpc-section-label" htmlFor={`timeout-${stage}`}>
+          Alert timeout (hours) {savingTimeout && <span className="kadm-saving">…</span>}
+        </label>
+        <input
+          id={`timeout-${stage}`}
+          type="number"
+          min={2}
+          max={24}
+          value={localTimeout}
+          onChange={e => setLocalTimeout(e.target.value)}
+          onBlur={handleTimeoutBlur}
+          className="kpc-timeout-input"
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── ProductionChain section ─────────────────────────────── */
+function ProductionChain({ users }) {
+  const [stages,  setStages]  = useState(null); // null = loading
+  const [seeding, setSeeding] = useState(false);
+
+  const workerPool = users.filter(u => WORKER_ROLES.includes(u.role));
+
+  const loadStages = useCallback(async () => {
+    const snap = await getDocs(collection(db, "stage_config"));
+    if (snap.empty) {
+      // Seed defaults
+      setSeeding(true);
+      for (const s of DISPATCH_STAGES) {
+        await setDoc(doc(db, "stage_config", s.stage), {
+          stage:        s.stage,
+          order:        s.order,
+          enabled:      s.enabled,
+          timeoutHours: s.timeoutHours,
+          workerUids:   [],
+          workerNames:  [],
+        });
+      }
+      setSeeding(false);
+      // Re-fetch after seeding
+      const snap2 = await getDocs(collection(db, "stage_config"));
+      const rows = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => a.order - b.order);
+      setStages(rows);
+    } else {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => a.order - b.order);
+      setStages(rows);
+    }
+  }, []);
+
+  useEffect(() => { loadStages().catch(console.error); }, [loadStages]);
+
+  function handleUpdate(stageName, patch) {
+    setStages(prev => prev.map(s => s.stage === stageName ? { ...s, ...patch } : s));
+  }
+
+  if (stages === null || seeding) {
+    return <div style={{ padding: 24, color: "var(--ink-4)", fontSize: 14 }}>Loading production chain…</div>;
+  }
+
+  return (
+    <div className="kpc-wrap">
+      <div className="kpc-header">
+        <div className="kpc-header-title">Production Chain</div>
+        <div className="kpc-header-sub">Configure auto-dispatch for each manufacturing stage</div>
+      </div>
+
+      {/* Telegram notice */}
+      <div className="kpc-notice">
+        <span className="kadm-notice-ico">ℹ</span>
+        <span>
+          Workers need a Telegram ID linked to receive dispatch messages.
+          Add <strong>telegramId</strong> to user profiles in Employees.
+        </span>
+      </div>
+
+      <div className="kpc-stage-list">
+        {stages.map(s => (
+          <StageRow
+            key={s.stage}
+            stageDoc={s}
+            workerPool={workerPool}
+            onUpdate={handleUpdate}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ── Toggle ────────────────────────────────────────────── */
@@ -101,10 +304,13 @@ function RolePill({ role }) {
 /* ── Main component ─────────────────────────────────────── */
 export default function AdminPanel() {
   const { profile } = useAuth();
-  const [users,       setUsers]       = useState([]);
-  const [selected,    setSelected]    = useState(null); // user.id
-  const [saving,      setSaving]      = useState({});
-  const [finOpen,     setFinOpen]     = useState(false);
+  const [users,         setUsers]         = useState([]);
+  const [selected,      setSelected]      = useState(null); // user.id
+  const [saving,        setSaving]        = useState({});
+  const [finOpen,       setFinOpen]       = useState(false);
+  const [chainOpen,     setChainOpen]     = useState(false);
+  const [telegramEdit,  setTelegramEdit]  = useState(""); // local edit value
+  const [savingTg,      setSavingTg]      = useState(false);
 
   async function loadUsers() {
     const snap = await getDocs(collection(db, "users"));
@@ -165,6 +371,20 @@ export default function AdminPanel() {
     if (!window.confirm(`Reset ${user.name}'s permissions to defaults?`)) return;
     await updateDoc(doc(db, "users", user.id), { permissions: {} });
     setUsers(prev => prev.map(u => u.id === user.id ? { ...u, permissions: {} } : u));
+  }
+
+  // Sync telegram input when selection changes
+  useEffect(() => {
+    const u = users.find(u => u.id === selected);
+    setTelegramEdit(u?.telegramId != null ? String(u.telegramId) : "");
+  }, [selected, users]);
+
+  async function saveTelegramId(userId, value) {
+    const parsed = value.trim() === "" ? null : Number(value);
+    setSavingTg(true);
+    await setDoc(doc(db, "users", userId), { telegramId: parsed ?? null }, { merge: true });
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, telegramId: parsed ?? null } : u));
+    setSavingTg(false);
   }
 
   const isAdmin = ["super_admin", "uk_admin"].includes(profile?.role) || ["super_admin", "uk_admin"].includes(profile?.appRole);
@@ -358,8 +578,71 @@ export default function AdminPanel() {
                   </div>
                 )}
               </div>
+
+              {/* ── Telegram ID ── */}
+              <div className="kadm-perm-block">
+                <div className="kadm-perm-block-hd">
+                  <span className="kadm-perm-block-title">Dispatch Integration</span>
+                </div>
+                <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label
+                    htmlFor={`tg-${selectedUser.id}`}
+                    style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-2)" }}
+                  >
+                    Telegram ID (for dispatch messages)
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      id={`tg-${selectedUser.id}`}
+                      type="number"
+                      placeholder="e.g. 123456789"
+                      value={telegramEdit}
+                      onChange={e => setTelegramEdit(e.target.value)}
+                      onBlur={() => canEdit && saveTelegramId(selectedUser.id, telegramEdit)}
+                      disabled={!canEdit || savingTg}
+                      style={{
+                        width: 180, padding: "7px 10px",
+                        border: "1px solid var(--ink-5)", borderRadius: 6,
+                        fontSize: 13, fontFamily: "var(--mono)",
+                        background: canEdit ? "#fff" : "var(--bg-2)",
+                        color: "var(--ink)",
+                        opacity: !canEdit ? 0.6 : 1,
+                      }}
+                    />
+                    {savingTg && <span className="kadm-saving">Saving…</span>}
+                    {!savingTg && selectedUser.telegramId && (
+                      <span style={{ fontSize: 11, color: "var(--mint-deep)", fontWeight: 600 }}>✓ Linked</span>
+                    )}
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: "var(--ink-4)" }}>
+                    Numeric Telegram user ID — workers need this to receive auto-dispatch messages.
+                  </p>
+                </div>
+              </div>
             </>
           )}
+        </div>
+      </div>
+
+      {/* ── Production Chain section (full-width below) ── */}
+      <div className="kadm-wrap" style={{ marginTop: 0, borderTop: "1px solid var(--bg-2)" }}>
+        <div style={{ width: "100%", gridColumn: "1 / -1" }}>
+          <button
+            className="kadm-perm-block-hd kadm-collapsible"
+            style={{
+              width: "100%", borderRadius: 0, background: "transparent",
+              borderBottom: chainOpen ? "1px solid var(--bg-2)" : "none",
+              padding: "14px 20px",
+            }}
+            onClick={() => setChainOpen(v => !v)}
+          >
+            <span className="kadm-perm-block-title" style={{ fontSize: 15 }}>Production Chain</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="kadm-perm-block-note">Auto-dispatch stage configuration</span>
+              <span className={cn("kadm-chevron", chainOpen && "kadm-chevron--open")}>▾</span>
+            </div>
+          </button>
+          {chainOpen && <ProductionChain users={users} />}
         </div>
       </div>
     </AppLayout>

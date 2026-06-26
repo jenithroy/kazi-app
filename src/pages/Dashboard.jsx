@@ -177,6 +177,31 @@ function OpsAlerts({ overdueInvoices = [], overdueInvoiceTotalNPR = 0, overdueTa
 
 /* ── Active Orders Row ────────────────────────────── */
 function ActiveOrdersRow({ orders = [] }) {
+  const [assignments, setAssignments] = useState({});
+
+  useEffect(() => {
+    async function loadAssignments() {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "order_assignments"),
+            where("status", "in", ["pending", "accepted", "in_progress"])
+          )
+        );
+        const map = {};
+        snap.docs.forEach(d => {
+          const a = { id: d.id, ...d.data() };
+          // keep the most recent assignment per order
+          if (!map[a.orderId] || (a.assignedAt?.seconds || 0) > (map[a.orderId].assignedAt?.seconds || 0)) {
+            map[a.orderId] = a;
+          }
+        });
+        setAssignments(map);
+      } catch (_) { /* non-critical */ }
+    }
+    loadAssignments();
+  }, []);
+
   if (orders.length === 0) return null;
   const today = new Date().toISOString().slice(0, 10);
 
@@ -191,6 +216,16 @@ function ActiveOrdersRow({ orders = [] }) {
     return "neutral";
   };
 
+  function AssignmentBadge({ assignment }) {
+    if (!assignment) return null;
+    const { status, workerName } = assignment;
+    if (status === "timed_out") return <Pill tone="terra">⚠️ No response</Pill>;
+    if (status === "pending")   return <Pill tone="amber">⏳ Awaiting {workerName}</Pill>;
+    if (status === "accepted")  return <Pill tone="mint">✓ {workerName} on it</Pill>;
+    if (status === "in_progress") return <Pill tone="mint">🔨 {workerName} working</Pill>;
+    return null;
+  }
+
   return (
     <Card title="Active orders" sub="5 most recent in-progress orders" accent="var(--mint-deep)"
       action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/production'}>View all</Btn>}>
@@ -200,9 +235,11 @@ function ActiveOrdersRow({ orders = [] }) {
           <span>Customer</span>
           <span>Stage</span>
           <span>Due date</span>
+          <span>Dispatch</span>
         </div>
         {orders.map(o => {
           const isOverdue = o.dueDate && o.dueDate < today;
+          const assignment = assignments[o.id];
           return (
             <div key={o.id} className="kactive-order-row" onClick={() => window.location.href='/production'}>
               <span className="mono kactive-order-ref">{o.orderNumber || o.id?.slice(-8) || "—"}</span>
@@ -212,10 +249,76 @@ function ActiveOrdersRow({ orders = [] }) {
                 {o.dueDate ? o.dueDate : "—"}
                 {isOverdue && <Icons.Alert size={12} sw={2} style={{ marginLeft: 4 }}/>}
               </span>
+              <span><AssignmentBadge assignment={assignment} /></span>
             </div>
           );
         })}
       </div>
+    </Card>
+  );
+}
+
+/* ── Dispatch Queue Card ─────────────────────────── */
+function DispatchQueueCard() {
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "order_assignments"),
+            where("status", "in", ["pending", "accepted", "in_progress", "timed_out"])
+          )
+        );
+        setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (_) { /* non-critical */ }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  function timeSince(ts) {
+    if (!ts) return "—";
+    const secs = ts.seconds ? ts.seconds : Math.floor(new Date(ts).getTime() / 1000);
+    const diff = Math.floor(Date.now() / 1000) - secs;
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  const statusOrder = { timed_out: 0, pending: 1, accepted: 2, in_progress: 3 };
+  const sorted = [...assignments].sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+
+  function statusPill(status) {
+    if (status === "timed_out")  return <Pill tone="terra">⚠️ Timed out</Pill>;
+    if (status === "pending")    return <Pill tone="amber">⏳ Pending</Pill>;
+    if (status === "accepted")   return <Pill tone="mint">✓ Accepted</Pill>;
+    if (status === "in_progress") return <Pill tone="mint">🔨 In progress</Pill>;
+    return <Pill tone="neutral">{status}</Pill>;
+  }
+
+  return (
+    <Card title="Dispatch Queue" sub="Live assignment status" accent="var(--mint-deep)">
+      {loading ? (
+        <div className="kskel kskel-row" />
+      ) : sorted.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--ink-4)", padding: "12px 0" }}>No active dispatches</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {sorted.map(a => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderRadius: 8, background: "var(--bg-2)", fontSize: 12 }}>
+              <span className="mono" style={{ color: "var(--ink-3)", minWidth: 72 }}>{a.orderRef || a.orderId?.slice(-8) || "—"}</span>
+              <span style={{ flex: 1, color: "var(--ink-2)", fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.stage || "—"}</span>
+              <span style={{ color: "var(--ink-3)", minWidth: 80 }}>{a.workerName || "—"}</span>
+              {statusPill(a.status)}
+              <span className="mono" style={{ color: "var(--ink-4)", fontSize: 11, whiteSpace: "nowrap" }}>{timeSince(a.assignedAt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -713,6 +816,9 @@ function NepalAdminDash() {
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
 
+        {/* Dispatch Queue */}
+        <DispatchQueueCard />
+
         {/* Product COGS */}
         <ProductPnLCard canEdit={["nepal_admin","uk_admin","super_admin"].includes(profile?.appRole || profile?.role)} />
 
@@ -961,9 +1067,10 @@ function UKAdminDash() {
         getDocs(collection(db, "order_costs")),
         getDocs(collection(db, "tasks")),
         getDocs(collection(db, "inventory")),
+        getDocs(collection(db, "employees")),
       ]);
       const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap, tasksSnap, inventorySnap] = results.map(docs);
+      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap, tasksSnap, inventorySnap, employeesSnap] = results.map(docs);
 
       const totalStaff = usersSnap.filter(d => {
         const r = d.data().role;
@@ -990,16 +1097,21 @@ function UKAdminDash() {
       const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
 
-      // Payroll — same fallback pattern
+      // Payroll — current month first, last month fallback, then employee base salaries
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
       const payrollData = payrollSnap.map(d => d.data());
       const curMonthName = MONTH_NAMES[new Date().getMonth()];
       const curYear = new Date().getFullYear();
       let payrollRecs = payrollData.filter(p => p.month === curMonthName && Number(p.year) === curYear);
+      let payrollIsEstimate = false;
       if (payrollRecs.length === 0) {
         const lastDate = new Date(); lastDate.setDate(1); lastDate.setMonth(lastDate.getMonth() - 1);
         const lastMName = MONTH_NAMES[lastDate.getMonth()];
         payrollRecs = payrollData.filter(p => p.month === lastMName && Number(p.year) === lastDate.getFullYear());
+      }
+      // If still no records, estimate from employee base salaries
+      if (payrollRecs.length === 0) {
+        payrollIsEstimate = true;
       }
 
       // Estimated profit from order_costs
@@ -1037,7 +1149,9 @@ function UKAdminDash() {
         { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--ink-5)" },
       ];
 
-      const payrollNPR = payrollRecs.reduce((s, p) => s + Number(p.netNPR || p.amountNPR || p.amount || 0), 0);
+      const payrollNPR = payrollIsEstimate
+        ? employeesSnap.map(d => d.data()).filter(e => e.status === "Active").reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0)
+        : payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
 
       // Ops alerts
@@ -1060,7 +1174,7 @@ function UKAdminDash() {
 
       setData({
         totalPaidNPR, outstandingNPR, overdueNPR, inProgress, dispatched, presentToday, lateToday, leaveToday,
-        pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR,
+        pendingBudget, dates30, revData, recentInvoices, invoiceSegments, orders, totalStaff, payrollNPR, payrollIsEstimate,
         salesTarget, estProfitNPR, estMargin, totalRevAllNPR, totalCostNPR,
         overdueInvoices, overdueInvoiceTotalNPR, overdueTasks, lowInventoryCount, activeOrdersRow,
       });
@@ -1129,7 +1243,7 @@ function UKAdminDash() {
             icon={<Icons.Production size={14} sw={1.8}/>}
             spark={<Spark data={[2,3,3,4,4,5,data.inProgress]} color="var(--mint-2)" fill="var(--mint-soft)" />}
           />
-          <KPI label="Payroll · month" value={fmtC(data.payrollNPR)}
+          <KPI label={data.payrollIsEstimate ? "Payroll · est." : "Payroll · month"} value={fmtC(data.payrollNPR)}
             icon={<Icons.Employees size={14} sw={1.8}/>}
             spark={<Spark data={[3.0,3.1,3.2,3.1,3.2,3.2,3.2]} color="var(--blue)" fill="var(--blue-soft)" />}
           />
@@ -1142,6 +1256,9 @@ function UKAdminDash() {
 
         {/* Active Orders at a glance */}
         <ActiveOrdersRow orders={data.activeOrdersRow} />
+
+        {/* Dispatch Queue */}
+        <DispatchQueueCard />
 
         {/* Leaderboard */}
         <MyPointsCard profile={profile} />
