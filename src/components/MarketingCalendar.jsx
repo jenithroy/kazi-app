@@ -164,7 +164,7 @@ export default function MarketingCalendar() {
 
   // ── Render ────────────────────────────────────────────
   return (
-    <div className={`flex h-screen overflow-hidden font-sans antialiased select-none ${t.root}`}>
+    <div className={`flex h-full overflow-hidden font-sans antialiased select-none ${t.root}`}>
 
       {/* ═══════════════════ INBOX SIDEBAR ═══════════════════ */}
       <aside

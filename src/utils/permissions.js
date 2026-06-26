@@ -94,11 +94,11 @@ export function sectionVisible(profile, sectionKey) {
   // Otherwise fall back to role default
   const role = appRole(profile);
   const NAV_BY_ROLE = {
-    nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger","library","sales"],
-    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger","library","sales","employees"],
+    nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger","library","sales","marketing"],
+    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger","library","sales","employees","marketing"],
     employee:    ["dashboard","tasks","attendance","library"],
     nepal_staff: ["dashboard","tasks","attendance","library","production","qc","inventory","content"],
-    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger","library"],
+    super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger","library","marketing"],
   };
   const base = new Set(NAV_BY_ROLE[role] || []);
   return base.has(sectionKey);

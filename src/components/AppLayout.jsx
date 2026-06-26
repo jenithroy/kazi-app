@@ -18,6 +18,7 @@ const ROUTE_LABEL = {
   employees:  "Employee and HR",
   admin:      "Admin Panel",
   messenger:  "Messenger Chat",
+  marketing:  "Marketing Calendar",
 };
 
 function useKTMTime() {
@@ -111,7 +112,7 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
   );
 }
 
-function AppLayout({ children }) {
+function AppLayout({ children, noPadding = false }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -146,7 +147,7 @@ function AppLayout({ children }) {
       />
       <main className="kmain">
         <Topbar collapsed={collapsed} onMobileMenuToggle={() => setMobileOpen(o => !o)} />
-        <div className="kscroll">
+        <div className="kscroll" style={noPadding ? { padding: 0, gap: 0, overflow: 'hidden' } : undefined}>
           {children}
         </div>
       </main>

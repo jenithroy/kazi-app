@@ -5,28 +5,37 @@ import { sectionVisible } from "../utils/permissions";
 
 // Nav items — badges are null by default (no fake counts)
 const NAV_ITEMS = [
-  { to: "/dashboard",  label: "Dashboard",  Icon: Icons.Dashboard,  group: "main", shortcut: "⌘1" },
-  { to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks,      group: "main", shortcut: "⌘2" },
-  { to: "/attendance", label: "Attendance", Icon: Icons.Attendance, group: "main", shortcut: "⌘3" },
-  { to: "/production", label: "Production", Icon: Icons.Production, group: "main", shortcut: "⌘4" },
-  { to: "/qc",         label: "QC",         Icon: Icons.QC,         group: "ops" },
-  { to: "/inventory",  label: "Inventory",  Icon: Icons.Inventory,  group: "ops", badgeTone: "amber" },
-  { to: "/sales",      label: "Sales",      Icon: Icons.Sales,      group: "sales" },
-  { to: "/finance",    label: "Finance",    Icon: Icons.Finance,    group: "biz" },
-  { to: "/billing",    label: "Billing",    Icon: Icons.Billing,    group: "biz", shortcut: "⌘5" },
-  { to: "/content",    label: "Budget",     Icon: Icons.Budget,     group: "biz" },
-  { to: "/employees",  label: "Employee and HR",  Icon: Icons.Employees,  group: "biz" },
-  { to: "/admin",      label: "Admin",      Icon: Icons.Admin,      group: "biz" },
-  { to: "/directors",  label: "Directors",  Icon: Icons.Directors,  group: "biz" },
-  { to: "/customers",  label: "Customers",  Icon: Icons.Customers,  group: "biz" },
-  { to: "/messenger",  label: "Messenger",  Icon: Icons.Message,    group: "biz" },
+  // ── Workspace ──────────────────────────────────────────
+  { to: "/dashboard",  label: "Dashboard",     Icon: Icons.Dashboard,  group: "workspace", shortcut: "⌘1" },
+  { to: "/tasks",      label: "Tasks",         Icon: Icons.Tasks,      group: "workspace", shortcut: "⌘2" },
+  { to: "/attendance", label: "Attendance",    Icon: Icons.Attendance, group: "workspace", shortcut: "⌘3" },
+  // ── Operations ─────────────────────────────────────────
+  { to: "/production", label: "Production",    Icon: Icons.Production, group: "ops",       shortcut: "⌘4" },
+  { to: "/qc",         label: "Quality Control", Icon: Icons.QC,       group: "ops" },
+  { to: "/inventory",  label: "Inventory",     Icon: Icons.Inventory,  group: "ops",       badgeTone: "amber" },
+  // ── Finance ────────────────────────────────────────────
+  { to: "/sales",      label: "Sales",         Icon: Icons.Sales,      group: "finance" },
+  { to: "/finance",    label: "Finance",        Icon: Icons.Finance,    group: "finance" },
+  { to: "/billing",    label: "Billing",        Icon: Icons.Billing,    group: "finance",   shortcut: "⌘5" },
+  { to: "/content",    label: "Budget",         Icon: Icons.Budget,     group: "finance" },
+  // ── People ─────────────────────────────────────────────
+  { to: "/employees",  label: "Employee & HR",  Icon: Icons.Employees,  group: "people" },
+  { to: "/directors",  label: "Directors",      Icon: Icons.Directors,  group: "people" },
+  { to: "/customers",  label: "Customers",      Icon: Icons.Customers,  group: "people" },
+  // ── Marketing & Comms ──────────────────────────────────
+  { to: "/marketing",  label: "Marketing",      Icon: Icons.Marketing,  group: "marketing" },
+  { to: "/messenger",  label: "Messenger",      Icon: Icons.Message,    group: "marketing" },
+  // ── System ─────────────────────────────────────────────
+  { to: "/admin",      label: "Admin",          Icon: Icons.Admin,      group: "system" },
 ];
 
 const GROUPS = [
-  { id: "main",  label: "Workspace" },
-  { id: "ops",   label: "Operations" },
-  { id: "sales", label: "Sales" },
-  { id: "biz",   label: "Business" },
+  { id: "workspace", label: "Workspace" },
+  { id: "ops",       label: "Operations" },
+  { id: "finance",   label: "Finance" },
+  { id: "people",    label: "People" },
+  { id: "marketing", label: "Marketing & Comms" },
+  { id: "system",    label: "System" },
 ];
 
 function routeKey(path) {
