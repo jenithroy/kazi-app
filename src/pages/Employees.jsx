@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  addDoc, collection, getDocs, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch
+  addDoc, collection, getDocs, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch,
+  query, where, setDoc
 } from "firebase/firestore";
 import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
@@ -18,6 +19,7 @@ const emptyForm = {
   joinDate: new Date().toISOString().slice(0, 10),
   basicSalaryNPR: "", location: "nepal", status: "Active",
   reportsTo: "", isProductionWorker: false,
+  appRole: "employee",
 };
 
 /* ── Org chart ───────────────────────────────────────── */
@@ -251,22 +253,20 @@ function Employees() {
 
     let rows = empSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    const validEmails = new Set(TEAM_MEMBERS.map(m => m.email.toLowerCase()));
     const batch = writeBatch(db);
     let batchHasOps = false;
 
-    // Group by email — keep first, delete duplicates and stale old entries
+    // Group by email — keep first, delete duplicates
     const seen = new Map();
     for (const row of rows) {
       const email = (row.email || "").toLowerCase();
-      if (!validEmails.has(email)) {
-        batch.delete(doc(db, "employees", row.id));
-        batchHasOps = true;
-      } else if (seen.has(email)) {
-        batch.delete(doc(db, "employees", row.id));
-        batchHasOps = true;
-      } else {
-        seen.set(email, row);
+      if (email) {
+        if (seen.has(email)) {
+          batch.delete(doc(db, "employees", row.id));
+          batchHasOps = true;
+        } else {
+          seen.set(email, row);
+        }
       }
     }
 
@@ -282,6 +282,7 @@ function Employees() {
           email: m.email, phone: "", address: "", panNumber: "",
           bankAccount: "", bankName: "", bankBranch: "", joinDate: new Date().toISOString().slice(0, 10),
           basicSalaryNPR: 0, location: m.location, status: "Active",
+          appRole: m.appRole || "employee",
           createdAt: serverTimestamp()
         });
         seedHasOps = true;
@@ -314,6 +315,37 @@ function Employees() {
     } else {
       await addDoc(collection(db, "employees"), { ...data, createdBy: profile?.name || "Unknown", createdAt: serverTimestamp() });
     }
+
+    // Sync user profile stub in users collection
+    if (data.email) {
+      try {
+        const userQuery = query(collection(db, "users"), where("email", "==", data.email.toLowerCase()));
+        const userSnap = await getDocs(userQuery);
+        if (!userSnap.empty) {
+          const userDocRef = doc(db, "users", userSnap.docs[0].id);
+          await updateDoc(userDocRef, {
+            name: data.name,
+            role: data.appRole || "employee",
+            jobRole: data.role,
+            location: data.location,
+          });
+        } else {
+          const stubId = data.email.toLowerCase().replace(/[^a-z0-9]/g, "_");
+          await setDoc(doc(db, "users", stubId), {
+            name: data.name,
+            role: data.appRole || "employee",
+            jobRole: data.role,
+            email: data.email,
+            location: data.location,
+            isStub: true,
+            permissions: {}
+          }, { merge: true });
+        }
+      } catch (err) {
+        console.warn("Failed to sync user profile stub:", err);
+      }
+    }
+
     setForm(emptyForm);
     setShowForm(false);
     await loadData();
@@ -331,6 +363,26 @@ function Employees() {
   async function toggleStatus(emp) {
     await updateDoc(doc(db, "employees", emp.id), { status: emp.status === "Active" ? "Inactive" : "Active" });
     await loadData();
+  }
+
+  async function handleDeleteEmployee(emp) {
+    if (!window.confirm(`Are you sure you want to delete employee ${emp.name}? This will also delete their system permissions/user record.`)) return;
+    try {
+      await deleteDoc(doc(db, "employees", emp.id));
+      if (emp.email) {
+        const userQuery = query(collection(db, "users"), where("email", "==", emp.email.toLowerCase()));
+        const userSnap = await getDocs(userQuery);
+        if (!userSnap.empty) {
+          for (const d of userSnap.docs) {
+            await deleteDoc(doc(db, "users", d.id));
+          }
+        }
+      }
+      await loadData();
+    } catch (err) {
+      console.error("Error deleting employee:", err);
+      alert("Failed to delete employee: " + err.message);
+    }
   }
 
   /* ── Payroll Handlers ── */
@@ -525,6 +577,15 @@ function Employees() {
                     <option>Inactive</option>
                   </select>
                 </label>
+                <label>
+                  System Role
+                  <select value={form.appRole || "employee"} onChange={e => setForm(f => ({ ...f, appRole: e.target.value }))}>
+                    <option value="employee">Employee (Read-Only)</option>
+                    <option value="nepal_staff">Nepal Staff (Stitchers/Workers)</option>
+                    <option value="nepal_admin">Nepal Admin (Factory Ops)</option>
+                    <option value="uk_admin">UK Admin (Director)</option>
+                  </select>
+                </label>
                 <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: 12 }}>
                   <input type="checkbox" checked={!!form.isProductionWorker}
                     onChange={e => setForm(f => ({ ...f, isProductionWorker: e.target.checked }))}
@@ -579,7 +640,14 @@ function Employees() {
                   {filtered.map(emp => (
                     <tr key={emp.id}>
                       <td style={{ fontWeight: 600 }}>{emp.name}</td>
-                      <td>{emp.role}</td>
+                      <td>
+                        <div>{emp.role}</div>
+                        {emp.appRole && (
+                          <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: 4, background: "var(--bg-2)", color: "var(--ink-3)", fontWeight: 600, display: "inline-block", marginTop: 4 }}>
+                            {emp.appRole === "nepal_admin" ? "Nepal Admin" : emp.appRole === "uk_admin" ? "UK Admin" : emp.appRole === "nepal_staff" ? "Nepal Staff" : "Employee"}
+                          </span>
+                        )}
+                      </td>
                       <td>{emp.department || "—"}</td>
                       <td>
                         <span style={{ textTransform: "capitalize", fontSize: "0.82rem" }}>{emp.location || "nepal"}</span>
@@ -612,6 +680,11 @@ function Employees() {
                               style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(230,81,0,0.35)" : "rgba(46,125,50,0.4)" }}
                               onClick={() => toggleStatus(emp)}>
                               {emp.status === "Active" ? "Deactivate" : "Activate"}
+                            </button>
+                            <button className="ghost-button"
+                              style={{ padding: "4px 10px", fontSize: "0.82rem", color: "var(--terra)", borderColor: "rgba(211,47,47,0.35)" }}
+                              onClick={() => handleDeleteEmployee(emp)}>
+                              Delete
                             </button>
                           </div>
                         </td>

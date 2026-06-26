@@ -44,7 +44,7 @@ function hueFromName(name = "") {
 }
 
 /* ── Add-card inline form ─────────────────────────── */
-function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers }) {
+function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers, assignees = [] }) {
   const [title, setTitle]           = useState("");
   const [assignee, setAssignee]     = useState(defaultAssignee || "");
   const [priority, setPriority]     = useState("med");
@@ -88,7 +88,7 @@ function AddCardForm({ columnLabel, onAdd, onCancel, defaultAssignee, customers 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
         <select value={assignee} onChange={e => setAssignee(e.target.value)} style={sel}>
           <option value="">Assignee…</option>
-          {TEAM_MEMBERS.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+          {(assignees.length > 0 ? assignees : TEAM_MEMBERS).map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
         </select>
         <select value={priority} onChange={e => setPriority(e.target.value)} style={sel}>
           <option value="high">High</option>
@@ -215,7 +215,7 @@ function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
 }
 
 /* ── Kanban column ────────────────────────────────── */
-function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onEdit, onDrop, onDeleteColumn, onColumnDrop, defaultAssignee, customers }) {
+function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onEdit, onDrop, onDeleteColumn, onColumnDrop, defaultAssignee, customers, assignees = [] }) {
   const [adding, setAdding]       = useState(false);
   const [dragOver, setDragOver]   = useState(false);
   const [colDragOver, setColDragOver] = useState(false);
@@ -272,6 +272,7 @@ function KanbanColumn({ col, tasks, allTasks, canEdit, onAdd, onDelete, onEdit, 
             columnLabel={col.label}
             defaultAssignee={defaultAssignee}
             customers={customers}
+            assignees={assignees}
             onAdd={data => { onAdd(data); setAdding(false); }}
             onCancel={() => setAdding(false)}
           />
@@ -347,7 +348,8 @@ function AddSectionPanel({ onAdd }) {
 }
 
 /* ── Assign-to filter bar ─────────────────────────── */
-function AssignFilter({ selected, onSelect, tasks }) {
+function AssignFilter({ selected, onSelect, tasks, assignees = [] }) {
+  const listToUse = assignees.length > 0 ? assignees : TEAM_MEMBERS;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Assign to:</span>
@@ -355,7 +357,7 @@ function AssignFilter({ selected, onSelect, tasks }) {
         onClick={() => onSelect(null)}
         style={{ padding: "5px 12px", borderRadius: "var(--r-pill)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)", background: !selected ? "var(--mint-deep)" : "var(--card)", color: !selected ? "#fff" : "var(--ink-3)", border: !selected ? "none" : "1px solid var(--line-strong)" }}
       >All</button>
-      {TEAM_MEMBERS.map(m => {
+      {listToUse.map(m => {
         const active = selected === m.name;
         const count = tasks.filter(t => t.assignee === m.name).length;
         return (
@@ -384,6 +386,7 @@ function Tasks() {
   const [columns,  setColumns]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [customers,    setCustomers]   = useState([]);
+  const [assignees, setAssignees] = useState([]);
   // Fix 4: assignee filter — "all" means no filter, otherwise a name string
   const [filterAssignee, setFilterAssignee] = useState("all");
   // Alias: keep legacy `filter` in sync with `filterAssignee` for visibleTasks/AssignFilter
@@ -432,8 +435,22 @@ function Tasks() {
     setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   }
 
+  async function loadAssignees() {
+    try {
+      const snap = await getDocs(collection(db, "employees"));
+      const list = snap.docs
+        .map(d => d.data())
+        .filter(emp => emp.status !== "Inactive" && emp.name)
+        .map(emp => ({ name: emp.name, email: emp.email || "" }));
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setAssignees(list);
+    } catch (err) {
+      console.error("Failed to load assignees:", err);
+    }
+  }
+
   useEffect(() => {
-    Promise.all([loadColumns(), loadTasks(), loadCustomers()]).then(() => setLoading(false)).catch(console.error);
+    Promise.all([loadColumns(), loadTasks(), loadCustomers(), loadAssignees()]).then(() => setLoading(false)).catch(console.error);
   }, []);
 
   const visibleTasks = useMemo(() => {
@@ -637,7 +654,7 @@ function Tasks() {
                 border: filterAssignee === "all" ? "none" : "1px solid var(--line-strong)",
               }}
             >All</button>
-            {TEAM_MEMBERS.map(m => {
+            {(assignees.length > 0 ? assignees : TEAM_MEMBERS).map(m => {
               const active = filterAssignee === m.name;
               const count = tasks.filter(t => t.assignee === m.name).length;
               return (
@@ -675,7 +692,7 @@ function Tasks() {
             {canEdit && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Assignee</div>
-                <AssignFilter selected={filter} onSelect={setFilter} tasks={tasks} />
+                <AssignFilter selected={filter} onSelect={setFilter} tasks={tasks} assignees={assignees} />
               </div>
             )}
 
@@ -749,6 +766,7 @@ function Tasks() {
                 canEdit={canEdit}
                 defaultAssignee={filter}
                 customers={customers}
+                assignees={assignees}
                 onAdd={handleAdd}
                 onDelete={handleDelete}
                 onEdit={handleOpenEdit}
@@ -792,7 +810,7 @@ function Tasks() {
               <label>Assign to
                 <select value={newForm.assignee} onChange={e => setNewForm(f => ({ ...f, assignee: e.target.value }))}>
                   <option value="">— Select —</option>
-                  {TEAM_MEMBERS.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                  {(assignees.length > 0 ? assignees : TEAM_MEMBERS).map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
                 </select>
               </label>
               <label>Priority
@@ -860,7 +878,7 @@ function Tasks() {
               <label>Assign to
                 <select value={editForm.assignee} onChange={e => setEditForm(f => ({ ...f, assignee: e.target.value }))}>
                   <option value="">— Select —</option>
-                  {TEAM_MEMBERS.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                  {(assignees.length > 0 ? assignees : TEAM_MEMBERS).map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
                 </select>
               </label>
               <label>Priority

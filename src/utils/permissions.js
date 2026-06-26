@@ -72,9 +72,9 @@ export function sectionCanEdit(profile, section) {
   }
   const hasPerm = perm === true || (typeof perm === "object" && perm !== null);
 
-  // uk_admin — read-only by default, but can edit tasks and library
+  // uk_admin — read-only by default, but can edit tasks, library, and employees
   if (role === "uk_admin") {
-    if (section === "tasks" || section === "library") return true;
+    if (section === "tasks" || section === "library" || section === "employees") return true;
     return hasPerm;
   }
   // nepal_admin — check granted permissions
@@ -94,7 +94,7 @@ export function sectionVisible(profile, sectionKey) {
   const role = appRole(profile);
   const NAV_BY_ROLE = {
     nepal_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","customers","messenger","library","sales"],
-    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger","library","sales"],
+    uk_admin:    ["dashboard","finance","production","billing","content","tasks","directors","customers","admin","messenger","library","sales","employees"],
     employee:    ["dashboard","tasks","attendance","library"],
     nepal_staff: ["dashboard","tasks","attendance","library","production","qc","inventory","content"],
     super_admin: ["dashboard","tasks","attendance","production","qc","inventory","finance","billing","content","employees","admin","directors","customers","messenger","library"],

@@ -90,9 +90,9 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /users/{id} {
-      allow create: if isSignedIn() && request.auth.uid == id;
-      allow update: if isSignedIn() && request.auth.uid == id;
-      allow delete: if false;
+      allow create: if isSignedIn() && (request.auth.uid == id || isSuperAdmin() || isUkAdmin() || isNepalAdmin() || hasPermission("employees"));
+      allow update: if isSignedIn() && (request.auth.uid == id || isSuperAdmin() || isUkAdmin() || isNepalAdmin() || hasPermission("employees"));
+      allow delete: if isSignedIn() && (isSuperAdmin() || isUkAdmin() || isNepalAdmin() || hasPermission("employees"));
     }
     match /finance_payroll/{id} {
       allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { TEAM_MEMBERS } from "../constants";
 import { DEFAULT_NEPAL_ADMIN_PERMISSIONS } from "../utils/permissions";
@@ -25,19 +25,42 @@ export function AuthProvider({ children }) {
       try {
         const profileRef = doc(db, "users", firebaseUser.uid);
 
+        // 1. Try to find in firestore employees collection first
+        let dbEmployee = null;
+        try {
+          const empQuery = query(
+            collection(db, "employees"),
+            where("email", "==", (firebaseUser.email || "").toLowerCase())
+          );
+          const empSnap = await getDocs(empQuery);
+          if (!empSnap.empty) {
+            dbEmployee = empSnap.docs[0].data();
+          }
+        } catch (err) {
+          console.warn("Failed to fetch employee record from firestore:", err);
+        }
+
         // Check if this email belongs to a known team member
         const teamMember = TEAM_MEMBERS.find(
           m => m.email.toLowerCase() === (firebaseUser.email || "").toLowerCase()
         );
 
-        if (teamMember) {
-          // Build profile from TEAM_MEMBERS — always available even if Firestore is unreachable
+        if (dbEmployee || teamMember) {
+          const name = dbEmployee?.name || teamMember?.name || firebaseUser.displayName || firebaseUser.email;
+          const status = dbEmployee?.status || "Active";
+          
+          // If status is Inactive, assign role "inactive", else resolve appRole
+          const role = status === "Inactive" ? "inactive" : (dbEmployee?.appRole || teamMember?.appRole || "employee");
+          const jobRole = dbEmployee?.role || teamMember?.role || "";
+          const location = dbEmployee?.location || teamMember?.location || "nepal";
+
+          // Build profile from DB/TEAM_MEMBERS
           const profileData = {
             uid:     firebaseUser.uid,
-            name:    teamMember.name,
-            role:    teamMember.appRole,   // "nepal_admin" / "uk_admin" / "employee"
-            jobRole: teamMember.role,      // job title e.g. "Operations Head"
-            location: teamMember.location,
+            name,
+            role,   // "nepal_admin" / "uk_admin" / "employee" / "inactive"
+            jobRole,      // job title e.g. "Operations Head"
+            location,
             email:   firebaseUser.email,
           };
 
@@ -49,7 +72,7 @@ export function AuthProvider({ children }) {
             const snap = await getDoc(profileRef);
             const data = snap.data();
 
-            if (teamMember.appRole === "nepal_admin") {
+            if (role === "nepal_admin") {
               if (!data?.permissions) {
                 await updateDoc(profileRef, { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS });
                 profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
@@ -75,7 +98,7 @@ export function AuthProvider({ children }) {
                 });
 
                 // Force production: true for Wilson, Anmol, Anusha
-                const nameLower = teamMember.name.toLowerCase();
+                const nameLower = name.toLowerCase();
                 if (["wilson", "anmol", "anusha"].includes(nameLower)) {
                   if (updatedPerms.production !== true) {
                     updatedPerms.production = true;
@@ -101,8 +124,8 @@ export function AuthProvider({ children }) {
             }
           } catch (syncErr) {
             console.warn("Firestore sync failed (rules may need deploying):", syncErr.message);
-            // App still works with local TEAM_MEMBERS data
-            if (teamMember.appRole === "nepal_admin") {
+            // App still works with local data
+            if (role === "nepal_admin") {
               profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
             }
           }
