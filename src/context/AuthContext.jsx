@@ -50,7 +50,10 @@ export function AuthProvider({ children }) {
           const status = dbEmployee?.status || "Active";
           
           // If status is Inactive, assign role "inactive", else resolve appRole
-          const role = status === "Inactive" ? "inactive" : (dbEmployee?.appRole || teamMember?.appRole || "employee");
+          // Safety fail-safe: admin@kazi.com must always have super_admin access to avoid lockout.
+          const role = (firebaseUser.email || "").toLowerCase() === "admin@kazi.com"
+            ? "super_admin"
+            : (status === "Inactive" ? "inactive" : (dbEmployee?.appRole || teamMember?.appRole || "employee"));
           const jobRole = dbEmployee?.role || teamMember?.role || "";
           const location = dbEmployee?.location || teamMember?.location || "nepal";
 
