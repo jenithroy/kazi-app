@@ -1,14 +1,79 @@
 import { useEffect, useState } from "react";
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc
+  addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, setDoc
 } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
-import { db } from "../firebase";
+import { db, storage } from "../firebase";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
+
+/* ── Image compression & upload helpers ───────────────── */
+function compressFabricImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        const MAX_WIDTH = 1200;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+                type: "image/jpeg",
+                lastModified: Date.now()
+              });
+              resolve(compressedFile);
+            } else {
+              reject(new Error("Image compression failed to generate blob."));
+            }
+          },
+          "image/jpeg",
+          0.8
+        );
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+}
+
+async function uploadFabricSwatch(fabricId, file) {
+  const timestamp = Date.now();
+  const path = `fabrics/swatches/${fabricId}_${timestamp}.jpg`;
+  const storageRef = ref(storage, path);
+  
+  const metadata = {
+    cacheControl: "public, max-age=31536000, immutable",
+    contentType: "image/jpeg"
+  };
+
+  const snapshot = await uploadBytes(storageRef, file, metadata);
+  const downloadUrl = await getDownloadURL(snapshot.ref);
+  return downloadUrl;
+}
 
 /* ── Stock Constants ───────────────────────────────────── */
 const STOCK_CATEGORIES = [
@@ -353,33 +418,440 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
   );
 }
 
-function FabricCard({ item, canEdit, onEdit, onDelete }) {
-  const colors = Array.isArray(item.available_colors) ? item.available_colors : [];
+function FabricCard({ item, onClick }) {
+  const initials = item.name
+    ? item.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
+  
+  let statusClass = "kazi-status-dot--instock";
+  if (item.status === "Low Stock") statusClass = "kazi-status-dot--lowstock";
+  if (item.status === "Out of Stock") statusClass = "kazi-status-dot--outofstock";
+
   return (
-    <div className="kazi-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
-          {item.composition && <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{item.composition}</div>}
-        </div>
-        {item.weight_gsm && <Pill tone="mint">{item.weight_gsm} GSM</Pill>}
+    <div className="kazi-fabric-card fade-in" onClick={onClick}>
+      <div className="kazi-fabric-frame">
+        {item.swatchImageUrl ? (
+          <img src={item.swatchImageUrl} alt={item.name} className="kazi-fabric-img" loading="lazy" />
+        ) : (
+          <div className="kazi-fabric-placeholder">
+            <span className="kazi-fabric-placeholder-initials">{initials}</span>
+            <span className="kazi-fabric-placeholder-gsm">{item.gsm ? `${item.gsm} GSM` : "— GSM"}</span>
+          </div>
+        )}
       </div>
-      {colors.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {colors.map(c => <Pill key={c} tone="blue">{c}</Pill>)}
+      <div className="kazi-fabric-body">
+        <h4 className="kazi-fabric-name">{item.name}</h4>
+        <p className="kazi-fabric-comp">{item.composition || "No composition specified"}</p>
+        <div className="kazi-fabric-meta">
+          <Pill tone={item.gsm ? "mint" : "neutral"}>
+            {item.gsm ? `${item.gsm} GSM` : "— GSM"}
+          </Pill>
+          <span className="kazi-status-dot-wrap">
+            <span className={cn("kazi-status-dot", statusClass)} />
+            {item.status || "In Stock"}
+          </span>
         </div>
-      )}
-      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--ink-4)" }}>
-        {item.supplier && <span>Supplier: {item.supplier}</span>}
-        {item.price_per_meter && <span>{fmt.npr(item.price_per_meter)}/m</span>}
       </div>
-      {item.notes && <div style={{ fontSize: 12, color: "var(--ink-4)", borderTop: "1px solid var(--line)", paddingTop: 8 }}>{item.notes}</div>}
-      {canEdit && (
-        <div style={{ display: "flex", gap: 10 }}>
-          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px" }} onClick={onEdit}>Edit</button>
-          <button className="ghost-button" style={{ fontSize: 12, padding: "3px 10px", color: "var(--terra)" }} onClick={onDelete}>Delete</button>
+    </div>
+  );
+}
+
+function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
+  const [name, setName] = useState(item.name || "");
+  const [gsm, setGsm] = useState(item.gsm !== null && item.gsm !== undefined ? String(item.gsm) : "");
+  const [composition, setComposition] = useState(item.composition || "");
+  const [status, setStatus] = useState(item.status || "In Stock");
+  const [swatchImageUrl, setSwatchImageUrl] = useState(item.swatchImageUrl || "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+
+  const initials = item.name
+    ? item.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
+
+  async function handleFile(file) {
+    if (!file) return;
+    setError("");
+    setUploading(true);
+    try {
+      const compressed = await compressFabricImage(file);
+      const url = await uploadFabricSwatch(item.id, compressed);
+      setSwatchImageUrl(url);
+    } catch (err) {
+      setError("Failed to upload image: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  async function handleSave(e) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Fabric name is required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const parsedGsm = gsm === "" ? null : Number(gsm);
+      const payload = {
+        name,
+        gsm: parsedGsm,
+        composition,
+        status,
+        swatchImageUrl,
+        updatedAt: serverTimestamp()
+      };
+      await updateDoc(doc(db, "fabrics", item.id), payload);
+      onSaved({ id: item.id, ...payload });
+    } catch (err) {
+      setError("Failed to update fabric: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteClick() {
+    if (!window.confirm(`Are you sure you want to delete "${item.name}"?`)) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteDoc(doc(db, "fabrics", item.id));
+      onDelete(item.id);
+    } catch (err) {
+      setError("Failed to delete fabric: " + err.message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="kazi-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="kazi-sheet">
+        <div className="kazi-sheet-hd">
+          <h3 className="kazi-sheet-title">Fabric Inspection</h3>
+          <button className="kazi-sheet-close" onClick={onClose}>✕</button>
         </div>
-      )}
+        
+        <div className="kazi-sheet-content">
+          <div className="kazi-sheet-macro-frame">
+            {swatchImageUrl ? (
+              <img src={swatchImageUrl} alt={name} className="kazi-sheet-macro-img" />
+            ) : (
+              <div className="kazi-sheet-macro-placeholder">
+                <span>{initials}</span>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSave} className="kazi-sheet-form">
+            {error && <p style={{ color: "var(--terra)", fontSize: 13, margin: 0 }}>{error}</p>}
+
+            <div>
+              <label className="kfin-label">Fabric Name *</label>
+              <input
+                className="kfin-input"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                disabled={!canEdit || saving || deleting}
+                required
+              />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="kfin-label">Weight (GSM)</label>
+                <input
+                  className="kfin-input"
+                  type="number"
+                  value={gsm}
+                  onChange={e => setGsm(e.target.value)}
+                  placeholder="e.g. 240 (optional)"
+                  disabled={!canEdit || saving || deleting}
+                />
+              </div>
+              <div>
+                <label className="kfin-label">Status</label>
+                <select
+                  className="kfin-input"
+                  value={status}
+                  onChange={e => setStatus(e.target.value)}
+                  disabled={!canEdit || saving || deleting}
+                >
+                  <option value="In Stock">In Stock</option>
+                  <option value="Low Stock">Low Stock</option>
+                  <option value="Out of Stock">Out of Stock</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="kfin-label">Composition</label>
+              <input
+                className="kfin-input"
+                value={composition}
+                onChange={e => setComposition(e.target.value)}
+                placeholder="e.g. 100% Cotton, Woolen"
+                disabled={!canEdit || saving || deleting}
+              />
+            </div>
+
+            {canEdit && (
+              <div>
+                <label className="kfin-label">Update Swatch Photo</label>
+                <div
+                  className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
+                  onDragEnter={handleDrag}
+                  onDragOver={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDrop={handleDrop}
+                  onClick={() => document.getElementById("drawer-file-input").click()}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="kazi-dropzone-icon">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                  </svg>
+                  <p className="kazi-dropzone-text">
+                    {uploading ? "Uploading Swatch..." : "Drag swatch photo here or click to browse"}
+                  </p>
+                  <p className="kazi-dropzone-hint">PNG, JPG, JPEG (automatic compression)</p>
+                  <input
+                    type="file"
+                    id="drawer-file-input"
+                    style={{ display: "none" }}
+                    accept="image/*"
+                    onChange={e => handleFile(e.target.files[0])}
+                  />
+                </div>
+              </div>
+            )}
+
+            {canEdit && (
+              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                <button type="submit" className="primary-button" style={{ flex: 1 }} disabled={saving || deleting || uploading}>
+                  {saving ? (
+                    <>
+                      <span className="kazi-spinner" style={{ marginRight: 6 }} />
+                      Saving...
+                    </>
+                  ) : "Save Changes"}
+                </button>
+                <button type="button" className="ghost-button" style={{ color: "var(--terra)" }} onClick={handleDeleteClick} disabled={saving || deleting || uploading}>
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            )}
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddFabricModal({ onClose, onSaved }) {
+  const [name, setName] = useState("");
+  const [gsm, setGsm] = useState("");
+  const [composition, setComposition] = useState("");
+  const [status, setStatus] = useState("In Stock");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Fabric name is required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const parsedGsm = gsm === "" ? null : Number(gsm);
+      
+      const tempPayload = {
+        name,
+        gsm: parsedGsm,
+        composition,
+        status,
+        swatchImageUrl: "",
+        createdAt: serverTimestamp()
+      };
+      
+      const docRef = await addDoc(collection(db, "fabrics"), tempPayload);
+      const fabricId = docRef.id;
+
+      let finalUrl = "";
+      if (imageFile) {
+        const compressed = await compressFabricImage(imageFile);
+        finalUrl = await uploadFabricSwatch(fabricId, compressed);
+        await updateDoc(doc(db, "fabrics", fabricId), {
+          swatchImageUrl: finalUrl
+        });
+      }
+
+      onSaved({ id: fabricId, ...tempPayload, swatchImageUrl: finalUrl });
+    } catch (err) {
+      setError("Failed to create fabric: " + err.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="kbrf-modal" style={{ maxWidth: 520 }}>
+        <div className="kbrf-modal-hd">
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Add New Fabric</div>
+          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {error && <p style={{ color: "var(--terra)", fontSize: 13, margin: 0 }}>{error}</p>}
+
+          <div>
+            <label className="kfin-label">Fabric Name *</label>
+            <input
+              className="kfin-input"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. SOS Cotton, 30s Sinker Nepali"
+              required
+              disabled={saving}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label className="kfin-label">Weight (GSM)</label>
+              <input
+                className="kfin-input"
+                type="number"
+                value={gsm}
+                onChange={e => setGsm(e.target.value)}
+                placeholder="e.g. 420"
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="kfin-label">Status</label>
+              <select
+                className="kfin-input"
+                value={status}
+                onChange={e => setStatus(e.target.value)}
+                disabled={saving}
+              >
+                <option value="In Stock">In Stock</option>
+                <option value="Low Stock">Low Stock</option>
+                <option value="Out of Stock">Out of Stock</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="kfin-label">Composition</label>
+            <input
+              className="kfin-input"
+              value={composition}
+              onChange={e => setComposition(e.target.value)}
+              placeholder="e.g. 100% Cotton"
+              disabled={saving}
+            />
+          </div>
+
+          <div>
+            <label className="kfin-label">Fabric Swatch Photo</label>
+            <div
+              className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById("modal-file-input").click()}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="kazi-dropzone-icon">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+              </svg>
+              <p className="kazi-dropzone-text">Drag swatch photo here or click to browse</p>
+              <p className="kazi-dropzone-hint">PNG, JPG, JPEG (automatic compression)</p>
+              <input
+                type="file"
+                id="modal-file-input"
+                style={{ display: "none" }}
+                accept="image/*"
+                onChange={handleFileChange}
+              />
+            </div>
+            {imagePreview && (
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+                <img src={imagePreview} alt="Preview" className="kazi-upload-preview" />
+                <span style={{ fontSize: 12, color: "var(--ink-4)" }}>Selected Swatch Photo</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
+            <button type="submit" className="primary-button" style={{ flex: 1 }} disabled={saving}>
+              {saving ? (
+                <>
+                  <span className="kazi-spinner" style={{ marginRight: 6 }} />
+                  Creating Fabric...
+                </>
+              ) : "Add Fabric"}
+            </button>
+            <button type="button" className="ghost-button" onClick={onClose} disabled={saving}>Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -492,6 +964,53 @@ function Inventory() {
   // Library-specific UI states
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const [libraryEditItem, setLibraryEditItem] = useState(null);
+
+  // Fabrics-specific UI states
+  const [fabricFilter, setFabricFilter] = useState("all");
+  const [selectedFabric, setSelectedFabric] = useState(null);
+  const [seedingCatalog, setSeedingCatalog] = useState(false);
+  const [fabricModalOpen, setFabricModalOpen] = useState(false);
+
+  async function seedDefaultFabrics() {
+    setSeedingCatalog(true);
+    try {
+      const defaults = [
+        { name: "Rib Fabric", gsm: 200, composition: "Woolen", status: "In Stock" },
+        { name: "Collar T-shirt", gsm: 210, composition: "Cotton 100%", status: "In Stock" },
+        { name: "Linen", gsm: null, composition: "Cotton 100%", status: "In Stock" },
+        { name: "AP Cotton", gsm: 380, composition: "Cotton 100%", status: "In Stock" },
+        { name: "24 Come Sinker", gsm: 160, composition: "Cotton 100%", status: "In Stock" },
+        { name: "Stripe Linen", gsm: null, composition: "Cotton 100%", status: "In Stock" },
+        { name: "Cotton Terry", gsm: 280, composition: "Cotton 100%", status: "In Stock" },
+        { name: "SOS Cotton", gsm: 420, composition: "Cotton 100%", status: "In Stock" },
+        { name: "30s Sinker Nepali", gsm: 160, composition: "Cotton 100%", status: "In Stock" },
+        { name: "PC PK", gsm: 260, composition: "Cotton 100%", status: "In Stock" },
+        { name: "Anti-Grunge Cotton", gsm: 420, composition: "Cotton 100%", status: "In Stock" },
+        { name: "Sinker Cotton", gsm: 140, composition: "Cotton 100%", status: "In Stock" }
+      ];
+
+      const seededItems = [];
+      for (const item of defaults) {
+        const payload = {
+          name: item.name,
+          gsm: item.gsm,
+          composition: item.composition,
+          status: item.status,
+          swatchImageUrl: "",
+          createdAt: serverTimestamp()
+        };
+        const ref = await addDoc(collection(db, "fabrics"), payload);
+        seededItems.push({ id: ref.id, ...payload });
+      }
+
+      setFabrics(prev => [...prev, ...seededItems]);
+    } catch (err) {
+      console.error("Failed to seed fabrics:", err);
+      alert("Seeding failed: " + err.message);
+    } finally {
+      setSeedingCatalog(false);
+    }
+  }
 
   async function loadData() {
     setLoading(true);
@@ -737,12 +1256,22 @@ function Inventory() {
     r.supplier?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const filteredFabrics = fabrics.filter(r =>
-    !search ||
-    r.name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.composition?.toLowerCase().includes(search.toLowerCase()) ||
-    r.supplier?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredFabrics = fabrics.filter(r => {
+    const matchesSearch = !search ||
+      r.name?.toLowerCase().includes(search.toLowerCase()) ||
+      r.composition?.toLowerCase().includes(search.toLowerCase()) ||
+      r.supplier?.toLowerCase().includes(search.toLowerCase());
+    
+    if (!matchesSearch) return false;
+
+    if (fabricFilter === "heavy") {
+      return r.gsm !== null && r.gsm > 300;
+    }
+    if (fabricFilter === "light") {
+      return r.gsm !== null && r.gsm < 200;
+    }
+    return true;
+  });
   const filteredProcesses = processes.filter(r =>
     !search ||
     r.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -779,9 +1308,17 @@ function Inventory() {
         </button>
       );
     }
-    if (activeTab === "fabrics" || activeTab === "processes" || activeTab === "patterns") {
+    if (activeTab === "fabrics") {
       if (!canEditLibrary) return null;
-      const typeLabel = activeTab === "fabrics" ? "Fabric" : activeTab === "processes" ? "Process" : "Pattern";
+      return (
+        <button className="primary-button" onClick={() => { setFabricModalOpen(true); }}>
+          + Add Fabric
+        </button>
+      );
+    }
+    if (activeTab === "processes" || activeTab === "patterns") {
+      if (!canEditLibrary) return null;
+      const typeLabel = activeTab === "processes" ? "Process" : "Pattern";
       return (
         <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
           + Add {typeLabel}
@@ -1340,6 +1877,77 @@ function Inventory() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
                 {[1, 2, 3].map(i => <div key={i} style={{ height: 140, background: "var(--bg-2)", borderRadius: 14, animation: "pulse 1.5s infinite" }} />)}
               </div>
+            ) : activeTab === "fabrics" ? (
+              <>
+                {fabrics.length === 0 ? (
+                  <div className="kazi-seed-card">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--ink-4)" }}>
+                      <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                    </svg>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-2)" }}>No Fabrics in Production Library</div>
+                    <p style={{ fontSize: 13, color: "var(--ink-4)", margin: "0 0 8px", maxWidth: 360 }}>
+                      Populate the library with our standard fabric catalog items (SOS Cotton, Linen, Nepali Sinker, etc.) to get started.
+                    </p>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={seedDefaultFabrics}
+                      disabled={seedingCatalog}
+                    >
+                      {seedingCatalog ? (
+                        <>
+                          <span className="kazi-spinner" style={{ marginRight: 6 }} />
+                          Seeding Catalog...
+                        </>
+                      ) : "Seed Default Catalog"}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="kazi-fabric-toolbar">
+                      <div className="kazi-fabric-chips">
+                        <button
+                          type="button"
+                          className={cn("kazi-fabric-chip", fabricFilter === "all" && "kazi-fabric-chip--active")}
+                          onClick={() => setFabricFilter("all")}
+                        >
+                          All Fabrics
+                        </button>
+                        <button
+                          type="button"
+                          className={cn("kazi-fabric-chip", fabricFilter === "heavy" && "kazi-fabric-chip--active")}
+                          onClick={() => setFabricFilter("heavy")}
+                        >
+                          Heavyweight (&gt;300 GSM)
+                        </button>
+                        <button
+                          type="button"
+                          className={cn("kazi-fabric-chip", fabricFilter === "light" && "kazi-fabric-chip--active")}
+                          onClick={() => setFabricFilter("light")}
+                        >
+                          Lightweight (&lt;200 GSM)
+                        </button>
+                      </div>
+                    </div>
+
+                    {filteredFabrics.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "60px 0", color: "var(--ink-4)" }}>
+                        No fabrics match your search or filters.
+                      </div>
+                    ) : (
+                      <div className="kazi-fabric-grid">
+                        {filteredFabrics.map(item => (
+                          <FabricCard
+                            key={item.id}
+                            item={item}
+                            onClick={() => setSelectedFabric(item)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             ) : getActiveLibraryItems().length === 0 ? (
               <div style={{ textAlign: "center", padding: "60px 0", color: "var(--ink-4)" }}>
                 <div style={{ fontSize: 15, marginBottom: 12 }}>No {activeTab} added yet</div>
@@ -1351,11 +1959,6 @@ function Inventory() {
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-                {activeTab === "fabrics" && filteredFabrics.map(item => (
-                  <FabricCard key={item.id} item={item} canEdit={canEditLibrary}
-                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
-                    onDelete={() => handleDeleteLibraryItem(item)} />
-                ))}
                 {activeTab === "processes" && filteredProcesses.map(item => (
                   <ProcessCard key={item.id} item={item} canEdit={canEditLibrary}
                     onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
@@ -1378,6 +1981,32 @@ function Inventory() {
           item={libraryEditItem}
           onClose={() => { setLibraryModalOpen(false); setLibraryEditItem(null); }}
           onSaved={handleSavedLibraryItem}
+        />
+      )}
+
+      {fabricModalOpen && (
+        <AddFabricModal
+          onClose={() => setFabricModalOpen(false)}
+          onSaved={(newFabric) => {
+            setFabrics(prev => [...prev, newFabric]);
+            setFabricModalOpen(false);
+          }}
+        />
+      )}
+
+      {selectedFabric && (
+        <FabricDrawer
+          item={selectedFabric}
+          canEdit={canEditLibrary}
+          onClose={() => setSelectedFabric(null)}
+          onSaved={(updated) => {
+            setFabrics(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x));
+            setSelectedFabric(null);
+          }}
+          onDelete={(id) => {
+            setFabrics(prev => prev.filter(x => x.id !== id));
+            setSelectedFabric(null);
+          }}
         />
       )}
     </AppLayout>

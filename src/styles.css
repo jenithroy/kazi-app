@@ -3544,4 +3544,396 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   background-color: rgba(15, 46, 34, 0.01);
 }
 
+/* ─────────────────────────────────────────────────────────────
+   MATERIALS & FABRICS VIEW STYLES
+   ───────────────────────────────────────────────────────────── */
+
+/* Fabrics layout toolbar / filter bar */
+.kazi-fabric-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.kazi-fabric-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kazi-fabric-chip {
+  padding: 6px 12px;
+  border-radius: var(--r-pill, 999px);
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kazi-fabric-chip:hover {
+  background: rgba(15, 46, 34, 0.04);
+  color: var(--ink-2);
+}
+
+.kazi-fabric-chip--active {
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+  border-color: var(--mint-2);
+  font-weight: 600;
+}
+
+/* Fabrics Grid */
+.kazi-fabric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+  padding: 4px 0 20px;
+}
+
+/* Fabric Card */
+.kazi-fabric-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card, 14px);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.kazi-fabric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--line-strong);
+}
+
+/* Square Swatch Frame */
+.kazi-fabric-frame {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-2);
+  position: relative;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kazi-fabric-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.kazi-fabric-card:hover .kazi-fabric-img {
+  transform: scale(1.03);
+}
+
+/* Geometric Placeholder */
+.kazi-fabric-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--mint-soft) 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+}
+
+.kazi-fabric-placeholder::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 8px solid rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+.kazi-fabric-placeholder-initials {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mint-deep);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.kazi-fabric-placeholder-gsm {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-4);
+  background: #ffffff;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-1);
+}
+
+/* Card Body */
+.kazi-fabric-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.kazi-fabric-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.kazi-fabric-comp {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.kazi-fabric-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* Status dots */
+.kazi-status-dot-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.kazi-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.kazi-status-dot--instock {
+  background: var(--mint-2);
+  box-shadow: 0 0 0 2px var(--mint-soft);
+}
+
+.kazi-status-dot--lowstock {
+  background: var(--amber);
+  box-shadow: 0 0 0 2px var(--amber-soft);
+}
+
+.kazi-status-dot--outofstock {
+  background: var(--terra);
+  box-shadow: 0 0 0 2px var(--terra-soft);
+}
+
+/* Slide-out Sheet (Drawer) Overlay */
+.kazi-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 28, 20, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  animation: fadein 0.2s ease-out;
+}
+
+.kazi-sheet {
+  width: 100%;
+  max-width: 480px;
+  height: 100%;
+  background: var(--card);
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.kazi-sheet-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.kazi-sheet-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.kazi-sheet-close {
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  color: var(--ink-4);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.kazi-sheet-close:hover {
+  background: var(--bg-2);
+  color: var(--ink-2);
+}
+
+.kazi-sheet-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Macro swatch frame in Drawer */
+.kazi-sheet-macro-frame {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: var(--bg-2);
+  position: relative;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.kazi-sheet-macro-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.25); /* Magnified for detail view */
+  transform-origin: center;
+}
+
+.kazi-sheet-macro-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--mint-soft) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kazi-sheet-macro-placeholder span {
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--mint-deep);
+  letter-spacing: -0.02em;
+}
+
+.kazi-sheet-form {
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Drag and Drop Swatch Dropzone */
+.kazi-dropzone {
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--r-card, 10px);
+  padding: 24px 16px;
+  text-align: center;
+  background: rgba(15, 46, 34, 0.01);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.kazi-dropzone:hover, .kazi-dropzone--active {
+  border-color: var(--mint-2);
+  background: var(--mint-soft);
+}
+
+.kazi-dropzone-icon {
+  color: var(--ink-4);
+  margin-bottom: 4px;
+}
+
+.kazi-dropzone--active .kazi-dropzone-icon {
+  color: var(--mint-deep);
+}
+
+.kazi-dropzone-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.kazi-dropzone-hint {
+  font-size: 11px;
+  color: var(--ink-4);
+  margin: 0;
+}
+
+/* Upload Preview */
+.kazi-upload-preview {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--r-input);
+  object-fit: cover;
+  border: 1px solid var(--line-strong);
+  margin-top: 8px;
+}
+
+/* Spinner */
+.kazi-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.kazi-spinner--dark {
+  border-color: rgba(15, 46, 34, 0.2);
+  border-top-color: var(--mint-deep);
+}
+
+/* Catalog Seed Card */
+.kazi-seed-card {
+  grid-column: 1 / -1;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--r-card, 14px);
+  padding: 32px 24px;
+  text-align: center;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--ink-3);
+}
+
 
