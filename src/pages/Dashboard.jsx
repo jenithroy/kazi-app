@@ -614,18 +614,22 @@ function NepalAdminDash() {
         attendance, production: prodRows, qc_logs: qcLogs, inventory,
         tasks, budget_requests: budgetRequests, orders, finance_expenses: expenses, users,
         order_costs: orderCosts, invoices,
+        finance_payroll, finance_purchases, employees
       } = await loadCollections({
-        attendance:       "attendance",
-        production:       "production",
-        qc_logs:          "qc_logs",
-        inventory:        "inventory",
-        tasks:            "tasks",
-        budget_requests:  "budget_requests",
-        orders:           "orders",
-        finance_expenses: "finance_expenses",
-        users:            "users",
-        order_costs:      "order_costs",
-        invoices:         "invoices",
+        attendance:        "attendance",
+        production:        "production",
+        qc_logs:           "qc_logs",
+        inventory:         "inventory",
+        tasks:             "tasks",
+        budget_requests:   "budget_requests",
+        orders:            "orders",
+        finance_expenses:  "finance_expenses",
+        users:             "users",
+        order_costs:       "order_costs",
+        invoices:          "invoices",
+        finance_payroll:   "finance_payroll",
+        finance_purchases: "finance_purchases",
+        employees:         "employees"
       });
 
       const todayAtt = attendance.filter(r => r.date === today);
@@ -675,7 +679,27 @@ function NepalAdminDash() {
       const activeOrders = orders.filter(o => o.status === "Active");
 
       const thisMonth = new Date().toISOString().slice(0, 7);
-      const monthExpNPR = expenses.filter(e => (e.date || "").slice(0, 7) === thisMonth).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
+      const monthExpOnlyNPR = expenses.filter(e => (e.date || "").slice(0, 7) === thisMonth).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
+      const monthPurchNPR = finance_purchases.filter(p => (p.date || "").slice(0, 7) === thisMonth).reduce((s, p) => s + Number(p.amountNPR || p.amount || 0), 0);
+      
+      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const curMonthName = MONTH_NAMES[new Date().getMonth()];
+      const curYear = new Date().getFullYear();
+      let payrollRecs = finance_payroll.filter(p => p.month === curMonthName && Number(p.year) === curYear);
+      let payrollIsEstimate = false;
+      if (payrollRecs.length === 0) {
+        const lastDate = new Date(); lastDate.setDate(1); lastDate.setMonth(lastDate.getMonth() - 1);
+        const lastMName = MONTH_NAMES[lastDate.getMonth()];
+        payrollRecs = finance_payroll.filter(p => p.month === lastMName && Number(p.year) === lastDate.getFullYear());
+      }
+      if (payrollRecs.length === 0) {
+        payrollIsEstimate = true;
+      }
+      const monthPayrollNPR = payrollIsEstimate
+        ? employees.filter(e => e.status === "Active").reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0)
+        : payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
+
+      const monthExpNPR = monthExpOnlyNPR + monthPurchNPR + monthPayrollNPR;
 
       // Real weekly expense trend (last 7 weeks)
       const weeklyExpTrend = Array.from({ length: 7 }, (_, i) => {
@@ -736,6 +760,7 @@ function NepalAdminDash() {
         weeklyExpTrend, weeklyExpLabels, thisMonthRevNPR, totalRevNPR, totalCostNPR, totalProfitNPR, avgMargin,
         recentBatches, attTrend, salesTarget, kpiAssignees, totalDone, totalTarget,
         overdueInvoices, overdueInvoiceTotalNPR, overdueTasks, lowInventoryCount, activeOrdersRow,
+        monthPayrollNPR, monthPurchNPR, payrollIsEstimate
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
@@ -947,6 +972,9 @@ function NepalAdminDash() {
                   <div>
                     <div className="kna-fin-l">This month expenses</div>
                     <div className="num-xl" style={{ fontSize: 24, color: "var(--terra)" }}>{fmtC(data.monthExpNPR)}</div>
+                    <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 4, lineHeight: 1.3 }}>
+                      Payroll: {fmtC(data.monthPayrollNPR)}{data.payrollIsEstimate ? " (est.)" : ""} · Purchases: {fmtC(data.monthPurchNPR)}
+                    </div>
                   </div>
                   <div>
                     <div className="kna-fin-l">Overall margin</div>
