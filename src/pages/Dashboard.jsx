@@ -231,7 +231,7 @@ function ActiveOrdersRow({ orders = [] }) {
       action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/production'}>View all</Btn>}>
       <div className="kactive-orders">
         <div className="kactive-orders-hd">
-          <span>Order ref</span>
+          <span>Order / Style</span>
           <span>Customer</span>
           <span>Stage</span>
           <span>Due date</span>
@@ -242,8 +242,11 @@ function ActiveOrdersRow({ orders = [] }) {
           const assignment = assignments[o.id];
           return (
             <div key={o.id} className="kactive-order-row" onClick={() => window.location.href='/production'}>
-              <span className="mono kactive-order-ref">{o.orderNumber || o.id?.slice(-8) || "—"}</span>
-              <span className="kactive-order-client">{o.clientName || o.customer || "—"}</span>
+              <span className="kactive-order-ref" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontWeight: 600, color: "var(--ink)" }}>{o.styleName || "—"}</span>
+                <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>{o.orderId || o.id?.slice(-8) || "—"}</span>
+              </span>
+              <span className="kactive-order-client">{o.customerName || o.clientName || o.customer || "—"}</span>
               <span><Pill tone={stageTone(o.stage || o.status)}>{o.stage || o.status || "—"}</Pill></span>
               <span className="kactive-order-due" style={{ color: isOverdue ? "var(--terra)" : undefined }}>
                 {o.dueDate ? o.dueDate : "—"}

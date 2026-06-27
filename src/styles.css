@@ -504,13 +504,13 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: flex; flex-direction: column; gap: 2px;
 }
 .kactive-orders-hd {
-  display: grid; grid-template-columns: 100px 1fr 130px 110px;
+  display: grid; grid-template-columns: 150px 1fr 130px 90px 140px;
   gap: 12px; padding: 4px 8px 8px;
   font-size: 10.5px; font-weight: 600; color: var(--ink-4);
   letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--line);
 }
 .kactive-order-row {
-  display: grid; grid-template-columns: 100px 1fr 130px 110px;
+  display: grid; grid-template-columns: 150px 1fr 130px 90px 140px;
   gap: 12px; padding: 8px 8px; border-radius: 6px; align-items: center; cursor: pointer;
   transition: background .12s;
 }
@@ -3219,6 +3219,16 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   }
   .kazi-sheet {
     max-width: 100%;
+  }
+
+  /* ── Active Orders Row (max-width: 768px) ── */
+  .kactive-orders {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kactive-orders-hd,
+  .kactive-order-row {
+    min-width: 620px;
   }
 }
 
