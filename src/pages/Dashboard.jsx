@@ -602,6 +602,7 @@ function NepalAdminDash() {
   const { profile } = useAuth();
   const [data, setData]       = useState(null);
   const [loadErr, setLoadErr] = useState(null);
+  const [trigger, setTrigger] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -686,15 +687,7 @@ function NepalAdminDash() {
       const curMonthName = MONTH_NAMES[new Date().getMonth()];
       const curYear = new Date().getFullYear();
       let payrollRecs = finance_payroll.filter(p => p.month === curMonthName && Number(p.year) === curYear);
-      let payrollIsEstimate = false;
-      if (payrollRecs.length === 0) {
-        const lastDate = new Date(); lastDate.setDate(1); lastDate.setMonth(lastDate.getMonth() - 1);
-        const lastMName = MONTH_NAMES[lastDate.getMonth()];
-        payrollRecs = finance_payroll.filter(p => p.month === lastMName && Number(p.year) === lastDate.getFullYear());
-      }
-      if (payrollRecs.length === 0) {
-        payrollIsEstimate = true;
-      }
+      const payrollIsEstimate = payrollRecs.length === 0;
       const monthPayrollNPR = payrollIsEstimate
         ? employees.filter(e => e.status === "Active").reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0)
         : payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
@@ -764,15 +757,24 @@ function NepalAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
-  }, []);
+  }, [trigger]);
 
-  // Live listener — sales target updates the moment any invoice is created/updated
+  // Live listeners to trigger reload on database changes
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "invoices"), (snap) => {
-      const invoices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setData(prev => prev ? { ...prev, salesTarget: getSalesTargetInfo(invoices) } : prev);
-    });
-    return () => unsub();
+    const unsubPayroll = onSnapshot(collection(db, "finance_payroll"), () => setTrigger(t => t + 1));
+    const unsubExpenses = onSnapshot(collection(db, "finance_expenses"), () => setTrigger(t => t + 1));
+    const unsubPurchases = onSnapshot(collection(db, "finance_purchases"), () => setTrigger(t => t + 1));
+    const unsubEmployees = onSnapshot(collection(db, "employees"), () => setTrigger(t => t + 1));
+    const unsubOrders = onSnapshot(collection(db, "orders"), () => setTrigger(t => t + 1));
+    const unsubInvoices = onSnapshot(collection(db, "invoices"), () => setTrigger(t => t + 1));
+    return () => {
+      unsubPayroll();
+      unsubExpenses();
+      unsubPurchases();
+      unsubEmployees();
+      unsubOrders();
+      unsubInvoices();
+    };
   }, []);
 
   const { fmt: fmtC } = useCurrency();
@@ -1079,6 +1081,7 @@ function NepalAdminDash() {
 function UKAdminDash() {
   const { profile } = useAuth();
   const [data, setData] = useState(null);
+  const [trigger, setTrigger] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -1125,22 +1128,13 @@ function UKAdminDash() {
       const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
 
-      // Payroll — current month first, last month fallback, then employee base salaries
+      // Payroll — current month first, then employee base salaries as estimate
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
       const payrollData = payrollSnap.map(d => d.data());
       const curMonthName = MONTH_NAMES[new Date().getMonth()];
       const curYear = new Date().getFullYear();
       let payrollRecs = payrollData.filter(p => p.month === curMonthName && Number(p.year) === curYear);
-      let payrollIsEstimate = false;
-      if (payrollRecs.length === 0) {
-        const lastDate = new Date(); lastDate.setDate(1); lastDate.setMonth(lastDate.getMonth() - 1);
-        const lastMName = MONTH_NAMES[lastDate.getMonth()];
-        payrollRecs = payrollData.filter(p => p.month === lastMName && Number(p.year) === lastDate.getFullYear());
-      }
-      // If still no records, estimate from employee base salaries
-      if (payrollRecs.length === 0) {
-        payrollIsEstimate = true;
-      }
+      const payrollIsEstimate = payrollRecs.length === 0;
 
       // Estimated profit from order_costs
       const orderCostsData = costsSnap.map(d => d.data());
@@ -1208,23 +1202,20 @@ function UKAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setData({}); });
-  }, []);
+  }, [trigger]);
 
-  // Live invoice listener — updates revenue MTD, outstanding, and sales target instantly
+  // Live listeners to trigger reload on database changes
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "invoices"), (snap) => {
-      const invoices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const tm = new Date().toISOString().slice(0, 7);
-      const lm = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
-      let paid = invoices.filter(i => i.status === "Paid" && (i.date||"").slice(0,7) === tm);
-      if (paid.length === 0) paid = invoices.filter(i => i.status === "Paid" && (i.date||"").slice(0,7) === lm);
-      const totalPaidNPR = paid.reduce((s, i) => s + Number(i.totalNPR || 0), 0);
-      const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
-      const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
-      const salesTarget = getSalesTargetInfo(invoices);
-      setData(prev => prev ? { ...prev, totalPaidNPR, outstandingNPR, overdueNPR, salesTarget } : prev);
-    });
-    return () => unsub();
+    const unsubPayroll = onSnapshot(collection(db, "finance_payroll"), () => setTrigger(t => t + 1));
+    const unsubInvoices = onSnapshot(collection(db, "invoices"), () => setTrigger(t => t + 1));
+    const unsubOrders = onSnapshot(collection(db, "orders"), () => setTrigger(t => t + 1));
+    const unsubEmployees = onSnapshot(collection(db, "employees"), () => setTrigger(t => t + 1));
+    return () => {
+      unsubPayroll();
+      unsubInvoices();
+      unsubOrders();
+      unsubEmployees();
+    };
   }, []);
 
   const { fmt: fmtC } = useCurrency();
