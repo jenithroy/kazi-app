@@ -3156,6 +3156,70 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 
   /* ── FX popup ── */
   .kbil-fx-pop { width: calc(100vw - 40px); max-width: 320px; left: auto; right: 0; }
+
+  /* ── Production Calendar & Timeline (max-width: 768px) ── */
+  .kcal-filters-ribbon {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+  .kcal-filters-left {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .kcal-input {
+    width: 100%;
+    min-width: 0 !important;
+  }
+  .kcal-view-toggles {
+    align-self: stretch;
+    justify-content: stretch;
+  }
+  .kcal-toggle-btn {
+    flex: 1;
+    justify-content: center;
+  }
+  
+  .kcal-month-view {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kcal-month-grid {
+    min-width: 650px;
+  }
+  
+  .kcal-timeline-sidebar {
+    width: 90px !important;
+  }
+  .kcal-timeline-sidebar-header {
+    padding: 0 8px;
+    font-size: 9px;
+  }
+  .kcal-timeline-sidebar-row {
+    padding: 0 8px;
+  }
+  .kcal-timeline-sidebar-client {
+    display: none !important;
+  }
+  
+  /* ── Fabrics Catalog (max-width: 768px) ── */
+  .kazi-fabric-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .kazi-fabric-chips {
+    justify-content: center;
+  }
+  .kazi-fabric-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .kazi-sheet {
+    max-width: 100%;
+  }
 }
 
 /* ═══ SMALL PHONE ≤ 480px ═══ */
@@ -3242,6 +3306,14 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* Chat messages → wider bubbles */
   .kscr > div > div[style*="flex: 1"][style*="background: var(--bg)"] div[style*="maxWidth: \"75%\""] {
     max-width: 90% !important;
+  }
+
+  /* ── Fabrics Catalog (max-width: 480px) ── */
+  .kazi-fabric-grid {
+    grid-template-columns: 1fr;
+  }
+  .kazi-sheet-form {
+    padding: 16px;
   }
 }
 
