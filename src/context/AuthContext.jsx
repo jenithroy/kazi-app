@@ -115,6 +115,14 @@ export function AuthProvider({ children }) {
                     updatedPerms.tasks = true;
                     needsUpdate = true;
                   }
+                  if (updatedPerms.library !== true) {
+                    updatedPerms.library = true;
+                    needsUpdate = true;
+                  }
+                  if (updatedPerms.inventory !== true) {
+                    updatedPerms.inventory = true;
+                    needsUpdate = true;
+                  }
                 }
 
                 if (needsUpdate) {

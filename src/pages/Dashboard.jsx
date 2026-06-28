@@ -795,6 +795,11 @@ function NepalAdminDash() {
   return (
     <AppLayout>
       <div className="kdash fade-in">
+        {/* Clock-in hero for Anusha & Anmol */}
+        {profile && ["anusha", "anmol"].includes(profile.name?.toLowerCase()) && (
+          <ClockInCard profile={profile} onClockChange={load} />
+        )}
+
         {/* Quick actions */}
         <div className="kdash-qa">
           <span className="kdash-qa-label">Quick actions</span>

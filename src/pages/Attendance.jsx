@@ -280,6 +280,10 @@ function Attendance() {
         {!canEdit && <p className="banner-warning">UK admin — view only.</p>}
         {message   && <p className="banner-info">{message}</p>}
 
+        {profile && ["anusha", "anmol"].includes(profile.name?.toLowerCase()) && (
+          <ClockInCard profile={profile} onClockChange={loadAll} />
+        )}
+
         <div className="katt-grid">
           {/* Left: Month Calendar */}
           <MonthCalendar 

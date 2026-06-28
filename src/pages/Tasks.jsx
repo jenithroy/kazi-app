@@ -15,6 +15,15 @@ import { useReward } from "../context/RewardContext";
 
 const CAT_MAP = Object.fromEntries(TASK_CATEGORIES.map(c => [c.label, c.color]));
 
+export const ASSIGNEE_COLORS = {
+  "Anmol": { border: "#f1c40f", bg: "#fef9e7", text: "#b7950b" },     // Yellow
+  "Anusha": { border: "#d64e8a", bg: "#faebf2", text: "#982055" },   // Pink
+  "Wilson": { border: "#2d9b6f", bg: "#e6f5ef", text: "#1b5e43" },   // Green
+  "Monika": { border: "#2980b9", bg: "#e5f0f8", text: "#1a4d70" },   // Blue
+  "Finn": { border: "#7c6fcd", bg: "#eceaf9", text: "#483a9e" },     // Purple
+  "Zen": { border: "#8e8e93", bg: "#f2f2f7", text: "#48484a" },       // Gray
+};
+
 /* ── Default columns ──────────────────────────────── */
 const DEFAULT_COLUMNS = [
   { label: "To Do",       tone: "neutral", order: 0 },
@@ -137,6 +146,14 @@ function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
     ? new Date(task.dueDate).toLocaleDateString("en-GB", { month: "short", day: "numeric" })
     : null;
 
+  const assigneeName = task.assignee || "";
+  const colorInfo = ASSIGNEE_COLORS[assigneeName] || ASSIGNEE_COLORS[Object.keys(ASSIGNEE_COLORS).find(k => k.toLowerCase() === assigneeName.toLowerCase())];
+  const borderLeft = colorInfo 
+    ? `3.5px solid ${colorInfo.border}` 
+    : assigneeName 
+      ? `3.5px solid oklch(55% .16 ${hue})` 
+      : "1px solid var(--line)";
+
   return (
     <div
       draggable
@@ -145,7 +162,7 @@ function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
       onMouseLeave={() => setHover(false)}
       onClick={() => onEdit && onEdit(task)}
       className="ktasks-card"
-      style={{ cursor: "pointer", position: "relative" }}
+      style={{ cursor: "pointer", position: "relative", borderLeft }}
     >
       <div className="ktasks-card-h">
         {task.customer ? (
@@ -184,13 +201,18 @@ function TaskCard({ task, idx, canEdit, onDelete, onEdit, onDragStart }) {
           {task.description.length > 80 ? task.description.slice(0, 80) + "…" : task.description}
         </div>
       )}
+      {task.notes && (
+        <div style={{ fontSize: 11, background: "var(--bg-2)", padding: "6px 8px", borderRadius: 6, borderLeft: "2px solid var(--ink-3)", color: "var(--ink-2)", marginTop: 4, lineHeight: 1.4, wordBreak: "break-word" }}>
+          <strong>Update:</strong> {task.notes}
+        </div>
+      )}
       {task.orderRef && <div className="ktasks-card-o">{task.orderRef}</div>}
       {task.order && <div className="ktasks-card-o">{task.order}</div>}
       <div className="ktasks-card-f">
         {task.assignee ? (
           <div title={task.assignee} style={{
             width: 24, height: 24, borderRadius: "50%",
-            background: `oklch(55% .16 ${hue})`, color: "#fff",
+            background: colorInfo ? colorInfo.border : `oklch(55% .16 ${hue})`, color: "#fff",
             fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
             flexShrink: 0,
           }}>
@@ -360,10 +382,16 @@ function AssignFilter({ selected, onSelect, tasks, assignees = [] }) {
       {listToUse.map(m => {
         const active = selected === m.name;
         const count = tasks.filter(t => t.assignee === m.name).length;
+        const mColorInfo = ASSIGNEE_COLORS[m.name] || ASSIGNEE_COLORS[Object.keys(ASSIGNEE_COLORS).find(k => k.toLowerCase() === m.name.toLowerCase())];
+        const avatarBg = active 
+          ? "rgba(255,255,255,.25)" 
+          : mColorInfo 
+            ? mColorInfo.border 
+            : `oklch(55% .16 ${hueFromName(m.name)})`;
         return (
           <button key={m.name} onClick={() => onSelect(active ? null : m.name)}
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px 4px 5px", borderRadius: "var(--r-pill)", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "var(--font)", background: active ? "var(--mint-deep)" : "var(--card)", color: active ? "#fff" : "var(--ink-2)", border: active ? "none" : "1px solid var(--line-strong)" }}>
-            <div style={{ width: 22, height: 22, borderRadius: "50%", background: active ? "rgba(255,255,255,.25)" : `oklch(55% .16 ${hueFromName(m.name)})`, color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: avatarBg, color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {initials(m.name)}
             </div>
             {m.name}
@@ -396,7 +424,7 @@ function Tasks() {
   const [custFilter,   setCustFilter]  = useState(null);
   const [showFilters,  setShowFilters] = useState(false);
   const [showNew,      setShowNew]     = useState(false);
-  const [newForm,      setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
+  const [newForm,      setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", notes: "", status: "To Do" });
   const [editTask,     setEditTask]    = useState(null);
   const [editForm,     setEditForm]    = useState({});
   const [editSaving,   setEditSaving]  = useState(false);
@@ -526,6 +554,7 @@ function Tasks() {
       category:    task.category    || "",
       customer:    task.customer    || "",
       status:      task.status      || "To Do",
+      notes:       task.notes       || "",
     });
   }
 
@@ -543,6 +572,7 @@ function Tasks() {
         category:    editForm.category,
         customer:    editForm.customer,
         status:      editForm.status,
+        notes:       editForm.notes || "",
       });
       setTasks(cur => cur.map(t => t.id === editTask.id ? { ...t, ...editForm, title: editForm.title.trim() } : t));
       if (editForm.status === "Done" && editTask.status !== "Done" && editForm.assignee) {
@@ -640,7 +670,6 @@ function Tasks() {
           );
         })()}
 
-        {/* Fix 4: always-visible assignee quick-filter bar (admins only) */}
         {canEdit && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, padding: "4px 0" }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Assignee:</span>
@@ -657,6 +686,12 @@ function Tasks() {
             {(assignees.length > 0 ? assignees : TEAM_MEMBERS).map(m => {
               const active = filterAssignee === m.name;
               const count = tasks.filter(t => t.assignee === m.name).length;
+              const mColorInfo = ASSIGNEE_COLORS[m.name] || ASSIGNEE_COLORS[Object.keys(ASSIGNEE_COLORS).find(k => k.toLowerCase() === m.name.toLowerCase())];
+              const avatarBg = active 
+                ? "rgba(255,255,255,.25)" 
+                : mColorInfo 
+                  ? mColorInfo.border 
+                  : `oklch(55% .16 ${hueFromName(m.name)})`;
               return (
                 <button key={m.name} onClick={() => setFilterAssignee(active ? "all" : m.name)}
                   style={{
@@ -669,7 +704,7 @@ function Tasks() {
                   }}>
                   <div style={{
                     width: 20, height: 20, borderRadius: "50%",
-                    background: active ? "rgba(255,255,255,.25)" : `oklch(55% .16 ${hueFromName(m.name)})`,
+                    background: avatarBg,
                     color: "#fff", fontSize: 9, fontWeight: 700,
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>{initials(m.name)}</div>
@@ -805,6 +840,9 @@ function Tasks() {
               <label>Order ref
                 <input type="text" value={newForm.orderRef} onChange={e => setNewForm(f => ({ ...f, orderRef: e.target.value }))} placeholder="e.g. KZ-2418" />
               </label>
+              <label>Progress Notes / Updates
+                <textarea value={newForm.notes} onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))} placeholder="Add progress notes or updates here…" rows={2} style={{ resize: "vertical" }} />
+              </label>
             </div>
             <div className="grid-form">
               <label>Assign to
@@ -839,8 +877,8 @@ function Tasks() {
               <button className="ghost-button" onClick={() => setShowNew(false)}>Cancel</button>
               <button className="primary-button" onClick={async () => {
                 if (!newForm.title.trim()) return;
-                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, customer: newForm.customer, description: newForm.description, status: newForm.status });
-                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", status: "To Do" });
+                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, customer: newForm.customer, description: newForm.description, notes: newForm.notes, status: newForm.status });
+                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", notes: "", status: "To Do" });
                 setShowNew(false);
               }}>Create task</button>
             </div>
@@ -872,6 +910,9 @@ function Tasks() {
               </label>
               <label>Order ref
                 <input type="text" value={editForm.orderRef} onChange={e => setEditForm(f => ({ ...f, orderRef: e.target.value }))} placeholder="e.g. KZ-2418" />
+              </label>
+              <label>Progress Notes / Updates
+                <textarea value={editForm.notes || ""} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="Add progress notes or updates here…" rows={2} style={{ resize: "vertical" }} />
               </label>
             </div>
             <div className="grid-form">

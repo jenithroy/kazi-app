@@ -272,7 +272,7 @@ function orderStatusBadge(status) {
 }
 
 /* ── Pipeline card ────────────────────────────────────── */
-function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, canEdit, profile, onUpdate }) {
+function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, onEdit, canEdit, profile, onUpdate }) {
   const pri = orderPriority(order);
   const pct = stageProgress(order.stage);
   const [dispatching, setDispatching] = useState(false);
@@ -365,26 +365,37 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, ca
             </div>
           ) : null}
 
-          {canEdit && order.status === "Active" && (
+          {canEdit && (
             <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              {order.status === "Active" && (
+                <>
+                  <button
+                    className="ghost-button"
+                    style={{ fontSize: 11, padding: "3px 8px" }}
+                    onClick={e => { e.stopPropagation(); onReverse(); }}
+                    disabled={STAGES.indexOf(order.stage) === 0}
+                  >← Back</button>
+                  <button
+                    className="primary-button"
+                    style={{ fontSize: 11, padding: "3px 8px" }}
+                    onClick={e => { e.stopPropagation(); onAdvance(); }}
+                    disabled={STAGES.indexOf(order.stage) === STAGES.length - 1}
+                  >{STAGES.indexOf(order.stage) === STAGES.length - 2 ? "Deliver" : "Next →"}</button>
+                </>
+              )}
               <button
                 className="ghost-button"
                 style={{ fontSize: 11, padding: "3px 8px" }}
-                onClick={e => { e.stopPropagation(); onReverse(); }}
-                disabled={STAGES.indexOf(order.stage) === 0}
-              >← Back</button>
-              <button
-                className="primary-button"
-                style={{ fontSize: 11, padding: "3px 8px" }}
-                onClick={e => { e.stopPropagation(); onAdvance(); }}
-                disabled={STAGES.indexOf(order.stage) === STAGES.length - 1}
-              >{STAGES.indexOf(order.stage) === STAGES.length - 2 ? "Deliver" : "Next →"}</button>
-              <button
-                className="ghost-button"
-                style={{ fontSize: 11, padding: "3px 8px", borderColor: "var(--mint-deep)", color: "var(--mint-deep)" }}
-                onClick={handleDispatch}
-                disabled={dispatching}
-              >{dispatching ? "Dispatching…" : "Dispatch"}</button>
+                onClick={e => { e.stopPropagation(); onEdit(); }}
+              >Edit</button>
+              {order.status === "Active" && (
+                <button
+                  className="ghost-button"
+                  style={{ fontSize: 11, padding: "3px 8px", borderColor: "var(--mint-deep)", color: "var(--mint-deep)" }}
+                  onClick={handleDispatch}
+                  disabled={dispatching}
+                >{dispatching ? "Dispatching…" : "Dispatch"}</button>
+              )}
             </div>
           )}
 
@@ -1015,6 +1026,26 @@ function Production() {
     }
   }
 
+  function handleOpenEditOrder(order) {
+    setEditingOrder(order);
+    setOrderForm({
+      date:          order.date || todayDate(),
+      deliveryDate:  order.deliveryDate || "",
+      customerName:  order.customerName || "",
+      styleName:     order.styleName || "",
+      fabricType:    order.fabricType || "Terry Cotton",
+      colorway:      order.colorway || "",
+      quantity:      order.quantity || "",
+      pricePerPcNPR: order.pricePerPcNPR || "",
+      invoiceRef:    order.invoiceRef || "",
+      assignedTo:    order.assignedTo || "",
+      stage:         order.stage || "Order Received",
+      status:        order.status || "Active",
+      notes:         order.notes || "",
+    });
+    setShowOrderForm(true);
+  }
+
   /* ── Issue invoice for existing order ── */
   async function issueInvoiceForOrder(order, fields) {
     setSavingInvoice(true);
@@ -1120,8 +1151,8 @@ function Production() {
         title="Production"
         description="Track the full garment pipeline — from order through dispatch."
         action={(activeTab === "orders" || activeTab === "pipeline") && canEdit && (
-          <button className="primary-button" onClick={() => { setShowOrderForm(v => !v); setActiveTab("orders"); }}>
-            {showOrderForm ? "Cancel" : "+ New Order"}
+          <button className="primary-button" onClick={() => setShowOrderForm(true)}>
+            + New Order
           </button>
         )}
       />
@@ -1230,6 +1261,7 @@ function Production() {
                         onToggle={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
                         onAdvance={() => advanceStage(order)}
                         onReverse={() => reverseStage(order)}
+                        onEdit={() => handleOpenEditOrder(order)}
                         canEdit={canEdit}
                         profile={profile}
                         onUpdate={loadData}
@@ -1268,251 +1300,7 @@ function Production() {
             </article>
           </section>
 
-          {/* New Order Form */}
-          {showOrderForm && canEdit && (
-            <section className="panel">
-              <h3>{editingOrder ? `Edit Order — ${editingOrder.orderId}` : "New Production Order"}</h3>
 
-              {latestInvoice && !dismissedSuggestion && (
-                <div className="kprod-suggestion-banner" style={{
-                  background: "var(--ok-container)",
-                  border: "1.5px solid var(--ok-container-border)",
-                  borderRadius: "var(--r-card, 10px)",
-                  padding: "14px 18px",
-                  marginBottom: 20,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                  boxShadow: "var(--shadow-1)",
-                  animation: "fadeIn 0.2s ease-out"
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ok-text)", fontWeight: 600, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      <span style={{ fontSize: "1.1rem" }}>💡</span> Smart Recommendation
-                    </div>
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      style={{ padding: "3px 8px", fontSize: 11, border: "none", background: "transparent", color: "var(--ok-text)", opacity: 0.8, cursor: "pointer" }}
-                      onClick={() => setDismissedSuggestion(true)}
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                  
-                  <div style={{ fontSize: 13, color: "var(--ok-text)", lineHeight: 1.4 }}>
-                    Auto-fill order details using the latest invoice <strong>{latestInvoice.invoiceNumber}</strong> for <strong>{latestInvoice.clientName}</strong>:
-                  </div>
-
-                  <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                    gap: 12,
-                    fontSize: 12,
-                    color: "var(--ok-text)",
-                    background: "rgba(255, 255, 255, 0.4)",
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    border: "1px solid var(--ok-container-border)"
-                  }}>
-                    <div><strong>Customer:</strong> {latestInvoice.clientName}</div>
-                    {latestInvoice.items?.[0] && (
-                      <>
-                        <div style={{ gridColumn: "span 2" }}><strong>Item:</strong> {latestInvoice.items[0].description}</div>
-                        <div><strong>Qty:</strong> {latestInvoice.items[0].qty?.toLocaleString()} pcs</div>
-                        <div><strong>Rate:</strong> NPR {latestInvoice.items[0].rate?.toLocaleString()}</div>
-                      </>
-                    )}
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
-                    <button
-                      type="button"
-                      className="primary-button"
-                      style={{
-                        fontSize: 11.5,
-                        padding: "6px 14px",
-                        background: "var(--primary-deep, #1b5e20)",
-                        borderColor: "var(--primary-deep, #1b5e20)",
-                        color: "#fff",
-                        cursor: "pointer"
-                      }}
-                      onClick={applyInvoiceSuggestion}
-                    >
-                      ✓ Apply Recommendation
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <form className="grid-form" onSubmit={submitOrder}>
-                <label>
-                  Order Date
-                  <input type="date" value={orderForm.date} required
-                    onChange={e => setOrderForm(f => ({ ...f, date: e.target.value }))} />
-                </label>
-                <label>
-                  Delivery Date
-                  <input type="date" value={orderForm.deliveryDate}
-                    onChange={e => setOrderForm(f => ({ ...f, deliveryDate: e.target.value }))} />
-                </label>
-                <label style={{ gridColumn: "span 2" }}>
-                  Customer Name
-                  <input type="text" value={orderForm.customerName} required placeholder="e.g. RetailCorp UK"
-                    onChange={e => setOrderForm(f => ({ ...f, customerName: e.target.value }))} />
-                </label>
-                <label>
-                  Style / Item Name
-                  <input type="text" value={orderForm.styleName} required placeholder="e.g. Men's Hoodie"
-                    onChange={e => setOrderForm(f => ({ ...f, styleName: e.target.value }))} />
-                </label>
-                <label>
-                  Fabric Type
-                  <select value={orderForm.fabricType} onChange={e => setOrderForm(f => ({ ...f, fabricType: e.target.value }))}>
-                    {FABRIC_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Colorway
-                  <input type="text" value={orderForm.colorway} placeholder="e.g. Black, Navy, Olive"
-                    onChange={e => setOrderForm(f => ({ ...f, colorway: e.target.value }))} />
-                </label>
-                <label>
-                  Quantity (pcs)
-                  <input type="number" min="1" value={orderForm.quantity} required placeholder="0"
-                    onChange={e => setOrderForm(f => ({ ...f, quantity: e.target.value }))} />
-                </label>
-                <label>
-                  Price per Piece (NPR)
-                  <input type="number" min="0" value={orderForm.pricePerPcNPR} placeholder="0"
-                    onChange={e => setOrderForm(f => ({ ...f, pricePerPcNPR: e.target.value }))} />
-                </label>
-                <label>
-                  Invoice / Challan Ref
-                  <input type="text" value={orderForm.invoiceRef} placeholder="INV001 / CH-001"
-                    onChange={e => setOrderForm(f => ({ ...f, invoiceRef: e.target.value }))} />
-                </label>
-                <label>
-                  Assigned To
-                  <select value={orderForm.assignedTo} onChange={e => setOrderForm(f => ({ ...f, assignedTo: e.target.value }))}>
-                    <option value="">— Select —</option>
-                    {employees.map(em => <option key={em.id} value={em.name}>{em.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Initial Stage
-                  <select value={orderForm.stage} onChange={e => setOrderForm(f => ({ ...f, stage: e.target.value }))}>
-                    {STAGES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </label>
-                <label style={{ gridColumn: "span 2" }}>
-                  Notes
-                  <input type="text" value={orderForm.notes} placeholder="Optional notes"
-                    onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))} />
-                </label>
-
-                {orderForm.quantity && orderForm.pricePerPcNPR && (
-                  <div style={{ gridColumn: "span 2", background: "var(--bg-surface-soft)", borderRadius: 10, padding: "10px 16px", border: "1.5px solid var(--line)", fontSize: "0.9rem" }}>
-                    Order Value: <strong>NPR {(Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR)).toLocaleString()}</strong>
-                    <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {Number(orderForm.pricePerPcNPR).toLocaleString()})</span>
-                  </div>
-                )}
-
-                {/* ── Issue Invoice toggle ── */}
-                <div style={{ gridColumn: "span 2" }}>
-                  <button
-                    type="button"
-                    onClick={() => setIssueInvoice(v => !v)}
-                    className={cn("kprod-inv-toggle", issueInvoice && "kprod-inv-toggle--on")}
-                  >
-                    <span className="kprod-inv-toggle-box">
-                      {issueInvoice && <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </span>
-                    <span>Issue invoice with this order</span>
-                    <span className="kprod-inv-toggle-tag">optional</span>
-                  </button>
-                </div>
-
-                {issueInvoice && (
-                  <div className="kprod-inv-section">
-                    <div className="kprod-inv-section-hd">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                      Invoice Details
-                    </div>
-                    <div className="kprod-inv-grid">
-                      <label className="kprod-inv-label">
-                        Client Address
-                        <input className="kprod-inv-input" type="text" placeholder="Street, City, Country"
-                          value={invFields.clientAddress}
-                          onChange={e => setInvFields(f => ({ ...f, clientAddress: e.target.value }))} />
-                      </label>
-                      <label className="kprod-inv-label">
-                        Client Phone
-                        <input className="kprod-inv-input" type="text" placeholder="+977 ..."
-                          value={invFields.clientPhone}
-                          onChange={e => setInvFields(f => ({ ...f, clientPhone: e.target.value }))} />
-                      </label>
-                      <label className="kprod-inv-label">
-                        PAN / Tax No.
-                        <input className="kprod-inv-input" type="text" placeholder="VAT / PAN number"
-                          value={invFields.clientPAN}
-                          onChange={e => setInvFields(f => ({ ...f, clientPAN: e.target.value }))} />
-                      </label>
-                      <label className="kprod-inv-label">
-                        Due Date
-                        <input className="kprod-inv-input" type="date"
-                          value={invFields.dueDate}
-                          onChange={e => setInvFields(f => ({ ...f, dueDate: e.target.value }))} />
-                      </label>
-                      <label className="kprod-inv-label">
-                        Payment Terms
-                        <select className="kprod-inv-input"
-                          value={invFields.paymentTerms}
-                          onChange={e => setInvFields(f => ({ ...f, paymentTerms: e.target.value }))}>
-                          <option>Net 15</option>
-                          <option>Net 30</option>
-                          <option>Net 45</option>
-                          <option>Net 60</option>
-                          <option>Due on Receipt</option>
-                        </select>
-                      </label>
-                      <label className="kprod-inv-label" style={{ justifyContent: "flex-end" }}>
-                        <div className="kprod-inv-vat-row">
-                          <span>Apply VAT (13%)</span>
-                          <button type="button"
-                            className={cn("kadm-toggle", invFields.applyVAT && "kadm-toggle--on")}
-                            onClick={() => setInvFields(f => ({ ...f, applyVAT: !f.applyVAT }))}>
-                            <span className="kadm-toggle-knob" />
-                          </button>
-                        </div>
-                        {orderForm.quantity && orderForm.pricePerPcNPR && (
-                          <div className="kprod-inv-preview">
-                            {(() => {
-                              const sub = Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR);
-                              const vat = invFields.applyVAT ? sub * VAT_RATE : 0;
-                              const tot = sub + vat;
-                              return <>
-                                <span>Subtotal: <strong>NPR {sub.toLocaleString()}</strong></span>
-                                {invFields.applyVAT && <span>VAT 13%: <strong>NPR {Math.round(vat).toLocaleString()}</strong></span>}
-                                <span className="kprod-inv-total">Total: <strong>NPR {Math.round(tot).toLocaleString()}</strong></span>
-                              </>;
-                            })()}
-                          </div>
-                        )}
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button type="submit" className="primary-button" disabled={savingOrder}>
-                    {savingOrder ? "Saving…" : editingOrder ? "Save Changes" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
-                  </button>
-                  <button type="button" className="ghost-button" onClick={() => { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); }}>Cancel</button>
-                </div>
-              </form>
-            </section>
-          )}
 
           {/* Order list */}
           {orders.length === 0 ? (
@@ -1629,26 +1417,7 @@ function Production() {
                           </button>
                         )}
                         <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
-                          onClick={() => {
-                            setEditingOrder(order);
-                            setOrderForm({
-                              date:          order.date || todayDate(),
-                              deliveryDate:  order.deliveryDate || "",
-                              customerName:  order.customerName || "",
-                              styleName:     order.styleName || "",
-                              fabricType:    order.fabricType || "Terry Cotton",
-                              colorway:      order.colorway || "",
-                              quantity:      order.quantity || "",
-                              pricePerPcNPR: order.pricePerPcNPR || "",
-                              invoiceRef:    order.invoiceRef || "",
-                              assignedTo:    order.assignedTo || "",
-                              stage:         order.stage || "Order Received",
-                              status:        order.status || "Active",
-                              notes:         order.notes || "",
-                            });
-                            setShowOrderForm(true);
-                            setActiveTab("orders");
-                          }}>
+                          onClick={() => handleOpenEditOrder(order)}>
                           Edit
                         </button>
                         <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--danger)", borderColor: "rgba(220,38,38,0.4)" }}
@@ -1891,6 +1660,262 @@ function Production() {
           onSubmit={issueInvoiceForOrder}
           saving={savingInvoice}
         />
+      )}
+      {/* ── Order Form Modal (New / Edit) ── */}
+      {showOrderForm && canEdit && (
+        <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); } }}>
+          <div className="kbrf-modal" style={{ maxWidth: 640, maxHeight: "90vh", overflowY: "auto" }}>
+            <div className="kbrf-modal-hd">
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>
+                  {editingOrder ? `Edit Order — ${editingOrder.orderId}` : "New Production Order"}
+                </div>
+              </div>
+              <button className="kbrf-modal-close" onClick={() => { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); }}>✕</button>
+            </div>
+
+            {latestInvoice && !dismissedSuggestion && !editingOrder && (
+              <div className="kprod-suggestion-banner" style={{
+                background: "var(--ok-container)",
+                border: "1.5px solid var(--ok-container-border)",
+                borderRadius: "var(--r-card, 10px)",
+                padding: "14px 18px",
+                marginBottom: 20,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                boxShadow: "var(--shadow-1)",
+                animation: "fadeIn 0.2s ease-out"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ok-text)", fontWeight: 600, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    <span style={{ fontSize: "1.1rem" }}>💡</span> Smart Recommendation
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    style={{ padding: "3px 8px", fontSize: 11, border: "none", background: "transparent", color: "var(--ok-text)", opacity: 0.8, cursor: "pointer" }}
+                    onClick={() => setDismissedSuggestion(true)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                
+                <div style={{ fontSize: 13, color: "var(--ok-text)", lineHeight: 1.4 }}>
+                  Auto-fill order details using the latest invoice <strong>{latestInvoice.invoiceNumber}</strong> for <strong>{latestInvoice.clientName}</strong>:
+                </div>
+
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                  gap: 12,
+                  fontSize: 12,
+                  color: "var(--ok-text)",
+                  background: "rgba(255, 255, 255, 0.4)",
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  border: "1px solid var(--ok-container-border)"
+                }}>
+                  <div><strong>Customer:</strong> {latestInvoice.clientName}</div>
+                  {latestInvoice.items?.[0] && (
+                    <>
+                      <div style={{ gridColumn: "span 2" }}><strong>Item:</strong> {latestInvoice.items[0].description}</div>
+                      <div><strong>Qty:</strong> {latestInvoice.items[0].qty?.toLocaleString()} pcs</div>
+                      <div><strong>Rate:</strong> NPR {latestInvoice.items[0].rate?.toLocaleString()}</div>
+                    </>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    style={{
+                      fontSize: 11.5,
+                      padding: "6px 14px",
+                      background: "var(--primary-deep, #1b5e20)",
+                      borderColor: "var(--primary-deep, #1b5e20)",
+                      color: "#fff",
+                      cursor: "pointer"
+                    }}
+                    onClick={applyInvoiceSuggestion}
+                  >
+                    ✓ Apply Recommendation
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <form className="grid-form" onSubmit={submitOrder}>
+              <label>
+                Order Date
+                <input type="date" value={orderForm.date} required
+                  onChange={e => setOrderForm(f => ({ ...f, date: e.target.value }))} />
+              </label>
+              <label>
+                Delivery Date
+                <input type="date" value={orderForm.deliveryDate}
+                  onChange={e => setOrderForm(f => ({ ...f, deliveryDate: e.target.value }))} />
+              </label>
+              <label style={{ gridColumn: "span 2" }}>
+                Customer Name
+                <input type="text" value={orderForm.customerName} required placeholder="e.g. RetailCorp UK"
+                  onChange={e => setOrderForm(f => ({ ...f, customerName: e.target.value }))} />
+              </label>
+              <label>
+                Style / Item Name
+                <input type="text" value={orderForm.styleName} required placeholder="e.g. Men's Hoodie"
+                  onChange={e => setOrderForm(f => ({ ...f, styleName: e.target.value }))} />
+              </label>
+              <label>
+                Fabric Type
+                <select value={orderForm.fabricType} onChange={e => setOrderForm(f => ({ ...f, fabricType: e.target.value }))}>
+                  {FABRIC_TYPES.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </label>
+              <label>
+                Colorway
+                <input type="text" value={orderForm.colorway} placeholder="e.g. Black, Navy, Olive"
+                  onChange={e => setOrderForm(f => ({ ...f, colorway: e.target.value }))} />
+              </label>
+              <label>
+                Quantity (pcs)
+                <input type="number" min="1" value={orderForm.quantity} required placeholder="0"
+                  onChange={e => setOrderForm(f => ({ ...f, quantity: e.target.value }))} />
+              </label>
+              <label>
+                Price per Piece (NPR)
+                <input type="number" min="0" value={orderForm.pricePerPcNPR} placeholder="0"
+                  onChange={e => setOrderForm(f => ({ ...f, pricePerPcNPR: e.target.value }))} />
+              </label>
+              <label>
+                Invoice / Challan Ref
+                <input type="text" value={orderForm.invoiceRef} placeholder="INV001 / CH-001"
+                  onChange={e => setOrderForm(f => ({ ...f, invoiceRef: e.target.value }))} />
+              </label>
+              <label>
+                Assigned To
+                <select value={orderForm.assignedTo} onChange={e => setOrderForm(f => ({ ...f, assignedTo: e.target.value }))}>
+                  <option value="">— Select —</option>
+                  {employees.map(em => <option key={em.id} value={em.name}>{em.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Initial Stage
+                <select value={orderForm.stage} onChange={e => setOrderForm(f => ({ ...f, stage: e.target.value }))}>
+                  {STAGES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </label>
+              <label style={{ gridColumn: "span 2" }}>
+                Notes
+                <input type="text" value={orderForm.notes} placeholder="Optional notes"
+                  onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))} />
+              </label>
+
+              {orderForm.quantity && orderForm.pricePerPcNPR && (
+                <div style={{ gridColumn: "span 2", background: "var(--bg-surface-soft)", borderRadius: 10, padding: "10px 16px", border: "1.5px solid var(--line)", fontSize: "0.9rem" }}>
+                  Order Value: <strong>NPR {(Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR)).toLocaleString()}</strong>
+                  <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {Number(orderForm.pricePerPcNPR).toLocaleString()})</span>
+                </div>
+              )}
+
+              {/* ── Issue Invoice toggle ── */}
+              {!editingOrder && (
+                <div style={{ gridColumn: "span 2" }}>
+                  <button
+                    type="button"
+                    onClick={() => setIssueInvoice(v => !v)}
+                    className={cn("kprod-inv-toggle", issueInvoice && "kprod-inv-toggle--on")}
+                  >
+                    <span className="kprod-inv-toggle-box">
+                      {issueInvoice && <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </span>
+                    <span>Issue invoice with this order</span>
+                    <span className="kprod-inv-toggle-tag">optional</span>
+                  </button>
+                </div>
+              )}
+
+              {issueInvoice && !editingOrder && (
+                <div className="kprod-inv-section">
+                  <div className="kprod-inv-section-hd">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Invoice Details
+                  </div>
+                  <div className="kprod-inv-grid">
+                    <label className="kprod-inv-label">
+                      Client Address
+                      <input className="kprod-inv-input" type="text" placeholder="Street, City, Country"
+                        value={invFields.clientAddress}
+                        onChange={e => setInvFields(f => ({ ...f, clientAddress: e.target.value }))} />
+                    </label>
+                    <label className="kprod-inv-label">
+                      Client Phone
+                      <input className="kprod-inv-input" type="text" placeholder="+977 ..."
+                        value={invFields.clientPhone}
+                        onChange={e => setInvFields(f => ({ ...f, clientPhone: e.target.value }))} />
+                    </label>
+                    <label className="kprod-inv-label">
+                      PAN / Tax No.
+                      <input className="kprod-inv-input" type="text" placeholder="VAT / PAN number"
+                        value={invFields.clientPAN}
+                        onChange={e => setInvFields(f => ({ ...f, clientPAN: e.target.value }))} />
+                    </label>
+                    <label className="kprod-inv-label">
+                      Due Date
+                      <input className="kprod-inv-input" type="date"
+                        value={invFields.dueDate}
+                        onChange={e => setInvFields(f => ({ ...f, dueDate: e.target.value }))} />
+                    </label>
+                    <label className="kprod-inv-label">
+                      Payment Terms
+                      <select className="kprod-inv-input"
+                        value={invFields.paymentTerms}
+                        onChange={e => setInvFields(f => ({ ...f, paymentTerms: e.target.value }))}>
+                        <option>Net 15</option>
+                        <option>Net 30</option>
+                        <option>Net 45</option>
+                        <option>Net 60</option>
+                        <option>Due on Receipt</option>
+                      </select>
+                    </label>
+                    <label className="kprod-inv-label" style={{ justifyContent: "flex-end" }}>
+                      <div className="kprod-inv-vat-row">
+                        <span>Apply VAT (13%)</span>
+                        <button type="button"
+                          className={cn("kadm-toggle", invFields.applyVAT && "kadm-toggle--on")}
+                          onClick={() => setInvFields(f => ({ ...f, applyVAT: !f.applyVAT }))}>
+                          <span className="kadm-toggle-knob" />
+                        </button>
+                      </div>
+                      {orderForm.quantity && orderForm.pricePerPcNPR && (
+                        <div className="kprod-inv-preview">
+                          {(() => {
+                            const sub = Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR);
+                            const vat = invFields.applyVAT ? sub * VAT_RATE : 0;
+                            const tot = sub + vat;
+                            return <>
+                              <span>Subtotal: <strong>NPR {sub.toLocaleString()}</strong></span>
+                              {invFields.applyVAT && <span>VAT 13%: <strong>NPR {Math.round(vat).toLocaleString()}</strong></span>}
+                              <span className="kprod-inv-total">Total: <strong>NPR {Math.round(tot).toLocaleString()}</strong></span>
+                            </>;
+                          })()}
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                <button type="submit" className="primary-button" disabled={savingOrder}>
+                  {savingOrder ? "Saving…" : editingOrder ? "Save Changes" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
+                </button>
+                <button type="button" className="ghost-button" onClick={() => { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); }}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </AppLayout>
   );
