@@ -796,7 +796,7 @@ function NepalAdminDash() {
     <AppLayout>
       <div className="kdash fade-in">
         {/* Clock-in hero for Anusha & Anmol */}
-        {profile && ["anusha", "anmol"].includes(profile.name?.toLowerCase()) && (
+        {profile && ["anushapantaa@gmail.com", "basnetanamol21@gmail.com"].includes(profile.email?.toLowerCase()) && (
           <ClockInCard profile={profile} onClockChange={load} />
         )}
 

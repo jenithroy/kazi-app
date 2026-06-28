@@ -98,6 +98,16 @@ export function sectionCanEdit(profile, section) {
 export function sectionVisible(profile, sectionKey) {
   if (!profile) return false;
 
+  // Force visibility for Anusha
+  const emailLower = profile.email?.toLowerCase();
+  const nameLower = profile.name?.toLowerCase();
+  if (
+    (emailLower === "anushapantaa@gmail.com" || nameLower === "anusha") &&
+    ["inventory", "library", "tasks"].includes(sectionKey)
+  ) {
+    return true;
+  }
+
   // Explicit override takes precedence
   let perm = profile.permissions?.[sectionKey];
   if (perm === false) return false;

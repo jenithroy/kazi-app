@@ -101,16 +101,16 @@ export function AuthProvider({ children }) {
                 });
 
                 // Force production: true for Wilson, Anmol, Anusha
-                const nameLower = name.toLowerCase();
-                if (["wilson", "anmol", "anusha"].includes(nameLower)) {
+                const emailLower = (firebaseUser.email || "").toLowerCase();
+                if (["wilsonshah98765@gmail.com", "basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes(emailLower)) {
                   if (updatedPerms.production !== true) {
                     updatedPerms.production = true;
                     needsUpdate = true;
                   }
                 }
 
-                // Force tasks: true for Anusha
-                if (nameLower === "anusha") {
+                // Force tasks, library, inventory: true for Anusha
+                if (emailLower === "anushapantaa@gmail.com") {
                   if (updatedPerms.tasks !== true) {
                     updatedPerms.tasks = true;
                     needsUpdate = true;
