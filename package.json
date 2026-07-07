@@ -11,6 +11,17 @@
     "dedupe-purchases": "node scripts/dedupePurchases.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.2.0",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/geolocation": "^8.2.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@react-pdf/renderer": "^4.5.1",
     "firebase": "^11.8.1",
     "firebase-admin": "^12.7.0",
@@ -24,6 +35,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^6.0.3",
     "vite": "^7.3.3"
   }
 }

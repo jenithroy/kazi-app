@@ -4021,3 +4021,53 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 }
 
 
+
+/* ── Native app / mobile ──────────────────────────────── */
+
+/* Safe area padding for notched phones */
+.kmain--native {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.kmain--native .kscroll {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Bottom navigation bar */
+.kbnav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: calc(60px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: flex-start;
+  padding-top: 8px;
+  z-index: 200;
+  box-shadow: 0 -4px 20px rgba(0,0,0,.06);
+}
+.kbnav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  color: var(--ink-4);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 0;
+  transition: color .15s;
+}
+.kbnav-item--active {
+  color: var(--mint-deep);
+}
+.kbnav-item span {
+  font-size: 10px;
+  letter-spacing: .01em;
+}
+
+/* Hide hamburger on native (bottom nav replaces it) */
+.kmain--native .ktop-hamburger {
+  display: none;
+}

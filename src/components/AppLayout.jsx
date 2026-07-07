@@ -4,6 +4,41 @@ import Sidebar from "./Sidebar";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { cn, Icons, Avatar } from "./ui";
+import { isNative } from "../utils/native";
+
+// Bottom nav shown on mobile/native for workers — replaces sidebar hamburger
+function BottomNav({ profile }) {
+  const location = useLocation();
+  const role = profile?.appRole || profile?.role;
+  const isWorker = role === "employee" || role === "nepal_staff";
+
+  const items = isWorker ? [
+    { to: "/dashboard",  label: "Home",       Icon: Icons.Dashboard },
+    { to: "/attendance", label: "Clock In",   Icon: Icons.Attendance },
+    { to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks },
+    { to: "/production", label: "Production", Icon: Icons.Production },
+  ] : [
+    { to: "/dashboard",  label: "Dashboard",  Icon: Icons.Dashboard },
+    { to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks },
+    { to: "/attendance", label: "Attendance", Icon: Icons.Attendance },
+    { to: "/production", label: "Production", Icon: Icons.Production },
+    { to: "/billing",    label: "Billing",    Icon: Icons.Billing },
+  ];
+
+  return (
+    <nav className="kbnav">
+      {items.map(({ to, label, Icon }) => {
+        const active = location.pathname.startsWith(to);
+        return (
+          <NavLink key={to} to={to} className={cn("kbnav-item", active && "kbnav-item--active")}>
+            <Icon size={22} sw={active ? 2.2 : 1.7} />
+            <span>{label}</span>
+          </NavLink>
+        );
+      })}
+    </nav>
+  );
+}
 
 const ROUTE_LABEL = {
   dashboard:  "Dashboard",
@@ -116,6 +151,7 @@ function AppLayout({ children, noPadding = false }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const { profile } = useAuth();
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -145,11 +181,12 @@ function AppLayout({ children, noPadding = false }) {
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
       />
-      <main className="kmain">
+      <main className={cn("kmain", isNative && "kmain--native")}>
         <Topbar collapsed={collapsed} onMobileMenuToggle={() => setMobileOpen(o => !o)} />
         <div className="kscroll" style={noPadding ? { padding: 0, gap: 0, overflow: 'hidden' } : undefined}>
           {children}
         </div>
+        {isNative && <BottomNav profile={profile} />}
       </main>
     </div>
   );
