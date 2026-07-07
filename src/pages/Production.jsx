@@ -413,6 +413,21 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, on
             </div>
           )}
 
+          {order.stageHistory?.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Stage History</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {order.stageHistory.slice(-5).map((h, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "var(--ink-3)", display: "flex", gap: 8 }}>
+                    <span style={{ fontFamily: "var(--mono)", color: "var(--ink-5)" }}>{h.date}</span>
+                    <span>{h.stage}</span>
+                    <span style={{ color: "var(--ink-4)" }}>by {h.by}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <OrderNotesSection
             order={order}
             canEdit={canEdit}
@@ -1066,6 +1081,13 @@ function Production() {
     const history = [...(order.stageHistory || []), { stage: newStage, date: todayDate(), by: profile?.name || "Unknown" }];
     await updateDoc(doc(db, "orders", order.id), { stage: newStage, status: newStatus, stageHistory: history });
     notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: newStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
+    // Auto-dispatch the new stage to the next available worker
+    try {
+      const dispatchFn = httpsCallable(getFunctions(), "dispatchStage");
+      await dispatchFn({ orderId: order.id, stage: newStage });
+    } catch (err) {
+      console.warn("Dispatch skipped:", err.message);
+    }
     await loadData();
     if (profile?.name) {
       const uid = await resolveUidByName(profile.name);

@@ -366,7 +366,7 @@ function Billing() {
       // Convert items rates to NPR if GBP
       const items = (qt.items || []).map(it => {
         if (isGBP) {
-          return { ...it, rate: Number(it.rate || 0) * 200 };
+          return { ...it, rate: Number(it.rate || 0) * GBP_RATE };
         }
         return it;
       });
@@ -455,7 +455,7 @@ function Billing() {
     const getValInNPR = (d, key) => {
       const val = Number(d[key] || 0);
       if (d.currency === "GBP") {
-        return val * 200; // GBP_RATE = 200
+        return val * GBP_RATE;
       }
       return val;
     };
@@ -895,7 +895,9 @@ function Billing() {
                 </thead>
                 <tbody>
                   {activeDocs.map(row => {
-                    const creditDue = Math.max(0, (row.totalNPR || 0) - (row.amountPaid || 0));
+                    const rowTotalNPR = row.currency === "GBP" ? (row.totalNPR || 0) * GBP_RATE : (row.totalNPR || 0);
+                    const rowPaidNPR  = row.currency === "GBP" ? (row.amountPaid || 0) * GBP_RATE : (row.amountPaid || 0);
+                    const creditDue = Math.max(0, rowTotalNPR - rowPaidNPR);
                     return (
                       <tr key={row.id}>
                         <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--mint-deep)" }}>{row[numField]}</td>
@@ -956,7 +958,7 @@ function Billing() {
                               <button
                                 className="kbil-tbl-btn kbil-tbl-btn--ok"
                                 onClick={() => {
-                                  setPayModal({ id: row.id, docNum: row.invoiceNumber, totalNPR: row.totalNPR || 0, currentPaid: row.amountPaid || 0, coll: meta.coll });
+                                  setPayModal({ id: row.id, docNum: row.invoiceNumber, totalNPR: row.currency === "GBP" ? (row.totalNPR || 0) * GBP_RATE : (row.totalNPR || 0), currentPaid: row.amountPaid || 0, coll: meta.coll });
                                   setPayAmt("");
                                 }}
                               >

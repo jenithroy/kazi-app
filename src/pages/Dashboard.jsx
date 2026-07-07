@@ -238,7 +238,7 @@ function ActiveOrdersRow({ orders = [] }) {
           <span>Dispatch</span>
         </div>
         {orders.map(o => {
-          const isOverdue = o.dueDate && o.dueDate < today;
+          const isOverdue = (o.deliveryDate || o.dueDate) && (o.deliveryDate || o.dueDate) < today;
           const assignment = assignments[o.id];
           return (
             <div key={o.id} className="kactive-order-row" onClick={() => window.location.href='/production'}>
@@ -713,7 +713,9 @@ function NepalAdminDash() {
       // Revenue & P&L from orders + order_costs
       const costsMap = Object.fromEntries(orderCosts.map(c => [c.id, c]));
       const totalRevNPR = orders.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
-      const thisMonthRevNPR = orders.filter(o => (o.date || "").slice(0, 7) === thisMonth).reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
+      const thisMonthRevNPR = invoices
+        .filter(inv => (inv.date || "").slice(0, 7) === thisMonth && inv.status !== "Cancelled" && inv.status !== "Draft")
+        .reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
       const totalCostNPR = orderCosts.reduce((s, c) => s + Number(c.material || 0) + Number(c.labour || 0) + Number(c.overhead || 0) + Number(c.shipping || 0), 0);
       const totalProfitNPR = totalRevNPR - totalCostNPR;
       const avgMargin = totalRevNPR > 0 ? ((totalProfitNPR / totalRevNPR) * 100).toFixed(1) : "0.0";
@@ -797,7 +799,7 @@ function NepalAdminDash() {
       <div className="kdash fade-in">
         {/* Clock-in hero for Anusha & Anmol */}
         {profile && ["anushapantaa@gmail.com", "basnetanamol21@gmail.com"].includes(profile.email?.toLowerCase()) && (
-          <ClockInCard profile={profile} onClockChange={load} />
+          <ClockInCard profile={profile} onClockChange={() => setTrigger(t => t + 1)} />
         )}
 
         {/* Quick actions */}
@@ -1134,7 +1136,9 @@ function UKAdminDash() {
       }
       const totalPaidNPR = paidInvoices.reduce((s, i) => s + Number(i.totalNPR || 0), 0);
       const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
-      const overdueNPR = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const overdueNPR = invoices
+        .filter(i => i.dueDate && i.dueDate < today && i.status !== "Paid" && i.status !== "Cancelled")
+        .reduce((s, i) => s + Number(i.totalNPR || 0), 0);
 
       // Payroll — current month first, then employee base salaries as estimate
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -1494,9 +1498,9 @@ function EmployeeDash() {
     const invoices = invoicesSnap.map(d => ({ id: d.id, ...d.data() }));
     const salesTarget = getSalesTargetInfo(invoices);
 
-    // Month attendance — real data from Firestore
+    // Month attendance — targeted query by staffName (avoids full-collection fetch)
     let allAtt = [];
-    try { allAtt = (await getDocs(collection(db, "attendance"))).docs.map(d => d.data()).filter(r => r.staffName === name); } catch (_) {}
+    try { allAtt = (await getDocs(query(collection(db, "attendance"), where("staffName", "==", name)))).docs.map(d => d.data()); } catch (_) {}
 
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;

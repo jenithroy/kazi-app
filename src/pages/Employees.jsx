@@ -223,10 +223,16 @@ function Employees() {
 
         const lateDays = logs.filter(r => r.status === "Late").length;
         const lateCutsCount = logs.filter(r => r.status === "Late" && r.lateCutApplied === true).length;
-        
+
         const basic = Number(payrollForm.basicNPR || 0);
         const dailySalary = basic / 30;
         const cutAmount = Math.round(dailySalary * 0.25 * lateCutsCount);
+
+        if (logs.length === 0 && basic > 0) {
+          // No attendance records found — may be a name mismatch
+          setLoadingAtt(false);
+          console.warn(`No attendance records found for "${payrollForm.staffName}" in ${payrollForm.month} ${payrollForm.year}. Verify name matches attendance records.`);
+        }
 
         setPayrollForm(f => ({
           ...f,

@@ -7,6 +7,7 @@ import { todayDate } from "../utils/date";
 import { Icons, Btn, Card, Pill } from "./ui";
 import { awardPoints } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
+import { getCurrentPosition, hapticSuccess } from "../utils/native";
 
 export default function ClockInCard({ profile, onClockChange }) {
   const today = todayDate();
@@ -67,39 +68,31 @@ export default function ClockInCard({ profile, onClockChange }) {
   const RADIUS = GEOFENCE_RADIUS_M;
   const ringPct = clockDist == null ? 0 : Math.max(0, Math.min(100, (1 - clockDist / RADIUS) * 100));
 
-  const startClock = () => {
-    if (!navigator.geolocation) {
-      setClockDist(9999);
-      setStatus("far");
-      return;
-    }
+  const startClock = async () => {
     setStatus("locating");
     setClockDist(null);
     setClockCoords(null);
-    
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        const dist = Math.round(haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng));
-        
-        setClockDist(dist);
-        setClockCoords({ lat: latitude, lng: longitude, accuracy: Math.round(accuracy) });
 
-        // Reject unreliable GPS readings
-        if (accuracy > GPS_ACCURACY_THRESHOLD_M) {
-          setStatus("low-accuracy");
-          return;
-        }
+    try {
+      const pos = await getCurrentPosition();
+      const { latitude, longitude, accuracy } = pos.coords;
+      const dist = Math.round(haversineDistance(latitude, longitude, WORK_SITE.lat, WORK_SITE.lng));
 
-        setStatus(dist > RADIUS ? "far" : "success");
-      },
-      (err) => {
-        console.error("GPS error:", err);
-        setClockDist(9999);
-        setStatus("far");
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+      setClockDist(dist);
+      setClockCoords({ lat: latitude, lng: longitude, accuracy: Math.round(accuracy) });
+
+      // Reject unreliable GPS readings
+      if (accuracy > GPS_ACCURACY_THRESHOLD_M) {
+        setStatus("low-accuracy");
+        return;
+      }
+
+      setStatus(dist > RADIUS ? "far" : "success");
+    } catch (err) {
+      console.error("GPS error:", err);
+      setClockDist(9999);
+      setStatus("far");
+    }
   };
 
   const confirmClockIn = async (isBypass = false) => {
@@ -157,6 +150,7 @@ export default function ClockInCard({ profile, onClockChange }) {
 
       setClockedAtStr(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
       setStatus("clocked");
+      hapticSuccess();
 
       // Award attendance points if clocked in on time
       if (statusCalc.status === "Present" && staffId) {

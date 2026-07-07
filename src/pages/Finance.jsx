@@ -527,7 +527,10 @@ function Finance() {
     const totalIncome   = salesRevenue + otherIncome;
     const expensesTotal = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchasesTotal= purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-    const payrollTotal  = payroll.reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
+    const curYear = new Date().getFullYear();
+    const payrollTotal  = payroll
+      .filter(r => Number(r.year) === curYear)
+      .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
     const journalExpenses = entries.filter(e => accounts.find(a => a.name === e.debitAccount && a.type === "Expense")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
     const totalExpenses = expensesTotal + purchasesTotal + payrollTotal + journalExpenses;
     return { salesRevenue, otherIncome, totalIncome, expensesTotal, purchasesTotal, payrollTotal, journalExpenses, totalExpenses, netProfit: totalIncome - totalExpenses };

@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } fro
 import { auth, db } from "../firebase";
 import { TEAM_MEMBERS } from "../constants";
 import { DEFAULT_NEPAL_ADMIN_PERMISSIONS } from "../utils/permissions";
+import { initPushNotifications } from "../utils/native";
 
 const AuthContext = createContext(null);
 
@@ -142,6 +143,11 @@ export function AuthProvider({ children }) {
           }
 
           setProfile(profileData);
+          initPushNotifications(async (token) => {
+            if (token && firebaseUser?.uid) {
+              await setDoc(doc(db, "users", firebaseUser.uid), { fcmToken: token }, { merge: true });
+            }
+          });
         } else {
           // Unknown user — load existing profile or create minimal default
           let loadedProfile = null;
@@ -170,6 +176,11 @@ export function AuthProvider({ children }) {
             };
           }
           setProfile(loadedProfile);
+          initPushNotifications(async (token) => {
+            if (token && firebaseUser?.uid) {
+              await setDoc(doc(db, "users", firebaseUser.uid), { fcmToken: token }, { merge: true });
+            }
+          });
         }
       } catch (error) {
         console.error("Auth state error:", error);

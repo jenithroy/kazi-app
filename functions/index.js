@@ -864,6 +864,16 @@ exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
    to the least-loaded available worker.
 ──────────────────────────────────────────────────────────────────────────── */
 exports.dispatchStage = onCall(async (request) => {
+  if (!request.auth) {
+    throw new Error("unauthenticated");
+  }
+  // Only admins can trigger dispatch
+  const callerSnap = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  const callerRole = callerSnap.data()?.role || callerSnap.data()?.appRole;
+  if (!["nepal_admin", "uk_admin", "super_admin"].includes(callerRole)) {
+    throw new Error("permission-denied");
+  }
+
   const { orderId, stage } = request.data;
   if (!orderId || !stage) {
     throw new Error("Missing orderId or stage");

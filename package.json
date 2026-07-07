@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "seed": "node scripts/seedFirestore.js",
-    "dedupe-purchases": "node scripts/dedupePurchases.js"
+    "dedupe-purchases": "node scripts/dedupePurchases.js",
+    "cap:sync": "vite build && npx cap sync",
+    "cap:ios": "vite build && npx cap sync && npx cap open ios",
+    "cap:android": "vite build && npx cap sync && npx cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
@@ -24,7 +27,6 @@
     "@capacitor/status-bar": "^8.0.2",
     "@react-pdf/renderer": "^4.5.1",
     "firebase": "^11.8.1",
-    "firebase-admin": "^12.7.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "react": "^18.3.1",
@@ -35,6 +37,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "firebase-admin": "^12.7.0",
     "typescript": "^6.0.3",
     "vite": "^7.3.3"
   }

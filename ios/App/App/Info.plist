@@ -47,5 +47,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Kazi uses your location to verify you are at the workshop when clocking in.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Kazi uses your location to verify you are at the workshop when clocking in.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Kazi uses your location to verify you are at the workshop when clocking in.</string>
 </dict>
 </plist>
