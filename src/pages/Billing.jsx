@@ -146,6 +146,7 @@ function Billing() {
   const [editingId, setEditingId]   = useState(null);   // doc id when editing, null when creating
   const [fxPopover, setFxPopover]   = useState(null);   // row idx with popover open, or null
 
+  const [converting, setConverting] = useState(null); // doc id being converted, or null
   const [showCancelled, setShowCancelled] = useState(false);
 
   // Search/filter state (Fix 1)
@@ -356,11 +357,13 @@ function Billing() {
 
   /* ── Convert Quotation → Invoice ── */
   async function convertToInvoice(qt) {
+    if (converting === qt.id) return;
+    setConverting(qt.id);
     const isGBP = qt.currency === "GBP";
     const confirmMsg = isGBP
       ? `Convert ${qt.quotationNumber} to a VAT Invoice? Since the quotation is in GBP, the rates will be converted to NPR using the rate of 1 GBP = 200 NPR.`
       : `Convert ${qt.quotationNumber} to a VAT Invoice?`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!window.confirm(confirmMsg)) { setConverting(null); return; }
     setSubmitting(true);
     try {
       // Convert items rates to NPR if GBP
@@ -414,6 +417,8 @@ function Billing() {
     } catch (err) {
       console.error(err);
       alert("Conversion failed.");
+    } finally {
+      setConverting(null);
     }
     setSubmitting(false);
   }
@@ -978,7 +983,9 @@ function Billing() {
 
                             {/* Convert quotation → invoice */}
                             {canEdit && tab === "quotation" && !row.relatedInvoice && row.status !== "Cancelled" && row.status !== "Rejected" && (
-                              <button className="kbil-tbl-btn kbil-tbl-btn--primary" disabled={submitting} onClick={() => convertToInvoice(row)}>→ Invoice</button>
+                              <button className="kbil-tbl-btn kbil-tbl-btn--primary" disabled={submitting || converting === row.id} onClick={() => convertToInvoice(row)}>
+                                {converting === row.id ? "Converting…" : "→ Invoice"}
+                              </button>
                             )}
 
                             {/* Cancel */}

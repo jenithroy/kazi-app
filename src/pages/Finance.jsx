@@ -494,6 +494,7 @@ function Finance() {
     const now = new Date();
     const curMonth = MONTHS[now.getMonth()];
     const curYear  = now.getFullYear();
+    // KPI strip: payroll filtered to current month (MTD) — intentionally narrower than P&L which uses the full current year
     const payrollNPR  = payroll
       .filter(r => r.month === curMonth && Number(r.year) === curYear)
       .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
@@ -522,7 +523,13 @@ function Finance() {
   }, [entries]);
 
   const pl = useMemo(() => {
-    const salesRevenue  = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + Number(i.subtotalNPR || 0), 0);
+    // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
+    const salesRevenue = invoices
+      .filter(i => i.status === "Paid")
+      .reduce((s, i) => {
+        const val = Number(i.totalNPR || 0);
+        return s + (i.currency === "GBP" ? val * GBP_RATE : val);
+      }, 0);
     const otherIncome   = entries.filter(e => accounts.find(a => a.name === e.creditAccount && a.type === "Income")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
     const totalIncome   = salesRevenue + otherIncome;
     const expensesTotal = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
@@ -552,7 +559,7 @@ function Finance() {
   const donutData = useMemo(() => [
     { name: "Purchases", value: summary.purchNPR,    color: "#1f6e4c" },
     { name: "Expenses",  value: summary.expensesNPR, color: "#c4654a" },
-    { name: "Payroll",   value: summary.payrollNPR,  color: "#5688b0" },
+    { name: "Payroll (MTD)",   value: summary.payrollNPR,  color: "#5688b0" },
   ].filter(d => d.value > 0), [summary]);
 
   const categoryBarData = useMemo(() => {
@@ -1423,11 +1430,12 @@ function Finance() {
             return { ...o, costKey, revenue, mat, lab, labIsAuto, ovh, shp, totalCost, profit, margin, hasCosts };
           });
 
-          // KPI summary
-          const kpiRevenue  = rows.reduce((s, r) => s + r.revenue,   0);
-          const kpiCost     = rows.reduce((s, r) => s + r.totalCost, 0);
-          const kpiProfit   = rows.reduce((s, r) => s + r.profit,    0);
-          const withMargin  = rows.filter(r => r.revenue > 0 && r.hasCosts);
+          // KPI summary — exclude Cancelled orders from revenue/cost/profit totals
+          const nonCancelledRows = rows.filter(r => (r.status || r.stage || "").toLowerCase() !== "cancelled");
+          const kpiRevenue  = nonCancelledRows.reduce((s, r) => s + r.revenue,   0);
+          const kpiCost     = nonCancelledRows.reduce((s, r) => s + r.totalCost, 0);
+          const kpiProfit   = nonCancelledRows.reduce((s, r) => s + r.profit,    0);
+          const withMargin  = nonCancelledRows.filter(r => r.revenue > 0 && r.hasCosts);
           const avgMargin   = withMargin.length
             ? withMargin.reduce((s, r) => s + r.margin, 0) / withMargin.length
             : null;

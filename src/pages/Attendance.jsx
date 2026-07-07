@@ -391,6 +391,11 @@ function Attendance() {
                                 ) : (
                                   <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace</span>
                                 ))}
+                                {row.status === "Late" && row.lateMinutes > 0 && (
+                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500, fontFamily: "var(--mono)" }}>
+                                    {row.lateMinutes}m late
+                                  </span>
+                                )}
                               </div>
                             )}
                           </td>

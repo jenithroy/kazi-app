@@ -180,14 +180,12 @@ function ActiveOrdersRow({ orders = [] }) {
   const [assignments, setAssignments] = useState({});
 
   useEffect(() => {
-    async function loadAssignments() {
+    const q = query(
+      collection(db, "order_assignments"),
+      where("status", "in", ["pending", "accepted", "in_progress"])
+    );
+    const unsub = onSnapshot(q, snap => {
       try {
-        const snap = await getDocs(
-          query(
-            collection(db, "order_assignments"),
-            where("status", "in", ["pending", "accepted", "in_progress"])
-          )
-        );
         const map = {};
         snap.docs.forEach(d => {
           const a = { id: d.id, ...d.data() };
@@ -198,8 +196,8 @@ function ActiveOrdersRow({ orders = [] }) {
         });
         setAssignments(map);
       } catch (_) { /* non-critical */ }
-    }
-    loadAssignments();
+    }, () => { /* ignore permission errors */ });
+    return unsub;
   }, []);
 
   if (orders.length === 0) return null;
@@ -267,19 +265,21 @@ function DispatchQueueCard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const snap = await getDocs(
-          query(
-            collection(db, "order_assignments"),
-            where("status", "in", ["pending", "accepted", "in_progress", "timed_out"])
-          )
-        );
-        setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (_) { /* non-critical */ }
+    const q = query(
+      collection(db, "order_assignments"),
+      where("status", "in", ["pending", "accepted", "in_progress", "timed_out"])
+    );
+    const unsub = onSnapshot(q, snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort: timed_out first, then pending, then active
+      data.sort((a, b) => {
+        const order = { timed_out: 0, pending: 1, accepted: 2, in_progress: 3 };
+        return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+      });
+      setAssignments(data);
       setLoading(false);
-    }
-    load();
+    }, () => { setLoading(false); /* ignore permission errors */ });
+    return unsub;
   }, []);
 
   function timeSince(ts) {
@@ -292,8 +292,7 @@ function DispatchQueueCard() {
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
-  const statusOrder = { timed_out: 0, pending: 1, accepted: 2, in_progress: 3 };
-  const sorted = [...assignments].sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+  const sorted = assignments; // already sorted by onSnapshot handler
 
   function statusPill(status) {
     if (status === "timed_out")  return <Pill tone="terra">⚠️ Timed out</Pill>;

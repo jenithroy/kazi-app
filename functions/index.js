@@ -385,6 +385,7 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
             acceptedAt: null,
             completedAt: null,
             timeoutAt,
+            timeoutHours,
             notifiedManager: false,
           });
 
@@ -392,6 +393,12 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
             await tgReply(
               workerTelegramId,
               `🧵 New order assigned!\n\nOrder: *${assignment.orderRef}*\nCustomer: ${assignment.customerName}\nQty: ${assignment.quantity} pcs\nYour stage: *${assignment.stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
+            );
+          }
+
+          if (TELEGRAM_CHAT_ID) {
+            await tgReply(TELEGRAM_CHAT_ID,
+              `⚠️ Worker ${profile.name} skipped order *${assignment.orderRef}* (${assignment.stage}). Reassigned to ${workerName || "next available"}.`
             );
           }
         }
@@ -489,6 +496,7 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
                   acceptedAt: null,
                   completedAt: null,
                   timeoutAt,
+                  timeoutHours,
                   notifiedManager: false,
                 });
 
@@ -730,11 +738,14 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
    Header: Authorization: Bearer <DASHBOARD_API_KEY>
    Returns a JSON ops snapshot for Finn's dashboard integrations.
 ──────────────────────────────────────────────────────────────────────────── */
-const DASHBOARD_API_KEY = process.env.DASHBOARD_API_KEY || "kazi-dash-2026";
+const DASHBOARD_API_KEY = process.env.DASHBOARD_API_KEY;
 
 exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
   // Auth check
   const auth = req.headers["authorization"] || "";
+  if (!DASHBOARD_API_KEY) {
+    return res.status(503).json({ error: "Dashboard API not configured" });
+  }
   if (auth !== `Bearer ${DASHBOARD_API_KEY}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -955,6 +966,7 @@ exports.dispatchStage = onCall(async (request) => {
     acceptedAt: null,
     completedAt: null,
     timeoutAt,
+    timeoutHours,
     notifiedManager: false,
   });
 

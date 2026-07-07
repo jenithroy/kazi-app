@@ -35,36 +35,24 @@ export function sectionCanEdit(profile, section) {
 
   // Explicitly grant production edit access to Wilson, Anmol, and Anusha
   if (section === "production") {
-    const nameLower = profile.name?.toLowerCase();
     const emailLower = profile.email?.toLowerCase();
-    if (
-      ["wilson", "anmol", "anusha"].includes(nameLower) ||
-      ["wilsonshah98765@gmail.com", "basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes(emailLower)
-    ) {
+    if (["wilsonshah98765@gmail.com", "basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes(emailLower)) {
       return true;
     }
   }
 
   // Explicitly grant tasks edit/add access to Anusha
   if (section === "tasks") {
-    const nameLower = profile.name?.toLowerCase();
     const emailLower = profile.email?.toLowerCase();
-    if (
-      nameLower === "anusha" ||
-      emailLower === "anushapantaa@gmail.com"
-    ) {
+    if (emailLower === "anushapantaa@gmail.com") {
       return true;
     }
   }
 
   // Explicitly grant library and inventory edit/add access to Anusha
   if (section === "library" || section === "inventory") {
-    const nameLower = profile.name?.toLowerCase();
     const emailLower = profile.email?.toLowerCase();
-    if (
-      nameLower === "anusha" ||
-      emailLower === "anushapantaa@gmail.com"
-    ) {
+    if (emailLower === "anushapantaa@gmail.com") {
       return true;
     }
   }
@@ -100,9 +88,8 @@ export function sectionVisible(profile, sectionKey) {
 
   // Force visibility for Anusha
   const emailLower = profile.email?.toLowerCase();
-  const nameLower = profile.name?.toLowerCase();
   if (
-    (emailLower === "anushapantaa@gmail.com" || nameLower === "anusha") &&
+    emailLower === "anushapantaa@gmail.com" &&
     ["inventory", "library", "tasks"].includes(sectionKey)
   ) {
     return true;

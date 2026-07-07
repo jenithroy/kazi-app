@@ -189,6 +189,7 @@ function Employees() {
   const [showPayrollForm, setShowPayrollForm] = useState(false);
   const [editingPayrollId, setEditingPayrollId] = useState(null);
   const [loadingAtt, setLoadingAtt] = useState(false);
+  const [attWarning, setAttWarning] = useState("");
 
   useEffect(() => {
     if (!payrollForm.staffName || !payrollForm.month || !payrollForm.year) return;
@@ -230,8 +231,9 @@ function Employees() {
 
         if (logs.length === 0 && basic > 0) {
           // No attendance records found — may be a name mismatch
-          setLoadingAtt(false);
-          console.warn(`No attendance records found for "${payrollForm.staffName}" in ${payrollForm.month} ${payrollForm.year}. Verify name matches attendance records.`);
+          setAttWarning(`⚠️ No attendance records found for ${payrollForm.staffName} in ${payrollForm.month}. Check that the name matches attendance records exactly.`);
+        } else if (logs.length > 0) {
+          setAttWarning("");
         }
 
         setPayrollForm(f => ({
@@ -401,7 +403,9 @@ function Employees() {
     const bonus = Number(f.bonusNPR || 0);
     const gross = basic + bonus;
     const totalDeductions = late + pf;
-    return { gross, late, pf, totalDeductions, net: gross - totalDeductions };
+    const rawNet = gross - totalDeductions;
+    const net = Math.max(0, rawNet);
+    return { gross, late, pf, totalDeductions, net, deductionsExceedGross: rawNet < 0 };
   }
 
   async function handleAddPayroll(e) {
@@ -431,7 +435,7 @@ function Employees() {
     } else {
       await addDoc(collection(db, "finance_payroll"), { ...data, createdAt: serverTimestamp() });
     }
-    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
+    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateRateNPR: 500, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
     setShowPayrollForm(false);
     await loadData();
   }
@@ -719,7 +723,7 @@ function Employees() {
                 <h3>{editingPayrollId ? "Edit Payroll Record" : "Payroll Entry"}</h3>
                 <button className="ghost-button" onClick={() => {
                   setShowPayrollForm(v => !v);
-                  if (showPayrollForm) { setEditingPayrollId(null); setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" })); }
+                  if (showPayrollForm) { setEditingPayrollId(null); setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateRateNPR: 500, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" })); }
                 }}>
                   {showPayrollForm ? "✕ Cancel" : "+ Add Payroll"}
                 </button>
@@ -788,6 +792,11 @@ function Employees() {
                       <input type="text" className="kfin-input" value={payrollForm.note} placeholder="Optional note"
                         onChange={e => setPayrollForm(f => ({ ...f, note: e.target.value }))} />
                     </label>
+                    {attWarning && (
+                      <div className="kfin-full" style={{ padding: "10px 14px", background: "rgba(255,160,0,0.12)", border: "1.5px solid rgba(255,160,0,0.45)", borderRadius: 8, fontSize: 13, color: "#a06000", fontWeight: 500, marginBottom: 12 }}>
+                        {attWarning}
+                      </div>
+                    )}
                     <div className="kfin-calc kfin-full" style={{ marginBottom: 16 }}>
                       <p className="kfin-calc-title">Salary Calculation</p>
                       <div className="kfin-calc-grid">
@@ -832,6 +841,11 @@ function Employees() {
                           <span style={{ fontSize: "11px", color: "var(--mint-deep)", marginLeft: 6, fontWeight: 700 }}>({asCurrency(calc.net / GBP_RATE, "GBP")})</span>
                         </span>
                       </div>
+                      {calc.deductionsExceedGross && (
+                        <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(255,160,0,0.12)", border: "1.5px solid rgba(255,160,0,0.45)", borderRadius: 8, fontSize: 13, color: "#a06000", fontWeight: 500 }}>
+                          ⚠️ Deductions exceed gross salary — net pay has been clamped to NPR 0.
+                        </div>
+                      )}
                     </div>
                     <button type="submit" className="primary-button">{editingPayrollId ? "Update Payroll" : "Save Payroll"}</button>
                   </form>

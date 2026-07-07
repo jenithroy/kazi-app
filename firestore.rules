@@ -77,8 +77,8 @@ service cloud.firestore {
         request.auth.token.email == "wilsonshah98765@gmail.com" ||
         request.auth.token.email == "admin@kazi.com"
       );
-      allow create, update: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+      allow create, update: if isNepalAdmin() || isSuperAdmin();
+      allow delete: if isNepalAdmin() || isSuperAdmin();
     }
     match /content/{id} {
       allow create: if hasPermission("budget") || isNepalStaff() || isSuperAdmin();

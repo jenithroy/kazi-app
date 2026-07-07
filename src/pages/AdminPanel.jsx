@@ -598,7 +598,6 @@ export default function AdminPanel() {
                       placeholder="e.g. 123456789"
                       value={telegramEdit}
                       onChange={e => setTelegramEdit(e.target.value)}
-                      onBlur={() => canEdit && saveTelegramId(selectedUser.id, telegramEdit)}
                       disabled={!canEdit || savingTg}
                       style={{
                         width: 180, padding: "7px 10px",
@@ -609,7 +608,21 @@ export default function AdminPanel() {
                         opacity: !canEdit ? 0.6 : 1,
                       }}
                     />
-                    {savingTg && <span className="kadm-saving">Saving…</span>}
+                    {canEdit && (
+                      <button
+                        onClick={() => saveTelegramId(selectedUser.id, telegramEdit)}
+                        disabled={savingTg}
+                        style={{
+                          padding: "7px 14px", borderRadius: 6,
+                          border: "1px solid var(--ink-5)", background: "var(--mint-deep)",
+                          color: "#fff", fontSize: 12, fontWeight: 600,
+                          cursor: savingTg ? "not-allowed" : "pointer",
+                          opacity: savingTg ? 0.6 : 1,
+                        }}
+                      >
+                        {savingTg ? "…" : "Save"}
+                      </button>
+                    )}
                     {!savingTg && selectedUser.telegramId && (
                       <span style={{ fontSize: 11, color: "var(--mint-deep)", fontWeight: 600 }}>✓ Linked</span>
                     )}
