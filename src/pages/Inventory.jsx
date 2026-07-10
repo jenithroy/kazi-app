@@ -1328,6 +1328,14 @@ function Inventory() {
     return null;
   };
 
+  const handleTabSelect = (e, tabKey) => {
+    if (e.type === "touchstart") {
+      e.preventDefault();
+    }
+    setActiveTab(tabKey);
+    setShowAddForm(false);
+  };
+
   return (
     <AppLayout>
       <PageHeader
@@ -1434,10 +1442,8 @@ function Inventory() {
               <button
                 key={t.key}
                 className={cn("kinv-tab", activeTab === t.key && "kinv-tab--on")}
-                onClick={() => {
-                  setActiveTab(t.key);
-                  setShowAddForm(false);
-                }}
+                onClick={(e) => handleTabSelect(e, t.key)}
+                onTouchStart={(e) => handleTabSelect(e, t.key)}
               >
                 {t.label}
                 {["fabrics", "processes", "patterns"].includes(t.key) && (

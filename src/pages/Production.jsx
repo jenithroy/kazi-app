@@ -1190,16 +1190,32 @@ function Production() {
       {/* ── Tabs & Monthly View Toggle ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div className="tab-row" style={{ marginBottom: 0 }}>
-          <button className={cn("tab-button", activeTab === "pipeline" && "active")} onClick={() => setActiveTab("pipeline")}>
+          <button
+            className={cn("tab-button", activeTab === "pipeline" && "active")}
+            onClick={() => setActiveTab("pipeline")}
+            onTouchStart={(e) => { e.preventDefault(); setActiveTab("pipeline"); }}
+          >
             Pipeline
           </button>
-          <button className={cn("tab-button", activeTab === "orders" && "active")} onClick={() => setActiveTab("orders")}>
+          <button
+            className={cn("tab-button", activeTab === "orders" && "active")}
+            onClick={() => setActiveTab("orders")}
+            onTouchStart={(e) => { e.preventDefault(); setActiveTab("orders"); }}
+          >
             Order Management
           </button>
-          <button className={cn("tab-button", activeTab === "calendar" && "active")} onClick={() => setActiveTab("calendar")}>
+          <button
+            className={cn("tab-button", activeTab === "calendar" && "active")}
+            onClick={() => setActiveTab("calendar")}
+            onTouchStart={(e) => { e.preventDefault(); setActiveTab("calendar"); }}
+          >
             Timeline &amp; Calendar
           </button>
-          <button className={cn("tab-button", activeTab === "batches" && "active")} onClick={() => setActiveTab("batches")}>
+          <button
+            className={cn("tab-button", activeTab === "batches" && "active")}
+            onClick={() => setActiveTab("batches")}
+            onTouchStart={(e) => { e.preventDefault(); setActiveTab("batches"); }}
+          >
             Batch Tracking
           </button>
         </div>
