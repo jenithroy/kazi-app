@@ -75,6 +75,21 @@ async function uploadFabricSwatch(fabricId, file) {
   return downloadUrl;
 }
 
+async function uploadPatternTechPack(patternId, file) {
+  const timestamp = Date.now();
+  const path = `patterns/techpacks/${patternId}_${timestamp}.jpg`;
+  const storageRef = ref(storage, path);
+  
+  const metadata = {
+    cacheControl: "public, max-age=31536000, immutable",
+    contentType: "image/jpeg"
+  };
+
+  const snapshot = await uploadBytes(storageRef, file, metadata);
+  const downloadUrl = await getDownloadURL(snapshot.ref);
+  return downloadUrl;
+}
+
 /* ── Stock Constants ───────────────────────────────────── */
 const STOCK_CATEGORIES = [
   "Raw Materials", "Fabric", "Thread & Accessories", "Packaging",
@@ -261,6 +276,39 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     };
   });
 
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(item?.tech_pack_url && (item.tech_pack_url.includes(".jpg") || item.tech_pack_url.includes("techpacks")) ? item.tech_pack_url : "");
+  const [dragActive, setDragActive] = useState(false);
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const toggleSize = (s) => set("sizes_available", form.sizes_available.includes(s)
     ? form.sizes_available.filter(x => x !== s)
@@ -273,24 +321,30 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     setSaving(true); setError("");
     try {
       const payload = { ...form };
-      if (tab === "fabrics") {
-        payload.available_colors = form.available_colors
-          ? form.available_colors.split(",").map(c => c.trim()).filter(Boolean)
-          : [];
-        payload.weight_gsm = form.weight_gsm ? Number(form.weight_gsm) : null;
-        payload.price_per_meter = form.price_per_meter ? Number(form.price_per_meter) : null;
-      }
       if (tab === "processes") {
         payload.cost_per_unit  = form.cost_per_unit  ? Number(form.cost_per_unit)  : null;
         payload.min_quantity   = form.min_quantity   ? Number(form.min_quantity)   : null;
         payload.lead_time_days = form.lead_time_days ? Number(form.lead_time_days) : null;
       }
+
+      let docId = item?.id;
       if (isEdit) {
-        await updateDoc(doc(db, tab, item.id), { ...payload, updatedAt: serverTimestamp() });
-        onSaved({ id: item.id, ...payload });
+        if (tab === "patterns" && imageFile) {
+          const compressed = await compressFabricImage(imageFile);
+          payload.tech_pack_url = await uploadPatternTechPack(docId, compressed);
+        }
+        await updateDoc(doc(db, tab, docId), { ...payload, updatedAt: serverTimestamp() });
+        onSaved({ id: docId, ...payload });
       } else {
         const ref = await addDoc(collection(db, tab), { ...payload, createdAt: serverTimestamp() });
-        onSaved({ id: ref.id, ...payload });
+        docId = ref.id;
+        if (tab === "patterns" && imageFile) {
+          const compressed = await compressFabricImage(imageFile);
+          const uploadedUrl = await uploadPatternTechPack(docId, compressed);
+          await updateDoc(doc(db, tab, docId), { tech_pack_url: uploadedUrl });
+          payload.tech_pack_url = uploadedUrl;
+        }
+        onSaved({ id: docId, ...payload });
       }
     } catch (err) {
       setError(err.message || "Failed to save");
@@ -394,8 +448,52 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
               </div>
             </div>
             <div>
-              <label className="kfin-label">Tech Pack URL</label>
+              <label className="kfin-label">Tech Pack URL (or upload picture below)</label>
               <input className="kfin-input" value={form.tech_pack_url} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
+            </div>
+            <div>
+              <label className="kfin-label">Tech Pack Picture</label>
+              <div
+                className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
+                onDragEnter={handleDrag}
+                onDragOver={handleDrag}
+                onDragLeave={handleDrag}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById("pattern-file-input").click()}
+                style={{
+                  border: "2px dashed var(--line)",
+                  borderRadius: 8,
+                  padding: "16px",
+                  textAlign: "center",
+                  background: "var(--bg)",
+                  cursor: "pointer",
+                  transition: "border-color .15s",
+                  marginTop: 6
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--ink-4)", marginBottom: 4 }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 500, color: "var(--ink-2)" }}>
+                  Drag tech pack picture here or click to browse
+                </p>
+                <p style={{ margin: "2px 0 0 0", fontSize: 10, color: "var(--ink-4)" }}>
+                  PNG, JPG, JPEG (automatic compression)
+                </p>
+                <input
+                  type="file"
+                  id="pattern-file-input"
+                  style={{ display: "none" }}
+                  accept="image/*"
+                  onChange={handleFileChange}
+                />
+              </div>
+              {imagePreview && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+                  <img src={imagePreview} alt="Preview" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: "1px solid var(--line)" }} />
+                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Selected Tech Pack Picture</span>
+                </div>
+              )}
             </div>
           </>}
 
@@ -915,14 +1013,29 @@ function ProcessCard({ item, canEdit, onEdit, onDelete }) {
 
 function PatternCard({ item, canEdit, onEdit, onDelete }) {
   const sizes = Array.isArray(item.sizes_available) ? item.sizes_available : [];
+  const isImageTechPack = item.tech_pack_url && (
+    item.tech_pack_url.includes(".jpg") ||
+    item.tech_pack_url.includes(".png") ||
+    item.tech_pack_url.includes(".jpeg") ||
+    item.tech_pack_url.includes("techpacks")
+  );
+
   return (
     <div className="kazi-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      {isImageTechPack && (
+        <div style={{ width: "100%", height: 120, borderRadius: 8, overflow: "hidden", background: "var(--bg-2)", border: "1px solid var(--line)", position: "relative" }}>
+          <img src={item.tech_pack_url} alt="Tech Pack" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" style={{ position: "absolute", top: 8, right: 8, background: "rgba(255,255,255,0.9)", color: "var(--ink-1)", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, textDecoration: "none", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
+            View Full ↗
+          </a>
+        </div>
+      )}
+      <div style={{ display: "flex", justifycontent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
           {item.product_type && <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{item.product_type}</div>}
         </div>
-        {item.tech_pack_url && (
+        {item.tech_pack_url && !isImageTechPack && (
           <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" className="ghost-button" style={{ fontSize: 12, padding: "3px 10px" }}>
             Tech Pack ↗
           </a>
