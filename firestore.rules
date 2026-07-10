@@ -70,6 +70,15 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update, delete: if isNepalStaff() || isUkAdmin() || isSuperAdmin();
     }
+    match /fabrics/{id} {
+      allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
+    }
+    match /processes/{id} {
+      allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
+    }
+    match /patterns/{id} {
+      allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
+    }
     match /bank_transactions/{id} {
       allow read: if isSignedIn() && (
         request.auth.token.email == "hi.zenuk@gmail.com" ||
