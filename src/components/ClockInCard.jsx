@@ -14,7 +14,7 @@ export default function ClockInCard({ profile, onClockChange }) {
   const staffId = profile?.uid || profile?.id || "";
   const { showPointsToast } = useReward();
 
-  const [status, setStatus] = useState("checking_status"); // checking_status, idle, locating, success, far, low-accuracy, clocked
+  const [status, setStatus] = useState("checking_status"); // checking_status, idle, locating, success, far, low-accuracy, gps-error, clocked
   const [clockDist, setClockDist] = useState(null);
   const [clockCoords, setClockCoords] = useState(null); // { lat, lng, accuracy }
   const [clockTime, setClockTime] = useState(new Date());
@@ -90,8 +90,8 @@ export default function ClockInCard({ profile, onClockChange }) {
       setStatus(dist > RADIUS ? "far" : "success");
     } catch (err) {
       console.error("GPS error:", err);
-      setClockDist(9999);
-      setStatus("far");
+      setClockDist(null);
+      setStatus("gps-error");
     }
   };
 
@@ -223,7 +223,7 @@ export default function ClockInCard({ profile, onClockChange }) {
               <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(15,46,34,.06)" strokeWidth="3" strokeDasharray="3 4"/>
               {status !== "idle" && status !== "checking_status" && (
                 <circle cx="100" cy="100" r="78" fill="none"
-                  stroke={status === "far" ? "var(--terra)" : "url(#clk-g)"} strokeWidth="10"
+                  stroke={status === "far" || status === "gps-error" ? "var(--terra)" : "url(#clk-g)"} strokeWidth="10"
                   strokeDasharray={`${(ringPct/100)*490} 490`} strokeLinecap="round"
                   transform="rotate(-90 100 100)" style={{ transition: "stroke-dasharray .6s ease" }}/>
               )}
@@ -239,6 +239,7 @@ export default function ClockInCard({ profile, onClockChange }) {
               {status === "success"      && <><div className="num-xl mono" style={{fontSize:26,color:"var(--mint-deep)"}}>{clockDist}m</div><div className="kem-clock-inner-l">from workshop</div></>}
               {status === "far"          && <><div className="num-xl mono" style={{fontSize:22,color:"var(--terra)"}}>{clockDist && clockDist !== 9999 ? `${(clockDist/1000).toFixed(2)}km` : "—"}</div><div className="kem-clock-inner-l">out of range</div></>}
               {status === "low-accuracy" && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>Weak GPS</div></>}
+              {status === "gps-error"    && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>GPS Error</div></>}
               {status === "clocked"      && <><Icons.Check size={28} sw={2.2} style={{color:"var(--mint-deep)"}}/><div className="kem-clock-inner-l">Clocked in</div></>}
             </div>
           </div>
@@ -315,6 +316,22 @@ export default function ClockInCard({ profile, onClockChange }) {
                 <div>
                   <div>GPS signal too weak</div>
                   <span>Accuracy: <strong className="mono">{clockCoords?.accuracy}m</strong> (requires &lt;{GPS_ACCURACY_THRESHOLD_M}m). Move outdoors, wait for a signal, or bypass.</span>
+                </div>
+              </div>
+              <div className="kem-clock-actions" style={{ display: "flex", gap: 10 }}>
+                <Btn kind="soft" size="md" onClick={startClock}>Try again</Btn>
+                <Btn kind="primary" size="md" icon={<Icons.Check size={14} sw={2.2}/>} onClick={() => confirmClockIn(true)}>Clock In Anyway</Btn>
+              </div>
+            </>
+          )}
+
+          {status === "gps-error" && (
+            <>
+              <div className="kem-clock-banner kem-clock-banner--err">
+                <Icons.Alert size={18}/>
+                <div>
+                  <div>GPS location unavailable.</div>
+                  <span>Could not determine your location. Please check your browser/phone permissions, or use low-accuracy bypass to clock in.</span>
                 </div>
               </div>
               <div className="kem-clock-actions" style={{ display: "flex", gap: 10 }}>

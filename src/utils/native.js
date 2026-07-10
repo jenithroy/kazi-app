@@ -10,13 +10,25 @@ export async function getCurrentPosition() {
   if (isNative) {
     const perm = await Geolocation.requestPermissions();
     if (perm.location !== "granted") throw new Error("Location permission denied");
-    return Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+    try {
+      return await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 7000 });
+    } catch (err) {
+      console.warn("High accuracy GPS failed on native, trying low accuracy...", err);
+      return Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 7000 });
+    }
   }
-  return new Promise((resolve, reject) =>
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true, timeout: 10000, maximumAge: 0,
-    })
-  );
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      resolve,
+      (err) => {
+        console.warn("High accuracy GPS failed on web, trying low accuracy...", err);
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false, timeout: 7000, maximumAge: 30000
+        });
+      },
+      { enableHighAccuracy: true, timeout: 7000, maximumAge: 0 }
+    );
+  });
 }
 
 // Push notifications — registers device token with Firebase for dispatch alerts
