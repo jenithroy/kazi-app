@@ -131,6 +131,15 @@ export function AuthProvider({ children }) {
                 }
                 profileData.permissions = updatedPerms;
               }
+            } else if ((firebaseUser.email || "").toLowerCase() === "sarbagyakarkig8@gmail.com") {
+              let existingPerms = data?.permissions || {};
+              if (existingPerms.marketing !== true) {
+                const updatedPerms = { ...existingPerms, marketing: true };
+                await updateDoc(profileRef, { permissions: updatedPerms });
+                profileData.permissions = updatedPerms;
+              } else {
+                profileData.permissions = existingPerms;
+              }
             } else if (data?.permissions) {
               profileData.permissions = data.permissions;
             }

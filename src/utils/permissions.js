@@ -57,6 +57,14 @@ export function sectionCanEdit(profile, section) {
     }
   }
 
+  // Explicitly grant marketing edit/add access to Sarbagya
+  if (section === "marketing") {
+    const emailLower = profile.email?.toLowerCase();
+    if (emailLower === "sarbagyakarkig8@gmail.com") {
+      return true;
+    }
+  }
+
   // Check explicit override first (e.g. for employee overrides like Monika)
   let perm = profile.permissions?.[section];
   if (perm === false) return false;
@@ -92,6 +100,11 @@ export function sectionVisible(profile, sectionKey) {
     emailLower === "anushapantaa@gmail.com" &&
     ["inventory", "library", "tasks"].includes(sectionKey)
   ) {
+    return true;
+  }
+
+  // Force visibility for Sarbagya to marketing
+  if (emailLower === "sarbagyakarkig8@gmail.com" && sectionKey === "marketing") {
     return true;
   }
 

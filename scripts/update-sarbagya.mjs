@@ -28,22 +28,22 @@ async function main() {
       email: EMAIL,
       location: "nepal",
       isStub: true,
-      permissions: {}
+      permissions: {
+        marketing: true
+      }
     });
     console.log("✅ Created stub document successfully.");
   } else {
-    console.log(`\nFound Sarbagya's document: [${sarbagyaDoc.id}]`);
-    console.log("Current name:", sarbagyaDoc.name);
-    console.log("Current role:", sarbagyaDoc.role);
-    console.log("Current jobRole:", sarbagyaDoc.jobRole);
+    console.log("Current permissions:", JSON.stringify(sarbagyaDoc.permissions, null, 2));
 
     await db.collection("users").doc(sarbagyaDoc.id).update({
       name: "Sarbagya Karki",
       role: "nepal_staff",
-      jobRole: "Content Editor"
+      jobRole: "Content Editor",
+      "permissions.marketing": true
     });
 
-    console.log("\n✅  Updated Sarbagya successfully!");
+    console.log("\n✅  Updated Sarbagya successfully! marketing permission set to true.");
   }
 
   process.exit(0);
