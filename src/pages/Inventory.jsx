@@ -102,7 +102,7 @@ function nextItemId(rows) {
 const PROCESS_CATEGORIES = ["printing", "embellishment", "construction", "finishing", "other"];
 const COMMON_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
 
-const emptyFabric   = { name: "", composition: "", weight_gsm: "", available_colors: "", supplier: "", price_per_meter: "", notes: "" };
+const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", notes: "" };
 const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "" };
 const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", notes: "" };
 
@@ -442,10 +442,15 @@ function FabricCard({ item, onClick }) {
       <div className="kazi-fabric-body">
         <h4 className="kazi-fabric-name">{item.name}</h4>
         <p className="kazi-fabric-comp">{item.composition || "No composition specified"}</p>
-        <div className="kazi-fabric-meta">
+        <div className="kazi-fabric-meta" style={{ flexWrap: "wrap", gap: 6 }}>
           <Pill tone={item.gsm ? "mint" : "neutral"}>
             {item.gsm ? `${item.gsm} GSM` : "— GSM"}
           </Pill>
+          {item.weight && (
+            <Pill tone="blue">
+              {item.weight}
+            </Pill>
+          )}
           <span className="kazi-status-dot-wrap">
             <span className={cn("kazi-status-dot", statusClass)} />
             {item.status || "In Stock"}
@@ -459,6 +464,7 @@ function FabricCard({ item, onClick }) {
 function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
   const [name, setName] = useState(item.name || "");
   const [gsm, setGsm] = useState(item.gsm !== null && item.gsm !== undefined ? String(item.gsm) : "");
+  const [weight, setWeight] = useState(item.weight || "");
   const [composition, setComposition] = useState(item.composition || "");
   const [status, setStatus] = useState(item.status || "In Stock");
   const [swatchImageUrl, setSwatchImageUrl] = useState(item.swatchImageUrl || "");
@@ -519,6 +525,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
       const payload = {
         name,
         gsm: parsedGsm,
+        weight,
         composition,
         status,
         swatchImageUrl,
@@ -579,7 +586,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
               />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
               <div>
                 <label className="kfin-label">Weight (GSM)</label>
                 <input
@@ -588,6 +595,17 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
                   value={gsm}
                   onChange={e => setGsm(e.target.value)}
                   placeholder="e.g. 240 (optional)"
+                  disabled={!canEdit || saving || deleting}
+                />
+              </div>
+              <div>
+                <label className="kfin-label">Fabric Weight</label>
+                <input
+                  className="kfin-input"
+                  type="text"
+                  value={weight}
+                  onChange={e => setWeight(e.target.value)}
+                  placeholder="e.g. 1.2 kg / roll"
                   disabled={!canEdit || saving || deleting}
                 />
               </div>
@@ -671,6 +689,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
 function AddFabricModal({ onClose, onSaved }) {
   const [name, setName] = useState("");
   const [gsm, setGsm] = useState("");
+  const [weight, setWeight] = useState("");
   const [composition, setComposition] = useState("");
   const [status, setStatus] = useState("In Stock");
   const [imageFile, setImageFile] = useState(null);
@@ -722,6 +741,7 @@ function AddFabricModal({ onClose, onSaved }) {
       const tempPayload = {
         name,
         gsm: parsedGsm,
+        weight,
         composition,
         status,
         swatchImageUrl: "",
@@ -770,7 +790,7 @@ function AddFabricModal({ onClose, onSaved }) {
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <div>
               <label className="kfin-label">Weight (GSM)</label>
               <input
@@ -779,6 +799,17 @@ function AddFabricModal({ onClose, onSaved }) {
                 value={gsm}
                 onChange={e => setGsm(e.target.value)}
                 placeholder="e.g. 420"
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="kfin-label">Fabric Weight</label>
+              <input
+                className="kfin-input"
+                type="text"
+                value={weight}
+                onChange={e => setWeight(e.target.value)}
+                placeholder="e.g. 1.2 kg"
                 disabled={saving}
               />
             </div>
@@ -994,6 +1025,7 @@ function Inventory() {
         const payload = {
           name: item.name,
           gsm: item.gsm,
+          weight: "",
           composition: item.composition,
           status: item.status,
           swatchImageUrl: "",
