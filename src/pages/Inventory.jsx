@@ -18,7 +18,6 @@ function compressFabricImage(file) {
     reader.readAsDataURL(file);
     reader.onload = (event) => {
       const img = new Image();
-      img.src = event.target.result;
       img.onload = () => {
         const canvas = document.createElement("canvas");
         let width = img.width;
@@ -55,6 +54,7 @@ function compressFabricImage(file) {
         );
       };
       img.onerror = (err) => reject(err);
+      img.src = event.target.result;
     };
     reader.onerror = (err) => reject(err);
   });
