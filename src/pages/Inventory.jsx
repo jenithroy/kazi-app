@@ -321,6 +321,10 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     setSaving(true); setError("");
     try {
       const payload = { ...form };
+      if (tab === "fabrics") {
+        payload.gsm             = form.gsm ? Number(form.gsm) : null;
+        payload.price_per_meter = form.price_per_meter ? Number(form.price_per_meter) : null;
+      }
       if (tab === "processes") {
         payload.cost_per_unit  = form.cost_per_unit  ? Number(form.cost_per_unit)  : null;
         payload.min_quantity   = form.min_quantity   ? Number(form.min_quantity)   : null;
@@ -366,32 +370,32 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
         <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <label className="kfin-label">Name *</label>
-            <input className="kfin-input" value={form.name} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : "e.g. Oversized Tee"} />
+            <input className="kfin-input" value={form.name ?? ""} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : "e.g. Oversized Tee"} />
           </div>
 
           {tab === "fabrics" && <>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label className="kfin-label">Composition</label>
-                <input className="kfin-input" value={form.composition} onChange={e => set("composition", e.target.value)} placeholder="100% Cotton" />
+                <input className="kfin-input" value={form.composition ?? ""} onChange={e => set("composition", e.target.value)} placeholder="100% Cotton" />
               </div>
               <div>
                 <label className="kfin-label">Weight (GSM)</label>
-                <input className="kfin-input" type="number" value={form.weight_gsm} onChange={e => set("weight_gsm", e.target.value)} placeholder="180" />
+                <input className="kfin-input" type="number" value={form.gsm ?? ""} onChange={e => set("gsm", e.target.value)} placeholder="180" />
               </div>
             </div>
             <div>
               <label className="kfin-label">Available Colors (comma-separated)</label>
-              <input className="kfin-input" value={form.available_colors} onChange={e => set("available_colors", e.target.value)} placeholder="White, Black, Navy" />
+              <input className="kfin-input" value={form.available_colors ?? ""} onChange={e => set("available_colors", e.target.value)} placeholder="White, Black, Navy" />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label className="kfin-label">Supplier</label>
-                <input className="kfin-input" value={form.supplier} onChange={e => set("supplier", e.target.value)} />
+                <input className="kfin-input" value={form.supplier ?? ""} onChange={e => set("supplier", e.target.value)} />
               </div>
               <div>
                 <label className="kfin-label">Price/metre (NPR)</label>
-                <input className="kfin-input" type="number" value={form.price_per_meter} onChange={e => set("price_per_meter", e.target.value)} placeholder="350" />
+                <input className="kfin-input" type="number" value={form.price_per_meter ?? ""} onChange={e => set("price_per_meter", e.target.value)} placeholder="350" />
               </div>
             </div>
           </>}
@@ -399,27 +403,27 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
           {tab === "processes" && <>
             <div>
               <label className="kfin-label">Category</label>
-              <select className="kfin-input" value={form.category} onChange={e => set("category", e.target.value)}>
+              <select className="kfin-input" value={form.category ?? ""} onChange={e => set("category", e.target.value)}>
                 <option value="">Select category</option>
                 {PROCESS_CATEGORIES.map(c => <option key={c} value={c} style={{ textTransform: "capitalize" }}>{c}</option>)}
               </select>
             </div>
             <div>
               <label className="kfin-label">Description</label>
-              <textarea className="kfin-input" rows={2} value={form.description} onChange={e => set("description", e.target.value)} style={{ resize: "vertical" }} />
+              <textarea className="kfin-input" rows={2} value={form.description ?? ""} onChange={e => set("description", e.target.value)} style={{ resize: "vertical" }} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
                 <label className="kfin-label">Cost/unit (NPR)</label>
-                <input className="kfin-input" type="number" value={form.cost_per_unit} onChange={e => set("cost_per_unit", e.target.value)} />
+                <input className="kfin-input" type="number" value={form.cost_per_unit ?? ""} onChange={e => set("cost_per_unit", e.target.value)} />
               </div>
               <div>
                 <label className="kfin-label">Min qty</label>
-                <input className="kfin-input" type="number" value={form.min_quantity} onChange={e => set("min_quantity", e.target.value)} />
+                <input className="kfin-input" type="number" value={form.min_quantity ?? ""} onChange={e => set("min_quantity", e.target.value)} />
               </div>
               <div>
                 <label className="kfin-label">Lead time (days)</label>
-                <input className="kfin-input" type="number" value={form.lead_time_days} onChange={e => set("lead_time_days", e.target.value)} />
+                <input className="kfin-input" type="number" value={form.lead_time_days ?? ""} onChange={e => set("lead_time_days", e.target.value)} />
               </div>
             </div>
           </>}
@@ -427,7 +431,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
           {tab === "patterns" && <>
             <div>
               <label className="kfin-label">Product Type</label>
-              <input className="kfin-input" value={form.product_type} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
+              <input className="kfin-input" value={form.product_type ?? ""} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
             </div>
             <div>
               <label className="kfin-label">Sizes Available</label>
@@ -449,7 +453,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
             </div>
             <div>
               <label className="kfin-label">Tech Pack URL (or upload picture below)</label>
-              <input className="kfin-input" value={form.tech_pack_url} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
+              <input className="kfin-input" value={form.tech_pack_url ?? ""} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
             </div>
             <div>
               <label className="kfin-label">Tech Pack Picture</label>
@@ -499,7 +503,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
 
           <div>
             <label className="kfin-label">Notes</label>
-            <textarea className="kfin-input" rows={2} value={form.notes} onChange={e => set("notes", e.target.value)} style={{ resize: "vertical" }} />
+            <textarea className="kfin-input" rows={2} value={form.notes ?? ""} onChange={e => set("notes", e.target.value)} style={{ resize: "vertical" }} />
           </div>
 
           {error && <p style={{ color: "var(--terra)", fontSize: 13 }}>{error}</p>}

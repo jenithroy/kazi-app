@@ -1011,7 +1011,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .grid-form .full-width { grid-column: span 2; }
 
 /* Table wrapper */
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
 .table-wrap table {
   width: 100%; border-collapse: collapse; font-size: 13px;
 }
@@ -1223,7 +1227,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kinv-search input::placeholder { color: var(--ink-5); }
 
 /* Table wrap */
-.kinv-table-wrap { overflow-x: auto; }
+.kinv-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
 .kinv-table {
   width: 100%;
   border-collapse: collapse;
