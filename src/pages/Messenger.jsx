@@ -341,7 +341,7 @@ function Messenger() {
 
   return (
     <AppLayout>
-      <div className="kscr fade-in" style={{ padding: "0", display: "flex", flexDirection: "column", height: "calc(100vh - 75px)" }}>
+      <div className="kscr fade-in kmsg-shell" style={{ padding: "0", display: "flex", flexDirection: "column" }}>
         
         {/* Credentials Warning Banner */}
         {!isConfigured && !useDemo && (
@@ -388,10 +388,10 @@ function Messenger() {
         )}
 
         {/* Main Messenger Container */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", background: "var(--bg-2)" }}>
-          
+        <div className="kmsg-panes" style={{ display: "flex", flex: 1, overflow: "hidden", background: "var(--bg-2)" }}>
+
           {/* 1. Left Side: Thread List */}
-          <div style={{ width: 320, borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", background: "var(--bg-2)" }}>
+          <div className="kmsg-threads" style={{ borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", background: "var(--bg-2)" }}>
             
             {/* Thread List Header */}
             <div style={{ padding: "16px 20px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -518,7 +518,7 @@ function Messenger() {
           </div>
 
           {/* 2. Right Side: Chat Message Pane */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "var(--bg)" }}>
+          <div className="kmsg-chat" style={{ flex: 1, display: "flex", flexDirection: "column", background: "var(--bg)" }}>
             {activeThread ? (
               <>
                 {/* Chat Panel Header */}
@@ -558,13 +558,13 @@ function Messenger() {
                     messages.map((msg, index) => {
                       const isAgent = msg.sender === "agent";
                       return (
-                        <div 
+                        <div
                           key={msg.id || index}
+                          className="kmsg-bubble-wrap"
                           style={{
                             display: "flex",
                             flexDirection: "column",
                             alignItems: isAgent ? "flex-end" : "flex-start",
-                            maxWidth: "75%",
                             alignSelf: isAgent ? "flex-end" : "flex-start"
                           }}
                         >

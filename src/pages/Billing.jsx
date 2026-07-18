@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE } from "../constants";
+import { scrollAppToTop } from "../utils/scroll";
 import {
   DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
@@ -227,7 +228,7 @@ function Billing() {
     setForm({ ...makeEmptyForm(tab), ...rest, items });
     setEditingId(id);
     setShowForm(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollAppToTop();
   }
 
   /* ── Intercept Enter Key to prevent premature form submission ── */

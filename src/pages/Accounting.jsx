@@ -349,7 +349,7 @@ function Accounting() {
 
       {/* ── P&L ── */}
       {activeTab === "p&l" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 14 }}>
+        <div className="kacc-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 14 }}>
           <section className="panel">
             <h3>Profit & Loss Statement</h3>
             <div style={{ marginTop: 14, fontSize: "0.9rem" }}>
@@ -432,7 +432,7 @@ function Accounting() {
 
       {/* ── Balance Sheet ── */}
       {activeTab === "balance sheet" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className="kacc-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           {/* Assets */}
           <section className="panel">
             <h3 style={{ color: "var(--ok)" }}>Assets</h3>

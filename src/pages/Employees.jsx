@@ -10,6 +10,7 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { TEAM_MEMBERS, GBP_RATE } from "../constants";
 import { asCurrency } from "../utils/format";
+import { scrollAppToTop } from "../utils/scroll";
 
 const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", "Marketing", "IT", "Other"];
 
@@ -365,7 +366,7 @@ function Employees() {
     setEditId(emp.id);
     setShowForm(true);
     setActiveTab("directory");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollAppToTop();
   }
 
   async function toggleStatus(emp) {
@@ -939,7 +940,7 @@ function Employees() {
                                   note: item.note || "",
                                 });
                                 setShowPayrollForm(true);
-                                window.scrollTo({ top: 0, behavior: "smooth" });
+                                scrollAppToTop();
                               }}>
                               Edit
                             </button>

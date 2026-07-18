@@ -76,7 +76,7 @@ export default function Directors() {
 
         {/* About */}
         <Section title="About Kazi Manufacturing">
-          <div style={{
+          <div className="kdir-about-grid" style={{
             background: "var(--card)", border: "1px solid var(--line)",
             borderRadius: 12, padding: "20px 22px",
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20,

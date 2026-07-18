@@ -53,7 +53,7 @@ service cloud.firestore {
     }
     match /inventory/{id} {
       allow create, update: if hasPermission("inventory") || isNepalStaff() || isSuperAdmin();
-      allow delete: if false;
+      allow delete: if hasPermission("inventory") || isNepalAdmin() || isSuperAdmin();
     }
     match /qc_logs/{id} {
       allow create, update: if hasPermission("qc") || isNepalStaff() || isSuperAdmin();
@@ -96,7 +96,7 @@ service cloud.firestore {
     }
     match /finance_expenses/{id} {
       allow create, update: if hasPermission("finance") || isNepalStaff() || isSuperAdmin();
-      allow delete: if false;
+      allow delete: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
     }
     match /users/{id} {
       allow create: if isSignedIn() && (request.auth.uid == id || isSuperAdmin() || isUkAdmin() || isNepalAdmin() || hasPermission("employees"));
@@ -105,11 +105,11 @@ service cloud.firestore {
     }
     match /finance_payroll/{id} {
       allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
-      allow delete: if false;
+      allow delete: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
     }
     match /finance_purchases/{id} {
       allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
-      allow delete: if false;
+      allow delete: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
     }
     match /finance_vat/{id} {
       allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
@@ -117,6 +117,40 @@ service cloud.firestore {
     }
     match /finance_journal/{id} {
       allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    // Accounting section — chart of accounts & journal entries (names used by the app)
+    match /accounts/{id} {
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /journal_entries/{id} {
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /vat_bills/{id} {
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+    }
+    match /order_costs/{id} {
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
+    }
+    match /product_costs/{id} {
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("finance") || isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+    }
+    // Rewards / leaderboard — written from task completion by any signed-in user
+    match /user_points/{id} {
+      allow create, update: if isSignedIn();
+      allow delete: if false;
+    }
+    match /point_transactions/{id} {
+      allow create, update: if isSignedIn();
+      allow delete: if false;
+    }
+    match /leaderboard/{id} {
+      allow create, update: if isSignedIn();
       allow delete: if false;
     }
     match /budget_requests/{id} {

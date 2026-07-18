@@ -79,7 +79,7 @@ function CustomerRow({ customer, canEdit, onEdit, onDelete }) {
   for (const c of customer.name) hue = (hue * 31 + c.charCodeAt(0)) % 360;
 
   return (
-    <div style={{
+    <div className="kcust-row" style={{
       display: "grid",
       gridTemplateColumns: "40px 1fr 1fr 1fr 1fr auto",
       alignItems: "center",
@@ -206,9 +206,9 @@ function Customers() {
         )}
 
         {/* Table */}
-        <div style={{ background: "var(--bg-2)", borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
+        <div className="kcust-tbl" style={{ background: "var(--bg-2)", borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
           {/* Column headers */}
-          <div style={{
+          <div className="kcust-row" style={{
             display: "grid",
             gridTemplateColumns: "40px 1fr 1fr 1fr 1fr auto",
             gap: 12, padding: "9px 16px",

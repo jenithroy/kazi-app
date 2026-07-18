@@ -12,7 +12,7 @@ import { db, storage } from "../firebase";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
 
 /* ── Image compression & upload helpers ───────────────── */
-function compressFabricImage(file) {
+function compressFabricImage(file, maxWidth = 1200, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -23,10 +23,9 @@ function compressFabricImage(file) {
         let width = img.width;
         let height = img.height;
 
-        const MAX_WIDTH = 1200;
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
         }
 
         canvas.width = width;
@@ -50,7 +49,7 @@ function compressFabricImage(file) {
             }
           },
           "image/jpeg",
-          0.8
+          quality
         );
       };
       img.onerror = (err) => reject(err);
@@ -60,34 +59,51 @@ function compressFabricImage(file) {
   });
 }
 
-async function uploadFabricSwatch(fabricId, file) {
-  const timestamp = Date.now();
-  const path = `fabrics/swatches/${fabricId}_${timestamp}.jpg`;
-  const storageRef = ref(storage, path);
-  
-  const metadata = {
-    cacheControl: "public, max-age=31536000, immutable",
-    contentType: "image/jpeg"
-  };
-
-  const snapshot = await uploadBytes(storageRef, file, metadata);
-  const downloadUrl = await getDownloadURL(snapshot.ref);
-  return downloadUrl;
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
-async function uploadPatternTechPack(patternId, file) {
-  const timestamp = Date.now();
-  const path = `patterns/techpacks/${patternId}_${timestamp}.jpg`;
+// Firestore docs max out at 1 MiB — keep inline images comfortably below that.
+const INLINE_IMAGE_LIMIT = 700 * 1024;
+
+async function inlineImageFallback(file) {
+  for (const [maxWidth, quality] of [[1200, 0.8], [900, 0.7], [640, 0.6], [480, 0.5]]) {
+    const small = await compressFabricImage(file, maxWidth, quality);
+    const dataUrl = await fileToDataUrl(small);
+    if (dataUrl.length <= INLINE_IMAGE_LIMIT) return dataUrl;
+  }
+  throw new Error("Image is too large to store. Please choose a smaller picture.");
+}
+
+async function uploadImage(path, file) {
   const storageRef = ref(storage, path);
-  
   const metadata = {
     cacheControl: "public, max-age=31536000, immutable",
     contentType: "image/jpeg"
   };
+  try {
+    const snapshot = await uploadBytes(storageRef, file, metadata);
+    return await getDownloadURL(snapshot.ref);
+  } catch (err) {
+    // Firebase Storage is not provisioned on this project (requires the Blaze
+    // plan). Fall back to storing the compressed image inline in Firestore so
+    // photos still work; once Storage is enabled, uploads use it automatically.
+    console.warn("Storage upload failed, storing image inline instead:", err);
+    return inlineImageFallback(file);
+  }
+}
 
-  const snapshot = await uploadBytes(storageRef, file, metadata);
-  const downloadUrl = await getDownloadURL(snapshot.ref);
-  return downloadUrl;
+function uploadFabricSwatch(fabricId, file) {
+  return uploadImage(`fabrics/swatches/${fabricId}_${Date.now()}.jpg`, file);
+}
+
+function uploadPatternTechPack(patternId, file) {
+  return uploadImage(`patterns/techpacks/${patternId}_${Date.now()}.jpg`, file);
 }
 
 /* ── Stock Constants ───────────────────────────────────── */
@@ -277,7 +293,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
   });
 
   const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(item?.tech_pack_url && (item.tech_pack_url.includes(".jpg") || item.tech_pack_url.includes("techpacks")) ? item.tech_pack_url : "");
+  const [imagePreview, setImagePreview] = useState(item?.tech_pack_url && (item.tech_pack_url.startsWith("data:image/") || item.tech_pack_url.includes(".jpg") || item.tech_pack_url.includes("techpacks")) ? item.tech_pack_url : "");
   const [dragActive, setDragActive] = useState(false);
 
   const handleDrag = (e) => {
@@ -321,6 +337,9 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     setSaving(true); setError("");
     try {
       const payload = { ...form };
+      delete payload.id;
+      delete payload.createdAt;
+      delete payload.updatedAt;
       if (tab === "fabrics") {
         payload.gsm             = form.gsm ? Number(form.gsm) : null;
         payload.price_per_meter = form.price_per_meter ? Number(form.price_per_meter) : null;
@@ -1018,6 +1037,7 @@ function ProcessCard({ item, canEdit, onEdit, onDelete }) {
 function PatternCard({ item, canEdit, onEdit, onDelete }) {
   const sizes = Array.isArray(item.sizes_available) ? item.sizes_available : [];
   const isImageTechPack = item.tech_pack_url && (
+    item.tech_pack_url.startsWith("data:image/") ||
     item.tech_pack_url.includes(".jpg") ||
     item.tech_pack_url.includes(".png") ||
     item.tech_pack_url.includes(".jpeg") ||
@@ -1034,7 +1054,7 @@ function PatternCard({ item, canEdit, onEdit, onDelete }) {
           </a>
         </div>
       )}
-      <div style={{ display: "flex", justifycontent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
           {item.product_type && <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{item.product_type}</div>}
@@ -1248,44 +1268,59 @@ function Inventory() {
   async function saveRow(row) {
     if (!canEditInventory) return;
     setSavingRow(row.id);
-    const rowDraft = draft[row.id] || {};
-    await updateInventoryDoc(row.id, {
-      stockIn:     Number(rowDraft.stockIn     ?? row.stockIn     ?? 0),
-      stockUsed:   Number(rowDraft.stockUsed   ?? row.stockUsed   ?? 0),
-      lastUpdated: new Date().toISOString().slice(0, 10),
-      updatedBy:   profile?.name || "Unknown"
-    });
-    await loadData();
-    setDraft(d => ({ ...d, [row.id]: {} }));
-    setSavingRow(null);
+    try {
+      const rowDraft = draft[row.id] || {};
+      await updateInventoryDoc(row.id, {
+        stockIn:     Number(rowDraft.stockIn     ?? row.stockIn     ?? 0),
+        stockUsed:   Number(rowDraft.stockUsed   ?? row.stockUsed   ?? 0),
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        updatedBy:   profile?.name || "Unknown"
+      });
+      await loadData();
+      setDraft(d => ({ ...d, [row.id]: {} }));
+    } catch (err) {
+      alert("Failed to save: " + err.message);
+    } finally {
+      setSavingRow(null);
+    }
   }
 
   async function deleteRow(rowId) {
     setDeletingRow(rowId);
-    await deleteDoc(doc(db, "inventory", rowId));
-    await loadData();
-    setDeleteConfirm(null);
-    setDeletingRow(null);
+    try {
+      await deleteDoc(doc(db, "inventory", rowId));
+      await loadData();
+      setDeleteConfirm(null);
+    } catch (err) {
+      alert("Failed to delete: " + err.message);
+    } finally {
+      setDeletingRow(null);
+    }
   }
 
   async function addItem(e) {
     e.preventDefault();
     setAddingItem(true);
-    await addDoc(collection(db, "inventory"), {
-      ...itemForm,
-      itemId:       nextItemId(rows),
-      openingStock: Number(itemForm.openingStock || 0),
-      stockIn:      Number(itemForm.stockIn      || 0),
-      stockUsed:    Number(itemForm.stockUsed    || 0),
-      minLevel:     Number(itemForm.minLevel     || 0),
-      unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
-      createdBy:    profile?.name || "Unknown",
-      createdAt:    serverTimestamp()
-    });
-    setItemForm(emptyItemForm);
-    setShowAddForm(false);
-    await loadData();
-    setAddingItem(false);
+    try {
+      await addDoc(collection(db, "inventory"), {
+        ...itemForm,
+        itemId:       nextItemId(rows),
+        openingStock: Number(itemForm.openingStock || 0),
+        stockIn:      Number(itemForm.stockIn      || 0),
+        stockUsed:    Number(itemForm.stockUsed    || 0),
+        minLevel:     Number(itemForm.minLevel     || 0),
+        unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
+        createdBy:    profile?.name || "Unknown",
+        createdAt:    serverTimestamp()
+      });
+      setItemForm(emptyItemForm);
+      setShowAddForm(false);
+      await loadData();
+    } catch (err) {
+      alert("Failed to add item: " + err.message);
+    } finally {
+      setAddingItem(false);
+    }
   }
 
   /* ── Unit Economics handlers ── */
@@ -1354,10 +1389,14 @@ function Inventory() {
   /* ── Library handlers ── */
   async function handleDeleteLibraryItem(item) {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
-    await deleteDoc(doc(db, activeTab, item.id));
-    if (activeTab === "fabrics")   setFabrics(fabrics.filter(x => x.id !== item.id));
-    if (activeTab === "processes") setProcesses(processes.filter(x => x.id !== item.id));
-    if (activeTab === "patterns")  setPatterns(patterns.filter(x => x.id !== item.id));
+    try {
+      await deleteDoc(doc(db, activeTab, item.id));
+      if (activeTab === "fabrics")   setFabrics(fabrics.filter(x => x.id !== item.id));
+      if (activeTab === "processes") setProcesses(processes.filter(x => x.id !== item.id));
+      if (activeTab === "patterns")  setPatterns(patterns.filter(x => x.id !== item.id));
+    } catch (err) {
+      alert("Failed to delete: " + err.message);
+    }
   }
 
   function handleSavedLibraryItem(saved) {
@@ -1477,10 +1516,7 @@ function Inventory() {
     return null;
   };
 
-  const handleTabSelect = (e, tabKey) => {
-    if (e.type === "touchstart") {
-      e.preventDefault();
-    }
+  const handleTabSelect = (tabKey) => {
     setActiveTab(tabKey);
     setShowAddForm(false);
   };
@@ -1591,8 +1627,7 @@ function Inventory() {
               <button
                 key={t.key}
                 className={cn("kinv-tab", activeTab === t.key && "kinv-tab--on")}
-                onClick={(e) => handleTabSelect(e, t.key)}
-                onTouchStart={(e) => handleTabSelect(e, t.key)}
+                onClick={() => handleTabSelect(t.key)}
               >
                 {t.label}
                 {["fabrics", "processes", "patterns"].includes(t.key) && (

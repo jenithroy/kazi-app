@@ -1193,28 +1193,24 @@ function Production() {
           <button
             className={cn("tab-button", activeTab === "pipeline" && "active")}
             onClick={() => setActiveTab("pipeline")}
-            onTouchStart={(e) => { e.preventDefault(); setActiveTab("pipeline"); }}
           >
             Pipeline
           </button>
           <button
             className={cn("tab-button", activeTab === "orders" && "active")}
             onClick={() => setActiveTab("orders")}
-            onTouchStart={(e) => { e.preventDefault(); setActiveTab("orders"); }}
           >
             Order Management
           </button>
           <button
             className={cn("tab-button", activeTab === "calendar" && "active")}
             onClick={() => setActiveTab("calendar")}
-            onTouchStart={(e) => { e.preventDefault(); setActiveTab("calendar"); }}
           >
             Timeline &amp; Calendar
           </button>
           <button
             className={cn("tab-button", activeTab === "batches" && "active")}
             onClick={() => setActiveTab("batches")}
-            onTouchStart={(e) => { e.preventDefault(); setActiveTab("batches"); }}
           >
             Batch Tracking
           </button>
@@ -1248,10 +1244,10 @@ function Production() {
               { label: "Completed",         value: orderStats.completed },
               { label: "Units in Pipeline", value: orderStats.totalUnits.toLocaleString() },
             ].map(s => (
-              <div key={s.label} style={{
+              <div key={s.label} className="kprod-ministat" style={{
                 background: "var(--card)", borderRadius: "var(--r-card)", border: "1.5px solid var(--line)",
                 padding: "10px 18px", display: "flex", flexDirection: "column", gap: 2,
-                boxShadow: "var(--shadow-1)", minWidth: 120
+                boxShadow: "var(--shadow-1)"
               }}>
                 <span style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600, letterSpacing: ".03em" }}>{s.label.toUpperCase()}</span>
                 <span style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2 }}>{s.value}</span>

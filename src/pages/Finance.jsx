@@ -687,7 +687,6 @@ function Finance() {
               key={t}
               className={`kfin-tab${activeTab === t ? " kfin-tab--on" : ""}`}
               onClick={() => setActiveTab(t)}
-              onTouchStart={(e) => { e.preventDefault(); setActiveTab(t); }}
             >
               {tabLabel(t)}
             </button>
