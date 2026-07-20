@@ -81,19 +81,24 @@ async function inlineImageFallback(file) {
 }
 
 async function uploadImage(path, file) {
-  const storageRef = ref(storage, path);
-  const metadata = {
-    cacheControl: "public, max-age=31536000, immutable",
-    contentType: "image/jpeg"
-  };
   try {
-    const snapshot = await uploadBytes(storageRef, file, metadata);
-    return await getDownloadURL(snapshot.ref);
+    const storagePromise = (async () => {
+      const storageRef = ref(storage, path);
+      const metadata = {
+        cacheControl: "public, max-age=31536000, immutable",
+        contentType: "image/jpeg"
+      };
+      const snapshot = await uploadBytes(storageRef, file, metadata);
+      return await getDownloadURL(snapshot.ref);
+    })();
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Storage upload timeout")), 3000)
+    );
+
+    return await Promise.race([storagePromise, timeoutPromise]);
   } catch (err) {
-    // Firebase Storage is not provisioned on this project (requires the Blaze
-    // plan). Fall back to storing the compressed image inline in Firestore so
-    // photos still work; once Storage is enabled, uploads use it automatically.
-    console.warn("Storage upload failed, storing image inline instead:", err);
+    console.warn("Storage upload failed or timed out, storing image inline instead:", err);
     return inlineImageFallback(file);
   }
 }
@@ -613,7 +618,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
         swatchImageUrl: url,
         updatedAt: serverTimestamp()
       });
-      onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, swatchImageUrl: url });
+      onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, swatchImageUrl: url }, false);
     } catch (err) {
       setError("Failed to upload image: " + err.message);
     } finally {
@@ -2201,9 +2206,9 @@ function Inventory() {
           item={selectedFabric}
           canEdit={canEditLibrary}
           onClose={() => setSelectedFabric(null)}
-          onSaved={(updated) => {
+          onSaved={(updated, shouldClose = true) => {
             setFabrics(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x));
-            setSelectedFabric(null);
+            if (shouldClose) setSelectedFabric(null);
           }}
           onDelete={(id) => {
             setFabrics(prev => prev.filter(x => x.id !== id));
