@@ -113,7 +113,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 ══════════════════════════════════════════════════════ */
 .kapp { display: flex; height: 100vh; overflow: hidden; }
 .kmain { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; }
-.kscroll { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding: 4px 28px 28px; min-height: 0; }
+.kscroll { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding: 4px 28px 28px; min-height: 0; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior-y: contain; }
 
 /* ══════════════════════════════════════════════════════
    SIDEBAR
@@ -1174,7 +1174,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   border: 1.5px solid var(--line);
   border-radius: var(--r-card);
   box-shadow: var(--shadow-1);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .kinv-panel-hd {
@@ -3687,6 +3687,7 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 20px;
   padding: 4px 0 20px;
+  touch-action: pan-y;
 }
 
 /* Fabric Card */
@@ -3898,6 +3899,8 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 .kazi-sheet-content {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   overscroll-behavior: contain;
   padding: 0;
   display: flex;

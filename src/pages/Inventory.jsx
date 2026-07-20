@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, setDoc
 } from "firebase/firestore";
@@ -276,6 +276,7 @@ function SaveIcon({ size = 14 }) {
 /* ── Library Modals & Cards ──────────────────────────── */
 function LibraryModal({ tab, item, onClose, onSaved }) {
   const isEdit = !!item;
+  const fileInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
 
@@ -482,7 +483,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
-                onClick={() => document.getElementById("pattern-file-input").click()}
+                onClick={() => fileInputRef.current?.click()}
                 style={{
                   border: "2px dashed var(--line)",
                   borderRadius: 8,
@@ -503,14 +504,14 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                 <p style={{ margin: "2px 0 0 0", fontSize: 10, color: "var(--ink-4)" }}>
                   PNG, JPG, JPEG (automatic compression)
                 </p>
-                <input
-                  type="file"
-                  id="pattern-file-input"
-                  style={{ display: "none" }}
-                  accept="image/*"
-                  onChange={handleFileChange}
-                />
               </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: "none" }}
+                accept="image/*"
+                onChange={handleFileChange}
+              />
               {imagePreview && (
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
                   <img src={imagePreview} alt="Preview" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: "1px solid var(--line)" }} />
@@ -583,6 +584,7 @@ function FabricCard({ item, onClick }) {
 }
 
 function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
+  const fileInputRef = useRef(null);
   const [name, setName] = useState(item.name || "");
   const [gsm, setGsm] = useState(item.gsm !== null && item.gsm !== undefined ? String(item.gsm) : "");
   const [weight, setWeight] = useState(item.weight || "");
@@ -607,6 +609,11 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
       const compressed = await compressFabricImage(file);
       const url = await uploadFabricSwatch(item.id, compressed);
       setSwatchImageUrl(url);
+      await updateDoc(doc(db, "fabrics", item.id), {
+        swatchImageUrl: url,
+        updatedAt: serverTimestamp()
+      });
+      onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, swatchImageUrl: url });
     } catch (err) {
       setError("Failed to upload image: " + err.message);
     } finally {
@@ -765,7 +772,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
                   onDragOver={handleDrag}
                   onDragLeave={handleDrag}
                   onDrop={handleDrop}
-                  onClick={() => document.getElementById("drawer-file-input").click()}
+                  onClick={() => fileInputRef.current?.click()}
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="kazi-dropzone-icon">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
@@ -774,14 +781,18 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
                     {uploading ? "Uploading Swatch..." : "Drag swatch photo here or click to browse"}
                   </p>
                   <p className="kazi-dropzone-hint">PNG, JPG, JPEG (automatic compression)</p>
-                  <input
-                    type="file"
-                    id="drawer-file-input"
-                    style={{ display: "none" }}
-                    accept="image/*"
-                    onChange={e => handleFile(e.target.files[0])}
-                  />
                 </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  style={{ display: "none" }}
+                  accept="image/*"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFile(e.target.files[0]);
+                    }
+                  }}
+                />
               </div>
             )}
 
@@ -808,6 +819,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
 }
 
 function AddFabricModal({ onClose, onSaved }) {
+  const fileInputRef = useRef(null);
   const [name, setName] = useState("");
   const [gsm, setGsm] = useState("");
   const [weight, setWeight] = useState("");
@@ -968,21 +980,21 @@ function AddFabricModal({ onClose, onSaved }) {
               onDragOver={handleDrag}
               onDragLeave={handleDrag}
               onDrop={handleDrop}
-              onClick={() => document.getElementById("modal-file-input").click()}
+              onClick={() => fileInputRef.current?.click()}
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="kazi-dropzone-icon">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
               </svg>
               <p className="kazi-dropzone-text">Drag swatch photo here or click to browse</p>
               <p className="kazi-dropzone-hint">PNG, JPG, JPEG (automatic compression)</p>
-              <input
-                type="file"
-                id="modal-file-input"
-                style={{ display: "none" }}
-                accept="image/*"
-                onChange={handleFileChange}
-              />
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              style={{ display: "none" }}
+              accept="image/*"
+              onChange={handleFileChange}
+            />
             {imagePreview && (
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
                 <img src={imagePreview} alt="Preview" className="kazi-upload-preview" />
