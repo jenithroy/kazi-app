@@ -36,3 +36,7 @@ npm-debug.log*
 
 # Local scratch directory
 scratch/
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
