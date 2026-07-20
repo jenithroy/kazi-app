@@ -4084,3 +4084,216 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 .kmain--native .ktop-hamburger {
   display: none;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   LIBRARY CARDS (Process & Pattern)
+   ───────────────────────────────────────────────────────────── */
+.klib-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card, 14px);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s ease,
+              border-color 0.2s ease;
+}
+
+.klib-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--line-strong);
+}
+
+/* Category band at top */
+.klib-card-band {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.klib-card-cat-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.klib-card-cat {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+}
+
+/* Card body */
+.klib-card-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.klib-card-name {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.35;
+}
+
+/* Description – clamped to 3 lines */
+.klib-card-desc {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-4);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Notes – clamped to 2 lines */
+.klib-card-notes {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-4);
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Metadata chips row */
+.klib-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.klib-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: var(--bg);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.klib-meta-chip svg {
+  flex-shrink: 0;
+  color: var(--ink-4);
+}
+
+/* Sizes row (patterns) */
+.klib-card-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.klib-size-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.02em;
+}
+
+/* Tech pack hero image */
+.klib-card-hero {
+  width: 100%;
+  height: 130px;
+  overflow: hidden;
+  background: var(--bg-2);
+  position: relative;
+}
+
+.klib-card-hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.klib-card:hover .klib-card-hero-img {
+  transform: scale(1.03);
+}
+
+.klib-card-hero-link {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(6px);
+  color: var(--ink-2);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  transition: background 0.15s;
+}
+
+.klib-card-hero-link:hover {
+  background: #ffffff;
+}
+
+/* Actions footer */
+.klib-card-actions {
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+}
+
+.klib-action-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.klib-action-btn:first-child {
+  border-right: 1px solid var(--line);
+}
+
+.klib-action-btn:hover {
+  background: var(--bg);
+  color: var(--mint-deep);
+}
+
+.klib-action-btn--danger:hover {
+  background: var(--terra-soft);
+  color: var(--terra);
+}
+
+.klib-action-btn svg {
+  flex-shrink: 0;
+}
