@@ -124,7 +124,9 @@ export default function MarketingCalendar() {
   const addInboxItem = useCallback(async () => {
     const title = newIdea.trim();
     if (!title) return;
+    const tempId = `temp-${Date.now()}`;
     const item = {
+      id: tempId,
       title,
       status: 'inbox',
       scheduledDate: null,
@@ -132,18 +134,65 @@ export default function MarketingCalendar() {
       notes: '',
       timeSlot: '',
       mediaUrl: null,
-      createdAt: serverTimestamp()
+      createdAt: new Date()
     };
+    setItems(prev => [item, ...prev]);
     setNewIdea('');
     newIdeaRef.current?.focus();
     try {
-      await addDoc(collection(db, 'content_calendar'), item);
+      const docRef = await addDoc(collection(db, 'content_calendar'), {
+        title: item.title,
+        status: item.status,
+        scheduledDate: item.scheduledDate,
+        type: item.type,
+        notes: item.notes,
+        timeSlot: item.timeSlot,
+        mediaUrl: item.mediaUrl,
+        createdAt: serverTimestamp()
+      });
+      setItems(prev => prev.map(i => i.id === tempId ? { ...i, id: docRef.id } : i));
     } catch (err) {
       console.error("Error adding inbox item to Firestore:", err);
+      alert("Failed to save idea to server. Please check your internet connection.");
     }
   }, [newIdea]);
 
+  const addInboxItemFromToolbar = useCallback(async () => {
+    const tempId = `temp-${Date.now()}`;
+    const item = {
+      id: tempId,
+      title: 'New Content Idea',
+      status: 'inbox',
+      scheduledDate: null,
+      type: 'Ideation',
+      notes: '',
+      timeSlot: '',
+      mediaUrl: null,
+      createdAt: new Date()
+    };
+    setItems(prev => [item, ...prev]);
+    setSelected(item);
+    try {
+      const docRef = await addDoc(collection(db, 'content_calendar'), {
+        title: item.title,
+        status: item.status,
+        scheduledDate: item.scheduledDate,
+        type: item.type,
+        notes: item.notes,
+        timeSlot: item.timeSlot,
+        mediaUrl: item.mediaUrl,
+        createdAt: serverTimestamp()
+      });
+      setItems(prev => prev.map(i => i.id === tempId ? { ...i, id: docRef.id } : i));
+      setSelected(prev => prev?.id === tempId ? { ...prev, id: docRef.id } : prev);
+    } catch (err) {
+      console.error("Error creating content idea in Firestore:", err);
+      alert("Failed to save new content idea. Please check your internet connection.");
+    }
+  }, []);
+
   const scheduleItem = useCallback(async (id, date) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'scheduled', scheduledDate: date } : i));
     try {
       await updateDoc(doc(db, 'content_calendar', id), {
         status: 'scheduled',
@@ -155,6 +204,7 @@ export default function MarketingCalendar() {
   }, []);
 
   const saveItem = useCallback(async (updated) => {
+    setItems(prev => prev.map(i => i.id === updated.id ? updated : i));
     setSelected(updated);
     const { id, ...data } = updated;
     try {
@@ -165,6 +215,7 @@ export default function MarketingCalendar() {
   }, []);
 
   const deleteItem = useCallback(async (id) => {
+    setItems(prev => prev.filter(i => i.id !== id));
     setSelected(null);
     try {
       await deleteDoc(doc(db, 'content_calendar', id));
@@ -174,6 +225,7 @@ export default function MarketingCalendar() {
   }, []);
 
   const unschedule = useCallback(async (id) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'inbox', scheduledDate: null } : i));
     setSelected(null);
     try {
       await updateDoc(doc(db, 'content_calendar', id), {
@@ -204,7 +256,9 @@ export default function MarketingCalendar() {
   const todayStr = fmtDate(today.getFullYear(), today.getMonth(), today.getDate());
 
   const openNewForDate = useCallback(async (dateStr) => {
+    const tempId = `temp-${Date.now()}`;
     const item = {
+      id: tempId,
       title: 'New Content Idea',
       status: 'scheduled',
       scheduledDate: dateStr,
@@ -212,13 +266,26 @@ export default function MarketingCalendar() {
       notes: '',
       timeSlot: '',
       mediaUrl: null,
-      createdAt: serverTimestamp()
+      createdAt: new Date()
     };
+    setItems(prev => [...prev, item]);
+    setSelected(item);
     try {
-      const docRef = await addDoc(collection(db, 'content_calendar'), item);
-      setSelected({ id: docRef.id, ...item });
+      const docRef = await addDoc(collection(db, 'content_calendar'), {
+        title: item.title,
+        status: item.status,
+        scheduledDate: item.scheduledDate,
+        type: item.type,
+        notes: item.notes,
+        timeSlot: item.timeSlot,
+        mediaUrl: item.mediaUrl,
+        createdAt: serverTimestamp()
+      });
+      setItems(prev => prev.map(i => i.id === tempId ? { ...i, id: docRef.id } : i));
+      setSelected(prev => prev?.id === tempId ? { ...prev, id: docRef.id } : prev);
     } catch (err) {
       console.error("Error creating content item for date in Firestore:", err);
+      alert("Failed to save content item for date. Please check your internet connection.");
     }
   }, []);
 
@@ -342,6 +409,16 @@ export default function MarketingCalendar() {
           {/* Right controls */}
           <div className="flex items-center gap-2">
             <button
+              onClick={addInboxItemFromToolbar}
+              className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-colors"
+              title="Add a new content idea"
+            >
+              <span className="text-xs font-bold">+</span> New Idea
+            </button>
+
+            <div className={`w-px h-4 ${dark ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
+
+            <button
               onClick={() => { setMonth(today.getMonth()); setYear(today.getFullYear()); }}
               className={`text-[10px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ${t.tag} ${t.hover}`}
             >Today</button>
@@ -384,27 +461,33 @@ export default function MarketingCalendar() {
                     onDragOver={e => onDragOver(e, dateStr)}
                     onDrop={e => onDrop(e, dateStr)}
                     onDragLeave={onDragLeave}
-                    onClick={() => dayItems.length === 0 && openNewForDate(dateStr)}
+                    onClick={() => openNewForDate(dateStr)}
                     className={[
-                      'relative rounded-xl border min-h-[100px] overflow-hidden cursor-pointer group transition-all duration-150',
+                      'relative rounded-xl border min-h-[100px] p-1 cursor-pointer group transition-all duration-150',
                       isDrop
                         ? (dark ? 'bg-sky-950 border-sky-600 scale-[1.02] shadow-lg' : 'bg-sky-50 border-sky-400 scale-[1.02] shadow-md shadow-sky-100')
                         : t.cell,
                       isToday && !isDrop ? (dark ? '!border-zinc-400' : '!border-zinc-800') : '',
                     ].join(' ')}
                   >
-                    {/* Date number */}
-                    <div className="absolute top-2 left-2 z-10">
+                    {/* Date header bar */}
+                    <div className="flex items-center justify-between px-1 pt-0.5 pb-1 z-10">
                       {isToday ? (
                         <span className={`flex items-center justify-center w-[18px] h-[18px] rounded-full text-[9px] font-bold ${dark ? 'bg-zinc-300 text-zinc-900' : 'bg-zinc-900 text-white'}`}>{day}</span>
                       ) : (
                         <span className={`text-[10px] font-semibold ${t.muted}`}>{day}</span>
                       )}
+
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openNewForDate(dateStr); }}
+                        className={`w-5 h-5 flex items-center justify-center rounded-md text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity ${t.tag} ${t.hover}`}
+                        title="Add item to this date"
+                      >+</button>
                     </div>
 
                     {/* Scheduled items */}
                     {dayItems.length > 0 ? (
-                      <div className="pt-7 px-1 pb-1 space-y-0.5">
+                      <div className="space-y-1">
                         {dayItems.map(item => {
                           const cfg = TYPE_CFG[item.type] || TYPE_CFG.Shoot;
                           return (
@@ -436,7 +519,7 @@ export default function MarketingCalendar() {
                         })}
                       </div>
                     ) : (
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                      <div className="h-12 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                         <span className={`text-xl ${t.muted}`}>+</span>
                       </div>
                     )}
