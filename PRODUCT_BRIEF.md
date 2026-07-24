@@ -1,239 +1,147 @@
-# Kazi ERP — Product Brief for UI Refresh
+# Kazi ERP — Product Brief
 
-> This document answers scoping questions for a frontend redesign of Kazi.
-> No design tokens or visual specs are included — this is purely product context.
-
----
-
-## Who is the primary user of the Overview screen?
-
-There are three completely separate Dashboard views, one per role group. Each user sees a different Overview:
-
-### 1. Nepal Admin (Wilson, Anmol, Anusha, Monika)
-The most important user of the Overview. They run day-to-day factory operations. Their Overview must surface:
-- How many staff are in today (attendance count)
-- Active production orders and what stage each is at
-- Pending tasks across the team
-- Recent expenses and any pending budget requests
-- Inventory alerts (low-stock items)
-- QC pass/fail rate for recent batches
-
-### 2. UK Admin / Director (Fin, Zen)
-Remote business owners based in the UK. They check in once or twice a day to see financial and operational health. Their Overview must surface:
-- Revenue figures in GBP (converted from NPR at 1 GBP = 200 NPR)
-- Unpaid / outstanding invoices
-- Production order pipeline (how many orders in progress vs completed)
-- Budget request approvals pending their sign-off
-- Headline attendance and staff count
-
-### 3. Employee (Sudhansu, Bedhant, Sarbagya)
-Factory floor / operations staff. Their "Overview" is essentially a personal dashboard:
-- Their own clock-in status for today (large, prominent — the primary action)
-- Their own assigned tasks
-- Their own attendance history
-
-**There is no shared generic Overview — the role dictates the entire layout.**
+> This document defines the scoping, product context, user roles, technical architecture, and functional specifications for the Kazi App.
 
 ---
 
-## Which ERP modules should appear on the Overview?
+## Technical Stack & Platform Overview
 
-### Nepal Admin Overview panels (priority order):
-1. **Attendance Today** — present / absent / late counts with a staff list
-2. **Production Pipeline** — active orders by stage (Cutting → Stitching → QC → Dispatch)
-3. **Task Board Summary** — count of To Do / In Progress / Blocked tasks
-4. **Finance Snapshot** — monthly expenses total in NPR + GBP, pending budget requests
-5. **Inventory Alerts** — items below reorder threshold
-6. **QC Summary** — pass rate % for recent batches
+Kazi is an all-in-one Enterprise Resource Planning (ERP) platform designed for factory operations, finance, human resources, and business management.
 
-### UK Admin Overview panels (priority order):
-1. **Revenue & Invoices** — total invoiced, total paid, total outstanding (in GBP)
-2. **Production Status** — orders in progress, completed this month
-3. **Budget Approvals** — pending requests requiring UK sign-off
-4. **Payroll Summary** — monthly payroll cost in GBP
-5. **Attendance Headline** — staff present today (number only, no staff list)
-
-### Employee Overview panels:
-1. **Clock-In CTA** — large prominent button (GPS-verified, geofenced to office)
-2. **My Tasks** — tasks assigned to them across all statuses
-3. **My Attendance** — their own log for the current month
+- **Frontend**: React + Vite SPA with modular UI components and responsive styling.
+- **Backend & Database**: Firebase (Firestore database, Firebase Authentication, Firebase Storage).
+- **Mobile Platforms**: Native iOS and Android apps powered by Capacitor (`capacitor.config.ts`, `android/`, `ios/`).
+- **Integrations**: Cloudflare Worker (`bank-webhook-worker`) for real-time bank transaction webhook ingestion into Firestore.
+- **Security & Access Control**: Granular Role-Based Access Control (RBAC) with Firestore security rules (`firestore.rules`) and dynamic user-level permission overrides (`src/utils/permissions.js`).
 
 ---
 
-## How dense should the screen feel?
+## User Roles & System Access Matrix
 
-**Medium density.** The app is used on desktop at a desk, not on mobile. Users are operational staff checking data quickly during a workday. Priorities:
-- Each panel should show meaningful data at a glance without requiring clicks to expand
-- Tables should show at least 5–8 rows before scrolling
-- KPI cards with numbers are preferred over charts where possible
-- Charts are acceptable for trends (weekly attendance, monthly revenue) but should not dominate
-- Avoid excessive whitespace — this is a work tool, not a marketing page
+The system defines 5 distinct user roles. Role-based navigation and section-level write privileges are enforced dynamically per role, with support for user-specific overrides.
 
----
-
-## What interactions should actually work?
-
-All interactions in the current app are fully functional and must remain so. This is a UI refresh, not a prototype. The following are live features:
-
-### Global
-- **Login / Logout** — Firebase Auth (email + password)
-- **Role-based routing** — different sidebar items and page content per role
-- **Sidebar collapse** — toggle between full and icon-only sidebar
-
-### Attendance
-- **Geofenced Clock-In** — captures GPS, calculates distance to office (Haversine formula), only allows clock-in within 100 metres; uses server-side timestamp (tamper-proof)
-- **Manual attendance logging** — nepal admins can set Present / Absent / Late / Half-day / Leave for any staff member on any date
-- **Monthly calendar view** — shows attendance status per day per staff
-- **Weekly bar chart** — shows present count per day of the week
-
-### Tasks
-- **Kanban board** — drag-free; tasks move between columns (To Do / In Progress / Done / Blocked) via dropdown on each card
-- **Create task** — assign to team member, set priority, set due date, add description
-- **Edit / delete task** — inline
-
-### Production
-- **Order creation** — order number, client, product, quantity, target date
-- **Stage tracking** — orders move through: Order Received → Cutting → Stitching → QC → Dispatch
-- **Progress bar** per order
-- **Production log entries** — log daily output per order
-
-### Finance (8 sub-tabs)
-- **Expenses** — log expenses with category, NPR amount, VAT bill checkbox; attach VAT bill file (uploaded to Firebase Storage)
-- **Payroll** — log salary payments per staff member per month
-- **Journal** — double-entry accounting ledger
-- **Accounts** — chart of accounts
-- **Invoices** — create/send invoices to clients, mark as paid
-- **Budget Requests** — staff submit requests; UK admins approve/reject
-- **Purchase Orders** — log supplier purchases
-- **Summary** — read-only financial overview
-
-### Inventory
-- **Stock items** — name, category, quantity, unit, reorder threshold
-- **Add/edit/delete items** inline
-- **Low-stock indicator** — items below reorder threshold highlighted
-
-### QC (Quality Control)
-- **Batch inspection logs** — batch ID, order reference, pieces checked, pieces passed, defect notes
-- **Pass rate calculation** — auto-computed from pieces passed / pieces checked
-- **Status badge** — Pass / Fail / Partial based on pass rate threshold
-
-### Billing
-- **Invoice generation** — linked to orders
-- **PDF-style invoice view** — client details, line items, totals in NPR + GBP
-- **Status tracking** — Draft / Sent / Paid / Overdue
-
-### Employees
-- **Staff directory** — name, role, location, email, app role
-- **View individual employee** — attendance summary, assigned tasks, payroll history
-
-### Admin Panel (super_admin only)
-- **Permission management** — toggle which sections each nepal_admin can edit
-- **User management** — view all users, their roles, last login
+| Role | Members | Nav Sections Visible | Edit & Write Privileges |
+| :--- | :--- | :--- | :--- |
+| **Super Admin** | Admin (`admin@kazi.com`) | All 16 Sections | Full System & Data Access |
+| **UK Admin** | Finn, Zen | Dashboard, Finance, Production, Billing, Budget, Tasks, Directors, Customers, Admin, Messenger, Library, Sales, Employees, Marketing | Read-only access across financial/production modules; full edit on Tasks, Library, Employees, and Budget Approvals |
+| **Nepal Admin** | Wilson, Anmol, Anusha, Monika, Sunam Deepa | Dashboard, Tasks, Attendance, Production, QC, Inventory, Sales, Finance, Billing, Budget, Employees, Customers, Messenger, Library, Marketing | Operational write permissions (Wilson/Anmol/Anusha for Production; Anusha for Tasks/Library; Sunam Deepa for Finance & Accounting; Monika for Marketing) |
+| **Nepal Staff** | Sarbagya Karki *(Content Editor)* | Dashboard, Tasks, Attendance, Library, Production, QC, Inventory, Budget | Task assignment, self clock-in, work logs (Sarbagya explicitly granted edit access for Marketing) |
+| **Employee** | Sudhansu, Bedhant | Dashboard, Tasks, Attendance, Library | Read-only views for assigned tasks and self clock-in |
 
 ---
 
-## Beyond Overview, which sub-screens should be fully designed?
+## Dashboard Overview Views
 
-All screens should be fully designed — this app has no "coming soon" states. Every module is live and in daily use. Priority order if a phased approach is needed:
+The Dashboard (`/dashboard`) automatically adapts its layout based on the logged-in user's role:
 
-1. **Dashboard (all 3 role variants)** — most visited screen
-2. **Attendance** — daily use by all staff
-3. **Finance** — most complex, 8 sub-tabs, used by admins
-4. **Tasks** — daily use by admins and employees
-5. **Production** — core operational screen
-6. **Billing** — used by UK directors
-7. **QC** — used by nepal admins
-8. **Inventory** — used by nepal admins
-9. **Employees** — occasional use
-10. **Admin Panel** — rare, super_admin only
+### 1. Nepal Admin Dashboard
+Focused on daily factory operations and team coordination:
+- **Attendance Today**: Staff counts (Present, Absent, Late) with clickable staff list.
+- **Production Pipeline**: Active orders grouped by production stage (Order Received → Cutting → Stitching → QC → Dispatch).
+- **Task Board Summary**: Counts across To Do, In Progress, Blocked, and Done.
+- **Finance Snapshot**: Monthly expense totals in NPR and GBP (£), plus pending budget requests.
+- **Inventory Alerts**: Low-stock items below reorder threshold.
+- **QC Summary**: Batch inspection pass rate % for recent production runs.
 
----
+### 2. UK Admin / Director Dashboard
+Tailored for remote executive oversight from the UK:
+- **Revenue & Financial Health**: Total invoiced, paid, and outstanding balances in GBP (£).
+- **Real-Time Bank Balances**: Bank account feeds synced via Cloudflare Worker webhook.
+- **Production Order Pipeline**: Active vs completed order metrics.
+- **Budget Request Approvals**: Pending spending requests requiring sign-off.
+- **Payroll Summary**: Monthly payroll commitment in GBP (£).
+- **Attendance Headline**: Overview headcount count.
 
-## Brand mark in the sidebar
-
-Show the text **"Kazi"** as the logo. No image asset exists currently. The sidebar is dark (deep forest green / near-black). The wordmark should sit at the top of the sidebar above the nav items. Below the wordmark, show the logged-in user's name and role as a compact identity block.
-
----
-
-## What should be tweakable in the live design?
-
-The following are runtime-configurable values in the codebase that affect what the UI shows:
-
-| Tweakable | Current Value | Where Used |
-|---|---|---|
-| GBP conversion rate | 1 GBP = 200 NPR | All finance screens, billing, UK dashboard |
-| Office GPS coordinates | 27.687°N, 85.299°E (Kathmandu) | Attendance clock-in geofence |
-| Geofence radius | 100 metres | Attendance clock-in |
-| Team members list | 9 people (see below) | Attendance, Tasks, Employees, Payroll |
-| Task column names | To Do / In Progress / Done / Blocked | Kanban board |
-
-The UI should surface the GBP rate visibly somewhere on finance screens (e.g. "All GBP values at 1 GBP = 200 NPR").
+### 3. Employee & Staff Dashboard
+Personalized operational portal:
+- **Clock-In CTA**: Prominent GPS-verified check-in widget with geofence validation.
+- **My Assigned Tasks**: Task cards filtered by personal assignment.
+- **My Attendance Log**: Monthly clock-in history and late minute tracking.
 
 ---
 
-## Deployment scale
+## Navigation & Module Structure
 
-**Single site, single team.** This is an internal tool for one company with:
-- ~9 users total
-- 1 factory location (Kathmandu, Nepal)
-- 1 set of UK directors (2 people)
+The sidebar navigation (`src/components/Sidebar.jsx`) features a dark theme with the official white wordmark logo (`/kazi - logo - white-01.png`), "Kathmandu HQ" badge, search trigger (`⌘K`), and collapsed state support. Navigation items are organized into 6 logical categories:
 
-**No multi-site selector needed.** No tenant switching. No line/shift selector. Everything is for one factory, one team.
+### 1. Workspace
+- **Dashboard** (`/dashboard`): Role-specific executive and operational overview.
+- **Tasks** (`/tasks`): Kanban board with status columns (To Do, In Progress, Done, Blocked) and categories (Research, Manufacturing, Hiring, Marketing, Finance, Operations, Admin, Other).
+- **Attendance** (`/attendance`): GPS geofenced clock-in, manual attendance logging, staff schedules, monthly calendar, and weekly bar charts.
 
-The app is deployed as a static web application backed by Firebase (Firestore + Storage + Auth). There is no backend server — all logic runs client-side in React.
+### 2. Operations
+- **Production** (`/production`): Stage tracking, daily output logs, order progress bars, and Production Calendar view (`ProductionCalendar.jsx`).
+- **Quality Control** (`/qc`): Batch inspection logs, defect notes, pass rate calculation, and status badges (Pass/Fail/Partial).
+- **Inventory & Library** (`/inventory`): Stock items, reorder thresholds, low-stock alerts, and production pattern/specification document viewer (`DocPreview.jsx`).
 
----
+### 3. Finance
+- **Sales** (`/sales`): Sales transaction tracking and revenue stream analysis.
+- **Finance** (`/finance`): Comprehensive accounting hub with **10 sub-tabs**:
+  1. *Expenses*: Logging expense items, categories, NPR amounts, and VAT bill upload attachments (Firebase Storage).
+  2. *Payroll*: Monthly staff salary processing and payment tracking.
+  3. *Purchases*: Supplier purchase orders and raw material costs.
+  4. *VAT Bills*: Tax invoice audit trail and VAT tracking.
+  5. *Journal*: Double-entry accounting transaction ledger.
+  6. *Ledger*: Chart of accounts and account balances.
+  7. *P&L*: Profit and Loss financial statements.
+  8. *Balance Sheet*: Company asset, liability, and equity summary.
+  9. *Bank*: Real-time bank account feeds powered by Cloudflare Worker webhook.
+  10. *Order P&L*: Profitability calculations per production order.
+- **Billing** (`/billing`): Client invoices, dual-currency support (NPR / GBP), status tracking (Draft/Sent/Paid/Overdue), and PDF invoice generation (`InvoicePDF.jsx`).
+- **Budget** (`/content`): Internal spending request submissions and UK Director approval workflow.
 
-## Team & Terminology
+### 4. People
+- **Employee & HR** (`/employees`): Directory of team members, custom work schedules, payroll history, and attendance records.
+- **Directors** (`/directors`): Executive director overview portal.
+- **Customers** (`/customers`): Customer Relationship Management (CRM) profiles and transaction history.
 
-### The team (all current users)
+### 5. Marketing & Comms
+- **Marketing** (`/marketing`): Marketing campaigns and interactive Marketing Calendar (`MarketingCalendar.jsx`).
+- **Messenger** (`/messenger`): Internal team messaging and announcements.
 
-| Name | Role | Location | App Role |
-|---|---|---|---|
-| Fin | Director | UK | uk_admin |
-| Zen | Director | UK | uk_admin |
-| Wilson | Operations Head | Nepal | nepal_admin |
-| Anmol | Operations Intern | Nepal | nepal_admin |
-| Admin | System Admin | Nepal | super_admin |
-| Monika | Marketing | Nepal | nepal_admin |
-| Anusha | Fashion | Nepal | nepal_admin |
-| Sudhansu | Operations Assistant | Nepal | employee |
-| Bedhant | Management | Nepal | employee |
-| Sarbagya | Content Coordinator | Nepal | employee |
-
-### Internal terminology
-- **Kazi** — the company name (also the app name)
-- **NPR** — Nepalese Rupee, used for all stored financial values
-- **GBP** — British Pounds, shown to UK admins alongside NPR
-- **Clock-in** — GPS-verified attendance check-in at the start of the workday
-- **Production Order** — a manufacturing job (cutting, stitching, finishing garments for a client)
-- **QC** — Quality Control; inspection of finished batches before dispatch
-- **Budget Request** — a formal request by nepal staff for spending approval from UK directors
-- **Journal Entry** — double-entry accounting record (debit/credit)
-- **VAT Bill** — tax invoice attached to an expense, uploaded as a file
-
-### Screens to avoid redesigning aggressively
-- The **Admin Panel** permission toggles — these are functional and used by one person; keep them utilitarian
-- The **Finance Journal** (double-entry ledger) — accountant-style table, keep it dense and tabular
+### 6. System
+- **Admin** (`/admin`): Super-admin panel for permission overrides, user management, and audit logs.
 
 ---
 
-## Anything else the designer should know
+## Technical Features & Parameters
 
-1. **Two languages in the codebase, one in the UI.** All UI text is English. Nepal staff are comfortable reading English.
+| Configurable Parameter | Value | Details / Usage |
+| :--- | :--- | :--- |
+| **GBP Exchange Rate** | 1 GBP = 200 NPR | Conversion applied across finance, billing, and executive dashboards |
+| **Office Location (GPS)** | 27.687340°N, 85.298722°E | Kazi Office entrance, Kathmandu, Nepal |
+| **Geofence Radius** | 100 metres | Distance threshold for GPS clock-in verification (Haversine formula) |
+| **GPS Accuracy Threshold** | 500 metres | Maximum acceptable GPS reading inaccuracy for clock-in |
+| **Active Team Size** | 11 members | Registered users in Firestore |
+| **Task Categories** | 8 categories | Research, Manufacturing, Hiring, Marketing, Finance, Operations, Admin, Other |
 
-2. **No mobile version exists** but the app should be usable on a tablet (1024px+). The primary use case is a laptop or desktop browser.
+---
 
-3. **The sidebar has 11 nav items.** Not every role sees all of them:
-   - `employee` sees: Dashboard, Tasks, Attendance only
-   - `uk_admin` sees: Dashboard, Finance, Production, Billing, Budget
-   - `nepal_admin` sees: Dashboard, Tasks, Attendance, Production, QC, Inventory, Finance, Billing, Budget, Employees
-   - `super_admin` sees: everything including Admin Panel
+## Team Roster & Terminology
 
-4. **Firestore is the source of truth.** All data shown in the UI is live from Firestore — there is no mock data in production. The app must handle loading states and empty states gracefully (some collections may genuinely be empty for new installations).
+### Active Team Members
 
-5. **The clock-in feature is critical.** For employees, clocking in is the #1 daily action. The geofence check (must be within 100m of office) is a business requirement — not a nice-to-have. The UI must make the success/failure states of GPS verification very clear.
+| Name | Role | Location | App Role | Email |
+| :--- | :--- | :--- | :--- | :--- |
+| **Finn** | Director | UK | `uk_admin` | `finnqrk@gmail.com` |
+| **Zen** | Director | UK | `uk_admin` | `hi.zenuk@gmail.com` |
+| **Wilson** | Operations Head | Nepal | `nepal_admin` | `wilsonshah98765@gmail.com` |
+| **Anmol** | Operations Intern | Nepal | `nepal_admin` | `Basnetanamol21@gmail.com` |
+| **Anusha** | Fashion Intern | Nepal | `nepal_admin` | `anushapantaa@gmail.com` |
+| **Monika** | Marketing Co-ordinator | Nepal | `nepal_admin` | `bhusal.monika14@gmail.com` |
+| **Sunam Deepa** | Accountant | Nepal | `nepal_admin` | `sunamdeepa26@gmail.com` |
+| **Admin** | System Admin | Nepal | `super_admin` | `admin@kazi.com` |
+| **Sarbagya Karki** | Content Editor | Nepal | `nepal_staff` | `sarbagyakarkig8@gmail.com` |
+| **Sudhansu** | Operations Assistant | Nepal | `employee` | `sa4715666@gmail.com` |
+| **Bedhant** | Management | Nepal | `employee` | `bedantrana@gmail.com` |
 
-6. **Finance is the most complex module.** It has 8 sub-tabs, each with its own form and table. The tab navigation must be clear and the active tab must be obvious. Role gating matters here: employees cannot access Finance at all; uk_admins can view but not edit most tabs.
-
-7. **Dual-currency is everywhere in Finance.** Every NPR value should show its GBP equivalent. The pattern is: `NPR 50,000 (£250)`.
+### Key Terminology
+- **Kazi**: Company name and application brand mark.
+- **NPR**: Nepalese Rupee (base currency stored in Firestore).
+- **GBP (£)**: British Pound Sterling (converted dynamically at 1 GBP = 200 NPR).
+- **Clock-In**: Server-timestamped, GPS-verified attendance entry.
+- **Late Cut**: Automated attendance calculation comparing clock-in time against employee schedule (`EMPLOYEE_SCHEDULES`).
+- **Production Order**: Garment manufacturing job moving through factory pipeline stages.
+- **QC Batch**: Quality inspection record containing checked count, passed count, defect notes, and pass rate %.
+- **Budget Request**: Requisition form submitted by staff for UK Director approval.
+- **VAT Bill**: Tax invoice attachment linked to expense logging.

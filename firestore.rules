@@ -95,6 +95,9 @@ service cloud.firestore {
       allow update: if hasPermission("budget") || isNepalStaff() || isSuperAdmin() || (isUkAdmin() && changingOnlyStatus());
       allow delete: if false;
     }
+    match /content_calendar/{id} {
+      allow read, create, update, delete: if isSignedIn();
+    }
     match /finance_expenses/{id} {
       allow create, update: if hasPermission("finance") || isNepalStaff() || isSuperAdmin();
       allow delete: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();

@@ -14,14 +14,14 @@
 //   createdAt     Timestamp — serverTimestamp()
 // ============================================================
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 
-// ── Firebase imports (uncomment when wiring up) ──────────
-// import { db } from '../firebase';
-// import {
-//   collection, addDoc, updateDoc, deleteDoc,
-//   doc, onSnapshot, serverTimestamp, query, orderBy
-// } from 'firebase/firestore';
+// ── Firebase imports ──────────────────────────────────────
+import { db } from '../firebase';
+import {
+  collection, addDoc, updateDoc, deleteDoc,
+  doc, onSnapshot, serverTimestamp, query
+} from 'firebase/firestore';
 
 // ── Constants ─────────────────────────────────────────────
 const TYPE_CFG = {
@@ -40,11 +40,11 @@ function daysIn(y, m)     { return new Date(y, m+1, 0).getDate(); }
 function firstDay(y, m)   { return new Date(y, m, 1).getDay(); }
 
 const SEED = [
-  { id: genId(), title: 'Heavyweight Hoodie Campaign',      status: 'inbox', scheduledDate: null, type: 'Shoot',    notes: 'Golden hour rooftop setup',    timeSlot: '',         mediaUrl: null },
-  { id: genId(), title: 'Stitching Detail Close-up Reel',   status: 'inbox', scheduledDate: null, type: 'Edit',     notes: 'Focus on double-stitched hem', timeSlot: '',         mediaUrl: null },
-  { id: genId(), title: 'Behind the Scenes — Loom Room',    status: 'inbox', scheduledDate: null, type: 'Ideation', notes: '',                             timeSlot: '',         mediaUrl: null },
-  { id: genId(), title: 'New Collection Drop Announcement', status: 'inbox', scheduledDate: null, type: 'Publish',  notes: '',                             timeSlot: '10:00 AM', mediaUrl: null },
-  { id: genId(), title: 'Thread Quality Walk-through',       status: 'inbox', scheduledDate: null, type: 'Edit',    notes: '',                             timeSlot: '',         mediaUrl: null },
+  { title: 'Heavyweight Hoodie Campaign',      status: 'inbox', scheduledDate: null, type: 'Shoot',    notes: 'Golden hour rooftop setup',    timeSlot: '',         mediaUrl: null },
+  { title: 'Stitching Detail Close-up Reel',   status: 'inbox', scheduledDate: null, type: 'Edit',     notes: 'Focus on double-stitched hem', timeSlot: '',         mediaUrl: null },
+  { title: 'Behind the Scenes — Loom Room',    status: 'inbox', scheduledDate: null, type: 'Ideation', notes: '',                             timeSlot: '',         mediaUrl: null },
+  { title: 'New Collection Drop Announcement', status: 'inbox', scheduledDate: null, type: 'Publish',  notes: '',                             timeSlot: '10:00 AM', mediaUrl: null },
+  { title: 'Thread Quality Walk-through',       status: 'inbox', scheduledDate: null, type: 'Edit',    notes: '',                             timeSlot: '',         mediaUrl: null },
 ];
 
 // ── Theme tokens ──────────────────────────────────────────
@@ -71,7 +71,7 @@ export default function MarketingCalendar() {
   const today = new Date();
   const [year,  setYear]  = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
-  const [items, setItems] = useState(SEED);
+  const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [dragging, setDragging] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
@@ -81,14 +81,34 @@ export default function MarketingCalendar() {
   const t = useTheme(dark);
   const newIdeaRef = useRef(null);
 
-  // ── Firebase realtime listener (uncomment to activate) ──
-  // useEffect(() => {
-  //   const q = query(collection(db, 'content_calendar'), orderBy('createdAt', 'desc'));
-  //   const unsub = onSnapshot(q, snap => {
-  //     setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  //   });
-  //   return unsub;
-  // }, []);
+  // ── Firebase realtime listener & auto-seed ──
+  useEffect(() => {
+    const q = query(collection(db, 'content_calendar'));
+    let isSeeding = false;
+
+    const unsub = onSnapshot(q, async (snap) => {
+      if (snap.empty && !isSeeding) {
+        isSeeding = true;
+        try {
+          for (const item of SEED) {
+            await addDoc(collection(db, 'content_calendar'), {
+              ...item,
+              createdAt: serverTimestamp()
+            });
+          }
+        } catch (e) {
+          console.error("Error seeding content_calendar:", e);
+        }
+      } else {
+        const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setItems(fetched);
+      }
+    }, (err) => {
+      console.error("Firestore content_calendar listener error:", err);
+    });
+
+    return unsub;
+  }, []);
 
   // ── Derived ───────────────────────────────────────────
   const inboxItems = useMemo(() => items.filter(i => i.status === 'inbox'), [items]);
@@ -100,38 +120,69 @@ export default function MarketingCalendar() {
     return map;
   }, [items]);
 
-  // ── Firebase-ready actions ────────────────────────────
-  const addInboxItem = useCallback(() => {
+  // ── Firebase persistence actions ──────────────────────
+  const addInboxItem = useCallback(async () => {
     const title = newIdea.trim();
     if (!title) return;
-    const item = { id: genId(), title, status: 'inbox', scheduledDate: null, type: 'Ideation', notes: '', timeSlot: '', mediaUrl: null };
-    setItems(p => [item, ...p]);
+    const item = {
+      title,
+      status: 'inbox',
+      scheduledDate: null,
+      type: 'Ideation',
+      notes: '',
+      timeSlot: '',
+      mediaUrl: null,
+      createdAt: serverTimestamp()
+    };
     setNewIdea('');
     newIdeaRef.current?.focus();
-    // FIREBASE → addDoc(collection(db,'content_calendar'), { ...item, createdAt: serverTimestamp() });
+    try {
+      await addDoc(collection(db, 'content_calendar'), item);
+    } catch (err) {
+      console.error("Error adding inbox item to Firestore:", err);
+    }
   }, [newIdea]);
 
-  const scheduleItem = useCallback((id, date) => {
-    setItems(p => p.map(i => i.id === id ? { ...i, status: 'scheduled', scheduledDate: date } : i));
-    // FIREBASE → updateDoc(doc(db,'content_calendar',id), { status:'scheduled', scheduledDate: date });
+  const scheduleItem = useCallback(async (id, date) => {
+    try {
+      await updateDoc(doc(db, 'content_calendar', id), {
+        status: 'scheduled',
+        scheduledDate: date
+      });
+    } catch (err) {
+      console.error("Error scheduling item in Firestore:", err);
+    }
   }, []);
 
-  const saveItem = useCallback((updated) => {
-    setItems(p => p.map(i => i.id === updated.id ? updated : i));
+  const saveItem = useCallback(async (updated) => {
     setSelected(updated);
-    // FIREBASE → updateDoc(doc(db,'content_calendar',updated.id), updated);
+    const { id, ...data } = updated;
+    try {
+      await updateDoc(doc(db, 'content_calendar', id), data);
+    } catch (err) {
+      console.error("Error updating item in Firestore:", err);
+    }
   }, []);
 
-  const deleteItem = useCallback((id) => {
-    setItems(p => p.filter(i => i.id !== id));
+  const deleteItem = useCallback(async (id) => {
     setSelected(null);
-    // FIREBASE → deleteDoc(doc(db,'content_calendar',id));
+    try {
+      await deleteDoc(doc(db, 'content_calendar', id));
+    } catch (err) {
+      console.error("Error deleting item from Firestore:", err);
+    }
   }, []);
 
-  const unschedule = useCallback((id) => {
-    setItems(p => p.map(i => i.id === id ? { ...i, status: 'inbox', scheduledDate: null } : i));
+  const unschedule = useCallback(async (id) => {
     setSelected(null);
-    // FIREBASE → updateDoc(doc(db,'content_calendar',id), { status:'inbox', scheduledDate: null });
+    try {
+      await updateDoc(doc(db, 'content_calendar', id), {
+        status: 'inbox',
+        scheduledDate: null
+      });
+    } catch (err) {
+      console.error("Error unscheduling item in Firestore:", err);
+    }
   }, []);
 
   // ── Drag handlers ────────────────────────────────────
@@ -152,12 +203,24 @@ export default function MarketingCalendar() {
 
   const todayStr = fmtDate(today.getFullYear(), today.getMonth(), today.getDate());
 
-  const openNewForDate = (dateStr) => {
-    const item = { id: genId(), title: '', status: 'scheduled', scheduledDate: dateStr, type: 'Shoot', notes: '', timeSlot: '', mediaUrl: null };
-    setItems(p => [...p, item]);
-    setSelected(item);
-    // FIREBASE → addDoc then open drawer with returned id
-  };
+  const openNewForDate = useCallback(async (dateStr) => {
+    const item = {
+      title: 'New Content Idea',
+      status: 'scheduled',
+      scheduledDate: dateStr,
+      type: 'Shoot',
+      notes: '',
+      timeSlot: '',
+      mediaUrl: null,
+      createdAt: serverTimestamp()
+    };
+    try {
+      const docRef = await addDoc(collection(db, 'content_calendar'), item);
+      setSelected({ id: docRef.id, ...item });
+    } catch (err) {
+      console.error("Error creating content item for date in Firestore:", err);
+    }
+  }, []);
 
   // ── Render ───────────────────────────────────────────
   // NOTE: root uses flex-1 + min-h-0 (not h-screen/h-full) so it fills
