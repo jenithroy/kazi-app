@@ -111,6 +111,10 @@ function uploadPatternTechPack(patternId, file) {
   return uploadImage(`patterns/techpacks/${patternId}_${Date.now()}.jpg`, file);
 }
 
+function uploadSamplePhoto(sampleId, file) {
+  return uploadImage(`samples/photos/${sampleId}_${Date.now()}.jpg`, file);
+}
+
 /* ── Stock Constants ───────────────────────────────────── */
 const STOCK_CATEGORIES = [
   "Raw Materials", "Fabric", "Thread & Accessories", "Packaging",
@@ -137,10 +141,13 @@ function nextItemId(rows) {
 /* ── Library Constants ─────────────────────────────────── */
 const PROCESS_CATEGORIES = ["printing", "embellishment", "construction", "finishing", "other"];
 const COMMON_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
+const SAMPLE_STAGES = ["Proto", "Fit", "Size-Set", "PP", "Shipment"];
+const SAMPLE_STATUSES = ["Pending", "Approved", "Rejected", "In Revision"];
 
 const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", notes: "" };
 const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "" };
 const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", notes: "" };
+const emptySample   = { name: "", product_type: "", stage: "Proto", status: "Pending", fabric_used: "", size: "", color: "", cost: "", photo_url: "", notes: "" };
 
 /* ── Stepper input ─────────────────────────────────────── */
 function Stepper({ value, onChange, disabled, min = 0 }) {
@@ -289,6 +296,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     if (!item) {
       if (tab === "fabrics")   return { ...emptyFabric };
       if (tab === "processes") return { ...emptyProcess };
+      if (tab === "samples")   return { ...emptySample };
       return { ...emptyPattern };
     }
     return {
@@ -298,8 +306,9 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     };
   });
 
+  const imageField = tab === "samples" ? "photo_url" : "tech_pack_url";
   const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(item?.tech_pack_url && (item.tech_pack_url.startsWith("data:image/") || item.tech_pack_url.includes(".jpg") || item.tech_pack_url.includes("techpacks")) ? item.tech_pack_url : "");
+  const [imagePreview, setImagePreview] = useState(item?.[imageField] && (item[imageField].startsWith("data:image/") || item[imageField].includes(".jpg") || item[imageField].includes("techpacks") || item[imageField].includes("photos")) ? item[imageField] : "");
   const [dragActive, setDragActive] = useState(false);
 
   const handleDrag = (e) => {
@@ -355,23 +364,30 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
         payload.min_quantity   = form.min_quantity   ? Number(form.min_quantity)   : null;
         payload.lead_time_days = form.lead_time_days ? Number(form.lead_time_days) : null;
       }
+      if (tab === "samples") {
+        payload.cost = form.cost ? Number(form.cost) : null;
+      }
 
       let docId = item?.id;
       if (isEdit) {
-        if (tab === "patterns" && imageFile) {
+        if ((tab === "patterns" || tab === "samples") && imageFile) {
           const compressed = await compressFabricImage(imageFile);
-          payload.tech_pack_url = await uploadPatternTechPack(docId, compressed);
+          payload[imageField] = tab === "samples"
+            ? await uploadSamplePhoto(docId, compressed)
+            : await uploadPatternTechPack(docId, compressed);
         }
         await updateDoc(doc(db, tab, docId), { ...payload, updatedAt: serverTimestamp() });
         onSaved({ id: docId, ...payload });
       } else {
         const ref = await addDoc(collection(db, tab), { ...payload, createdAt: serverTimestamp() });
         docId = ref.id;
-        if (tab === "patterns" && imageFile) {
+        if ((tab === "patterns" || tab === "samples") && imageFile) {
           const compressed = await compressFabricImage(imageFile);
-          const uploadedUrl = await uploadPatternTechPack(docId, compressed);
-          await updateDoc(doc(db, tab, docId), { tech_pack_url: uploadedUrl });
-          payload.tech_pack_url = uploadedUrl;
+          const uploadedUrl = tab === "samples"
+            ? await uploadSamplePhoto(docId, compressed)
+            : await uploadPatternTechPack(docId, compressed);
+          await updateDoc(doc(db, tab, docId), { [imageField]: uploadedUrl });
+          payload[imageField] = uploadedUrl;
         }
         onSaved({ id: docId, ...payload });
       }
@@ -387,7 +403,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
       <div className="kbrf-modal" style={{ maxWidth: 520 }}>
         <div className="kbrf-modal-hd">
           <div style={{ fontSize: 16, fontWeight: 700 }}>
-            {isEdit ? "Edit" : "Add"} {tab === "fabrics" ? "Fabric" : tab === "processes" ? "Process" : "Pattern"}
+            {isEdit ? "Edit" : "Add"} {tab === "fabrics" ? "Fabric" : tab === "processes" ? "Process" : tab === "samples" ? "Sample" : "Pattern"}
           </div>
           <button className="kbrf-modal-close" onClick={onClose}>✕</button>
         </div>
@@ -395,7 +411,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
         <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <label className="kfin-label">Name *</label>
-            <input className="kfin-input" value={form.name ?? ""} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : "e.g. Oversized Tee"} />
+            <input className="kfin-input" value={form.name ?? ""} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : tab === "samples" ? "e.g. Oversized Hoodie v2" : "e.g. Oversized Tee"} />
           </div>
 
           {tab === "fabrics" && <>
@@ -521,6 +537,94 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
                   <img src={imagePreview} alt="Preview" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: "1px solid var(--line)" }} />
                   <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Selected Tech Pack Picture</span>
+                </div>
+              )}
+            </div>
+          </>}
+
+          {tab === "samples" && <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="kfin-label">Product Type</label>
+                <input className="kfin-input" value={form.product_type ?? ""} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
+              </div>
+              <div>
+                <label className="kfin-label">Fabric Used</label>
+                <input className="kfin-input" value={form.fabric_used ?? ""} onChange={e => set("fabric_used", e.target.value)} placeholder="e.g. 180 GSM Cotton Jersey" />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="kfin-label">Sample Stage</label>
+                <select className="kfin-input" value={form.stage ?? "Proto"} onChange={e => set("stage", e.target.value)}>
+                  {SAMPLE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="kfin-label">Status</label>
+                <select className="kfin-input" value={form.status ?? "Pending"} onChange={e => set("status", e.target.value)}>
+                  {SAMPLE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="kfin-label">Size</label>
+                <select className="kfin-input" value={form.size ?? ""} onChange={e => set("size", e.target.value)}>
+                  <option value="">Select size</option>
+                  {COMMON_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="kfin-label">Color</label>
+                <input className="kfin-input" value={form.color ?? ""} onChange={e => set("color", e.target.value)} placeholder="e.g. Navy" />
+              </div>
+            </div>
+            <div>
+              <label className="kfin-label">Sample Cost (NPR)</label>
+              <input className="kfin-input" type="number" value={form.cost ?? ""} onChange={e => set("cost", e.target.value)} placeholder="0" />
+            </div>
+            <div>
+              <label className="kfin-label">Sample Photo</label>
+              <div
+                className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
+                onDragEnter={handleDrag}
+                onDragOver={handleDrag}
+                onDragLeave={handleDrag}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  border: "2px dashed var(--line)",
+                  borderRadius: 8,
+                  padding: "16px",
+                  textAlign: "center",
+                  background: "var(--bg)",
+                  cursor: "pointer",
+                  transition: "border-color .15s",
+                  marginTop: 6
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--ink-4)", marginBottom: 4 }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 500, color: "var(--ink-2)" }}>
+                  Drag sample picture here or click to browse
+                </p>
+                <p style={{ margin: "2px 0 0 0", fontSize: 10, color: "var(--ink-4)" }}>
+                  PNG, JPG, JPEG (automatic compression)
+                </p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: "none" }}
+                accept="image/*"
+                onChange={handleFileChange}
+              />
+              {imagePreview && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+                  <img src={imagePreview} alt="Preview" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: "1px solid var(--line)" }} />
+                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Selected Sample Photo</span>
                 </div>
               )}
             </div>
@@ -1163,6 +1267,92 @@ function PatternCard({ item, canEdit, onEdit, onDelete }) {
   );
 }
 
+function SampleCard({ item, canEdit, onEdit, onDelete }) {
+  const STAGE_COLORS = {
+    "Proto":     { bg: "#f0efed", color: "#5b6a62" },
+    "Fit":       { bg: "#e3eef8", color: "#2e6da4" },
+    "Size-Set":  { bg: "#eae4f6", color: "#6b3fa0" },
+    "PP":        { bg: "#fef3e2", color: "#b07020" },
+    "Shipment":  { bg: "#e8f4f0", color: "#1f6e4c" },
+  };
+  const stageStyle = STAGE_COLORS[item.stage] || STAGE_COLORS["Proto"];
+
+  const STATUS_TONE = {
+    "Approved":    "mint",
+    "Rejected":    "terra",
+    "In Revision": "amber",
+    "Pending":     "neutral",
+  };
+
+  const isImagePhoto = item.photo_url && (
+    item.photo_url.startsWith("data:image/") ||
+    item.photo_url.includes(".jpg") ||
+    item.photo_url.includes(".png") ||
+    item.photo_url.includes(".jpeg") ||
+    item.photo_url.includes("photos")
+  );
+
+  return (
+    <div className="klib-card">
+      {isImagePhoto && (
+        <div className="klib-card-hero">
+          <img src={item.photo_url} alt="Sample" className="klib-card-hero-img" />
+        </div>
+      )}
+
+      <div className="klib-card-band" style={{ background: stageStyle.bg }}>
+        <span className="klib-card-cat-icon">🧵</span>
+        <span className="klib-card-cat" style={{ color: stageStyle.color }}>{item.stage || "Proto"}</span>
+      </div>
+
+      <div className="klib-card-body">
+        <h4 className="klib-card-name">{item.name}</h4>
+        {item.product_type && <p className="kazi-fabric-comp">{item.product_type}</p>}
+
+        <div className="klib-card-meta" style={{ flexWrap: "wrap", gap: 6 }}>
+          <Pill tone={STATUS_TONE[item.status] || "neutral"}>{item.status || "Pending"}</Pill>
+          {item.size && <Pill tone="blue">{item.size}</Pill>}
+          {item.color && <Pill tone="neutral">{item.color}</Pill>}
+        </div>
+
+        {(item.fabric_used || item.cost) && (
+          <div className="klib-card-meta" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {item.fabric_used && (
+              <span className="klib-meta-chip">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                {item.fabric_used}
+              </span>
+            )}
+            {item.cost && (
+              <span className="klib-meta-chip">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                {fmt.npr(item.cost)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {item.notes && (
+          <p className="klib-card-notes">{item.notes}</p>
+        )}
+      </div>
+
+      {canEdit && (
+        <div className="klib-card-actions">
+          <button className="klib-action-btn" onClick={onEdit}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit
+          </button>
+          <button className="klib-action-btn klib-action-btn--danger" onClick={onDelete}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Component ────────────────────────────────────── */
 function Inventory() {
   const { profile } = useAuth();
@@ -1188,6 +1378,7 @@ function Inventory() {
     allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
     allowedTabs.push({ key: "processes", label: "Processes" });
     allowedTabs.push({ key: "patterns", label: "Patterns" });
+    allowedTabs.push({ key: "samples", label: "Samples" });
   }
 
   const [activeTab, setActiveTab] = useState(() => {
@@ -1198,6 +1389,7 @@ function Inventory() {
   const [fabrics, setFabrics] = useState([]);
   const [processes, setProcesses] = useState([]);
   const [patterns, setPatterns] = useState([]);
+  const [samples, setSamples] = useState([]);
   const [unitEconomics, setUnitEconomics] = useState({});
   const [draftEconomics, setDraftEconomics] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1271,6 +1463,7 @@ function Inventory() {
       let fabricsIdx = -1;
       let processesIdx = -1;
       let patternsIdx = -1;
+      let samplesIdx = -1;
       let unitEconomicsIdx = -1;
 
       if (showInventory || showLibrary) {
@@ -1286,6 +1479,8 @@ function Inventory() {
         promises.push(getDocs(collection(db, "processes")));
         patternsIdx = promises.length;
         promises.push(getDocs(collection(db, "patterns")));
+        samplesIdx = promises.length;
+        promises.push(getDocs(collection(db, "samples")));
       }
 
       const results = await Promise.allSettled(promises);
@@ -1314,6 +1509,12 @@ function Inventory() {
         const res = results[patternsIdx];
         if (res.status === "fulfilled") {
           setPatterns(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+      if (samplesIdx !== -1) {
+        const res = results[samplesIdx];
+        if (res.status === "fulfilled") {
+          setSamples(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
         }
       }
       if (unitEconomicsIdx !== -1) {
@@ -1476,6 +1677,7 @@ function Inventory() {
       if (activeTab === "fabrics")   setFabrics(fabrics.filter(x => x.id !== item.id));
       if (activeTab === "processes") setProcesses(processes.filter(x => x.id !== item.id));
       if (activeTab === "patterns")  setPatterns(patterns.filter(x => x.id !== item.id));
+      if (activeTab === "samples")   setSamples(samples.filter(x => x.id !== item.id));
     } catch (err) {
       alert("Failed to delete: " + err.message);
     }
@@ -1503,6 +1705,13 @@ function Inventory() {
         setPatterns([...patterns, saved]);
       }
     }
+    if (activeTab === "samples") {
+      if (libraryEditItem) {
+        setSamples(samples.map(x => x.id === saved.id ? saved : x));
+      } else {
+        setSamples([...samples, saved]);
+      }
+    }
     setLibraryModalOpen(false);
     setLibraryEditItem(null);
   }
@@ -1510,6 +1719,7 @@ function Inventory() {
   function getActiveLibraryItems() {
     if (activeTab === "fabrics")   return fabrics;
     if (activeTab === "processes") return processes;
+    if (activeTab === "samples")   return samples;
     return patterns;
   }
 
@@ -1553,6 +1763,13 @@ function Inventory() {
     r.name?.toLowerCase().includes(search.toLowerCase()) ||
     r.product_type?.toLowerCase().includes(search.toLowerCase())
   );
+  const filteredSamples = samples.filter(r =>
+    !search ||
+    r.name?.toLowerCase().includes(search.toLowerCase()) ||
+    r.product_type?.toLowerCase().includes(search.toLowerCase()) ||
+    r.stage?.toLowerCase().includes(search.toLowerCase()) ||
+    r.fabric_used?.toLowerCase().includes(search.toLowerCase())
+  );
 
   /* ── Draft helpers ── */
   function draftStockIn(row)   { return draft[row.id]?.stockIn   ?? row.stockIn   ?? 0; }
@@ -1586,9 +1803,9 @@ function Inventory() {
         </button>
       );
     }
-    if (activeTab === "processes" || activeTab === "patterns") {
+    if (activeTab === "processes" || activeTab === "patterns" || activeTab === "samples") {
       if (!canEditLibrary) return null;
-      const typeLabel = activeTab === "processes" ? "Process" : "Pattern";
+      const typeLabel = activeTab === "processes" ? "Process" : activeTab === "samples" ? "Sample" : "Pattern";
       return (
         <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
           + Add {typeLabel}
@@ -1712,9 +1929,9 @@ function Inventory() {
                 onClick={() => handleTabSelect(t.key)}
               >
                 {t.label}
-                {["fabrics", "processes", "patterns"].includes(t.key) && (
+                {["fabrics", "processes", "patterns", "samples"].includes(t.key) && (
                   <span style={{ marginLeft: 6, fontSize: 11, background: "var(--bg-2)", padding: "1px 6px", borderRadius: 10, color: "var(--ink-4)" }}>
-                    {t.key === "fabrics" ? fabrics.length : t.key === "processes" ? processes.length : patterns.length}
+                    {t.key === "fabrics" ? fabrics.length : t.key === "processes" ? processes.length : t.key === "samples" ? samples.length : patterns.length}
                   </span>
                 )}
               </button>
@@ -2142,8 +2359,8 @@ function Inventory() {
           </div>
         )}
 
-        {/* ── Library Tabs (Fabrics, Processes, Patterns) ── */}
-        {["fabrics", "processes", "patterns"].includes(activeTab) && showLibrary && (
+        {/* ── Library Tabs (Fabrics, Processes, Patterns, Samples) ── */}
+        {["fabrics", "processes", "patterns", "samples"].includes(activeTab) && showLibrary && (
           <div style={{ padding: 20 }}>
             {loading ? (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
@@ -2238,6 +2455,11 @@ function Inventory() {
                 ))}
                 {activeTab === "patterns" && filteredPatterns.map(item => (
                   <PatternCard key={item.id} item={item} canEdit={canEditLibrary}
+                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
+                    onDelete={() => handleDeleteLibraryItem(item)} />
+                ))}
+                {activeTab === "samples" && filteredSamples.map(item => (
+                  <SampleCard key={item.id} item={item} canEdit={canEditLibrary}
                     onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
                     onDelete={() => handleDeleteLibraryItem(item)} />
                 ))}

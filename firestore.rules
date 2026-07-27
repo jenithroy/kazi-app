@@ -79,6 +79,9 @@ service cloud.firestore {
     match /patterns/{id} {
       allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
     }
+    match /samples/{id} {
+      allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
+    }
     match /bank_transactions/{id} {
       allow read: if isSignedIn() && (
         request.auth.token.email == "hi.zenuk@gmail.com" ||
