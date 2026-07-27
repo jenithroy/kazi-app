@@ -19,7 +19,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 // ── Firebase imports ──────────────────────────────────────
 import { db } from '../firebase';
 import {
-  collection, addDoc, updateDoc, deleteDoc,
+  collection, addDoc, setDoc, updateDoc, deleteDoc,
   doc, onSnapshot, serverTimestamp, query
 } from 'firebase/firestore';
 
@@ -124,9 +124,9 @@ export default function MarketingCalendar() {
   const addInboxItem = useCallback(async () => {
     const title = newIdea.trim();
     if (!title) return;
-    const tempId = `temp-${Date.now()}`;
+    const docRef = doc(collection(db, 'content_calendar'));
     const item = {
-      id: tempId,
+      id: docRef.id,
       title,
       status: 'inbox',
       scheduledDate: null,
@@ -140,7 +140,7 @@ export default function MarketingCalendar() {
     setNewIdea('');
     newIdeaRef.current?.focus();
     try {
-      const docRef = await addDoc(collection(db, 'content_calendar'), {
+      await setDoc(docRef, {
         title: item.title,
         status: item.status,
         scheduledDate: item.scheduledDate,
@@ -150,7 +150,6 @@ export default function MarketingCalendar() {
         mediaUrl: item.mediaUrl,
         createdAt: serverTimestamp()
       });
-      setItems(prev => prev.map(i => i.id === tempId ? { ...i, id: docRef.id } : i));
     } catch (err) {
       console.error("Error adding inbox item to Firestore:", err);
       alert("Failed to save idea to server. Please check your internet connection.");
@@ -158,9 +157,9 @@ export default function MarketingCalendar() {
   }, [newIdea]);
 
   const addInboxItemFromToolbar = useCallback(async () => {
-    const tempId = `temp-${Date.now()}`;
+    const docRef = doc(collection(db, 'content_calendar'));
     const item = {
-      id: tempId,
+      id: docRef.id,
       title: 'New Content Idea',
       status: 'inbox',
       scheduledDate: null,
@@ -173,7 +172,7 @@ export default function MarketingCalendar() {
     setItems(prev => [item, ...prev]);
     setSelected(item);
     try {
-      const docRef = await addDoc(collection(db, 'content_calendar'), {
+      await setDoc(docRef, {
         title: item.title,
         status: item.status,
         scheduledDate: item.scheduledDate,
@@ -183,8 +182,6 @@ export default function MarketingCalendar() {
         mediaUrl: item.mediaUrl,
         createdAt: serverTimestamp()
       });
-      setItems(prev => prev.map(i => i.id === tempId ? { ...i, id: docRef.id } : i));
-      setSelected(prev => prev?.id === tempId ? { ...prev, id: docRef.id } : prev);
     } catch (err) {
       console.error("Error creating content idea in Firestore:", err);
       alert("Failed to save new content idea. Please check your internet connection.");
@@ -193,6 +190,7 @@ export default function MarketingCalendar() {
 
   const scheduleItem = useCallback(async (id, date) => {
     setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'scheduled', scheduledDate: date } : i));
+    setSelected(prev => prev?.id === id ? { ...prev, status: 'scheduled', scheduledDate: date } : prev);
     try {
       await updateDoc(doc(db, 'content_calendar', id), {
         status: 'scheduled',
@@ -206,9 +204,17 @@ export default function MarketingCalendar() {
   const saveItem = useCallback(async (updated) => {
     setItems(prev => prev.map(i => i.id === updated.id ? updated : i));
     setSelected(updated);
-    const { id, ...data } = updated;
+    const payload = {
+      title: updated.title || '',
+      status: updated.status || 'inbox',
+      scheduledDate: updated.scheduledDate || null,
+      type: updated.type || 'Ideation',
+      notes: updated.notes || '',
+      timeSlot: updated.timeSlot || '',
+      mediaUrl: updated.mediaUrl || null
+    };
     try {
-      await updateDoc(doc(db, 'content_calendar', id), data);
+      await setDoc(doc(db, 'content_calendar', updated.id), payload, { merge: true });
     } catch (err) {
       console.error("Error updating item in Firestore:", err);
     }
@@ -216,7 +222,7 @@ export default function MarketingCalendar() {
 
   const deleteItem = useCallback(async (id) => {
     setItems(prev => prev.filter(i => i.id !== id));
-    setSelected(null);
+    setSelected(prev => prev?.id === id ? null : prev);
     try {
       await deleteDoc(doc(db, 'content_calendar', id));
     } catch (err) {
@@ -226,7 +232,7 @@ export default function MarketingCalendar() {
 
   const unschedule = useCallback(async (id) => {
     setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'inbox', scheduledDate: null } : i));
-    setSelected(null);
+    setSelected(prev => prev?.id === id ? { ...prev, status: 'inbox', scheduledDate: null } : prev);
     try {
       await updateDoc(doc(db, 'content_calendar', id), {
         status: 'inbox',
@@ -256,9 +262,9 @@ export default function MarketingCalendar() {
   const todayStr = fmtDate(today.getFullYear(), today.getMonth(), today.getDate());
 
   const openNewForDate = useCallback(async (dateStr) => {
-    const tempId = `temp-${Date.now()}`;
+    const docRef = doc(collection(db, 'content_calendar'));
     const item = {
-      id: tempId,
+      id: docRef.id,
       title: 'New Content Idea',
       status: 'scheduled',
       scheduledDate: dateStr,
@@ -271,7 +277,7 @@ export default function MarketingCalendar() {
     setItems(prev => [...prev, item]);
     setSelected(item);
     try {
-      const docRef = await addDoc(collection(db, 'content_calendar'), {
+      await setDoc(docRef, {
         title: item.title,
         status: item.status,
         scheduledDate: item.scheduledDate,
@@ -281,8 +287,6 @@ export default function MarketingCalendar() {
         mediaUrl: item.mediaUrl,
         createdAt: serverTimestamp()
       });
-      setItems(prev => prev.map(i => i.id === tempId ? { ...i, id: docRef.id } : i));
-      setSelected(prev => prev?.id === tempId ? { ...prev, id: docRef.id } : prev);
     } catch (err) {
       console.error("Error creating content item for date in Firestore:", err);
       alert("Failed to save content item for date. Please check your internet connection.");
