@@ -15,6 +15,11 @@ serviceAccountKey.json
 
 # Claude Code local settings (machine-specific)
 .claude/
+.agents/
+.github/hooks/
+.github/skills/
+skills-lock.json
+.impeccable/
 
 # Netlify (no longer used)
 .netlify/

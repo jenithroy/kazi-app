@@ -28,8 +28,9 @@ export const TEAM_MEMBERS = [
   { name: "Anmol", role: "Operations Intern", location: "nepal", email: "Basnetanamol21@gmail.com", appRole: "nepal_admin" },
   { name: "Anusha", role: "Fashion Intern", location: "nepal", email: "anushapantaa@gmail.com", appRole: "nepal_admin" },
   { name: "Monika", role: "Marketing Co-ordinator", location: "nepal", email: "bhusal.monika14@gmail.com", appRole: "nepal_admin" },
-  { name: "Sunam Deepa", role: "Accountant", location: "nepal", email: "sunamdeepa26@gmail.com", appRole: "nepal_admin" },
+  { name: "Sunam Deepa", role: "Accountant", location: "nepal", email: "deepasunam581@gmail.com", appRole: "nepal_admin" },
   { name: "Admin", role: "System Admin", location: "nepal", email: "admin@kazi.com", appRole: "super_admin" },
+  { name: "Rishav", role: "Developer", location: "nepal", email: "crrishav.business@gmail.com", appRole: "super_admin" },
   // Employees
   { name: "Sarbagya Karki", role: "Content Editor", location: "nepal", email: "sarbagyakarkig8@gmail.com", appRole: "nepal_staff" },
   { name: "Sudhansu", role: "Operations Assistant", location: "nepal", email: "sa4715666@gmail.com", appRole: "employee" },

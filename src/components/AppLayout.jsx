@@ -54,6 +54,7 @@ const ROUTE_LABEL = {
   admin:      "Admin Panel",
   messenger:  "Messenger Chat",
   marketing:  "Marketing Calendar",
+  "bug-report": "Bug Report",
 };
 
 function useKTMTime() {

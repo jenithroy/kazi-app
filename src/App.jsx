@@ -16,6 +16,7 @@ import Customers from "./pages/Customers";
 import Messenger from "./pages/Messenger";
 import Sales from "./pages/Sales";
 import Marketing from "./pages/Marketing";
+import BugReport from "./pages/BugReport";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
@@ -39,6 +40,7 @@ function App() {
         <Route path="/customers" element={<Customers />} />
         <Route path="/messenger" element={<Messenger />} />
         <Route path="/marketing" element={<Marketing />} />
+        <Route path="/bug-report" element={<BugReport />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/library" element={<Navigate to="/inventory" replace />} />
         <Route path="/accounting" element={<Navigate to="/finance" replace />} />
