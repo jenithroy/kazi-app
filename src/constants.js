@@ -6,6 +6,9 @@ export const HISTORICAL_DATA_CUTOFF_MS = new Date("2026-07-29T06:36:29.000Z").ge
 
 export function createdAfterCutoff(data, cutoffMs = HISTORICAL_DATA_CUTOFF_MS) {
   const ts = data?.createdAt;
+  // A doc just written with serverTimestamp() reads back as `null` locally until the
+  // server round-trip resolves it — that's "created now", not "no timestamp at all".
+  if (ts === null) return true;
   const ms = typeof ts?.toMillis === "function" ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : 0);
   return ms > cutoffMs;
 }

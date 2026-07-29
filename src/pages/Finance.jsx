@@ -287,10 +287,14 @@ function Finance() {
 
   /* ── Fix 3: page-level error banner (auto-clears after 5s) ── */
   const [pageError, setPageError] = useState("");
+  const errorBannerRef = useRef(null);
   function showError(msg) {
     setPageError(msg);
     setTimeout(() => setPageError(""), 5000);
   }
+  useEffect(() => {
+    if (pageError) errorBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [pageError]);
 
   /* ── State ── */
   const [payroll, setPayroll]         = useState([]);
@@ -481,6 +485,7 @@ function Finance() {
   }
 
   async function addPurchase() {
+    if (!canEditTab("purchases")) { showError("You don't have permission to add purchases."); return; }
     if (!purchaseForm.expenseItem.trim()) { showError("Party name is required."); return; }
     setSubmitting(true);
     try {
@@ -494,7 +499,9 @@ function Finance() {
       await loadData();
     } catch (err) {
       console.error("Failed to add purchase:", err);
-      showError("Failed to save purchase. Please try again.");
+      showError(err?.code === "permission-denied"
+        ? "You don't have permission to add purchases."
+        : "Failed to save purchase. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -770,7 +777,7 @@ function Finance() {
 
         {/* Fix 3: error banner */}
         {pageError && (
-          <div style={{
+          <div ref={errorBannerRef} style={{
             background: "var(--terra-soft, #fdf2ef)", color: "var(--terra)",
             border: "1px solid rgba(196,101,74,.3)", borderRadius: 8,
             padding: "10px 14px", marginBottom: 14, fontSize: 13, fontWeight: 500,
@@ -1003,6 +1010,7 @@ function Finance() {
                 <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
               </span>
             </div>
+            {!canEdit && <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ You don't have permission to add or edit purchases.</div>}
             <div className="kfin-tbl-wrap">
               <table className="kfin-tbl kfin-tbl-compact">
                 <thead><tr>
@@ -1010,37 +1018,39 @@ function Finance() {
                   <th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
                 </tr></thead>
 
-                <PurchaseRowGroup
-                  expenseId={`${nextExpenseId()} (new)`}
-                  data={purchaseForm}
-                  highlight
-                  onFieldChange={patch => setPurchaseForm(f => ({ ...f, ...patch }))}
-                  onItemChange={(idx, patch) => setPurchaseForm(f => ({ ...f, items: applyItemChange(f.items, idx, patch) }))}
-                  onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
-                  onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
-                  onFinishEnter={addPurchase}
-                  actionCell={
-                    <button className="primary-button" type="button" disabled={submitting}
-                      style={{ padding: "5px 12px", fontSize: 12 }} onClick={addPurchase}>
-                      {submitting ? "Adding…" : "+ Add"}
-                    </button>
-                  }
-                />
+                {canEdit && (
+                  <PurchaseRowGroup
+                    expenseId={`${nextExpenseId()} (new)`}
+                    data={purchaseForm}
+                    highlight
+                    onFieldChange={patch => setPurchaseForm(f => ({ ...f, ...patch }))}
+                    onItemChange={(idx, patch) => setPurchaseForm(f => ({ ...f, items: applyItemChange(f.items, idx, patch) }))}
+                    onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
+                    onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
+                    onFinishEnter={addPurchase}
+                    actionCell={
+                      <button className="primary-button" type="button" disabled={submitting}
+                        style={{ padding: "5px 12px", fontSize: 12 }} onClick={addPurchase}>
+                        {submitting ? "Adding…" : "+ Add"}
+                      </button>
+                    }
+                  />
+                )}
 
                 {purchases.map(row => (
                   <PurchaseRowGroup
                     key={row.id}
                     expenseId={row.expenseId}
                     data={purchaseRowData(row)}
-                    onFieldChange={patch => updatePurchaseField(row, patch)}
-                    onItemChange={(idx, patch) => updatePurchaseItem(row, idx, patch)}
-                    onAddItem={() => addPurchaseItem(row)}
-                    onRemoveItem={idx => removePurchaseItem(row, idx)}
-                    onBlurAway={() => commitPurchaseDraft(row)}
-                    actionCell={
+                    onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
+                    onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}
+                    onAddItem={() => canEdit && addPurchaseItem(row)}
+                    onRemoveItem={idx => canEdit && removePurchaseItem(row, idx)}
+                    onBlurAway={() => canEdit && commitPurchaseDraft(row)}
+                    actionCell={canEdit && (
                       <button className="ghost-button" type="button" style={{ padding: "5px 10px", fontSize: 12, color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }}
                         onClick={() => deletePurchase(row.id)}>Delete</button>
-                    }
+                    )}
                   />
                 ))}
               </table>
