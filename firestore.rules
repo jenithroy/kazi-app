@@ -83,13 +83,7 @@ service cloud.firestore {
       allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
     }
     match /bank_transactions/{id} {
-      allow read: if isSignedIn() && (
-        request.auth.token.email == "hi.zenuk@gmail.com" ||
-        request.auth.token.email == "finnqrk@gmail.com" ||
-        request.auth.token.email == "wilsonshah98765@gmail.com" ||
-        request.auth.token.email == "deepasunam581@gmail.com" ||
-        request.auth.token.email == "admin@kazi.com"
-      );
+      allow read: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
       allow create, update: if isNepalAdmin() || isSuperAdmin();
       allow delete: if isNepalAdmin() || isSuperAdmin();
     }
