@@ -94,7 +94,8 @@ const DEFAULT_ACCOUNTS = [
 
 const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
-  expenseItem: "", category: "Office Supplies", vatBill: false, amountNPR: ""
+  expenseItem: "", category: "Office Supplies", vatBill: false, amountNPR: "",
+  particulars: "", quantity: "", rate: ""
 };
 
 const initialExpense = {
@@ -327,7 +328,10 @@ function Finance() {
       await addDoc(collection(db, "finance_purchases"), {
         expenseId: nextExpenseId(), expenseItem: purchaseForm.expenseItem,
         category: purchaseForm.category, vatBill: purchaseForm.vatBill,
-        amountNPR: Number(purchaseForm.amountNPR), date: purchaseForm.date, createdAt: serverTimestamp()
+        amountNPR: Number(purchaseForm.amountNPR), date: purchaseForm.date, createdAt: serverTimestamp(),
+        particulars: purchaseForm.particulars,
+        quantity: purchaseForm.quantity === "" ? null : Number(purchaseForm.quantity),
+        rate: purchaseForm.rate === "" ? null : Number(purchaseForm.rate)
       });
       setPurchaseForm(emptyPurchaseForm);
       await loadData();
@@ -343,7 +347,10 @@ function Finance() {
     try {
       await fsUpdateDoc(doc(db, "finance_purchases", id), {
         expenseItem: editForm.expenseItem, category: editForm.category,
-        vatBill: editForm.vatBill, amountNPR: Number(editForm.amountNPR), date: editForm.date
+        vatBill: editForm.vatBill, amountNPR: Number(editForm.amountNPR), date: editForm.date,
+        particulars: editForm.particulars || "",
+        quantity: editForm.quantity === "" || editForm.quantity == null ? null : Number(editForm.quantity),
+        rate: editForm.rate === "" || editForm.rate == null ? null : Number(editForm.rate)
       });
       setEditingId(null); await loadData();
     } catch (err) {
@@ -824,6 +831,32 @@ function Finance() {
                     {PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </label>
+                <label className="kfin-label kfin-full">Particulars
+                  <input type="text" className="kfin-input" value={purchaseForm.particulars} placeholder="e.g. Cotton fabric, 60 inch width"
+                    onChange={e => setPurchaseForm(f => ({ ...f, particulars: e.target.value }))} />
+                </label>
+                <label className="kfin-label">Quantity
+                  <input type="number" min="0" step="any" className="kfin-input" value={purchaseForm.quantity} placeholder="0"
+                    onChange={e => {
+                      const quantity = e.target.value;
+                      setPurchaseForm(f => {
+                        const rate = f.rate;
+                        const amountNPR = quantity !== "" && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
+                        return { ...f, quantity, amountNPR };
+                      });
+                    }} />
+                </label>
+                <label className="kfin-label">Rate (NPR)
+                  <input type="number" min="0" step="any" className="kfin-input" value={purchaseForm.rate} placeholder="0"
+                    onChange={e => {
+                      const rate = e.target.value;
+                      setPurchaseForm(f => {
+                        const quantity = f.quantity;
+                        const amountNPR = quantity !== "" && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
+                        return { ...f, rate, amountNPR };
+                      });
+                    }} />
+                </label>
                 <label className="kfin-label">Amount (NPR)
                   <input type="number" min="0" step="1" className="kfin-input" value={purchaseForm.amountNPR} required placeholder="0"
                     onChange={e => setPurchaseForm(f => ({ ...f, amountNPR: e.target.value }))} />
@@ -850,13 +883,36 @@ function Finance() {
               </div>
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
-                  <thead><tr><th>Expense ID</th><th>Expense Item</th><th>Category</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
+                  <thead><tr><th>Expense ID</th><th>Expense Item</th><th>Particulars</th><th>Category</th><th>Quantity</th><th>Rate (NPR)</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
                   <tbody>
                     {purchases.map(row => editingId === row.id ? (
                       <tr key={row.id} style={{ background: "var(--mint-soft)" }}>
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{row.expenseId}</td>
                         <td><input value={editForm.expenseItem} onChange={e => setEditForm(f => ({ ...f, expenseItem: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, minWidth: 160 }} /></td>
+                        <td><input value={editForm.particulars || ""} onChange={e => setEditForm(f => ({ ...f, particulars: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, minWidth: 160 }} /></td>
                         <td><select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>{PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
+                        <td>
+                          <input type="number" min="0" step="any" value={editForm.quantity ?? ""} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 80 }}
+                            onChange={e => {
+                              const quantity = e.target.value;
+                              setEditForm(f => {
+                                const rate = f.rate;
+                                const amountNPR = quantity !== "" && rate != null && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
+                                return { ...f, quantity, amountNPR };
+                              });
+                            }} />
+                        </td>
+                        <td>
+                          <input type="number" min="0" step="any" value={editForm.rate ?? ""} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 90 }}
+                            onChange={e => {
+                              const rate = e.target.value;
+                              setEditForm(f => {
+                                const quantity = f.quantity;
+                                const amountNPR = quantity != null && quantity !== "" && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
+                                return { ...f, rate, amountNPR };
+                              });
+                            }} />
+                        </td>
                         <td>
                           <select value={editForm.vatBill === null ? "na" : editForm.vatBill ? "yes" : "no"}
                             onChange={e => { const v = e.target.value; setEditForm(f => ({ ...f, vatBill: v === "yes" ? true : v === "no" ? false : null })); }}
@@ -877,7 +933,10 @@ function Finance() {
                       <tr key={row.id}>
                         <td style={{ color: "var(--ink-4)", fontSize: 12, fontFamily: "var(--mono)" }}>{row.expenseId}</td>
                         <td style={{ fontWeight: 500 }}>{row.expenseItem}</td>
+                        <td>{row.particulars || "—"}</td>
                         <td>{row.category}</td>
+                        <td style={{ fontFamily: "var(--mono)" }}>{row.quantity ?? "—"}</td>
+                        <td style={{ fontFamily: "var(--mono)" }}>{row.rate != null ? Number(row.rate).toLocaleString() : "—"}</td>
                         <td>{vatLabel(row.vatBill)}</td>
                         <td style={{ fontFamily: "var(--mono)" }}>{Number(row.amountNPR || 0).toLocaleString()}</td>
                         <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((row.amountNPR || 0) / GBP_RATE, "GBP")}</td>
