@@ -822,7 +822,7 @@ function Finance() {
                 <label className="kfin-label">Date
                   <input type="date" className="kfin-input" value={purchaseForm.date} required onChange={e => setPurchaseForm(f => ({ ...f, date: e.target.value }))} />
                 </label>
-                <label className="kfin-label kfin-full">Expense Item
+                <label className="kfin-label kfin-full">Party Name
                   <input type="text" className="kfin-input" value={purchaseForm.expenseItem} required placeholder="e.g. Office supplies, Sewing Machine"
                     onChange={e => setPurchaseForm(f => ({ ...f, expenseItem: e.target.value }))} />
                 </label>
@@ -883,7 +883,7 @@ function Finance() {
               </div>
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
-                  <thead><tr><th>Expense ID</th><th>Expense Item</th><th>Particulars</th><th>Category</th><th>Quantity</th><th>Rate (NPR)</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
+                  <thead><tr><th>Expense ID</th><th>Party Name</th><th>Particulars</th><th>Category</th><th>Quantity</th><th>Rate (NPR)</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
                   <tbody>
                     {purchases.map(row => editingId === row.id ? (
                       <tr key={row.id} style={{ background: "var(--mint-soft)" }}>
