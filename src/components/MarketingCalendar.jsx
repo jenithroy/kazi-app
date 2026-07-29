@@ -48,21 +48,21 @@ const SEED = [
 ];
 
 // ── Theme tokens ──────────────────────────────────────────
-function useTheme(dark) {
+function useTheme() {
   return {
-    bg:     dark ? '#0a0a0a' : '#f8f8f7',
-    root:   dark ? 'bg-[#0a0a0a] text-zinc-100' : 'bg-[#f8f8f7] text-zinc-900',
-    panel:  dark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200',
-    cell:   dark ? 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800/80' : 'bg-white border-zinc-150 hover:bg-zinc-50',
-    ghost:  dark ? 'bg-zinc-950 border-zinc-900' : 'bg-zinc-50/60 border-zinc-100',
-    card:   dark ? 'bg-zinc-800/80 border-zinc-700 hover:bg-zinc-800' : 'bg-zinc-50 border-zinc-200 hover:bg-white',
-    input:  dark ? 'bg-zinc-800 border-zinc-700 text-zinc-100 placeholder-zinc-500' : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-400',
-    divB:   dark ? 'border-zinc-800' : 'border-zinc-200',
-    muted:  dark ? 'text-zinc-500' : 'text-zinc-400',
-    tag:    dark ? 'border-zinc-700 text-zinc-400' : 'border-zinc-200 text-zinc-500',
-    hover:  dark ? 'hover:bg-zinc-800' : 'hover:bg-zinc-100',
-    addBtn: dark ? 'bg-zinc-700 hover:bg-zinc-600 text-white' : 'bg-zinc-900 hover:bg-zinc-700 text-white',
-    doneBtn:dark ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border-zinc-700' : 'bg-zinc-900 hover:bg-zinc-700 text-white border-zinc-900',
+    bg:     '#f8f8f7',
+    root:   'bg-[#f8f8f7] text-zinc-900',
+    panel:  'bg-white border-zinc-200',
+    cell:   'bg-white border-zinc-150 hover:bg-zinc-50',
+    ghost:  'bg-zinc-50/60 border-zinc-100',
+    card:   'bg-zinc-50 border-zinc-200 hover:bg-white',
+    input:  'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-400',
+    divB:   'border-zinc-200',
+    muted:  'text-zinc-400',
+    tag:    'border-zinc-200 text-zinc-500',
+    hover:  'hover:bg-zinc-100',
+    addBtn: 'bg-zinc-900 hover:bg-zinc-700 text-white',
+    doneBtn:'bg-zinc-900 hover:bg-zinc-700 text-white border-zinc-900',
   };
 }
 
@@ -76,9 +76,8 @@ export default function MarketingCalendar() {
   const [dragging, setDragging] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [newIdea, setNewIdea] = useState('');
-  const [dark, setDark] = useState(false);
   const [inbox, setInbox] = useState(true);
-  const t = useTheme(dark);
+  const t = useTheme();
   const newIdeaRef = useRef(null);
 
   // ── Firebase realtime listener & auto-seed ──
@@ -397,7 +396,7 @@ export default function MarketingCalendar() {
               </svg>
             </button>
 
-            <div className={`w-px h-4 ${dark ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
+            <div className="w-px h-4 bg-zinc-200" />
 
             {/* Month nav */}
             <div className="flex items-center gap-0.5">
@@ -420,20 +419,12 @@ export default function MarketingCalendar() {
               <span className="text-xs font-bold">+</span> New Idea
             </button>
 
-            <div className={`w-px h-4 ${dark ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
+            <div className="w-px h-4 bg-zinc-200" />
 
             <button
               onClick={() => { setMonth(today.getMonth()); setYear(today.getFullYear()); }}
               className={`text-[10px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ${t.tag} ${t.hover}`}
             >Today</button>
-
-            <div className={`w-px h-4 ${dark ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
-
-            <button
-              onClick={() => setDark(d => !d)}
-              className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[13px] transition-colors ${t.tag} ${t.hover}`}
-              title="Toggle theme"
-            >{dark ? '☀' : '◐'}</button>
           </div>
         </div>
 
@@ -469,15 +460,15 @@ export default function MarketingCalendar() {
                     className={[
                       'relative rounded-xl border min-h-[100px] p-1 cursor-pointer group transition-all duration-150',
                       isDrop
-                        ? (dark ? 'bg-sky-950 border-sky-600 scale-[1.02] shadow-lg' : 'bg-sky-50 border-sky-400 scale-[1.02] shadow-md shadow-sky-100')
+                        ? 'bg-sky-50 border-sky-400 scale-[1.02] shadow-md shadow-sky-100'
                         : t.cell,
-                      isToday && !isDrop ? (dark ? '!border-zinc-400' : '!border-zinc-800') : '',
+                      isToday && !isDrop ? '!border-zinc-800' : '',
                     ].join(' ')}
                   >
                     {/* Date header bar */}
                     <div className="flex items-center justify-between px-1 pt-0.5 pb-1 z-10">
                       {isToday ? (
-                        <span className={`flex items-center justify-center w-[18px] h-[18px] rounded-full text-[9px] font-bold ${dark ? 'bg-zinc-300 text-zinc-900' : 'bg-zinc-900 text-white'}`}>{day}</span>
+                        <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full text-[9px] font-bold bg-zinc-900 text-white">{day}</span>
                       ) : (
                         <span className={`text-[10px] font-semibold ${t.muted}`}>{day}</span>
                       )}
@@ -508,7 +499,7 @@ export default function MarketingCalendar() {
                                   <p className="absolute bottom-1 left-1.5 right-1.5 text-white text-[8px] font-semibold line-clamp-1">{item.title}</p>
                                 </div>
                               ) : (
-                                <div className={`px-1.5 py-1 ${dark ? 'bg-zinc-800' : 'bg-zinc-50'}`}>
+                                <div className="px-1.5 py-1 bg-zinc-50">
                                   <div className="flex items-center gap-1">
                                     <div className={`w-1 h-1 rounded-full flex-shrink-0 ${cfg.dot}`} />
                                     <p className="text-[9px] font-medium line-clamp-1 flex-1 min-w-0">{item.title || 'Untitled'}</p>
@@ -570,7 +561,6 @@ export default function MarketingCalendar() {
           <EditDrawer
             key={selected.id}
             item={selected}
-            dark={dark}
             t={t}
             onSave={saveItem}
             onDelete={() => deleteItem(selected.id)}
@@ -584,7 +574,7 @@ export default function MarketingCalendar() {
 }
 
 // ── Edit Drawer ───────────────────────────────────────────
-function EditDrawer({ item, dark, t, onSave, onDelete, onUnschedule, onClose }) {
+function EditDrawer({ item, t, onSave, onDelete, onUnschedule, onClose }) {
   const [form, setForm] = useState({ ...item });
 
   React.useEffect(() => { setForm({ ...item }); }, [item.id]);
