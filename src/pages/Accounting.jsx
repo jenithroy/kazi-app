@@ -5,7 +5,6 @@ import {
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip
 } from "recharts";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -180,7 +179,6 @@ function Accounting() {
   ];
 
   return (
-    <AppLayout>
       <PageHeader title="Accounting" description="Journal entries, ledger, profit & loss statement and balance sheet." />
 
       {/* Summary cards */}
@@ -492,7 +490,6 @@ function Accounting() {
           </div>
         </div>
       )}
-    </AppLayout>
   );
 }
 

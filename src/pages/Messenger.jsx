@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import AppLayout from "../components/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { Icons, Avatar } from "../components/ui";
 import { collection, query, orderBy, onSnapshot, addDoc } from "firebase/firestore";
@@ -340,9 +339,9 @@ function Messenger() {
   }, [threads, activeThreadId]);
 
   return (
-    <AppLayout>
+    <>
       <div className="kscr fade-in kmsg-shell" style={{ padding: "0", display: "flex", flexDirection: "column" }}>
-        
+
         {/* Credentials Warning Banner */}
         {!isConfigured && !useDemo && (
           <div style={{ background: "oklch(95% .04 35)", borderLeft: "4px solid var(--terra)", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -709,7 +708,7 @@ function Messenger() {
           100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(31,110,76,0); }
         }
       `}</style>
-    </AppLayout>
+    </>
   );
 }
 

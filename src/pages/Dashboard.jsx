@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
@@ -35,11 +34,9 @@ const Dot = () => <span className="kdot">·</span>;
 /* ── Loading state ───────────────────────────────────── */
 function Loading() {
   return (
-    <AppLayout>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, color: "var(--ink-4)", fontSize: 14 }}>
         Loading dashboard…
       </div>
-    </AppLayout>
   );
 }
 
@@ -784,17 +781,14 @@ function NepalAdminDash() {
   const { fmt: fmtC } = useCurrency();
 
   if (loadErr) return (
-    <AppLayout>
       <div style={{ padding: 32, color: "var(--terra)", fontSize: 14 }}>
         ⚠️ Dashboard failed to load: {loadErr}<br />
         <button style={{ marginTop: 12, padding: "6px 16px", borderRadius: 8, border: "1px solid var(--terra)", background: "transparent", color: "var(--terra)", cursor: "pointer" }} onClick={() => { setLoadErr(null); setData(null); }}>Retry</button>
       </div>
-    </AppLayout>
   );
   if (!data) return <Loading />;
 
   return (
-    <AppLayout>
       <div className="kdash fade-in">
         {/* Clock-in hero for Anusha & Anmol */}
         {profile && ["anushapantaa@gmail.com", "basnetanamol21@gmail.com"].includes(profile.email?.toLowerCase()) && (
@@ -1080,7 +1074,6 @@ function NepalAdminDash() {
           </div>
         </Card>
       </div>
-    </AppLayout>
   );
 }
 
@@ -1234,7 +1227,6 @@ function UKAdminDash() {
   if (!data) return <Loading />;
 
   return (
-    <AppLayout>
       <div className="kdash fade-in">
         {/* Quick actions */}
         <div className="kdash-qa">
@@ -1417,7 +1409,6 @@ function UKAdminDash() {
           </Card>
         </div>
       </div>
-    </AppLayout>
   );
 }
 
@@ -1521,7 +1512,6 @@ function EmployeeDash() {
   if (!data) return <Loading />;
 
   return (
-    <AppLayout>
       <div className="kdash fade-in">
         {/* Clock-in hero */}
         <ClockInCard profile={profile} onClockChange={load} />
@@ -1594,7 +1584,6 @@ function EmployeeDash() {
           </div>
         </Card>
       </div>
-    </AppLayout>
   );
 }
 

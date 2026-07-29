@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import useFirestore from "../hooks/useFirestore";
@@ -73,7 +72,6 @@ function Content() {
   }
 
   return (
-    <AppLayout>
       <PageHeader
         title="Content Calendar"
         description="Publishing workflow for campaign planning and approval."
@@ -172,7 +170,6 @@ function Content() {
           </article>
         ))}
       </section>
-    </AppLayout>
   );
 }
 

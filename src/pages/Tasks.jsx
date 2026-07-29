@@ -3,7 +3,6 @@ import {
   addDoc, collection, deleteDoc, doc, getDocs,
   serverTimestamp, updateDoc, writeBatch, query, orderBy,
 } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import { TEAM_MEMBERS } from "../constants";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -626,7 +625,7 @@ function Tasks() {
   }
 
   return (
-    <AppLayout>
+    <>
       <div className="kscr fade-in" style={{ padding: "4px 0 0", gap: 0 }}>
 
         {/* Page header */}
@@ -953,7 +952,7 @@ function Tasks() {
           </div>
         </>
       )}
-    </AppLayout>
+    </>
   );
 }
 

@@ -3,7 +3,6 @@ import {
   collection, getDocs, addDoc, updateDoc, deleteDoc,
   doc, serverTimestamp, query, orderBy,
 } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -171,7 +170,6 @@ function OrderManagement() {
   const cancelled = useMemo(() => orders.filter(o => o.status === "Cancelled"), [orders]);
 
   return (
-    <AppLayout>
       <PageHeader
         title="Order Management"
         description="Track active orders through production stages · cancel or remove orders."
@@ -342,7 +340,6 @@ function OrderManagement() {
       {!loading && orders.length === 0 && (
         <p style={{ color: "var(--ink-3)", marginTop: 20 }}>No orders yet. Create your first one above.</p>
       )}
-    </AppLayout>
   );
 }
 

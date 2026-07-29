@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteField } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import DocPreview from "../components/DocPreview";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -487,7 +486,7 @@ function Billing() {
   const numField = meta.numberField;
 
   return (
-    <AppLayout>
+    <>
       <div className="kfin-wrap">
 
         {/* ── Page Header ── */}
@@ -1135,7 +1134,7 @@ function Billing() {
       {previewDoc && (
         <DocPreview data={previewDoc.data} docType={previewDoc.docType} onClose={() => setPreviewDoc(null)} />
       )}
-    </AppLayout>
+    </>
   );
 }
 

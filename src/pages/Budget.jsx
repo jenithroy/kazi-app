@@ -3,7 +3,6 @@ import {
   addDoc, collection, doc, getDocs,
   serverTimestamp, updateDoc as fsUpdateDoc
 } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -335,7 +334,7 @@ function Budget() {
     ) : null;
 
   return (
-    <AppLayout>
+    <>
       <PageHeader
         title="Budget & Requirements"
         description="Submit budget requests and material requirements for UK director sign-off."
@@ -516,7 +515,7 @@ function Budget() {
           submitting={submitting}
         />
       )}
-    </AppLayout>
+    </>
   );
 }
 

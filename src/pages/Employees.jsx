@@ -3,7 +3,6 @@ import {
   addDoc, collection, getDocs, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch,
   query, where, setDoc
 } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -456,7 +455,7 @@ function Employees() {
   const totalPayroll = active.reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0);
 
   return (
-    <AppLayout>
+    <>
       <PageHeader
         title="Employee and HR"
         description="Manage employee profiles, salaries, and payroll runs."
@@ -959,7 +958,7 @@ function Employees() {
           </section>
         </>
       )}
-    </AppLayout>
+    </>
   );
 }
 

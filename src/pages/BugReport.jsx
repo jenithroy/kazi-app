@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-import AppLayout from "../components/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { Icons } from "../components/ui";
 
@@ -83,7 +82,6 @@ export default function BugReport() {
   const canSubmit = title.trim() && description.trim() && status !== "submitting";
 
   return (
-    <AppLayout>
       <div className="kbug-wrap">
         <div className="kbug-header">
           <div className="kbug-header-icon"><Icons.Bug size={20} sw={1.8} /></div>
@@ -166,6 +164,5 @@ export default function BugReport() {
           </button>
         </form>
       </div>
-    </AppLayout>
   );
 }

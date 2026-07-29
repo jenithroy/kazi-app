@@ -3,7 +3,6 @@ import {
   addDoc, collection, deleteDoc, doc, getDocs,
   orderBy, query, serverTimestamp, updateDoc,
 } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Icons } from "../components/ui";
@@ -170,7 +169,6 @@ function Customers() {
   }
 
   return (
-    <AppLayout>
       <div className="kscr fade-in" style={{ padding: "4px 0 0" }}>
 
         <div className="kph" style={{ padding: "8px 0 20px" }}>
@@ -240,7 +238,6 @@ function Customers() {
           )}
         </div>
       </div>
-    </AppLayout>
   );
 }
 

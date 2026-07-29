@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { KPI } from "../components/ui";
 
@@ -82,7 +81,6 @@ export default function Sales() {
   const recent = active.slice(0, 10);
 
   return (
-    <AppLayout>
       <div style={{ padding: "28px 32px", maxWidth: 1100 }}>
 
         {/* Header */}
@@ -193,6 +191,5 @@ export default function Sales() {
         </div>
 
       </div>
-    </AppLayout>
   );
 }

@@ -1,4 +1,3 @@
-import AppLayout from "../components/AppLayout";
 import { TEAM_MEMBERS } from "../constants";
 import { Avatar } from "../components/ui";
 
@@ -63,7 +62,6 @@ function Section({ title, sub, children }) {
 
 export default function Directors() {
   return (
-    <AppLayout>
       <div className="kscr fade-in" style={{ padding: "4px 0 0", maxWidth: 800 }}>
 
         {/* Header */}
@@ -135,6 +133,5 @@ export default function Directors() {
         </Section>
 
       </div>
-    </AppLayout>
   );
 }

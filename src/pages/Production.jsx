@@ -3,7 +3,6 @@ import {
   addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, deleteDoc, where, orderBy, limit
 } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
@@ -1168,7 +1167,7 @@ function Production() {
   }), [filteredOrdersForList]);
 
   return (
-    <AppLayout>
+    <>
       <PageHeader
         title="Production"
         description="Track the full garment pipeline — from order through dispatch."
@@ -1951,7 +1950,7 @@ function Production() {
           </div>
         </div>
       )}
-    </AppLayout>
+    </>
   );
 }
 

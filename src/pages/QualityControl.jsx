@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -69,7 +68,7 @@ function QualityControl() {
   }
 
   return (
-    <AppLayout>
+    <>
       <PageHeader
         title="Quality Control"
         description="Capture inspection outcomes and defect trends by production batch."
@@ -205,7 +204,7 @@ function QualityControl() {
           </table>
         </div>
       </section>
-    </AppLayout>
+    </>
   );
 }
 

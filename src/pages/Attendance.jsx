@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { db } from "../firebase";
@@ -220,7 +219,6 @@ function Attendance() {
   /* ─── Employee view ─────────────────────────────── */
   if (isEmployee) {
     return (
-      <AppLayout>
         <div className="kscr fade-in">
           <div className="kph">
             <div><h2>Attendance</h2><p>Your daily log · {new Date(today).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div>
@@ -255,7 +253,6 @@ function Attendance() {
             </div>
           )}
         </div>
-      </AppLayout>
     );
   }
 
@@ -263,7 +260,7 @@ function Attendance() {
   const selectedDateStrFormatted = new Date(selectedDate).toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month: "long", year: "numeric" });
 
   return (
-    <AppLayout>
+    <>
       <div className="kscr fade-in">
         {/* Header */}
         <div className="kph">
@@ -456,7 +453,7 @@ function Attendance() {
           </div>
         </div>
       )}
-    </AppLayout>
+    </>
   );
 }
 

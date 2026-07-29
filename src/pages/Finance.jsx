@@ -16,7 +16,6 @@ import {
   ResponsiveContainer, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
-import AppLayout from "../components/AppLayout";
 import { fmt } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import { db, storage } from "../firebase";
@@ -578,7 +577,6 @@ function Finance() {
 
   /* ── Render ── */
   return (
-    <AppLayout>
       <div className="kfin-wrap">
 
         {/* Fix 3: error banner */}
@@ -1715,7 +1713,6 @@ function Finance() {
         })()}
 
       </div>
-    </AppLayout>
   );
 }
 

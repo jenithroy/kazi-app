@@ -3,7 +3,6 @@ import {
   addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, setDoc
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import AppLayout from "../components/AppLayout";
 import PageHeader from "../components/PageHeader";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
@@ -1821,7 +1820,7 @@ function Inventory() {
   };
 
   return (
-    <AppLayout>
+    <>
       <PageHeader
         title={pageTitle}
         description={pageDesc}
@@ -2503,7 +2502,7 @@ function Inventory() {
           }}
         />
       )}
-    </AppLayout>
+    </>
   );
 }
 

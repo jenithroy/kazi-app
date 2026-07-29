@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
 import { collection, getDocs, doc, updateDoc, setDoc } from "firebase/firestore";
-import AppLayout from "../components/AppLayout";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { TEAM_MEMBERS } from "../constants";
@@ -390,13 +389,11 @@ export default function AdminPanel() {
   const isAdmin = ["super_admin", "uk_admin"].includes(profile?.role) || ["super_admin", "uk_admin"].includes(profile?.appRole);
   if (!isAdmin) {
     return (
-      <AppLayout>
         <div className="kadm-deny">
           <div className="kadm-deny-ico">🔒</div>
           <h2>Access Restricted</h2>
           <p>Only Admins can access this panel.</p>
         </div>
-      </AppLayout>
     );
   }
 
@@ -406,7 +403,7 @@ export default function AdminPanel() {
   const staff        = users.filter(u => !["super_admin", "uk_admin", "nepal_admin"].includes(u.role));
 
   return (
-    <AppLayout>
+    <>
       <div className="kadm-wrap">
 
         {/* ── Left: User roster ── */}
@@ -658,6 +655,6 @@ export default function AdminPanel() {
           {chainOpen && <ProductionChain users={users} />}
         </div>
       </div>
-    </AppLayout>
+    </>
   );
 }

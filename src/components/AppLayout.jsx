@@ -148,11 +148,12 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
   );
 }
 
-function AppLayout({ children, noPadding = false }) {
+function AppLayout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { profile } = useAuth();
+  const noPadding = location.pathname.startsWith("/marketing");
 
   // Close mobile sidebar on route change
   useEffect(() => {
