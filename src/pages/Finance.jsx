@@ -17,6 +17,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 import { fmt } from "../components/ui";
+import DualDateInput from "../components/DualDateInput";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency } from "../utils/format";
@@ -92,11 +93,69 @@ const DEFAULT_ACCOUNTS = [
   { name: "Miscellaneous Expense", type: "Expense" },
 ];
 
+const emptyLineItem = { particulars: "", quantity: "", rate: "" };
+
 const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
-  expenseItem: "", category: "Office Supplies", vatBill: false, amountNPR: "",
-  particulars: "", quantity: "", rate: ""
+  expenseItem: "", category: "Office Supplies", vatBill: false,
+  items: [{ ...emptyLineItem }]
 };
+
+function addLineItem(items) {
+  return [...items, { ...emptyLineItem }];
+}
+function removeLineItem(items, idx) {
+  return items.length > 1 ? items.filter((_, i) => i !== idx) : items;
+}
+function updateLineItem(items, idx, patch) {
+  return items.map((it, i) => (i === idx ? { ...it, ...patch } : it));
+}
+// Enter moves focus to the next field instead of submitting; only fires the finish
+// action once the last field in the container is reached.
+function focusNextOnEnter(e, onFinish) {
+  if (e.key !== "Enter" || e.target.tagName === "BUTTON") return;
+  e.preventDefault();
+  const fields = Array.from(e.currentTarget.querySelectorAll("input, select")).filter(el => !el.disabled);
+  const next = fields[fields.indexOf(e.target) + 1];
+  if (next) next.focus(); else onFinish?.();
+}
+// Pressing Enter on the last field of a particulars row (Rate) appends a fresh row
+// and jumps focus into its Particulars input, instead of bubbling to the form/submit.
+function addParticularOnEnter(e, setForm) {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  e.stopPropagation();
+  const list = e.currentTarget.closest("[data-particulars-list]");
+  setForm(f => ({ ...f, items: addLineItem(f.items || []) }));
+  requestAnimationFrame(() => {
+    const inputs = list?.querySelectorAll('[data-role="particulars"]');
+    inputs?.[inputs.length - 1]?.focus();
+  });
+}
+function lineItemAmount(item) {
+  const q = Number(item.quantity), r = Number(item.rate);
+  return item.quantity !== "" && item.rate !== "" && !isNaN(q) && !isNaN(r) ? q * r : 0;
+}
+function itemsTotal(items) {
+  return items.reduce((s, it) => s + lineItemAmount(it), 0);
+}
+function itemsForEdit(row) {
+  if (Array.isArray(row.items) && row.items.length) {
+    return row.items.map(it => ({
+      particulars: it.particulars || "",
+      quantity: it.quantity == null ? "" : String(it.quantity),
+      rate: it.rate == null ? "" : String(it.rate)
+    }));
+  }
+  if (row.particulars || row.quantity != null || row.rate != null) {
+    return [{
+      particulars: row.particulars || "",
+      quantity: row.quantity == null ? "" : String(row.quantity),
+      rate: row.rate == null ? "" : String(row.rate)
+    }];
+  }
+  return [{ ...emptyLineItem }];
+}
 
 const initialExpense = {
   category: "Utilities", amountNPR: "",
@@ -326,13 +385,19 @@ function Finance() {
   async function addPurchase(e) {
     e.preventDefault(); setSubmitting(true);
     try {
+      const items = purchaseForm.items
+        .filter(it => it.particulars.trim() !== "")
+        .map(it => ({
+          particulars: it.particulars,
+          quantity: it.quantity === "" ? null : Number(it.quantity),
+          rate: it.rate === "" ? null : Number(it.rate),
+          amount: lineItemAmount(it)
+        }));
       await addDoc(collection(db, "finance_purchases"), {
         expenseId: nextExpenseId(), expenseItem: purchaseForm.expenseItem,
         category: purchaseForm.category, vatBill: purchaseForm.vatBill,
-        amountNPR: Number(purchaseForm.amountNPR), date: purchaseForm.date, createdAt: serverTimestamp(),
-        particulars: purchaseForm.particulars,
-        quantity: purchaseForm.quantity === "" ? null : Number(purchaseForm.quantity),
-        rate: purchaseForm.rate === "" ? null : Number(purchaseForm.rate)
+        amountNPR: itemsTotal(purchaseForm.items), date: purchaseForm.date, createdAt: serverTimestamp(),
+        items
       });
       setPurchaseForm(emptyPurchaseForm);
       await loadData();
@@ -346,12 +411,18 @@ function Finance() {
 
   async function saveEdit(id) {
     try {
+      const items = (editForm.items || [])
+        .filter(it => (it.particulars || "").trim() !== "")
+        .map(it => ({
+          particulars: it.particulars,
+          quantity: it.quantity === "" || it.quantity == null ? null : Number(it.quantity),
+          rate: it.rate === "" || it.rate == null ? null : Number(it.rate),
+          amount: lineItemAmount(it)
+        }));
       await fsUpdateDoc(doc(db, "finance_purchases", id), {
         expenseItem: editForm.expenseItem, category: editForm.category,
-        vatBill: editForm.vatBill, amountNPR: Number(editForm.amountNPR), date: editForm.date,
-        particulars: editForm.particulars || "",
-        quantity: editForm.quantity === "" || editForm.quantity == null ? null : Number(editForm.quantity),
-        rate: editForm.rate === "" || editForm.rate == null ? null : Number(editForm.rate)
+        vatBill: editForm.vatBill, amountNPR: itemsTotal(editForm.items || []), date: editForm.date,
+        items
       });
       setEditingId(null); await loadData();
     } catch (err) {
@@ -819,9 +890,9 @@ function Finance() {
               <div className="kfin-block-hd">
                 <p className="kfin-block-title">Add Purchase</p>
               </div>
-              <form className="kfin-form" onSubmit={addPurchase}>
+              <form className="kfin-form" onSubmit={addPurchase} onKeyDown={e => focusNextOnEnter(e, () => e.currentTarget.requestSubmit())}>
                 <label className="kfin-label">Date
-                  <input type="date" className="kfin-input" value={purchaseForm.date} required onChange={e => setPurchaseForm(f => ({ ...f, date: e.target.value }))} />
+                  <DualDateInput value={purchaseForm.date} required onChange={date => setPurchaseForm(f => ({ ...f, date }))} />
                 </label>
                 <label className="kfin-label kfin-full">Party Name
                   <input type="text" className="kfin-input" value={purchaseForm.expenseItem} required placeholder="e.g. Office supplies, Sewing Machine"
@@ -832,40 +903,43 @@ function Finance() {
                     {PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </label>
-                <label className="kfin-label kfin-full">Particulars
-                  <input type="text" className="kfin-input" value={purchaseForm.particulars} placeholder="e.g. Cotton fabric, 60 inch width"
-                    onChange={e => setPurchaseForm(f => ({ ...f, particulars: e.target.value }))} />
-                </label>
-                <label className="kfin-label">Quantity
-                  <input type="number" min="0" step="any" className="kfin-input" value={purchaseForm.quantity} placeholder="0"
-                    onChange={e => {
-                      const quantity = e.target.value;
-                      setPurchaseForm(f => {
-                        const rate = f.rate;
-                        const amountNPR = quantity !== "" && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
-                        return { ...f, quantity, amountNPR };
-                      });
-                    }} />
-                </label>
-                <label className="kfin-label">Rate (NPR)
-                  <input type="number" min="0" step="any" className="kfin-input" value={purchaseForm.rate} placeholder="0"
-                    onChange={e => {
-                      const rate = e.target.value;
-                      setPurchaseForm(f => {
-                        const quantity = f.quantity;
-                        const amountNPR = quantity !== "" && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
-                        return { ...f, rate, amountNPR };
-                      });
-                    }} />
-                </label>
-                <label className="kfin-label">Amount (NPR)
-                  <input type="number" min="0" step="1" className="kfin-input" value={purchaseForm.amountNPR} required placeholder="0"
-                    onChange={e => setPurchaseForm(f => ({ ...f, amountNPR: e.target.value }))} />
-                </label>
                 <label className="kfin-label">VAT Bill
                   <div className="vat-toggle" style={{ marginTop: 2 }}>
                     <input type="checkbox" id="vat-check" checked={purchaseForm.vatBill} onChange={e => setPurchaseForm(f => ({ ...f, vatBill: e.target.checked }))} />
                     <label htmlFor="vat-check" className="vat-toggle-label">{purchaseForm.vatBill ? "Yes" : "No"}</label>
+                  </div>
+                </label>
+
+                <div className="kfin-full" data-particulars-list style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-2)" }}>Particulars</div>
+                  {purchaseForm.items.map((item, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="text" className="kfin-input" style={{ flex: 2 }} placeholder="e.g. Cotton fabric, 60 inch width"
+                        data-role="particulars"
+                        value={item.particulars}
+                        onChange={e => setPurchaseForm(f => ({ ...f, items: updateLineItem(f.items, idx, { particulars: e.target.value }) }))} />
+                      <input type="number" min="0" step="any" className="kfin-input" style={{ width: 90 }} placeholder="Qty"
+                        value={item.quantity}
+                        onChange={e => setPurchaseForm(f => ({ ...f, items: updateLineItem(f.items, idx, { quantity: e.target.value }) }))} />
+                      <input type="number" min="0" step="any" className="kfin-input" style={{ width: 110 }} placeholder="Rate"
+                        value={item.rate}
+                        onChange={e => setPurchaseForm(f => ({ ...f, items: updateLineItem(f.items, idx, { rate: e.target.value }) }))}
+                        onKeyDown={e => addParticularOnEnter(e, setPurchaseForm)} />
+                      <span style={{ width: 100, textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
+                        {lineItemAmount(item).toLocaleString()}
+                      </span>
+                      <button type="button" className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }}
+                        disabled={purchaseForm.items.length === 1}
+                        onClick={() => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}>Remove</button>
+                    </div>
+                  ))}
+                  <button type="button" className="ghost-button" style={{ alignSelf: "flex-start", padding: "5px 12px", fontSize: 12 }}
+                    onClick={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}>+ Add Particular</button>
+                </div>
+
+                <label className="kfin-label">Total Amount (NPR)
+                  <div className="kfin-input" style={{ display: "flex", alignItems: "center", background: "var(--bg-2)", fontWeight: 600 }}>
+                    {itemsTotal(purchaseForm.items).toLocaleString()}
                   </div>
                 </label>
                 <button className="primary-button" type="submit" disabled={submitting} style={{ alignSelf: "flex-end" }}>
@@ -884,49 +958,58 @@ function Finance() {
               </div>
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
-                  <thead><tr><th>Expense ID</th><th>Party Name</th><th>Particulars</th><th>Category</th><th>Quantity</th><th>Rate (NPR)</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
+                  <thead><tr><th>Expense ID</th><th>Party Name</th><th>Particulars</th><th>Category</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
                   <tbody>
                     {purchases.map(row => editingId === row.id ? (
                       <tr key={row.id} style={{ background: "var(--mint-soft)" }}>
-                        <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{row.expenseId}</td>
-                        <td><input value={editForm.expenseItem} onChange={e => setEditForm(f => ({ ...f, expenseItem: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, minWidth: 160 }} /></td>
-                        <td><input value={editForm.particulars || ""} onChange={e => setEditForm(f => ({ ...f, particulars: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, minWidth: 160 }} /></td>
-                        <td><select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>{PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
-                        <td>
-                          <input type="number" min="0" step="any" value={editForm.quantity ?? ""} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 80 }}
-                            onChange={e => {
-                              const quantity = e.target.value;
-                              setEditForm(f => {
-                                const rate = f.rate;
-                                const amountNPR = quantity !== "" && rate != null && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
-                                return { ...f, quantity, amountNPR };
-                              });
-                            }} />
-                        </td>
-                        <td>
-                          <input type="number" min="0" step="any" value={editForm.rate ?? ""} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 90 }}
-                            onChange={e => {
-                              const rate = e.target.value;
-                              setEditForm(f => {
-                                const quantity = f.quantity;
-                                const amountNPR = quantity != null && quantity !== "" && rate !== "" ? Number(quantity) * Number(rate) : f.amountNPR;
-                                return { ...f, rate, amountNPR };
-                              });
-                            }} />
-                        </td>
-                        <td>
-                          <select value={editForm.vatBill === null ? "na" : editForm.vatBill ? "yes" : "no"}
-                            onChange={e => { const v = e.target.value; setEditForm(f => ({ ...f, vatBill: v === "yes" ? true : v === "no" ? false : null })); }}
-                            className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>
-                            <option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
-                          </select>
-                        </td>
-                        <td><input type="number" value={editForm.amountNPR} onChange={e => setEditForm(f => ({ ...f, amountNPR: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 110 }} /></td>
-                        <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)", fontSize: 13, verticalAlign: "middle" }}>{asCurrency(Number(editForm.amountNPR || 0) / GBP_RATE, "GBP")}</td>
-                        <td>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button className="primary-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => saveEdit(row.id)}>Save</button>
-                            <button className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setEditingId(null)}>Cancel</button>
+                        <td colSpan={8} style={{ padding: 14 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }} onKeyDown={e => focusNextOnEnter(e, () => saveEdit(row.id))}>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              <label className="kfin-label">Date
+                                <DualDateInput value={editForm.date} onChange={date => setEditForm(f => ({ ...f, date }))} className="kfin-input" />
+                              </label>
+                              <label className="kfin-label" style={{ flex: 1 }}>Party Name
+                                <input value={editForm.expenseItem} onChange={e => setEditForm(f => ({ ...f, expenseItem: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13 }} />
+                              </label>
+                              <label className="kfin-label">Category
+                                <select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>{PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select>
+                              </label>
+                              <label className="kfin-label">VAT Bill
+                                <select value={editForm.vatBill === null ? "na" : editForm.vatBill ? "yes" : "no"}
+                                  onChange={e => { const v = e.target.value; setEditForm(f => ({ ...f, vatBill: v === "yes" ? true : v === "no" ? false : null })); }}
+                                  className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>
+                                  <option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
+                                </select>
+                              </label>
+                            </div>
+                            <div data-particulars-list>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 6 }}>Particulars</div>
+                              {(editForm.items || []).map((item, idx) => (
+                                <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                                  <input value={item.particulars} placeholder="Particulars" className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, flex: 2 }}
+                                    data-role="particulars"
+                                    onChange={e => setEditForm(f => ({ ...f, items: updateLineItem(f.items, idx, { particulars: e.target.value }) }))} />
+                                  <input type="number" min="0" step="any" value={item.quantity} placeholder="Qty" className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 80 }}
+                                    onChange={e => setEditForm(f => ({ ...f, items: updateLineItem(f.items, idx, { quantity: e.target.value }) }))} />
+                                  <input type="number" min="0" step="any" value={item.rate} placeholder="Rate" className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 100 }}
+                                    onChange={e => setEditForm(f => ({ ...f, items: updateLineItem(f.items, idx, { rate: e.target.value }) }))}
+                                    onKeyDown={e => addParticularOnEnter(e, setEditForm)} />
+                                  <span style={{ width: 90, textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>{lineItemAmount(item).toLocaleString()}</span>
+                                  <button type="button" className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }}
+                                    disabled={(editForm.items || []).length === 1}
+                                    onClick={() => setEditForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}>Remove</button>
+                                </div>
+                              ))}
+                              <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }}
+                                onClick={() => setEditForm(f => ({ ...f, items: addLineItem(f.items || []) }))}>+ Add Particular</button>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontWeight: 600, fontSize: 13 }}>Total: NPR {itemsTotal(editForm.items || []).toLocaleString()}</span>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button className="primary-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => saveEdit(row.id)}>Save</button>
+                                <button className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setEditingId(null)}>Cancel</button>
+                              </div>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -934,16 +1017,14 @@ function Finance() {
                       <tr key={row.id}>
                         <td style={{ color: "var(--ink-4)", fontSize: 12, fontFamily: "var(--mono)" }}>{row.expenseId}</td>
                         <td style={{ fontWeight: 500 }}>{row.expenseItem}</td>
-                        <td>{row.particulars || "—"}</td>
+                        <td>{(row.items && row.items.length ? row.items.map(i => i.particulars).filter(Boolean).join(", ") : row.particulars) || "—"}</td>
                         <td>{row.category}</td>
-                        <td style={{ fontFamily: "var(--mono)" }}>{row.quantity ?? "—"}</td>
-                        <td style={{ fontFamily: "var(--mono)" }}>{row.rate != null ? Number(row.rate).toLocaleString() : "—"}</td>
                         <td>{vatLabel(row.vatBill)}</td>
                         <td style={{ fontFamily: "var(--mono)" }}>{Number(row.amountNPR || 0).toLocaleString()}</td>
                         <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((row.amountNPR || 0) / GBP_RATE, "GBP")}</td>
                         <td>
                           <div style={{ display: "flex", gap: 6 }}>
-                            <button className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => { setEditingId(row.id); setEditForm({ ...row }); }}>Edit</button>
+                            <button className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => { setEditingId(row.id); setEditForm({ ...row, items: itemsForEdit(row) }); }}>Edit</button>
                             <button className="ghost-button" style={{ padding: "4px 10px", fontSize: 12, color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }} onClick={() => deletePurchase(row.id)}>Delete</button>
                           </div>
                         </td>
