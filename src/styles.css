@@ -2360,6 +2360,10 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 .kfin-tbl tbody tr:last-child td { border-bottom: 0; }
 .kfin-tbl tbody tr:hover { background: var(--bg-2); }
 
+/* Denser variant for wide data-entry tables (e.g. Purchases) — tighter padding, no wasted gaps */
+.kfin-tbl-compact th { padding: 8px 6px; }
+.kfin-tbl-compact td { padding: 6px 6px; }
+
 /* ── Progress bar ── */
 .kfin-progress-bar {
   height: 6px; border-radius: 3px; background: var(--bg-2); overflow: hidden;

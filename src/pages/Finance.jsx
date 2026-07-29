@@ -93,7 +93,7 @@ const DEFAULT_ACCOUNTS = [
   { name: "Miscellaneous Expense", type: "Expense" },
 ];
 
-const emptyLineItem = { particulars: "", quantity: "", rate: "" };
+const emptyLineItem = { particulars: "", quantity: "", rate: "", amount: "" };
 
 const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
@@ -110,7 +110,45 @@ function removeLineItem(items, idx) {
 function updateLineItem(items, idx, patch) {
   return items.map((it, i) => (i === idx ? { ...it, ...patch } : it));
 }
-// Enter moves focus to the next field instead of submitting; only fires the finish
+// Qty/Rate edits auto-suggest Amount (qty × rate); Amount itself stays independently
+// editable so lump-sum particulars (rent, fees) don't need a fake qty/rate.
+function applyItemChange(items, idx, patch) {
+  let next = updateLineItem(items, idx, patch);
+  if ("quantity" in patch || "rate" in patch) {
+    const it = next[idx];
+    const q = Number(it.quantity), r = Number(it.rate);
+    if (it.quantity !== "" && it.rate !== "" && !isNaN(q) && !isNaN(r)) {
+      next = updateLineItem(next, idx, { amount: String(q * r) });
+    }
+  }
+  return next;
+}
+function itemsTotal(items) {
+  return items.reduce((s, it) => s + (it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0), 0);
+}
+function itemsForEdit(row) {
+  if (Array.isArray(row.items) && row.items.length) {
+    return row.items.map(it => ({
+      particulars: it.particulars || "",
+      quantity: it.quantity == null ? "" : String(it.quantity),
+      rate: it.rate == null ? "" : String(it.rate),
+      amount: it.amount == null ? "" : String(it.amount)
+    }));
+  }
+  if (row.particulars || row.quantity != null || row.rate != null) {
+    return [{
+      particulars: row.particulars || "",
+      quantity: row.quantity == null ? "" : String(row.quantity),
+      rate: row.rate == null ? "" : String(row.rate),
+      amount: row.amountNPR == null ? "" : String(row.amountNPR)
+    }];
+  }
+  return [{ ...emptyLineItem }];
+}
+function initialGroupData(row) {
+  return { date: row.date, expenseItem: row.expenseItem, category: row.category, vatBill: row.vatBill, items: itemsForEdit(row) };
+}
+// Enter moves focus to the next field instead of doing nothing; only fires the finish
 // action once the last field in the container is reached.
 function focusNextOnEnter(e, onFinish) {
   if (e.key !== "Enter" || e.target.tagName === "BUTTON") return;
@@ -119,42 +157,98 @@ function focusNextOnEnter(e, onFinish) {
   const next = fields[fields.indexOf(e.target) + 1];
   if (next) next.focus(); else onFinish?.();
 }
-// Pressing Enter on the last field of a particulars row (Rate) appends a fresh row
-// and jumps focus into its Particulars input, instead of bubbling to the form/submit.
-function addParticularOnEnter(e, setForm) {
+// Pressing Enter on the last particulars row's Rate field appends a fresh row
+// and jumps focus into its Particulars input, instead of bubbling further up.
+function addItemOnEnter(e, onAddItem) {
   if (e.key !== "Enter") return;
   e.preventDefault();
   e.stopPropagation();
-  const list = e.currentTarget.closest("[data-particulars-list]");
-  setForm(f => ({ ...f, items: addLineItem(f.items || []) }));
+  const container = e.currentTarget.closest("tbody");
+  onAddItem();
   requestAnimationFrame(() => {
-    const inputs = list?.querySelectorAll('[data-role="particulars"]');
+    const inputs = container?.querySelectorAll('[data-role="particulars"]');
     inputs?.[inputs.length - 1]?.focus();
   });
 }
-function lineItemAmount(item) {
-  const q = Number(item.quantity), r = Number(item.rate);
-  return item.quantity !== "" && item.rate !== "" && !isNaN(q) && !isNaN(r) ? q * r : 0;
-}
-function itemsTotal(items) {
-  return items.reduce((s, it) => s + lineItemAmount(it), 0);
-}
-function itemsForEdit(row) {
-  if (Array.isArray(row.items) && row.items.length) {
-    return row.items.map(it => ({
-      particulars: it.particulars || "",
-      quantity: it.quantity == null ? "" : String(it.quantity),
-      rate: it.rate == null ? "" : String(it.rate)
-    }));
-  }
-  if (row.particulars || row.quantity != null || row.rate != null) {
-    return [{
-      particulars: row.particulars || "",
-      quantity: row.quantity == null ? "" : String(row.quantity),
-      rate: row.rate == null ? "" : String(row.rate)
-    }];
-  }
-  return [{ ...emptyLineItem }];
+
+// One purchase (Date/Party/Category/VAT shared via rowSpan) rendered as one <tr> per particular.
+// Used for both the new-purchase draft row and every existing purchase — the table itself is the editor.
+function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell }) {
+  const items = data.items;
+  return (
+    <tbody
+      onBlur={e => { if (onBlurAway && !e.currentTarget.contains(e.relatedTarget)) onBlurAway(); }}
+      onKeyDown={e => focusNextOnEnter(e, onFinishEnter)}
+    >
+      {items.map((item, idx) => (
+        <tr key={idx} style={{ background: highlight ? "var(--mint-soft)" : undefined }}>
+          {idx === 0 && (
+            <>
+              <td rowSpan={items.length} style={{ color: "var(--ink-4)", fontSize: 12, fontFamily: "var(--mono)", verticalAlign: "top", paddingTop: 10 }}>{expenseId}</td>
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 195 }}>
+                <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" />
+              </td>
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
+                <input className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, minWidth: 100 }} value={data.expenseItem}
+                  placeholder="Party name" onChange={e => onFieldChange({ expenseItem: e.target.value })} />
+              </td>
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
+                <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.category}
+                  onChange={e => onFieldChange({ category: e.target.value })}>
+                  {PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </td>
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
+                <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }}
+                  value={data.vatBill === null ? "na" : data.vatBill ? "yes" : "no"}
+                  onChange={e => { const v = e.target.value; onFieldChange({ vatBill: v === "yes" ? true : v === "no" ? false : null }); }}>
+                  <option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
+                </select>
+              </td>
+            </>
+          )}
+          <td>
+            <input className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, minWidth: 110 }} value={item.particulars} placeholder="Particulars"
+              data-role="particulars"
+              onChange={e => onItemChange(idx, { particulars: e.target.value })} />
+          </td>
+          <td>
+            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 52 }} value={item.quantity} placeholder="Qty"
+              onChange={e => onItemChange(idx, { quantity: e.target.value })} />
+          </td>
+          <td>
+            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 68 }} value={item.rate} placeholder="Rate"
+              onChange={e => onItemChange(idx, { rate: e.target.value })}
+              onKeyDown={idx === items.length - 1 ? (e => addItemOnEnter(e, onAddItem)) : undefined} />
+          </td>
+          <td>
+            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 78, fontWeight: 600 }} value={item.amount} placeholder="0"
+              onChange={e => onItemChange(idx, { amount: e.target.value })} />
+          </td>
+          <td>
+            <div style={{ display: "flex", gap: 4 }}>
+              {items.length > 1 && (
+                <button type="button" className="ghost-button" style={{ padding: "3px 8px", fontSize: 12 }} onClick={() => onRemoveItem(idx)} title="Remove particular">×</button>
+              )}
+              {idx === items.length - 1 && (
+                <button type="button" className="ghost-button" style={{ padding: "3px 8px", fontSize: 12 }} onClick={onAddItem} title="Add particular">+</button>
+              )}
+            </div>
+          </td>
+          {idx === 0 && (
+            <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-2)", fontFamily: "var(--mono)" }}>
+                  NPR {itemsTotal(items).toLocaleString()}
+                </span>
+                {actionCell}
+              </div>
+            </td>
+          )}
+        </tr>
+      ))}
+    </tbody>
+  );
 }
 
 const initialExpense = {
@@ -167,12 +261,6 @@ const emptyJournalForm = {
   description: "", debitAccount: "Cash", creditAccount: "Sales Revenue",
   amountNPR: "", reference: ""
 };
-
-function vatLabel(v) {
-  if (v === true)  return <span className="badge-ok">Yes</span>;
-  if (v === false) return <span className="badge-danger">No</span>;
-  return <span className="badge-muted">N/A</span>;
-}
 
 const fmtShort = v => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v);
 
@@ -211,8 +299,7 @@ function Finance() {
   const [expenseForm, setExpenseForm] = useState(initialExpense);
   const [purchases, setPurchases]     = useState([]);
   const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
-  const [editingId, setEditingId]     = useState(null);
-  const [editForm, setEditForm]       = useState({});
+  const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [submitting, setSubmitting]   = useState(false);
   const [vatBills, setVatBills]       = useState([]);
   const [vatFile, setVatFile]         = useState(null);
@@ -382,22 +469,26 @@ function Finance() {
     return `EXP${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
   }
 
-  async function addPurchase(e) {
-    e.preventDefault(); setSubmitting(true);
+  function purchaseItemsPayload(items) {
+    return items
+      .filter(it => (it.particulars || "").trim() !== "")
+      .map(it => ({
+        particulars: it.particulars,
+        quantity: it.quantity === "" || it.quantity == null ? null : Number(it.quantity),
+        rate: it.rate === "" || it.rate == null ? null : Number(it.rate),
+        amount: it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0
+      }));
+  }
+
+  async function addPurchase() {
+    if (!purchaseForm.expenseItem.trim()) { showError("Party name is required."); return; }
+    setSubmitting(true);
     try {
-      const items = purchaseForm.items
-        .filter(it => it.particulars.trim() !== "")
-        .map(it => ({
-          particulars: it.particulars,
-          quantity: it.quantity === "" ? null : Number(it.quantity),
-          rate: it.rate === "" ? null : Number(it.rate),
-          amount: lineItemAmount(it)
-        }));
       await addDoc(collection(db, "finance_purchases"), {
         expenseId: nextExpenseId(), expenseItem: purchaseForm.expenseItem,
         category: purchaseForm.category, vatBill: purchaseForm.vatBill,
         amountNPR: itemsTotal(purchaseForm.items), date: purchaseForm.date, createdAt: serverTimestamp(),
-        items
+        items: purchaseItemsPayload(purchaseForm.items)
       });
       setPurchaseForm(emptyPurchaseForm);
       await loadData();
@@ -409,22 +500,41 @@ function Finance() {
     }
   }
 
-  async function saveEdit(id) {
+  function purchaseRowData(row) {
+    return purchaseDrafts[row.id] || initialGroupData(row);
+  }
+  function updatePurchaseField(row, patch) {
+    setPurchaseDrafts(d => ({ ...d, [row.id]: { ...purchaseRowData(row), ...patch } }));
+  }
+  function updatePurchaseItem(row, idx, patch) {
+    setPurchaseDrafts(d => {
+      const base = purchaseRowData(row);
+      return { ...d, [row.id]: { ...base, items: applyItemChange(base.items, idx, patch) } };
+    });
+  }
+  function addPurchaseItem(row) {
+    setPurchaseDrafts(d => {
+      const base = purchaseRowData(row);
+      return { ...d, [row.id]: { ...base, items: addLineItem(base.items) } };
+    });
+  }
+  function removePurchaseItem(row, idx) {
+    setPurchaseDrafts(d => {
+      const base = purchaseRowData(row);
+      return { ...d, [row.id]: { ...base, items: removeLineItem(base.items, idx) } };
+    });
+  }
+  async function commitPurchaseDraft(row) {
+    const draft = purchaseDrafts[row.id];
+    if (!draft) return;
     try {
-      const items = (editForm.items || [])
-        .filter(it => (it.particulars || "").trim() !== "")
-        .map(it => ({
-          particulars: it.particulars,
-          quantity: it.quantity === "" || it.quantity == null ? null : Number(it.quantity),
-          rate: it.rate === "" || it.rate == null ? null : Number(it.rate),
-          amount: lineItemAmount(it)
-        }));
-      await fsUpdateDoc(doc(db, "finance_purchases", id), {
-        expenseItem: editForm.expenseItem, category: editForm.category,
-        vatBill: editForm.vatBill, amountNPR: itemsTotal(editForm.items || []), date: editForm.date,
-        items
+      await fsUpdateDoc(doc(db, "finance_purchases", row.id), {
+        expenseItem: draft.expenseItem, category: draft.category,
+        vatBill: draft.vatBill, amountNPR: itemsTotal(draft.items), date: draft.date,
+        items: purchaseItemsPayload(draft.items)
       });
-      setEditingId(null); await loadData();
+      setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
+      await loadData();
     } catch (err) {
       console.error("Failed to update purchase:", err);
       showError("Failed to update purchase. Please try again.");
@@ -885,156 +995,57 @@ function Finance() {
 
         {/* ── Purchases ── */}
         {activeTab === "purchases" && (
-          <>
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Add Purchase</p>
-              </div>
-              <form className="kfin-form" onSubmit={addPurchase} onKeyDown={e => focusNextOnEnter(e, () => e.currentTarget.requestSubmit())}>
-                <label className="kfin-label">Date
-                  <DualDateInput value={purchaseForm.date} required onChange={date => setPurchaseForm(f => ({ ...f, date }))} />
-                </label>
-                <label className="kfin-label kfin-full">Party Name
-                  <input type="text" className="kfin-input" value={purchaseForm.expenseItem} required placeholder="e.g. Office supplies, Sewing Machine"
-                    onChange={e => setPurchaseForm(f => ({ ...f, expenseItem: e.target.value }))} />
-                </label>
-                <label className="kfin-label">Category
-                  <select className="kfin-select" value={purchaseForm.category} onChange={e => setPurchaseForm(f => ({ ...f, category: e.target.value }))}>
-                    {PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </label>
-                <label className="kfin-label">VAT Bill
-                  <div className="vat-toggle" style={{ marginTop: 2 }}>
-                    <input type="checkbox" id="vat-check" checked={purchaseForm.vatBill} onChange={e => setPurchaseForm(f => ({ ...f, vatBill: e.target.checked }))} />
-                    <label htmlFor="vat-check" className="vat-toggle-label">{purchaseForm.vatBill ? "Yes" : "No"}</label>
-                  </div>
-                </label>
-
-                <div className="kfin-full" data-particulars-list style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-2)" }}>Particulars</div>
-                  {purchaseForm.items.map((item, idx) => (
-                    <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input type="text" className="kfin-input" style={{ flex: 2 }} placeholder="e.g. Cotton fabric, 60 inch width"
-                        data-role="particulars"
-                        value={item.particulars}
-                        onChange={e => setPurchaseForm(f => ({ ...f, items: updateLineItem(f.items, idx, { particulars: e.target.value }) }))} />
-                      <input type="number" min="0" step="any" className="kfin-input" style={{ width: 90 }} placeholder="Qty"
-                        value={item.quantity}
-                        onChange={e => setPurchaseForm(f => ({ ...f, items: updateLineItem(f.items, idx, { quantity: e.target.value }) }))} />
-                      <input type="number" min="0" step="any" className="kfin-input" style={{ width: 110 }} placeholder="Rate"
-                        value={item.rate}
-                        onChange={e => setPurchaseForm(f => ({ ...f, items: updateLineItem(f.items, idx, { rate: e.target.value }) }))}
-                        onKeyDown={e => addParticularOnEnter(e, setPurchaseForm)} />
-                      <span style={{ width: 100, textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
-                        {lineItemAmount(item).toLocaleString()}
-                      </span>
-                      <button type="button" className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }}
-                        disabled={purchaseForm.items.length === 1}
-                        onClick={() => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}>Remove</button>
-                    </div>
-                  ))}
-                  <button type="button" className="ghost-button" style={{ alignSelf: "flex-start", padding: "5px 12px", fontSize: 12 }}
-                    onClick={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}>+ Add Particular</button>
-                </div>
-
-                <label className="kfin-label">Total Amount (NPR)
-                  <div className="kfin-input" style={{ display: "flex", alignItems: "center", background: "var(--bg-2)", fontWeight: 600 }}>
-                    {itemsTotal(purchaseForm.items).toLocaleString()}
-                  </div>
-                </label>
-                <button className="primary-button" type="submit" disabled={submitting} style={{ alignSelf: "flex-end" }}>
-                  {submitting ? "Adding…" : "Add Purchase"}
-                </button>
-              </form>
+          <div className="kfin-block">
+            <div className="kfin-block-hd">
+              <p className="kfin-block-title">Purchases <span className="kfin-block-sub">({purchases.length})</span></p>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                NPR {purchaseTotal.toLocaleString()}
+                <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
+              </span>
             </div>
+            <div className="kfin-tbl-wrap">
+              <table className="kfin-tbl kfin-tbl-compact">
+                <thead><tr>
+                  <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>VAT Bill</th>
+                  <th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
+                </tr></thead>
 
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Purchases <span className="kfin-block-sub">({purchases.length})</span></p>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  NPR {purchaseTotal.toLocaleString()}
-                  <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
-                </span>
-              </div>
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl">
-                  <thead><tr><th>Expense ID</th><th>Party Name</th><th>Particulars</th><th>Category</th><th>VAT Bill</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Action</th></tr></thead>
-                  <tbody>
-                    {purchases.map(row => editingId === row.id ? (
-                      <tr key={row.id} style={{ background: "var(--mint-soft)" }}>
-                        <td colSpan={8} style={{ padding: 14 }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }} onKeyDown={e => focusNextOnEnter(e, () => saveEdit(row.id))}>
-                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                              <label className="kfin-label">Date
-                                <DualDateInput value={editForm.date} onChange={date => setEditForm(f => ({ ...f, date }))} className="kfin-input" />
-                              </label>
-                              <label className="kfin-label" style={{ flex: 1 }}>Party Name
-                                <input value={editForm.expenseItem} onChange={e => setEditForm(f => ({ ...f, expenseItem: e.target.value }))} className="kfin-input" style={{ padding: "5px 8px", fontSize: 13 }} />
-                              </label>
-                              <label className="kfin-label">Category
-                                <select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>{PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select>
-                              </label>
-                              <label className="kfin-label">VAT Bill
-                                <select value={editForm.vatBill === null ? "na" : editForm.vatBill ? "yes" : "no"}
-                                  onChange={e => { const v = e.target.value; setEditForm(f => ({ ...f, vatBill: v === "yes" ? true : v === "no" ? false : null })); }}
-                                  className="kfin-select" style={{ padding: "5px 8px", fontSize: 13 }}>
-                                  <option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
-                                </select>
-                              </label>
-                            </div>
-                            <div data-particulars-list>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", marginBottom: 6 }}>Particulars</div>
-                              {(editForm.items || []).map((item, idx) => (
-                                <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                                  <input value={item.particulars} placeholder="Particulars" className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, flex: 2 }}
-                                    data-role="particulars"
-                                    onChange={e => setEditForm(f => ({ ...f, items: updateLineItem(f.items, idx, { particulars: e.target.value }) }))} />
-                                  <input type="number" min="0" step="any" value={item.quantity} placeholder="Qty" className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 80 }}
-                                    onChange={e => setEditForm(f => ({ ...f, items: updateLineItem(f.items, idx, { quantity: e.target.value }) }))} />
-                                  <input type="number" min="0" step="any" value={item.rate} placeholder="Rate" className="kfin-input" style={{ padding: "5px 8px", fontSize: 13, width: 100 }}
-                                    onChange={e => setEditForm(f => ({ ...f, items: updateLineItem(f.items, idx, { rate: e.target.value }) }))}
-                                    onKeyDown={e => addParticularOnEnter(e, setEditForm)} />
-                                  <span style={{ width: 90, textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>{lineItemAmount(item).toLocaleString()}</span>
-                                  <button type="button" className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }}
-                                    disabled={(editForm.items || []).length === 1}
-                                    onClick={() => setEditForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}>Remove</button>
-                                </div>
-                              ))}
-                              <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }}
-                                onClick={() => setEditForm(f => ({ ...f, items: addLineItem(f.items || []) }))}>+ Add Particular</button>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontWeight: 600, fontSize: 13 }}>Total: NPR {itemsTotal(editForm.items || []).toLocaleString()}</span>
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <button className="primary-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => saveEdit(row.id)}>Save</button>
-                                <button className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setEditingId(null)}>Cancel</button>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={row.id}>
-                        <td style={{ color: "var(--ink-4)", fontSize: 12, fontFamily: "var(--mono)" }}>{row.expenseId}</td>
-                        <td style={{ fontWeight: 500 }}>{row.expenseItem}</td>
-                        <td>{(row.items && row.items.length ? row.items.map(i => i.particulars).filter(Boolean).join(", ") : row.particulars) || "—"}</td>
-                        <td>{row.category}</td>
-                        <td>{vatLabel(row.vatBill)}</td>
-                        <td style={{ fontFamily: "var(--mono)" }}>{Number(row.amountNPR || 0).toLocaleString()}</td>
-                        <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((row.amountNPR || 0) / GBP_RATE, "GBP")}</td>
-                        <td>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button className="ghost-button" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => { setEditingId(row.id); setEditForm({ ...row, items: itemsForEdit(row) }); }}>Edit</button>
-                            <button className="ghost-button" style={{ padding: "4px 10px", fontSize: 12, color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }} onClick={() => deletePurchase(row.id)}>Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                <PurchaseRowGroup
+                  expenseId={`${nextExpenseId()} (new)`}
+                  data={purchaseForm}
+                  highlight
+                  onFieldChange={patch => setPurchaseForm(f => ({ ...f, ...patch }))}
+                  onItemChange={(idx, patch) => setPurchaseForm(f => ({ ...f, items: applyItemChange(f.items, idx, patch) }))}
+                  onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
+                  onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
+                  onFinishEnter={addPurchase}
+                  actionCell={
+                    <button className="primary-button" type="button" disabled={submitting}
+                      style={{ padding: "5px 12px", fontSize: 12 }} onClick={addPurchase}>
+                      {submitting ? "Adding…" : "+ Add"}
+                    </button>
+                  }
+                />
+
+                {purchases.map(row => (
+                  <PurchaseRowGroup
+                    key={row.id}
+                    expenseId={row.expenseId}
+                    data={purchaseRowData(row)}
+                    onFieldChange={patch => updatePurchaseField(row, patch)}
+                    onItemChange={(idx, patch) => updatePurchaseItem(row, idx, patch)}
+                    onAddItem={() => addPurchaseItem(row)}
+                    onRemoveItem={idx => removePurchaseItem(row, idx)}
+                    onBlurAway={() => commitPurchaseDraft(row)}
+                    actionCell={
+                      <button className="ghost-button" type="button" style={{ padding: "5px 10px", fontSize: 12, color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }}
+                        onClick={() => deletePurchase(row.id)}>Delete</button>
+                    }
+                  />
+                ))}
+              </table>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── VAT Bills ── */}
