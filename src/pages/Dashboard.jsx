@@ -3,7 +3,7 @@ import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTime
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
-import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M } from "../constants";
+import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
 import { todayDate, startOfWeekDate } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
@@ -680,7 +680,8 @@ function NepalAdminDash() {
 
       const thisMonth = new Date().toISOString().slice(0, 7);
       const monthExpOnlyNPR = expenses.filter(e => (e.date || "").slice(0, 7) === thisMonth).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
-      const monthPurchNPR = finance_purchases.filter(p => (p.date || "").slice(0, 7) === thisMonth).reduce((s, p) => s + Number(p.amountNPR || p.amount || 0), 0);
+      const visiblePurchases = finance_purchases.filter(p => createdAfterCutoff(p));
+      const monthPurchNPR = visiblePurchases.filter(p => (p.date || "").slice(0, 7) === thisMonth).reduce((s, p) => s + Number(p.amountNPR || p.amount || 0), 0);
       
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
       const curMonthName = MONTH_NAMES[new Date().getMonth()];

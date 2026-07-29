@@ -17,7 +17,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 import { fmt } from "../components/ui";
-import { GBP_RATE } from "../constants";
+import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
@@ -241,6 +241,7 @@ function Finance() {
       purRows = [...seen.values()];
     }
     purRows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
+    purRows = purRows.filter(r => createdAfterCutoff(r));
     setPurchases(purRows);
 
     const bills = vatBillsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -248,7 +249,7 @@ function Finance() {
     setVatBills(bills);
     if (!vatExpenseId && purRows.length > 0) setVatExpenseId(purRows[0].expenseId || "");
 
-    const entryRows = entriesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const entryRows = entriesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => createdAfterCutoff(r));
     entryRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setEntries(entryRows);
 

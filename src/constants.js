@@ -1,5 +1,15 @@
 export const GBP_RATE = 200;
 
+// finance_purchases / journal_entries docs created before this instant are hidden from
+// the frontend (soft wipe, no data deleted) — new docs created after it show normally.
+export const HISTORICAL_DATA_CUTOFF_MS = new Date("2026-07-29T06:36:29.000Z").getTime();
+
+export function createdAfterCutoff(data, cutoffMs = HISTORICAL_DATA_CUTOFF_MS) {
+  const ts = data?.createdAt;
+  const ms = typeof ts?.toMillis === "function" ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : 0);
+  return ms > cutoffMs;
+}
+
 // ── Geofence ──────────────────────────────────────────────────────────────────
 // Update lat/lng to the exact GPS coordinates of the office entrance.
 export const WORK_SITE = { lat: 27.687339997894547, lng: 85.2987224234393, name: "Kazi Office, Nepal" };

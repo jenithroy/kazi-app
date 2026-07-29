@@ -9,7 +9,7 @@ import PageHeader from "../components/PageHeader";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { asCurrency } from "../utils/format";
-import { GBP_RATE } from "../constants";
+import { GBP_RATE, createdAfterCutoff } from "../constants";
 
 const DEFAULT_ACCOUNTS = [
   { name: "Cash", type: "Asset" },
@@ -72,7 +72,7 @@ function Accounting() {
       getDocs(collection(db, "invoices")),
     ]);
 
-    const entryRows = entriesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const entryRows = entriesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => createdAfterCutoff(r));
     entryRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setEntries(entryRows);
 
@@ -91,7 +91,7 @@ function Accounting() {
     setAccounts(accs);
 
     setExpenses(expSnap.docs.map(d => d.data()));
-    setPurchases(purSnap.docs.map(d => d.data()).filter(d => d.expenseId));
+    setPurchases(purSnap.docs.map(d => d.data()).filter(d => d.expenseId).filter(d => createdAfterCutoff(d)));
     setPayroll(paySnap.docs.map(d => d.data()));
     setInvoices(invSnap.docs.map(d => d.data()));
   }
