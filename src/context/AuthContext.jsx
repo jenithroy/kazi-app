@@ -54,7 +54,7 @@ export function AuthProvider({ children }) {
           // Safety fail-safe: admin@kazi.com must always have super_admin access to avoid lockout.
           const role = (firebaseUser.email || "").toLowerCase() === "admin@kazi.com"
             ? "super_admin"
-            : (status === "Inactive" ? "inactive" : (dbEmployee?.appRole || teamMember?.appRole || "employee"));
+            : (status === "Inactive" ? "inactive" : (teamMember?.appRole || dbEmployee?.appRole || "employee"));
           const jobRole = dbEmployee?.role || teamMember?.role || "";
           const location = dbEmployee?.location || teamMember?.location || "nepal";
 
