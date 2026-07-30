@@ -1355,9 +1355,10 @@ function SampleCard({ item, canEdit, onEdit, onDelete }) {
 /* ── Main Component ────────────────────────────────────── */
 function Inventory() {
   const { profile } = useAuth();
-  const canEditInventory = sectionCanEdit(profile, "inventory");
+  const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
+  const canEditInventory = sectionCanEdit(profile, "inventory") || isNepalStaff;
   const canEditLibrary = sectionCanEdit(profile, "library");
-  const canEditUnitEconomics = canEditLibrary || canEditInventory || profile?.role === "nepal_staff" || profile?.appRole === "nepal_staff";
+  const canEditUnitEconomics = canEditLibrary || canEditInventory || isNepalStaff;
 
   const showInventory = sectionVisible(profile, "inventory");
   const showLibrary = sectionVisible(profile, "library");
@@ -1786,7 +1787,7 @@ function Inventory() {
   }
 
   const renderAction = () => {
-    if (activeTab === "stock" || activeTab === "details") {
+    if (activeTab === "stock" || activeTab === "details" || activeTab === "unit_economics") {
       if (!canEditInventory) return null;
       return (
         <button className="primary-button" onClick={() => setShowAddForm(v => !v)}>
@@ -2165,7 +2166,13 @@ function Inventory() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={15} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
-                      No items found. Add an item under the "Stock Levels" tab first.
+                      No items found.
+                      {canEditInventory && (
+                        <>
+                          {" "}
+                          <button className="kinv-btn-ghost" onClick={() => setShowAddForm(true)}>+ Add Item</button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -2325,30 +2332,56 @@ function Inventory() {
                         </div>
                       </td>
                       <td>
-                        <button
-                          className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
-                          disabled={!canEditUnitEconomics || saving}
-                          onClick={() => saveEconomicsRow(row.id)}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            padding: "6px 12px",
-                            borderRadius: "6px",
-                            fontSize: "12px",
-                            fontWeight: 500,
-                            cursor: canEditUnitEconomics && isDirty ? "pointer" : "default"
-                          }}
-                        >
-                          {saving ? (
-                            <span>…</span>
-                          ) : (
-                            <>
-                              <SaveIcon size={12} />
-                              <span>Save</span>
-                            </>
-                          )}
-                        </button>
+                        {deleteConfirm === row.id ? (
+                          <div className="kinv-del-confirm">
+                            <span style={{ fontSize: 12, color: "var(--terra)", fontWeight: 600 }}>Delete?</span>
+                            <button
+                              className="kinv-btn-danger"
+                              onClick={() => deleteRow(row.id)}
+                              disabled={deletingRow === row.id}
+                            >{deletingRow === row.id ? "…" : "Yes"}</button>
+                            <button
+                              className="kinv-btn-ghost"
+                              onClick={() => setDeleteConfirm(null)}
+                            >No</button>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                              className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
+                              disabled={!canEditUnitEconomics || saving}
+                              onClick={() => saveEconomicsRow(row.id)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: 500,
+                                cursor: canEditUnitEconomics && isDirty ? "pointer" : "default"
+                              }}
+                            >
+                              {saving ? (
+                                <span>…</span>
+                              ) : (
+                                <>
+                                  <SaveIcon size={12} />
+                                  <span>Save</span>
+                                </>
+                              )}
+                            </button>
+                            {canEditInventory && (
+                              <button
+                                className="kinv-btn-del"
+                                onClick={() => setDeleteConfirm(row.id)}
+                                title="Delete item"
+                              >
+                                <TrashIcon size={14} />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
