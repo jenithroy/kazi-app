@@ -9,7 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { Icons } from "../components/ui";
 // eslint-disable-next-line no-unused-vars
-import { KANBAN_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
+import { KANBAN_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES, ORDER_PRIORITIES } from "../constants/enums";
 
 const STAGES = ["Ordered", "Cutting", "Sewing", "Printing", "QC", "Shipping", "Delivered"];
 
@@ -37,13 +37,53 @@ function StatusBadge({ status }) {
   );
 }
 
+const PRIORITY_COLOR = {
+  Urgent: { bg: "rgba(196,101,74,.12)",  text: "#c4654a", dot: "var(--terra)" },
+  High:   { bg: "rgba(216,164,65,.16)",  text: "#a87a18", dot: "var(--amber)" },
+  Normal: { bg: "rgba(86,136,176,.1)",   text: "#5688b0", dot: "var(--blue)" },
+  Low:    { bg: "rgba(110,110,110,.1)",  text: "#777",    dot: "var(--ink-5)" },
+};
+const PRIORITY_RANK = Object.fromEntries(ORDER_PRIORITIES.map((p, i) => [p, i]));
+const priorityRank = (o) => PRIORITY_RANK[o.priority] ?? PRIORITY_RANK.Normal;
+
+function PriorityBadge({ priority = "Normal", editable, onChange, compact }) {
+  const c = PRIORITY_COLOR[priority] || PRIORITY_COLOR.Normal;
+  const base = {
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: compact ? "1px 8px" : "2px 10px", borderRadius: 20,
+    fontSize: compact ? 10 : 12, fontWeight: 700,
+    background: c.bg, color: c.text,
+  };
+  const dot = <span style={{ width: 6, height: 6, borderRadius: "50%", background: c.dot, flexShrink: 0 }} />;
+
+  if (!editable) {
+    return <span style={base} title="Priority">{dot}{priority}</span>;
+  }
+  return (
+    <span style={{ ...base, position: "relative", cursor: "pointer" }} title="Change priority" onClick={e => e.stopPropagation()}>
+      {dot}{priority}
+      <svg width={compact ? 8 : 9} height={compact ? 8 : 9} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+      <select
+        value={priority}
+        onChange={e => onChange(e.target.value)}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }}
+        aria-label="Order priority"
+      >
+        {ORDER_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+      </select>
+    </span>
+  );
+}
+
 function OrderManagement() {
   const { profile }  = useAuth();
   const canEdit      = sectionCanEdit(profile, "production");
   const [orders, setOrders]       = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showForm, setShowForm]   = useState(false);
-  const [newOrder, setNewOrder]   = useState({ customer: "", item: "", quantity: "" });
+  const [newOrder, setNewOrder]   = useState({ customer: "", item: "", quantity: "", priority: "Normal" });
   const [saving, setSaving]       = useState(false);
   const [confirmId, setConfirmId] = useState(null); // order id awaiting cancel confirm
   const [viewMode, setViewMode]   = useState("kanban"); // default view mode
@@ -83,12 +123,13 @@ function OrderManagement() {
         customer:     newOrder.customer.trim(),
         item:         newOrder.item.trim(),
         quantity:     Number(newOrder.quantity) || 0,
+        priority:     newOrder.priority || "Normal",
         currentStage: 0,
         status:       "Active",
         createdBy:    profile?.name || "Unknown",
         createdAt:    serverTimestamp(),
       });
-      setNewOrder({ customer: "", item: "", quantity: "" });
+      setNewOrder({ customer: "", item: "", quantity: "", priority: "Normal" });
       setShowForm(false);
       await loadOrders();
     } catch (err) {
@@ -99,7 +140,7 @@ function OrderManagement() {
   }
 
   /* ── Add order directly to stage ── */
-  async function handleAddOrderToStage(customer, item, quantity, stageIdx) {
+  async function handleAddOrderToStage(customer, item, quantity, stageIdx, priority = "Normal") {
     if (!customer.trim() || !item.trim()) return;
     setSaving(true);
     try {
@@ -107,6 +148,7 @@ function OrderManagement() {
         customer:     customer.trim(),
         item:         item.trim(),
         quantity:     Number(quantity) || 0,
+        priority,
         currentStage: stageIdx,
         status:       stageIdx === STAGES.length - 1 ? "Delivered" : "Active",
         createdBy:    profile?.name || "Unknown",
@@ -141,6 +183,17 @@ function OrderManagement() {
     await loadOrders();
   }
 
+  /* ── Change order priority ── */
+  async function changePriority(order, priority) {
+    setOrders(prev => prev.map(o => (o.id === order.id ? { ...o, priority } : o)));
+    try {
+      await updateDoc(doc(db, "orders", order.id), { priority });
+    } catch (err) {
+      console.error("Failed to update priority:", err);
+      await loadOrders();
+    }
+  }
+
   /* ── Cancel / stop order ── */
   async function cancelOrder(order) {
     await updateDoc(doc(db, "orders", order.id), {
@@ -165,7 +218,13 @@ function OrderManagement() {
     await loadOrders();
   }
 
-  const active    = useMemo(() => orders.filter(o => o.status !== "Cancelled" && o.status !== "Delivered"), [orders]);
+  // Urgent first within each stage; ties keep newest-first order from the query
+  const active    = useMemo(
+    () => orders
+      .filter(o => o.status !== "Cancelled" && o.status !== "Delivered")
+      .sort((a, b) => priorityRank(a) - priorityRank(b)),
+    [orders]
+  );
   const delivered = useMemo(() => orders.filter(o => o.status === "Delivered"), [orders]);
   const cancelled = useMemo(() => orders.filter(o => o.status === "Cancelled"), [orders]);
 
@@ -241,6 +300,17 @@ function OrderManagement() {
                 onChange={e => setNewOrder(v => ({ ...v, quantity: e.target.value }))}
               />
             </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "var(--ink-3)" }}>
+              Priority
+              <select
+                className="kfin-input"
+                style={{ width: 120 }}
+                value={newOrder.priority}
+                onChange={e => setNewOrder(v => ({ ...v, priority: e.target.value }))}
+              >
+                {ORDER_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </label>
             <button type="submit" className="primary-button" disabled={saving}>{saving ? "Saving…" : "Create Order"}</button>
           </form>
         </div>
@@ -260,6 +330,7 @@ function OrderManagement() {
               canEdit={canEdit}
               onAddOrder={handleAddOrderToStage}
               onDrop={handleDropOrder}
+              onChangePriority={changePriority}
               onAdvanceCard={(order) => changeStage(order, 1)}
               onReverseCard={(order) => changeStage(order, -1)}
               onCancelCard={(id) => setConfirmId(id)}
@@ -282,6 +353,7 @@ function OrderManagement() {
                   key={order.id}
                   order={order}
                   canEdit={canEdit}
+                  onChangePriority={p => changePriority(order, p)}
                   onAdvance={() => changeStage(order, +1)}
                   onReverse={() => changeStage(order, -1)}
                   onCancel={() => setConfirmId(order.id)}
@@ -344,7 +416,7 @@ function OrderManagement() {
 }
 
 /* ── Order Card (List View) ────────────────────────────── */
-function OrderCard({ order, canEdit, onAdvance, onReverse, onCancel, onConfirmCancel, onDismissCancel, confirming, onRestore, onRemove }) {
+function OrderCard({ order, canEdit, onChangePriority, onAdvance, onReverse, onCancel, onConfirmCancel, onDismissCancel, confirming, onRestore, onRemove }) {
   const isCancelled = order.status === "Cancelled";
   const isDelivered = order.status === "Delivered";
   const isActive    = !isCancelled && !isDelivered;
@@ -376,6 +448,11 @@ function OrderCard({ order, canEdit, onAdvance, onReverse, onCancel, onConfirmCa
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <PriorityBadge
+            priority={order.priority || "Normal"}
+            editable={canEdit && isActive && !!onChangePriority}
+            onChange={onChangePriority}
+          />
           <StatusBadge status={order.status || "Active"} />
 
           {/* ── Stop / Cancel Process button ── */}
@@ -521,6 +598,7 @@ function AddOrderCardForm({ onAdd, onCancel }) {
   const [customer, setCustomer] = useState("");
   const [item, setItem] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [priority, setPriority] = useState("Normal");
 
   const submit = () => {
     if (!customer.trim() || !item.trim()) return;
@@ -528,6 +606,7 @@ function AddOrderCardForm({ onAdd, onCancel }) {
       customer: customer.trim(),
       item: item.trim(),
       quantity: Number(quantity) || 0,
+      priority,
     });
   };
 
@@ -557,6 +636,13 @@ function AddOrderCardForm({ onAdd, onCancel }) {
         style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 8px", fontSize: 11.5, fontFamily: "var(--font)", outline: "none", width: "100%" }}
         onKeyDown={e => { if (e.key === "Escape") onCancel(); if (e.key === "Enter") submit(); }}
       />
+      <select
+        value={priority}
+        onChange={e => setPriority(e.target.value)}
+        style={{ border: "1px solid var(--line-strong)", borderRadius: 6, padding: "5px 8px", fontSize: 11.5, fontFamily: "var(--font)", outline: "none", width: "100%", color: "var(--ink-2)", background: "transparent" }}
+      >
+        {ORDER_PRIORITIES.map(p => <option key={p} value={p}>{p} priority</option>)}
+      </select>
       <div style={{ display: "flex", gap: 6 }}>
         <button onClick={submit}
           style={{ flex: 1, background: "var(--mint-deep)", color: "#fff", border: "none", borderRadius: 6, padding: "7px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font)" }}>
@@ -572,7 +658,7 @@ function AddOrderCardForm({ onAdd, onCancel }) {
 }
 
 /* ── Order Kanban Card (Kanban View) ────────────────────────────── */
-function OrderKanbanCard({ order, canEdit, onDragStart, onAdvance, onReverse, onCancel, onConfirmCancel, onDismissCancel, confirming, onRemove, onRestore }) {
+function OrderKanbanCard({ order, canEdit, onDragStart, onChangePriority, onAdvance, onReverse, onCancel, onConfirmCancel, onDismissCancel, confirming, onRemove, onRestore }) {
   const [hover, setHover] = useState(false);
   const isCancelled = order.status === "Cancelled";
   const isDelivered = order.status === "Delivered";
@@ -605,6 +691,15 @@ function OrderKanbanCard({ order, canEdit, onDragStart, onAdvance, onReverse, on
 
       <div className="ktasks-card-t" style={{ fontSize: 12, color: "var(--ink-2)" }}>
         {order.quantity ? `${order.quantity} × ` : ""}{order.item}
+      </div>
+
+      <div>
+        <PriorityBadge
+          compact
+          priority={order.priority || "Normal"}
+          editable={canEdit && isActive && !!onChangePriority}
+          onChange={onChangePriority}
+        />
       </div>
 
       {confirming ? (
@@ -686,7 +781,7 @@ function OrderKanbanCard({ order, canEdit, onDragStart, onAdvance, onReverse, on
 }
 
 /* ── Kanban Column (Kanban View) ────────────────────────────────── */
-function OrderKanbanColumn({ label, stageIdx, orders, canEdit, onAddOrder, onDrop, onAdvanceCard, onReverseCard, onCancelCard, onConfirmCancelCard, onDismissCancelCard, confirmingId, onRemoveCard, onRestoreCard }) {
+function OrderKanbanColumn({ label, stageIdx, orders, canEdit, onAddOrder, onDrop, onChangePriority, onAdvanceCard, onReverseCard, onCancelCard, onConfirmCancelCard, onDismissCancelCard, confirmingId, onRemoveCard, onRestoreCard }) {
   const [adding, setAdding] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const tone = STAGE_TONES[stageIdx] || "neutral";
@@ -731,6 +826,7 @@ function OrderKanbanColumn({ label, stageIdx, orders, canEdit, onAddOrder, onDro
             order={order}
             canEdit={canEdit}
             onDragStart={e => e.dataTransfer.setData("orderId", order.id)}
+            onChangePriority={p => onChangePriority(order, p)}
             onAdvance={() => onAdvanceCard(order)}
             onReverse={() => onReverseCard(order)}
             onCancel={() => onCancelCard(order.id)}
@@ -745,7 +841,7 @@ function OrderKanbanColumn({ label, stageIdx, orders, canEdit, onAddOrder, onDro
         {adding && (
           <AddOrderCardForm
             onAdd={data => {
-              onAddOrder(data.customer, data.item, data.quantity, stageIdx);
+              onAddOrder(data.customer, data.item, data.quantity, stageIdx, data.priority);
               setAdding(false);
             }}
             onCancel={() => setAdding(false)}

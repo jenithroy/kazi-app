@@ -27,6 +27,9 @@ export const KANBAN_STAGES = [
   "Delivered",
 ];
 
+// Order priority levels (OrderManagement.jsx) — index = urgency rank (lower = more urgent)
+export const ORDER_PRIORITIES = ["Urgent", "High", "Normal", "Low"];
+
 export const ORDER_STATUSES = {
   ACTIVE:    "Active",
   ON_HOLD:   "On Hold",
