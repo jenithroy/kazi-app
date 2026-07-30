@@ -302,6 +302,7 @@ function Finance() {
   const [expenses, setExpenses]       = useState([]);
   const [expenseForm, setExpenseForm] = useState(initialExpense);
   const [purchases, setPurchases]     = useState([]);
+  const allPurchaseIdsRef = useRef([]); // unfiltered expenseIds (incl. historical, hidden-by-cutoff rows) — nextExpenseId() must never collide with these
   const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [submitting, setSubmitting]   = useState(false);
@@ -391,6 +392,7 @@ function Finance() {
       purRows = [...seen.values()];
     }
     purRows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
+    allPurchaseIdsRef.current = purRows.map(r => r.expenseId).filter(Boolean);
     purRows = purRows.filter(r => createdAfterCutoff(r));
     setPurchases(purRows);
 
@@ -469,7 +471,7 @@ function Finance() {
   /* ── Handlers ── */
 
   function nextExpenseId() {
-    const nums = purchases.map(p => parseInt((p.expenseId || "EXP000").replace("EXP", ""), 10)).filter(n => !isNaN(n));
+    const nums = allPurchaseIdsRef.current.map(id => parseInt((id || "EXP000").replace("EXP", ""), 10)).filter(n => !isNaN(n));
     return `EXP${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
   }
 
