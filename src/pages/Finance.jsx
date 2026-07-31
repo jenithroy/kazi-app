@@ -173,7 +173,7 @@ function addItemOnEnter(e, onAddItem) {
 
 // One purchase (Date/Party/Category/VAT shared via rowSpan) rendered as one <tr> per particular.
 // Used for both the new-purchase draft row and every existing purchase — the table itself is the editor.
-function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell }) {
+function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
   const items = data.items;
   return (
     <tbody
@@ -189,8 +189,13 @@ function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemCha
                 <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" />
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                <input className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, minWidth: 100 }} value={data.expenseItem}
+                <input className="kfin-input"
+                  style={{ padding: "5px 6px", fontSize: 13, minWidth: 100, ...(partyError ? { border: "1.5px solid var(--terra)", background: "var(--terra-soft, #fdf2ef)" } : {}) }}
+                  value={data.expenseItem}
                   placeholder="Party name" onChange={e => onFieldChange({ expenseItem: e.target.value })} />
+                {partyError && (
+                  <div style={{ color: "var(--terra)", fontSize: 11, fontWeight: 600, marginTop: 4, maxWidth: 140 }}>{partyError}</div>
+                )}
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
                 <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.category}
@@ -305,6 +310,8 @@ function Finance() {
   const allPurchaseIdsRef = useRef([]); // unfiltered expenseIds (incl. historical, hidden-by-cutoff rows) — nextExpenseId() must never collide with these
   const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
+  const [purchaseError, setPurchaseError] = useState("");     // inline error shown at the new-purchase row
+  const [purchaseSuccess, setPurchaseSuccess] = useState(""); // "EXP027 saved" confirmation by the table title
   const [submitting, setSubmitting]   = useState(false);
   const [vatBills, setVatBills]       = useState([]);
   const [vatFile, setVatFile]         = useState(null);
@@ -487,23 +494,31 @@ function Finance() {
   }
 
   async function addPurchase() {
-    if (!canEditTab("purchases")) { showError("You don't have permission to add purchases."); return; }
-    if (!purchaseForm.expenseItem.trim()) { showError("Party name is required."); return; }
+    if (!canEditTab("purchases")) { setPurchaseError("You don't have permission to add purchases."); return; }
+    if (!purchaseForm.expenseItem.trim()) {
+      // Inline, next to the field itself — a top-of-page banner is invisible from this table
+      setPurchaseError("Required — who did you buy from?");
+      return;
+    }
+    setPurchaseError("");
     setSubmitting(true);
     try {
+      const newId = nextExpenseId();
       await addDoc(collection(db, "finance_purchases"), {
-        expenseId: nextExpenseId(), expenseItem: purchaseForm.expenseItem,
+        expenseId: newId, expenseItem: purchaseForm.expenseItem,
         category: purchaseForm.category, vatBill: purchaseForm.vatBill,
         amountNPR: itemsTotal(purchaseForm.items), date: purchaseForm.date, createdAt: serverTimestamp(),
         items: purchaseItemsPayload(purchaseForm.items)
       });
-      setPurchaseForm(emptyPurchaseForm);
+      setPurchaseForm({ ...emptyPurchaseForm, date: new Date().toISOString().slice(0, 10), items: [{ ...emptyLineItem }] });
+      setPurchaseSuccess(`✓ ${newId} saved`);
+      setTimeout(() => setPurchaseSuccess(""), 4000);
       await loadData();
     } catch (err) {
       console.error("Failed to add purchase:", err);
-      showError(err?.code === "permission-denied"
+      setPurchaseError(err?.code === "permission-denied"
         ? "You don't have permission to add purchases."
-        : "Failed to save purchase. Please try again.");
+        : "Failed to save. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -1006,7 +1021,14 @@ function Finance() {
         {activeTab === "purchases" && (
           <div className="kfin-block">
             <div className="kfin-block-hd">
-              <p className="kfin-block-title">Purchases <span className="kfin-block-sub">({purchases.length})</span></p>
+              <p className="kfin-block-title">
+                Purchases <span className="kfin-block-sub">({purchases.length})</span>
+                {purchaseSuccess && (
+                  <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 700, color: "var(--mint-deep)", background: "var(--mint-soft)", padding: "3px 10px", borderRadius: 20 }}>
+                    {purchaseSuccess}
+                  </span>
+                )}
+              </p>
               <span style={{ fontSize: 13, fontWeight: 600 }}>
                 NPR {purchaseTotal.toLocaleString()}
                 <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
@@ -1025,7 +1047,11 @@ function Finance() {
                     expenseId={`${nextExpenseId()} (new)`}
                     data={purchaseForm}
                     highlight
-                    onFieldChange={patch => setPurchaseForm(f => ({ ...f, ...patch }))}
+                    partyError={purchaseError}
+                    onFieldChange={patch => {
+                      if ("expenseItem" in patch) setPurchaseError("");
+                      setPurchaseForm(f => ({ ...f, ...patch }));
+                    }}
                     onItemChange={(idx, patch) => setPurchaseForm(f => ({ ...f, items: applyItemChange(f.items, idx, patch) }))}
                     onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
                     onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
