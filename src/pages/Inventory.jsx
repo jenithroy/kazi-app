@@ -106,8 +106,26 @@ function uploadFabricSwatch(fabricId, file) {
   return uploadImage(`fabrics/swatches/${fabricId}_${Date.now()}.jpg`, file);
 }
 
-function uploadPatternTechPack(patternId, file) {
-  return uploadImage(`patterns/techpacks/${patternId}_${Date.now()}.jpg`, file);
+function uploadPatternTechPack(patternId, file, idx = 0) {
+  return uploadImage(`patterns/techpacks/${patternId}_${Date.now()}_${idx}.jpg`, file);
+}
+
+/* ── Tech pack image helpers ──────────────────────────── */
+function isTechPackImageUrl(url) {
+  if (!url) return false;
+  return url.startsWith("data:image/")
+    || /\.(jpe?g|png|webp|gif)($|\?)/i.test(url)
+    || url.includes("techpacks");
+}
+
+// A tech pack can have multiple pages (tech_pack_images). Older records stored
+// a single image in tech_pack_url — merge it in so nothing disappears.
+function getTechPackImages(item) {
+  const imgs = Array.isArray(item.tech_pack_images) ? item.tech_pack_images.filter(Boolean) : [];
+  if (item.tech_pack_url && isTechPackImageUrl(item.tech_pack_url) && !imgs.includes(item.tech_pack_url)) {
+    return [item.tech_pack_url, ...imgs];
+  }
+  return imgs;
 }
 
 function uploadSamplePhoto(sampleId, file) {
@@ -145,7 +163,7 @@ const SAMPLE_STATUSES = ["Pending", "Approved", "Rejected", "In Revision"];
 
 const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", notes: "" };
 const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "" };
-const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", notes: "" };
+const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", tech_pack_images: [], notes: "" };
 const emptySample   = { name: "", product_type: "", stage: "Proto", status: "Pending", fabric_used: "", size: "", color: "", cost: "", photo_url: "", notes: "" };
 
 /* ── Stepper input ─────────────────────────────────────── */
@@ -302,13 +320,38 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
       ...item,
       available_colors: Array.isArray(item.available_colors) ? item.available_colors.join(", ") : (item.available_colors || ""),
       sizes_available: item.sizes_available || [],
+      // Legacy tech packs stored a single image in tech_pack_url — it is migrated
+      // into the pages list on save, so keep this field for external links only.
+      ...(tab === "patterns" && isTechPackImageUrl(item.tech_pack_url) ? { tech_pack_url: "" } : {}),
     };
   });
 
   const imageField = tab === "samples" ? "photo_url" : "tech_pack_url";
   const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(item?.[imageField] && (item[imageField].startsWith("data:image/") || item[imageField].includes(".jpg") || item[imageField].includes("techpacks") || item[imageField].includes("photos")) ? item[imageField] : "");
+  const [imagePreview, setImagePreview] = useState(tab !== "patterns" && item?.[imageField] && (item[imageField].startsWith("data:image/") || item[imageField].includes(".jpg") || item[imageField].includes("techpacks") || item[imageField].includes("photos")) ? item[imageField] : "");
   const [dragActive, setDragActive] = useState(false);
+
+  // Tech packs support multiple pages: already-saved URLs + newly picked files
+  const [packImages, setPackImages] = useState(() => (tab === "patterns" && item) ? getTechPackImages(item) : []);
+  const [packFiles, setPackFiles] = useState([]);
+  const [packPreviews, setPackPreviews] = useState([]);
+
+  const addFiles = (fileList) => {
+    const files = Array.from(fileList || []).filter(f => f.type.startsWith("image/"));
+    if (!files.length) return;
+    if (tab === "patterns") {
+      setPackFiles(prev => [...prev, ...files]);
+      setPackPreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+    } else {
+      setImageFile(files[0]);
+      setImagePreview(URL.createObjectURL(files[0]));
+    }
+  };
+
+  const removePackFile = (idx) => {
+    setPackFiles(prev => prev.filter((_, i) => i !== idx));
+    setPackPreviews(prev => prev.filter((_, i) => i !== idx));
+  };
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -324,19 +367,12 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    }
+    addFiles(e.dataTransfer.files);
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    }
+    addFiles(e.target.files);
+    e.target.value = "";
   };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -367,24 +403,38 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
         payload.cost = form.cost ? Number(form.cost) : null;
       }
 
+      async function uploadPackPages(docId) {
+        const urls = [];
+        for (let i = 0; i < packFiles.length; i++) {
+          const compressed = await compressFabricImage(packFiles[i]);
+          urls.push(await uploadPatternTechPack(docId, compressed, i));
+        }
+        return urls;
+      }
+
       let docId = item?.id;
       if (isEdit) {
-        if ((tab === "patterns" || tab === "samples") && imageFile) {
+        if (tab === "patterns") {
+          const uploaded = packFiles.length ? await uploadPackPages(docId) : [];
+          payload.tech_pack_images = [...packImages, ...uploaded];
+        }
+        if (tab === "samples" && imageFile) {
           const compressed = await compressFabricImage(imageFile);
-          payload[imageField] = tab === "samples"
-            ? await uploadSamplePhoto(docId, compressed)
-            : await uploadPatternTechPack(docId, compressed);
+          payload[imageField] = await uploadSamplePhoto(docId, compressed);
         }
         await updateDoc(doc(db, tab, docId), { ...payload, updatedAt: serverTimestamp() });
         onSaved({ id: docId, ...payload });
       } else {
         const ref = await addDoc(collection(db, tab), { ...payload, createdAt: serverTimestamp() });
         docId = ref.id;
-        if ((tab === "patterns" || tab === "samples") && imageFile) {
+        if (tab === "patterns" && packFiles.length) {
+          const uploaded = await uploadPackPages(docId);
+          payload.tech_pack_images = uploaded;
+          await updateDoc(doc(db, tab, docId), { tech_pack_images: uploaded });
+        }
+        if (tab === "samples" && imageFile) {
           const compressed = await compressFabricImage(imageFile);
-          const uploadedUrl = tab === "samples"
-            ? await uploadSamplePhoto(docId, compressed)
-            : await uploadPatternTechPack(docId, compressed);
+          const uploadedUrl = await uploadSamplePhoto(docId, compressed);
           await updateDoc(doc(db, tab, docId), { [imageField]: uploadedUrl });
           payload[imageField] = uploadedUrl;
         }
@@ -402,7 +452,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
       <div className="kbrf-modal" style={{ maxWidth: 520 }}>
         <div className="kbrf-modal-hd">
           <div style={{ fontSize: 16, fontWeight: 700 }}>
-            {isEdit ? "Edit" : "Add"} {tab === "fabrics" ? "Fabric" : tab === "processes" ? "Process" : tab === "samples" ? "Sample" : "Pattern"}
+            {isEdit ? "Edit" : "Add"} {tab === "fabrics" ? "Fabric" : tab === "processes" ? "Process" : tab === "samples" ? "Sample" : "Tech Pack"}
           </div>
           <button className="kbrf-modal-close" onClick={onClose}>✕</button>
         </div>
@@ -492,11 +542,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
               </div>
             </div>
             <div>
-              <label className="kfin-label">Tech Pack URL (or upload picture below)</label>
-              <input className="kfin-input" value={form.tech_pack_url ?? ""} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
-            </div>
-            <div>
-              <label className="kfin-label">Tech Pack Picture</label>
+              <label className="kfin-label">Tech Pack Pages</label>
               <div
                 className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
                 onDragEnter={handleDrag}
@@ -519,10 +565,10 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
                 </svg>
                 <p style={{ margin: 0, fontSize: 12, fontWeight: 500, color: "var(--ink-2)" }}>
-                  Drag tech pack picture here or click to browse
+                  Drag tech pack pages here or click to browse
                 </p>
                 <p style={{ margin: "2px 0 0 0", fontSize: 10, color: "var(--ink-4)" }}>
-                  PNG, JPG, JPEG (automatic compression)
+                  Multiple pictures allowed — PNG, JPG, JPEG (automatic compression)
                 </p>
               </div>
               <input
@@ -530,14 +576,33 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                 type="file"
                 style={{ display: "none" }}
                 accept="image/*"
+                multiple
                 onChange={handleFileChange}
               />
-              {imagePreview && (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
-                  <img src={imagePreview} alt="Preview" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: "1px solid var(--line)" }} />
-                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Selected Tech Pack Picture</span>
+              {(packImages.length > 0 || packPreviews.length > 0) && (
+                <div className="ktp-page-thumbs">
+                  {packImages.map((url, i) => (
+                    <div key={`saved-${i}`} className="ktp-page-thumb">
+                      <img src={url} alt={`Page ${i + 1}`} />
+                      <span className="ktp-page-thumb-num">{i + 1}</span>
+                      <button type="button" className="ktp-page-thumb-x" title="Remove page"
+                        onClick={() => setPackImages(prev => prev.filter((_, x) => x !== i))}>✕</button>
+                    </div>
+                  ))}
+                  {packPreviews.map((url, i) => (
+                    <div key={`new-${i}`} className="ktp-page-thumb ktp-page-thumb--new">
+                      <img src={url} alt={`New page ${i + 1}`} />
+                      <span className="ktp-page-thumb-num">{packImages.length + i + 1}</span>
+                      <button type="button" className="ktp-page-thumb-x" title="Remove page"
+                        onClick={() => removePackFile(i)}>✕</button>
+                    </div>
+                  ))}
                 </div>
               )}
+            </div>
+            <div>
+              <label className="kfin-label">External Link (optional — Drive, PDF, etc.)</label>
+              <input className="kfin-input" value={form.tech_pack_url ?? ""} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
             </div>
           </>}
 
@@ -1197,42 +1262,55 @@ function ProcessCard({ item, canEdit, onEdit, onDelete }) {
   );
 }
 
-function PatternCard({ item, canEdit, onEdit, onDelete }) {
+function TechPackCard({ item, canEdit, onEdit, onDelete, onView }) {
   const sizes = Array.isArray(item.sizes_available) ? item.sizes_available : [];
-  const isImageTechPack = item.tech_pack_url && (
-    item.tech_pack_url.startsWith("data:image/") ||
-    item.tech_pack_url.includes(".jpg") ||
-    item.tech_pack_url.includes(".png") ||
-    item.tech_pack_url.includes(".jpeg") ||
-    item.tech_pack_url.includes("techpacks")
-  );
+  const images = getTechPackImages(item);
+  const hasExternalLink = item.tech_pack_url && !isTechPackImageUrl(item.tech_pack_url);
 
   return (
-    <div className="klib-card">
-      {/* Tech pack hero image */}
-      {isImageTechPack && (
-        <div className="klib-card-hero">
-          <img src={item.tech_pack_url} alt="Tech Pack" className="klib-card-hero-img" />
-          <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" className="klib-card-hero-link">
-            View Full ↗
-          </a>
-        </div>
-      )}
-
-      {/* Category band */}
-      <div className="klib-card-band" style={{ background: "#e3eef8" }}>
-        <span className="klib-card-cat-icon">📐</span>
-        <span className="klib-card-cat" style={{ color: "#2e6da4" }}>{item.product_type || "Pattern"}</span>
+    <div className="klib-card ktp-card">
+      {/* Cover — first tech pack page, or a placeholder sheet */}
+      <div
+        className={cn("ktp-cover", images.length > 0 && "ktp-cover--clickable")}
+        onClick={images.length > 0 ? onView : undefined}
+        role={images.length > 0 ? "button" : undefined}
+        title={images.length > 0 ? "Open tech pack" : undefined}
+      >
+        {images.length > 0 ? (
+          <>
+            <img src={images[0]} alt={`${item.name} tech pack`} className="ktp-cover-img" loading="lazy" />
+            <div className="ktp-cover-overlay">
+              <span className="ktp-cover-open">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                Open
+              </span>
+            </div>
+            {images.length > 1 && (
+              <span className="ktp-page-badge">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/><path d="M2 6v14a2 2 0 0 0 2 2h10"/></svg>
+                {images.length} pages
+              </span>
+            )}
+          </>
+        ) : (
+          <div className="ktp-cover-empty">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+            <span>No pages yet</span>
+          </div>
+        )}
       </div>
 
       {/* Body */}
       <div className="klib-card-body">
-        <h4 className="klib-card-name">{item.name}</h4>
+        <div className="ktp-title-row">
+          <h4 className="klib-card-name">{item.name}</h4>
+          {item.product_type && <span className="ktp-type-pill">{item.product_type}</span>}
+        </div>
 
-        {item.tech_pack_url && !isImageTechPack && (
-          <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" className="klib-meta-chip" style={{ textDecoration: "none", display: "inline-flex" }}>
+        {hasExternalLink && (
+          <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" className="klib-meta-chip" style={{ textDecoration: "none", display: "inline-flex", alignSelf: "flex-start" }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Tech Pack ↗
+            External file ↗
           </a>
         )}
 
@@ -1260,6 +1338,75 @@ function PatternCard({ item, canEdit, onEdit, onDelete }) {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             Delete
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Full-screen tech pack viewer ─────────────────────── */
+function TechPackViewer({ item, onClose }) {
+  const images = getTechPackImages(item);
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowRight") setPage(p => Math.min(images.length - 1, p + 1));
+      if (e.key === "ArrowLeft")  setPage(p => Math.max(0, p - 1));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [images.length, onClose]);
+
+  if (!images.length) return null;
+  const current = images[Math.min(page, images.length - 1)];
+
+  return (
+    <div className="ktp-viewer" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      {/* Top bar */}
+      <div className="ktp-viewer-bar">
+        <div className="ktp-viewer-title">
+          <span className="ktp-viewer-name">{item.name}</span>
+          {item.product_type && <span className="ktp-viewer-type">{item.product_type}</span>}
+        </div>
+        <div className="ktp-viewer-bar-actions">
+          <span className="ktp-viewer-counter">{page + 1} / {images.length}</span>
+          <a href={current} target="_blank" rel="noopener noreferrer" className="ktp-viewer-btn" title="Open original in new tab">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+          <button className="ktp-viewer-btn" onClick={onClose} title="Close (Esc)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Stage */}
+      <div className="ktp-viewer-stage" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        {images.length > 1 && (
+          <button className="ktp-viewer-nav ktp-viewer-nav--prev" disabled={page === 0}
+            onClick={() => setPage(p => Math.max(0, p - 1))}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+        )}
+        <img src={current} alt={`${item.name} — page ${page + 1}`} className="ktp-viewer-img" />
+        {images.length > 1 && (
+          <button className="ktp-viewer-nav ktp-viewer-nav--next" disabled={page === images.length - 1}
+            onClick={() => setPage(p => Math.min(images.length - 1, p + 1))}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        )}
+      </div>
+
+      {/* Thumbnail strip */}
+      {images.length > 1 && (
+        <div className="ktp-viewer-thumbs">
+          {images.map((url, i) => (
+            <button key={i} className={cn("ktp-viewer-thumb", i === page && "ktp-viewer-thumb--active")}
+              onClick={() => setPage(i)}>
+              <img src={url} alt={`Page ${i + 1}`} />
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -1377,7 +1524,7 @@ function Inventory() {
   if (showLibrary) {
     allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
     allowedTabs.push({ key: "processes", label: "Processes" });
-    allowedTabs.push({ key: "patterns", label: "Patterns" });
+    allowedTabs.push({ key: "patterns", label: "Tech Packs" });
     allowedTabs.push({ key: "samples", label: "Samples" });
   }
 
@@ -1406,6 +1553,7 @@ function Inventory() {
   // Library-specific UI states
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const [libraryEditItem, setLibraryEditItem] = useState(null);
+  const [viewTechPack, setViewTechPack] = useState(null);
 
   // Fabrics-specific UI states
   const [fabricFilter, setFabricFilter] = useState("all");
@@ -1777,13 +1925,13 @@ function Inventory() {
 
   // Resolve dynamic title/desc
   let pageTitle = "Inventory & Library";
-  let pageDesc = "Monitor stock levels, reorder alerts, fabrics, processes, and patterns.";
+  let pageDesc = "Monitor stock levels, reorder alerts, fabrics, processes, and tech packs.";
   if (showInventory && !showLibrary) {
     pageTitle = "Inventory & Stock";
     pageDesc = "Monitor stock levels, reorder alerts, and item details.";
   } else if (showLibrary && !showInventory) {
     pageTitle = "Production Library";
-    pageDesc = "Reference repository for fabrics, processes, and patterns.";
+    pageDesc = "Reference repository for fabrics, processes, and tech packs.";
   }
 
   const renderAction = () => {
@@ -1805,7 +1953,7 @@ function Inventory() {
     }
     if (activeTab === "processes" || activeTab === "patterns" || activeTab === "samples") {
       if (!canEditLibrary) return null;
-      const typeLabel = activeTab === "processes" ? "Process" : activeTab === "samples" ? "Sample" : "Pattern";
+      const typeLabel = activeTab === "processes" ? "Process" : activeTab === "samples" ? "Sample" : "Tech Pack";
       return (
         <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
           + Add {typeLabel}
@@ -2471,7 +2619,7 @@ function Inventory() {
               </>
             ) : getActiveLibraryItems().length === 0 ? (
               <div style={{ textAlign: "center", padding: "60px 0", color: "var(--ink-4)" }}>
-                <div style={{ fontSize: 15, marginBottom: 12 }}>No {activeTab} added yet</div>
+                <div style={{ fontSize: 15, marginBottom: 12 }}>No {activeTab === "patterns" ? "tech packs" : activeTab} added yet</div>
                 {canEditLibrary && (
                   <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
                     Add first entry
@@ -2479,14 +2627,15 @@ function Inventory() {
                 )}
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${activeTab === "patterns" ? 240 : 280}px, 1fr))`, gap: 16 }}>
                 {activeTab === "processes" && filteredProcesses.map(item => (
                   <ProcessCard key={item.id} item={item} canEdit={canEditLibrary}
                     onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
                     onDelete={() => handleDeleteLibraryItem(item)} />
                 ))}
                 {activeTab === "patterns" && filteredPatterns.map(item => (
-                  <PatternCard key={item.id} item={item} canEdit={canEditLibrary}
+                  <TechPackCard key={item.id} item={item} canEdit={canEditLibrary}
+                    onView={() => setViewTechPack(item)}
                     onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
                     onDelete={() => handleDeleteLibraryItem(item)} />
                 ))}
@@ -2508,6 +2657,10 @@ function Inventory() {
           onClose={() => { setLibraryModalOpen(false); setLibraryEditItem(null); }}
           onSaved={handleSavedLibraryItem}
         />
+      )}
+
+      {viewTechPack && (
+        <TechPackViewer item={viewTechPack} onClose={() => setViewTechPack(null)} />
       )}
 
       {fabricModalOpen && (
