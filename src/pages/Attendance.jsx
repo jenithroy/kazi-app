@@ -248,7 +248,12 @@ function Attendance() {
                 {myRow.status === "Late" && !myRow.lateCutApplied && (
                   <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace Period</span>
                 )}
-                {myClockIn && <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}</span>}
+                {myClockIn && (
+                  <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+                    {myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}
+                    {myClockIn.clockedOutAt?.toDate ? ` → ${myClockIn.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}` : ""}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -316,6 +321,8 @@ function Attendance() {
                       <th>Schedule</th>
                       <th>Status</th>
                       <th>Clock-in</th>
+                      <th>Clock-out</th>
+                      <th>Hours</th>
                       <th>Distance</th>
                       <th>Method</th>
                       <th></th>
@@ -327,6 +334,12 @@ function Attendance() {
                       const isEditing = editingRow === i;
                       const clockTime = clockRec?.clockedInAt?.toDate
                         ? clockRec.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
+                        : null;
+                      const clockOutTime = clockRec?.clockedOutAt?.toDate
+                        ? clockRec.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
+                        : null;
+                      const workedH = clockRec?.clockedInAt?.toDate && clockRec?.clockedOutAt?.toDate
+                        ? Math.max(0, Math.round(((clockRec.clockedOutAt.toDate() - clockRec.clockedInAt.toDate()) / 3600000) * 10) / 10)
                         : null;
                       const distM = clockRec?.distanceToSiteM;
 
@@ -397,6 +410,10 @@ function Attendance() {
                             )}
                           </td>
                           <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockTime || "—"}</td>
+                          <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockOutTime || "—"}</td>
+                          <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
+                            {workedH != null ? `${workedH}h` : "—"}
+                          </td>
                           <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
                             {distM != null ? `${distM}m` : "—"}
                           </td>

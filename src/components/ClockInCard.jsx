@@ -9,17 +9,27 @@ import { awardPoints } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
 import { getCurrentPosition, hapticSuccess } from "../utils/native";
 
+function fmtHM(date) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+function hoursBetween(inDate, outDate) {
+  return Math.max(0, Math.round(((outDate - inDate) / 3600000) * 10) / 10);
+}
+
 export default function ClockInCard({ profile, onClockChange }) {
   const today = todayDate();
   const staffId = profile?.uid || profile?.id || "";
   const { showPointsToast } = useReward();
 
-  const [status, setStatus] = useState("checking_status"); // checking_status, idle, locating, success, far, low-accuracy, gps-error, clocked
+  const [status, setStatus] = useState("checking_status"); // checking_status, idle, locating, success, far, low-accuracy, gps-error, clocked, clocked_out
   const [clockDist, setClockDist] = useState(null);
   const [clockCoords, setClockCoords] = useState(null); // { lat, lng, accuracy }
   const [clockTime, setClockTime] = useState(new Date());
   const [clockInDocId, setClockInDocId] = useState(null);
   const [clockedAtStr, setClockedAtStr] = useState(null);
+  const [clockInDate, setClockInDate] = useState(null);      // Date of today's clock-in (for hours calc)
+  const [clockedOutAtStr, setClockedOutAtStr] = useState(null);
+  const [workedHours, setWorkedHours] = useState(null);
 
   // Live timer
   useEffect(() => {
@@ -42,16 +52,17 @@ export default function ClockInCard({ profile, onClockChange }) {
           const docId = snap.docs[0].id;
           setClockInDocId(docId);
           setClockDist(docData.distanceToSiteM ?? null);
-          
+
+          const inDate = docData.clockedInAt?.toDate ? docData.clockedInAt.toDate() : null;
+          setClockInDate(inDate);
+          setClockedAtStr(inDate ? fmtHM(inDate) : "earlier");
+
           if (docData.clockedOutAt) {
-            setStatus("idle");
+            const outDate = docData.clockedOutAt.toDate ? docData.clockedOutAt.toDate() : null;
+            setClockedOutAtStr(outDate ? fmtHM(outDate) : "earlier");
+            setWorkedHours(inDate && outDate ? hoursBetween(inDate, outDate) : null);
+            setStatus("clocked_out");
           } else {
-            if (docData.clockedInAt?.toDate) {
-              const date = docData.clockedInAt.toDate();
-              setClockedAtStr(`${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`);
-            } else {
-              setClockedAtStr("earlier");
-            }
             setStatus("clocked");
           }
         } else {
@@ -148,7 +159,10 @@ export default function ClockInCard({ profile, onClockChange }) {
         lateMinutes: statusCalc.lateMinutes,
       }, { merge: true });
 
-      setClockedAtStr(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+      setClockedAtStr(fmtHM(now));
+      setClockInDate(now);
+      setClockedOutAtStr(null);
+      setWorkedHours(null);
       setStatus("clocked");
       hapticSuccess();
 
@@ -172,29 +186,50 @@ export default function ClockInCard({ profile, onClockChange }) {
   };
 
   const handleClockOut = async () => {
-    if (clockInDocId) {
-      try {
-        setStatus("saving");
-        const ref = doc(db, "clock_ins", clockInDocId);
-        await setDoc(ref, { clockedOutAt: serverTimestamp() }, { merge: true });
-        
-        // Mark attendance as clocked out in notes
-        const attRef = doc(db, "attendance", `${today}_${staffId}`);
-        await setDoc(attRef, {
-          note: "GPS clock-in & out",
-        }, { merge: true });
-        
-      } catch (err) {
-        console.error("Error clocking out:", err);
-      }
+    if (!clockInDocId) return;
+    try {
+      setStatus("saving");
+      const now = new Date();
+      const hours = clockInDate ? hoursBetween(clockInDate, now) : null;
+
+      await setDoc(doc(db, "clock_ins", clockInDocId), {
+        clockedOutAt: serverTimestamp(),
+        ...(hours != null ? { workedHours: hours } : {}),
+      }, { merge: true });
+
+      // Record actual worked hours on the attendance row
+      const attRef = doc(db, "attendance", `${today}_${staffId}`);
+      await setDoc(attRef, {
+        note: "GPS clock-in & out",
+        ...(hours != null ? { hours } : {}),
+      }, { merge: true });
+
+      setClockedOutAtStr(fmtHM(now));
+      setWorkedHours(hours);
+      setStatus("clocked_out");
+      hapticSuccess();
+      if (onClockChange) onClockChange();
+    } catch (err) {
+      console.error("Error clocking out:", err);
+      setStatus("clocked"); // stay clocked in — the clock-out didn't save
     }
-    setStatus("idle");
-    setClockDist(null);
-    setClockCoords(null);
-    setClockInDocId(null);
-    setClockedAtStr(null);
-    
-    if (onClockChange) onClockChange();
+  };
+
+  // Undo an accidental clock-out (or returning after a break)
+  const handleClockBackIn = async () => {
+    if (!clockInDocId) return;
+    try {
+      setStatus("saving");
+      await setDoc(doc(db, "clock_ins", clockInDocId), { clockedOutAt: null }, { merge: true });
+      await setDoc(doc(db, "attendance", `${today}_${staffId}`), { note: "GPS clock-in" }, { merge: true });
+      setClockedOutAtStr(null);
+      setWorkedHours(null);
+      setStatus("clocked");
+      if (onClockChange) onClockChange();
+    } catch (err) {
+      console.error("Error clocking back in:", err);
+      setStatus("clocked_out");
+    }
   };
 
   if (status === "checking_status") {
@@ -241,6 +276,7 @@ export default function ClockInCard({ profile, onClockChange }) {
               {status === "low-accuracy" && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>Weak GPS</div></>}
               {status === "gps-error"    && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>GPS Error</div></>}
               {status === "clocked"      && <><Icons.Check size={28} sw={2.2} style={{color:"var(--mint-deep)"}}/><div className="kem-clock-inner-l">Clocked in</div></>}
+              {status === "clocked_out"  && <><div className="num-xl mono" style={{fontSize:24,color:"var(--mint-deep)"}}>{workedHours != null ? `${workedHours}h` : "✓"}</div><div className="kem-clock-inner-l">day complete</div></>}
             </div>
           </div>
         </div>
@@ -351,7 +387,24 @@ export default function ClockInCard({ profile, onClockChange }) {
                 </div>
               </div>
               <div className="kem-clock-actions">
-                <Btn kind="outline" size="md" onClick={handleClockOut}>Clock out</Btn>
+                <Btn kind="outline" size="md" onClick={() => {
+                  if (window.confirm("Clock out now? This records the end of your work day.")) handleClockOut();
+                }}>Clock out</Btn>
+              </div>
+            </>
+          )}
+
+          {status === "clocked_out" && (
+            <>
+              <div className="kem-clock-banner kem-clock-banner--ok">
+                <Icons.Check size={18} sw={2.2}/>
+                <div>
+                  <div>Day complete — in <strong className="mono">{clockedAtStr || "—"}</strong> · out <strong className="mono">{clockedOutAtStr || "—"}</strong></div>
+                  <span>{workedHours != null ? <><strong className="mono">{workedHours}h</strong> logged today. </> : null}See you tomorrow, {profile?.name?.split(" ")[0]}.</span>
+                </div>
+              </div>
+              <div className="kem-clock-actions">
+                <Btn kind="ghost" size="md" onClick={handleClockBackIn}>Clock back in</Btn>
               </div>
             </>
           )}

@@ -41,7 +41,12 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.path[3] != 'bank_transactions';
     }
     match /attendance/{id} {
-      allow create, update: if hasPermission("attendance") || isNepalStaff() || isSuperAdmin();
+      // Staff may always write their own attendance row (GPS clock-in/out) —
+      // employee-role users have no "attendance" permission but still clock in.
+      allow create, update: if hasPermission("attendance") || isNepalStaff() || isSuperAdmin()
+        || (isSignedIn()
+            && request.resource.data.staffId == request.auth.uid
+            && id == request.resource.data.date + "_" + request.auth.uid);
       allow delete: if false;
     }
     match /clock_ins/{id} {
