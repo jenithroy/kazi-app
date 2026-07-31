@@ -90,14 +90,14 @@ export default function Sales() {
         </div>
 
         {/* KPI row */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+        <div className="krsp-4" style={{ gap: 14, marginBottom: 28 }}>
           <KPI label="Active Orders"       value={loading ? "—" : active.length}        accent="var(--mint-deep)" />
           <KPI label="Units in Pipeline"   value={loading ? "—" : totalUnits.toLocaleString()} accent="#6366f1" />
           <KPI label="Delivered This Month" value={loading ? "—" : delivered.length}    accent="#22c55e" />
           <KPI label="New This Week"        value={loading ? "—" : newThisWeek.length}  accent="#f59e0b" />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 28 }}>
+        <div className="krsp-2" style={{ gap: 18, marginBottom: 28 }}>
 
           {/* Pipeline by stage */}
           <div style={{ background: "var(--surface)", borderRadius: 12, padding: "20px 22px", border: "1px solid var(--line)" }}>
@@ -161,6 +161,7 @@ export default function Sales() {
           ) : recent.length === 0 ? (
             <p style={{ padding: "20px 22px", color: "var(--ink-3)", fontSize: 13 }}>No active orders</p>
           ) : (
+            <div className="table-wrap">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg)" }}>
@@ -187,6 +188,7 @@ export default function Sales() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 

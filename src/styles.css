@@ -1188,7 +1188,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 
 /* Pill tabs inside panel */
-.kinv-tabs { display: flex; gap: 2px; }
+.kinv-tabs {
+  display: flex; gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.kinv-tabs::-webkit-scrollbar { display: none; }
+.kinv-tab { flex-shrink: 0; white-space: nowrap; }
 .kinv-tab {
   padding: 8px 16px;
   border: none;
@@ -3088,8 +3095,10 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* ── Tables: horizontal scroll ── */
   .table-wrap { -webkit-overflow-scrolling: touch; }
   .table-wrap table { min-width: 560px; }
+  .katt-table-wrap table { min-width: 780px; } /* 9-col attendance log (clock-out + hours) */
   .kinv-table-wrap { -webkit-overflow-scrolling: touch; }
   .kinv-table { min-width: 600px; }
+  .kfin-tbl-wrap { -webkit-overflow-scrolling: touch; }
 
   /* ── Finance forms → 1 column ── */
   .kfin-form { grid-template-columns: 1fr !important; }
@@ -3140,8 +3149,9 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .kmsg-chat { min-height: 0; }
 
   /* ── Customers table: horizontal scroll ── */
+  /* !important: the component sets overflow:hidden inline for the rounded corners */
   .kcust-tbl {
-    overflow-x: auto;
+    overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
   }
   .kcust-row { min-width: 640px; }
@@ -4462,6 +4472,25 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 }
 
 /* ═══════════════════════════════════════════════════════
+   RESPONSIVE INLINE-GRID HELPERS
+   Use instead of inline gridTemplateColumns so field pairs
+   and KPI rows collapse on phones.
+   ═══════════════════════════════════════════════════════ */
+.krsp-2 { display: grid; grid-template-columns: 1fr 1fr; }
+.krsp-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+.krsp-4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) {
+  .krsp-4 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .krsp-2 { grid-template-columns: 1fr; }
+  .krsp-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 400px) {
+  .krsp-3, .krsp-4 { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════════════════
    TECH PACKS (Inventory & Library → Tech Packs tab)
    ═══════════════════════════════════════════════════════ */
 
@@ -4658,6 +4687,7 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   justify-content: space-between;
   gap: 12px;
   padding: 12px 20px;
+  padding-top: max(12px, env(safe-area-inset-top));
   flex-shrink: 0;
 }
 
@@ -4763,12 +4793,18 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 
 .ktp-viewer-thumbs {
   display: flex;
-  justify-content: center;
   gap: 8px;
-  padding: 12px 20px 16px;
+  padding: 12px 20px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   flex-shrink: 0;
 }
+
+/* Center the strip when it fits, without clipping the first thumb when it scrolls
+   (justify-content: center + overflow makes leading items unreachable) */
+.ktp-viewer-thumb:first-child { margin-left: auto; }
+.ktp-viewer-thumb:last-child  { margin-right: auto; }
 
 .ktp-viewer-thumb {
   flex-shrink: 0;
@@ -4817,4 +4853,17 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   }
   .ktp-viewer-nav--prev { left: 8px; }
   .ktp-viewer-nav--next { right: 8px; }
+  .ktp-viewer-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .ktp-page-thumb {
+    width: 72px;
+    height: 90px;
+  }
+  .ktp-page-thumb-x {
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
+  }
 }

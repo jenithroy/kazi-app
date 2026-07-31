@@ -24,7 +24,7 @@ function CustomerForm({ initial, onSave, onCancel }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="krsp-2" style={{ gap: 10 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>
           Customer name *
           <input style={inp} value={form.name} onChange={set("name")} placeholder="e.g. Next plc" autoFocus />

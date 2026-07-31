@@ -313,7 +313,7 @@ function Attendance() {
                 <div style={{ fontSize: 12, marginTop: 4 }}>Staff will appear here once added to the system</div>
               </div>
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap katt-table-wrap">
                 <table>
                   <thead>
                     <tr>
@@ -450,7 +450,7 @@ function Attendance() {
 
       {/* ─── Late-status change confirmation modal ─── */}
       {confirmPending && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
           <div style={{ background: "var(--bg)", borderRadius: 12, padding: "24px 28px", maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
             <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Change attendance status?</div>
             <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 20 }}>

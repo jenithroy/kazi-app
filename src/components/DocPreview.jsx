@@ -147,8 +147,9 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
       </div>
 
       {/* ── A4 Page ── */}
-      <div style={{ flex: 1, overflowY: "auto", width: "100%", display: "flex", justifyContent: "center", padding: "28px 32px", background: "#d4e2d4" }}>
-        <div ref={printRef} className="invoice-page" style={{ width: 794, minHeight: 1123, position: "relative", backgroundImage: "url('/letterhead.jpg')", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", boxShadow: "0 6px 28px rgba(0,0,0,0.25)", flexShrink: 0, fontFamily: "'Segoe UI', Arial, sans-serif" }}>
+      {/* margin:auto (not flex centering) keeps the page's left edge reachable when it overflows on phones */}
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch", width: "100%", padding: "28px 16px", background: "#d4e2d4" }}>
+        <div ref={printRef} className="invoice-page" style={{ width: 794, minHeight: 1123, margin: "0 auto", position: "relative", backgroundImage: "url('/letterhead.jpg')", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", boxShadow: "0 6px 28px rgba(0,0,0,0.25)", flexShrink: 0, fontFamily: "'Segoe UI', Arial, sans-serif" }}>
           <div style={{ position: "absolute", top: 150, left: 50, right: 50, bottom: 118, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
             {/* Title */}

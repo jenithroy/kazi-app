@@ -464,7 +464,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
           </div>
 
           {tab === "fabrics" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="krsp-2" style={{ gap: 12 }}>
               <div>
                 <label className="kfin-label">Composition</label>
                 <input className="kfin-input" value={form.composition ?? ""} onChange={e => set("composition", e.target.value)} placeholder="100% Cotton" />
@@ -478,7 +478,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
               <label className="kfin-label">Available Colors (comma-separated)</label>
               <input className="kfin-input" value={form.available_colors ?? ""} onChange={e => set("available_colors", e.target.value)} placeholder="White, Black, Navy" />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="krsp-2" style={{ gap: 12 }}>
               <div>
                 <label className="kfin-label">Supplier</label>
                 <input className="kfin-input" value={form.supplier ?? ""} onChange={e => set("supplier", e.target.value)} />
@@ -502,7 +502,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
               <label className="kfin-label">Description</label>
               <textarea className="kfin-input" rows={2} value={form.description ?? ""} onChange={e => set("description", e.target.value)} style={{ resize: "vertical" }} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <div className="krsp-3" style={{ gap: 10 }}>
               <div>
                 <label className="kfin-label">Cost/unit (NPR)</label>
                 <input className="kfin-input" type="number" value={form.cost_per_unit ?? ""} onChange={e => set("cost_per_unit", e.target.value)} />
@@ -607,7 +607,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
           </>}
 
           {tab === "samples" && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="krsp-2" style={{ gap: 12 }}>
               <div>
                 <label className="kfin-label">Product Type</label>
                 <input className="kfin-input" value={form.product_type ?? ""} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
@@ -617,7 +617,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                 <input className="kfin-input" value={form.fabric_used ?? ""} onChange={e => set("fabric_used", e.target.value)} placeholder="e.g. 180 GSM Cotton Jersey" />
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="krsp-2" style={{ gap: 12 }}>
               <div>
                 <label className="kfin-label">Sample Stage</label>
                 <select className="kfin-input" value={form.stage ?? "Proto"} onChange={e => set("stage", e.target.value)}>
@@ -631,7 +631,7 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
                 </select>
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="krsp-2" style={{ gap: 12 }}>
               <div>
                 <label className="kfin-label">Size</label>
                 <select className="kfin-input" value={form.size ?? ""} onChange={e => set("size", e.target.value)}>
@@ -887,7 +887,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
               />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div className="krsp-3" style={{ gap: 12 }}>
               <div>
                 <label className="kfin-label">Weight (GSM)</label>
                 <input
@@ -1096,7 +1096,7 @@ function AddFabricModal({ onClose, onSaved }) {
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <div className="krsp-3" style={{ gap: 12 }}>
             <div>
               <label className="kfin-label">Weight (GSM)</label>
               <input
@@ -1348,6 +1348,14 @@ function TechPackCard({ item, canEdit, onEdit, onDelete, onView }) {
 function TechPackViewer({ item, onClose }) {
   const images = getTechPackImages(item);
   const [page, setPage] = useState(0);
+  const touchStartX = useRef(null);
+  const thumbsRef = useRef(null);
+
+  // Keep the active thumbnail visible as pages change (strip scrolls on mobile)
+  useEffect(() => {
+    thumbsRef.current?.querySelector(".ktp-viewer-thumb--active")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  }, [page]);
 
   useEffect(() => {
     function onKey(e) {
@@ -1358,6 +1366,17 @@ function TechPackViewer({ item, onClose }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [images.length, onClose]);
+
+  // Swipe left/right between pages on touch devices
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 50) return;
+    if (dx < 0) setPage(p => Math.min(images.length - 1, p + 1));
+    else        setPage(p => Math.max(0, p - 1));
+  };
 
   if (!images.length) return null;
   const current = images[Math.min(page, images.length - 1)];
@@ -1382,7 +1401,8 @@ function TechPackViewer({ item, onClose }) {
       </div>
 
       {/* Stage */}
-      <div className="ktp-viewer-stage" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="ktp-viewer-stage" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+        onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {images.length > 1 && (
           <button className="ktp-viewer-nav ktp-viewer-nav--prev" disabled={page === 0}
             onClick={() => setPage(p => Math.max(0, p - 1))}>
@@ -1400,7 +1420,7 @@ function TechPackViewer({ item, onClose }) {
 
       {/* Thumbnail strip */}
       {images.length > 1 && (
-        <div className="ktp-viewer-thumbs">
+        <div className="ktp-viewer-thumbs" ref={thumbsRef}>
           {images.map((url, i) => (
             <button key={i} className={cn("ktp-viewer-thumb", i === page && "ktp-viewer-thumb--active")}
               onClick={() => setPage(i)}>
