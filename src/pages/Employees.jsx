@@ -3,8 +3,10 @@ import {
   addDoc, collection, getDocs, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch,
   query, where, setDoc
 } from "firebase/firestore";
+import { initializeApp, deleteApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
+import { db, auth, firebaseConfig } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { TEAM_MEMBERS, GBP_RATE } from "../constants";
@@ -12,6 +14,28 @@ import { asCurrency } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
 
 const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", "Marketing", "IT", "Other"];
+
+// Creates the employee's Firebase Auth account on a throwaway secondary app instance
+// (so signing them up doesn't kick the admin out of their own session), then emails
+// them a link to set their own password.
+async function createEmployeeLogin(email) {
+  const secondaryApp = initializeApp(firebaseConfig, `employee-signup-${Date.now()}`);
+  const secondaryAuth = getAuth(secondaryApp);
+  try {
+    const tempPassword = crypto.randomUUID();
+    await createUserWithEmailAndPassword(secondaryAuth, email, tempPassword);
+    await sendPasswordResetEmail(secondaryAuth, email);
+    await signOut(secondaryAuth);
+  } catch (err) {
+    if (err.code === "auth/email-already-in-use") {
+      await sendPasswordResetEmail(auth, email);
+    } else {
+      throw err;
+    }
+  } finally {
+    await deleteApp(secondaryApp);
+  }
+}
 
 const emptyForm = {
   name: "", role: "", department: "Operations", email: "", phone: "",
@@ -317,6 +341,7 @@ function Employees() {
     e.preventDefault();
     setSubmitting(true);
     const data = { ...form, basicSalaryNPR: Number(form.basicSalaryNPR || 0) };
+    const isNewEmployee = !editId;
     if (editId) {
       await updateDoc(doc(db, "employees", editId), { ...data, updatedBy: profile?.name || "Unknown", updatedAt: serverTimestamp() });
       setEditId(null);
@@ -351,6 +376,16 @@ function Employees() {
         }
       } catch (err) {
         console.warn("Failed to sync user profile stub:", err);
+      }
+
+      if (isNewEmployee) {
+        try {
+          await createEmployeeLogin(data.email);
+          alert(`${data.name} was added — a password-setup email was sent to ${data.email}.`);
+        } catch (err) {
+          console.warn("Failed to auto-create login:", err);
+          alert(`${data.name} was saved, but their login email couldn't be sent automatically (${err.message}). You can add them manually in Firebase Authentication.`);
+        }
       }
     }
 

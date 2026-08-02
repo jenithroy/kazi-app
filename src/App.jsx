@@ -6,6 +6,7 @@ import Production from "./pages/Production";
 import Inventory from "./pages/Inventory";
 import QualityControl from "./pages/QualityControl";
 import Finance from "./pages/Finance";
+import Purchases from "./pages/Purchases";
 import Tasks from "./pages/Tasks";
 import Budget from "./pages/Budget";
 import Billing from "./pages/Billing";
@@ -31,6 +32,7 @@ function App() {
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/qc" element={<QualityControl />} />
         <Route path="/finance" element={<Finance />} />
+        <Route path="/purchases" element={<Purchases />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/content" element={<Budget />} />
         <Route path="/orders" element={<Navigate to="/production" replace />} />

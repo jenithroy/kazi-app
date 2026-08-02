@@ -12,6 +12,7 @@ dist/
 # Firebase service account key — contains private key, never commit
 serviceAccountKey.json
 *serviceAccount*.json
+*firebase-adminsdk*.json
 
 # Claude Code local settings (machine-specific)
 .claude/

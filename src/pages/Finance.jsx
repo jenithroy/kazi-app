@@ -16,8 +16,9 @@ import {
   ResponsiveContainer, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
-import { fmt } from "../components/ui";
-import DualDateInput from "../components/DualDateInput";
+import { useNavigate } from "react-router-dom";
+import { fmt, Icons } from "../components/ui";
+import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseItemsPayload } from "../components/PurchaseRowGroup";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency } from "../utils/format";
@@ -54,13 +55,6 @@ const SEED_PURCHASES = [
   { expenseId: "EXP025", expenseItem: "Sewing Machine",               category: "Machinery / Assets",    vatBill: true,  amountNPR: 945500 },
 ];
 
-const PURCHASE_CATEGORIES = [
-  "Office Supplies", "Equipment / IT", "Equipment", "Consumables",
-  "Raw Materials", "Furniture & Fixtures", "Setup / Security", "Setup / IT",
-  "Setup / Maintenance", "Machinery / Assets", "Miscellaneous / Events",
-  "Miscellaneous", "Rent / Lease", "Professional Fees", "Utilities", "Other"
-];
-
 const EXPENSE_CATEGORIES = [
   "Utilities", "Rent / Lease", "Salaries", "Office Supplies",
   "Transport", "Meals & Entertainment", "Marketing", "Professional Fees",
@@ -93,169 +87,6 @@ const DEFAULT_ACCOUNTS = [
   { name: "Miscellaneous Expense", type: "Expense" },
 ];
 
-const emptyLineItem = { particulars: "", quantity: "", rate: "", amount: "" };
-
-const emptyPurchaseForm = {
-  date: new Date().toISOString().slice(0, 10),
-  expenseItem: "", category: "Office Supplies", vatBill: false,
-  items: [{ ...emptyLineItem }]
-};
-
-function addLineItem(items) {
-  return [...items, { ...emptyLineItem }];
-}
-function removeLineItem(items, idx) {
-  return items.length > 1 ? items.filter((_, i) => i !== idx) : items;
-}
-function updateLineItem(items, idx, patch) {
-  return items.map((it, i) => (i === idx ? { ...it, ...patch } : it));
-}
-// Qty/Rate edits auto-suggest Amount (qty × rate); Amount itself stays independently
-// editable so lump-sum particulars (rent, fees) don't need a fake qty/rate.
-function applyItemChange(items, idx, patch) {
-  let next = updateLineItem(items, idx, patch);
-  if ("quantity" in patch || "rate" in patch) {
-    const it = next[idx];
-    const q = Number(it.quantity), r = Number(it.rate);
-    if (it.quantity !== "" && it.rate !== "" && !isNaN(q) && !isNaN(r)) {
-      next = updateLineItem(next, idx, { amount: String(q * r) });
-    }
-  }
-  return next;
-}
-function itemsTotal(items) {
-  return items.reduce((s, it) => s + (it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0), 0);
-}
-function itemsForEdit(row) {
-  if (Array.isArray(row.items) && row.items.length) {
-    return row.items.map(it => ({
-      particulars: it.particulars || "",
-      quantity: it.quantity == null ? "" : String(it.quantity),
-      rate: it.rate == null ? "" : String(it.rate),
-      amount: it.amount == null ? "" : String(it.amount)
-    }));
-  }
-  if (row.particulars || row.quantity != null || row.rate != null) {
-    return [{
-      particulars: row.particulars || "",
-      quantity: row.quantity == null ? "" : String(row.quantity),
-      rate: row.rate == null ? "" : String(row.rate),
-      amount: row.amountNPR == null ? "" : String(row.amountNPR)
-    }];
-  }
-  return [{ ...emptyLineItem }];
-}
-function initialGroupData(row) {
-  return { date: row.date, expenseItem: row.expenseItem, category: row.category, vatBill: row.vatBill, items: itemsForEdit(row) };
-}
-// Enter moves focus to the next field instead of doing nothing; only fires the finish
-// action once the last field in the container is reached.
-function focusNextOnEnter(e, onFinish) {
-  if (e.key !== "Enter" || e.target.tagName === "BUTTON") return;
-  e.preventDefault();
-  const fields = Array.from(e.currentTarget.querySelectorAll("input, select")).filter(el => !el.disabled);
-  const next = fields[fields.indexOf(e.target) + 1];
-  if (next) next.focus(); else onFinish?.();
-}
-// Pressing Enter on the last particulars row's Rate field appends a fresh row
-// and jumps focus into its Particulars input, instead of bubbling further up.
-function addItemOnEnter(e, onAddItem) {
-  if (e.key !== "Enter") return;
-  e.preventDefault();
-  e.stopPropagation();
-  const container = e.currentTarget.closest("tbody");
-  onAddItem();
-  requestAnimationFrame(() => {
-    const inputs = container?.querySelectorAll('[data-role="particulars"]');
-    inputs?.[inputs.length - 1]?.focus();
-  });
-}
-
-// One purchase (Date/Party/Category/VAT shared via rowSpan) rendered as one <tr> per particular.
-// Used for both the new-purchase draft row and every existing purchase — the table itself is the editor.
-function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
-  const items = data.items;
-  return (
-    <tbody
-      onBlur={e => { if (onBlurAway && !e.currentTarget.contains(e.relatedTarget)) onBlurAway(); }}
-      onKeyDown={e => focusNextOnEnter(e, onFinishEnter)}
-    >
-      {items.map((item, idx) => (
-        <tr key={idx} style={{ background: highlight ? "var(--mint-soft)" : undefined }}>
-          {idx === 0 && (
-            <>
-              <td rowSpan={items.length} style={{ color: "var(--ink-4)", fontSize: 12, fontFamily: "var(--mono)", verticalAlign: "top", paddingTop: 10 }}>{expenseId}</td>
-              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 195 }}>
-                <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" />
-              </td>
-              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                <input className="kfin-input"
-                  style={{ padding: "5px 6px", fontSize: 13, minWidth: 100, ...(partyError ? { border: "1.5px solid var(--terra)", background: "var(--terra-soft, #fdf2ef)" } : {}) }}
-                  value={data.expenseItem}
-                  placeholder="Party name" onChange={e => onFieldChange({ expenseItem: e.target.value })} />
-                {partyError && (
-                  <div style={{ color: "var(--terra)", fontSize: 11, fontWeight: 600, marginTop: 4, maxWidth: 140 }}>{partyError}</div>
-                )}
-              </td>
-              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.category}
-                  onChange={e => onFieldChange({ category: e.target.value })}>
-                  {PURCHASE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                </select>
-              </td>
-              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }}
-                  value={data.vatBill === null ? "na" : data.vatBill ? "yes" : "no"}
-                  onChange={e => { const v = e.target.value; onFieldChange({ vatBill: v === "yes" ? true : v === "no" ? false : null }); }}>
-                  <option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
-                </select>
-              </td>
-            </>
-          )}
-          <td>
-            <input className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, minWidth: 110 }} value={item.particulars} placeholder="Particulars"
-              data-role="particulars"
-              onChange={e => onItemChange(idx, { particulars: e.target.value })} />
-          </td>
-          <td>
-            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 52 }} value={item.quantity} placeholder="Qty"
-              onChange={e => onItemChange(idx, { quantity: e.target.value })} />
-          </td>
-          <td>
-            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 68 }} value={item.rate} placeholder="Rate"
-              onChange={e => onItemChange(idx, { rate: e.target.value })}
-              onKeyDown={idx === items.length - 1 ? (e => addItemOnEnter(e, onAddItem)) : undefined} />
-          </td>
-          <td>
-            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 78, fontWeight: 600 }} value={item.amount} placeholder="0"
-              onChange={e => onItemChange(idx, { amount: e.target.value })} />
-          </td>
-          <td>
-            <div style={{ display: "flex", gap: 4 }}>
-              {items.length > 1 && (
-                <button type="button" className="ghost-button" style={{ padding: "3px 8px", fontSize: 12 }} onClick={() => onRemoveItem(idx)} title="Remove particular">×</button>
-              )}
-              {idx === items.length - 1 && (
-                <button type="button" className="ghost-button" style={{ padding: "3px 8px", fontSize: 12 }} onClick={onAddItem} title="Add particular">+</button>
-              )}
-            </div>
-          </td>
-          {idx === 0 && (
-            <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-2)", fontFamily: "var(--mono)" }}>
-                  NPR {itemsTotal(items).toLocaleString()}
-                </span>
-                {actionCell}
-              </div>
-            </td>
-          )}
-        </tr>
-      ))}
-    </tbody>
-  );
-}
-
 const initialExpense = {
   category: "Utilities", amountNPR: "",
   date: new Date().toISOString().slice(0, 10), note: "", vatBill: false
@@ -282,6 +113,7 @@ const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function Finance() {
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const { fmt: fmtC } = useCurrency();
   const [activeTab, setActiveTab] = useState("expenses");
@@ -309,7 +141,6 @@ function Finance() {
   const [purchases, setPurchases]     = useState([]);
   const allPurchaseIdsRef = useRef([]); // unfiltered expenseIds (incl. historical, hidden-by-cutoff rows) — nextExpenseId() must never collide with these
   const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
-  const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [purchaseError, setPurchaseError] = useState("");     // inline error shown at the new-purchase row
   const [purchaseSuccess, setPurchaseSuccess] = useState(""); // "EXP027 saved" confirmation by the table title
   const [submitting, setSubmitting]   = useState(false);
@@ -482,17 +313,6 @@ function Finance() {
     return `EXP${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
   }
 
-  function purchaseItemsPayload(items) {
-    return items
-      .filter(it => (it.particulars || "").trim() !== "")
-      .map(it => ({
-        particulars: it.particulars,
-        quantity: it.quantity === "" || it.quantity == null ? null : Number(it.quantity),
-        rate: it.rate === "" || it.rate == null ? null : Number(it.rate),
-        amount: it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0
-      }));
-  }
-
   async function addPurchase() {
     if (!canEditTab("purchases")) { setPurchaseError("You don't have permission to add purchases."); return; }
     if (!purchaseForm.expenseItem.trim()) {
@@ -510,7 +330,7 @@ function Finance() {
         amountNPR: itemsTotal(purchaseForm.items), date: purchaseForm.date, createdAt: serverTimestamp(),
         items: purchaseItemsPayload(purchaseForm.items)
       });
-      setPurchaseForm({ ...emptyPurchaseForm, date: new Date().toISOString().slice(0, 10), items: [{ ...emptyLineItem }] });
+      setPurchaseForm({ ...emptyPurchaseForm, date: new Date().toISOString().slice(0, 10), items: [{ ...emptyPurchaseForm.items[0] }] });
       setPurchaseSuccess(`✓ ${newId} saved`);
       setTimeout(() => setPurchaseSuccess(""), 4000);
       await loadData();
@@ -522,52 +342,6 @@ function Finance() {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function purchaseRowData(row) {
-    return purchaseDrafts[row.id] || initialGroupData(row);
-  }
-  function updatePurchaseField(row, patch) {
-    setPurchaseDrafts(d => ({ ...d, [row.id]: { ...purchaseRowData(row), ...patch } }));
-  }
-  function updatePurchaseItem(row, idx, patch) {
-    setPurchaseDrafts(d => {
-      const base = purchaseRowData(row);
-      return { ...d, [row.id]: { ...base, items: applyItemChange(base.items, idx, patch) } };
-    });
-  }
-  function addPurchaseItem(row) {
-    setPurchaseDrafts(d => {
-      const base = purchaseRowData(row);
-      return { ...d, [row.id]: { ...base, items: addLineItem(base.items) } };
-    });
-  }
-  function removePurchaseItem(row, idx) {
-    setPurchaseDrafts(d => {
-      const base = purchaseRowData(row);
-      return { ...d, [row.id]: { ...base, items: removeLineItem(base.items, idx) } };
-    });
-  }
-  async function commitPurchaseDraft(row) {
-    const draft = purchaseDrafts[row.id];
-    if (!draft) return;
-    try {
-      await fsUpdateDoc(doc(db, "finance_purchases", row.id), {
-        expenseItem: draft.expenseItem, category: draft.category,
-        vatBill: draft.vatBill, amountNPR: itemsTotal(draft.items), date: draft.date,
-        items: purchaseItemsPayload(draft.items)
-      });
-      setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
-      await loadData();
-    } catch (err) {
-      console.error("Failed to update purchase:", err);
-      showError("Failed to update purchase. Please try again.");
-    }
-  }
-
-  async function deletePurchase(id) {
-    if (!window.confirm("Delete this purchase record?")) return;
-    await deleteDoc(doc(db, "finance_purchases", id)); await loadData();
   }
 
   async function deleteExpense(id) {
@@ -827,7 +601,15 @@ function Finance() {
             <p className="kfin-kpi-sub">{asCurrency(summary.expensesGBP, "GBP")}</p>
           </div>
 
-          <div className="kfin-kpi">
+          <div
+            className="kfin-kpi kfin-kpi--link"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate("/purchases")}
+            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/purchases"); } }}
+            title="View all saved purchases"
+          >
+            <Icons.ArrowRight size={13} sw={2} className="kfin-kpi-arrow" />
             <div className="kfin-kpi-ico" style={{ background: "var(--amber-soft)", color: "var(--amber)" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>
@@ -1022,27 +804,32 @@ function Finance() {
           <div className="kfin-block">
             <div className="kfin-block-hd">
               <p className="kfin-block-title">
-                Purchases <span className="kfin-block-sub">({purchases.length})</span>
+                Add Purchase
                 {purchaseSuccess && (
                   <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 700, color: "var(--mint-deep)", background: "var(--mint-soft)", padding: "3px 10px", borderRadius: 20 }}>
                     {purchaseSuccess}
                   </span>
                 )}
               </p>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>
-                NPR {purchaseTotal.toLocaleString()}
-                <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  {purchases.length} saved · NPR {purchaseTotal.toLocaleString()}
+                  <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
+                </span>
+                <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => navigate("/purchases")}>
+                  View saved purchases →
+                </button>
+              </div>
             </div>
             {!canEdit && <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ You don't have permission to add or edit purchases.</div>}
-            <div className="kfin-tbl-wrap">
-              <table className="kfin-tbl kfin-tbl-compact">
-                <thead><tr>
-                  <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>VAT Bill</th>
-                  <th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
-                </tr></thead>
+            {canEdit && (
+              <div className="kfin-tbl-wrap">
+                <table className="kfin-tbl kfin-tbl-compact">
+                  <thead><tr>
+                    <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>VAT Bill</th>
+                    <th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
+                  </tr></thead>
 
-                {canEdit && (
                   <PurchaseRowGroup
                     expenseId={`${nextExpenseId()} (new)`}
                     data={purchaseForm}
@@ -1063,26 +850,9 @@ function Finance() {
                       </button>
                     }
                   />
-                )}
-
-                {purchases.map(row => (
-                  <PurchaseRowGroup
-                    key={row.id}
-                    expenseId={row.expenseId}
-                    data={purchaseRowData(row)}
-                    onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
-                    onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}
-                    onAddItem={() => canEdit && addPurchaseItem(row)}
-                    onRemoveItem={idx => canEdit && removePurchaseItem(row, idx)}
-                    onBlurAway={() => canEdit && commitPurchaseDraft(row)}
-                    actionCell={canEdit && (
-                      <button className="ghost-button" type="button" style={{ padding: "5px 10px", fontSize: 12, color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }}
-                        onClick={() => deletePurchase(row.id)}>Delete</button>
-                    )}
-                  />
-                ))}
-              </table>
-            </div>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

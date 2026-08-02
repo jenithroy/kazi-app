@@ -2214,6 +2214,23 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   flex-direction: column;
   gap: 3px;
 }
+.kfin-kpi--link {
+  position: relative;
+  cursor: pointer;
+  text-align: left;
+  border: 1.5px solid var(--mint-deep);
+  box-shadow: 0 0 0 3px var(--mint-soft), var(--shadow-1);
+  transition: box-shadow .15s, transform .15s;
+}
+.kfin-kpi--link:hover { box-shadow: 0 0 0 3px var(--mint-soft), var(--shadow-pop, var(--shadow-1)); transform: translateY(-1px); }
+.kfin-kpi--link:active { transform: translateY(0); }
+.kfin-kpi--link:focus-visible { outline: 2px solid var(--mint-deep); outline-offset: 2px; }
+.kfin-kpi-arrow {
+  position: absolute; top: 16px; right: 16px;
+  color: var(--mint-deep); opacity: .8;
+  transition: opacity .15s, transform .15s;
+}
+.kfin-kpi--link:hover .kfin-kpi-arrow { opacity: 1; transform: translateX(2px); }
 .kfin-kpi-ico {
   width: 32px; height: 32px;
   border-radius: 8px;
@@ -2370,6 +2387,24 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 /* Denser variant for wide data-entry tables (e.g. Purchases) — tighter padding, no wasted gaps */
 .kfin-tbl-compact th { padding: 8px 6px; }
 .kfin-tbl-compact td { padding: 6px 6px; }
+
+/* Plain-row variant — editable inputs blend into plain text at rest (Billing-style clean rows),
+   revealing their input chrome only on hover/focus so the table still reads as tappable/editable. */
+.kfin-tbl--plain .kfin-input,
+.kfin-tbl--plain .kfin-select {
+  border-color: transparent;
+  background: transparent;
+}
+.kfin-tbl--plain .kfin-input:hover,
+.kfin-tbl--plain .kfin-select:hover {
+  border-color: var(--line-strong);
+  background: #fff;
+}
+.kfin-tbl--plain .kfin-input:focus,
+.kfin-tbl--plain .kfin-select:focus {
+  border-color: var(--mint-2);
+  background: #fff;
+}
 
 /* ── Progress bar ── */
 .kfin-progress-bar {

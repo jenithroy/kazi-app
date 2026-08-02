@@ -48,6 +48,7 @@ const ROUTE_LABEL = {
   qc:         "Quality Control",
   inventory:  "Inventory",
   finance:    "Finance",
+  purchases:  "Purchases",
   billing:    "Billing",
   content:    "Budget Requests",
   employees:  "Employee and HR",
