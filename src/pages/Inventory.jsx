@@ -141,7 +141,12 @@ const STOCK_CATEGORIES = [
 const emptyItemForm = {
   item: "", unit: "pcs", category: "Raw Materials", supplier: "",
   openingStock: 0, stockIn: 0, stockUsed: 0, minLevel: 0,
-  unitCostNPR: "", location: ""
+  unitCostNPR: "", location: "", owner: "", condition: ""
+};
+
+const emptyCostForm = {
+  item: "", category: "Raw Materials", fabricName: "", gramsUsed: "",
+  fabric: "", rib: "", trims: "", directLabour: "", others: "", targetPrice: ""
 };
 
 function nextItemId(rows) {
@@ -161,7 +166,7 @@ const COMMON_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
 const SAMPLE_STAGES = ["Proto", "Fit", "Size-Set", "PP", "Shipment"];
 const SAMPLE_STATUSES = ["Pending", "Approved", "Rejected", "In Revision"];
 
-const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", notes: "" };
+const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", pricePerKg: "", notes: "" };
 const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "" };
 const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", tech_pack_images: [], notes: "" };
 const emptySample   = { name: "", product_type: "", stage: "Proto", status: "Pending", fabric_used: "", size: "", color: "", cost: "", photo_url: "", notes: "" };
@@ -198,7 +203,7 @@ function Stepper({ value, onChange, disabled, min = 0 }) {
 }
 
 /* ── Cost spreadsheet cell input ────────────────────────── */
-function CostCell({ value, onChange, disabled }) {
+function CostCell({ value, onChange, disabled, width = "80px", placeholder, title }) {
   const [localVal, setLocalVal] = useState(value ?? "");
 
   useEffect(() => {
@@ -210,6 +215,8 @@ function CostCell({ value, onChange, disabled }) {
       type="number"
       value={localVal === 0 && localVal !== "0" ? "" : localVal}
       disabled={disabled}
+      placeholder={placeholder}
+      title={title}
       onChange={e => setLocalVal(e.target.value)}
       onBlur={() => {
         const num = localVal === "" ? 0 : Number(localVal);
@@ -223,7 +230,7 @@ function CostCell({ value, onChange, disabled }) {
         }
       }}
       style={{
-        width: "80px",
+        width,
         padding: "4px 6px",
         fontSize: "12.5px",
         fontFamily: "var(--mono)",
@@ -240,7 +247,7 @@ function CostCell({ value, onChange, disabled }) {
 }
 
 /* ── Text spreadsheet cell input ────────────────────────── */
-function TextCell({ value, onChange, disabled, width = "110px", style = {} }) {
+function TextCell({ value, onChange, disabled, width = "110px", style = {}, list, placeholder }) {
   const [localVal, setLocalVal] = useState(value ?? "");
 
   useEffect(() => {
@@ -252,6 +259,8 @@ function TextCell({ value, onChange, disabled, width = "110px", style = {} }) {
       type="text"
       value={localVal}
       disabled={disabled}
+      list={list}
+      placeholder={placeholder}
       onChange={e => setLocalVal(e.target.value)}
       onBlur={() => {
         if (localVal !== value) {
@@ -746,6 +755,11 @@ function FabricCard({ item, onClick }) {
               {item.weight}
             </Pill>
           )}
+          {item.pricePerKg != null && (
+            <Pill tone="neutral">
+              {fmt.npr(item.pricePerKg)}/kg
+            </Pill>
+          )}
           <span className="kazi-status-dot-wrap">
             <span className={cn("kazi-status-dot", statusClass)} />
             {item.status || "In Stock"}
@@ -763,6 +777,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
   const [weight, setWeight] = useState(item.weight || "");
   const [composition, setComposition] = useState(item.composition || "");
   const [status, setStatus] = useState(item.status || "In Stock");
+  const [pricePerKg, setPricePerKg] = useState(item.pricePerKg !== null && item.pricePerKg !== undefined ? String(item.pricePerKg) : "");
   const [swatchImageUrl, setSwatchImageUrl] = useState(item.swatchImageUrl || "");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -786,7 +801,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
         swatchImageUrl: url,
         updatedAt: serverTimestamp()
       });
-      onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, swatchImageUrl: url }, false);
+      onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, pricePerKg: pricePerKg === "" ? null : Number(pricePerKg), swatchImageUrl: url }, false);
     } catch (err) {
       setError("Failed to upload image: " + err.message);
     } finally {
@@ -829,6 +844,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
         weight,
         composition,
         status,
+        pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
         swatchImageUrl,
         updatedAt: serverTimestamp()
       };
@@ -936,6 +952,18 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
               />
             </div>
 
+            <div>
+              <label className="kfin-label">Price per KG (NPR)</label>
+              <input
+                className="kfin-input"
+                type="number"
+                value={pricePerKg}
+                onChange={e => setPricePerKg(e.target.value)}
+                placeholder="e.g. 1150 (per 1000g)"
+                disabled={!canEdit || saving || deleting}
+              />
+            </div>
+
             {canEdit && (
               <div>
                 <label className="kfin-label">Update Swatch Photo</label>
@@ -998,6 +1026,7 @@ function AddFabricModal({ onClose, onSaved }) {
   const [weight, setWeight] = useState("");
   const [composition, setComposition] = useState("");
   const [status, setStatus] = useState("In Stock");
+  const [pricePerKg, setPricePerKg] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1043,13 +1072,14 @@ function AddFabricModal({ onClose, onSaved }) {
     setError("");
     try {
       const parsedGsm = gsm === "" ? null : Number(gsm);
-      
+
       const tempPayload = {
         name,
         gsm: parsedGsm,
         weight,
         composition,
         status,
+        pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
         swatchImageUrl: "",
         createdAt: serverTimestamp()
       };
@@ -1141,6 +1171,18 @@ function AddFabricModal({ onClose, onSaved }) {
               value={composition}
               onChange={e => setComposition(e.target.value)}
               placeholder="e.g. 100% Cotton"
+              disabled={saving}
+            />
+          </div>
+
+          <div>
+            <label className="kfin-label">Price per KG (NPR)</label>
+            <input
+              className="kfin-input"
+              type="number"
+              value={pricePerKg}
+              onChange={e => setPricePerKg(e.target.value)}
+              placeholder="e.g. 1150 (per 1000g)"
               disabled={saving}
             />
           </div>
@@ -1564,6 +1606,7 @@ function Inventory() {
   const [draft, setDraft] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [itemForm, setItemForm] = useState(emptyItemForm);
+  const [costForm, setCostForm] = useState(emptyCostForm);
   const [addingItem, setAddingItem] = useState(false);
   const [search, setSearch] = useState("");
   const [savingRow, setSavingRow] = useState(null);
@@ -1709,11 +1752,24 @@ function Inventory() {
     return opening + stockIn - stockUsed;
   }
 
-  function setStockIn(rowId, val) {
-    setDraft(d => ({ ...d, [rowId]: { ...d[rowId], stockIn: val } }));
+  // A single +/- stock number, kept as the delta against opening+in-used under
+  // the hood so existing stock-value / low-stock math doesn't need to change.
+  function setStock(rowId, newVal, row) {
+    setDraft(d => {
+      const existing = d[rowId] || {};
+      const prevStock = existing.stock !== undefined ? existing.stock : getClosing(row);
+      const delta = Number(newVal) - Number(prevStock);
+      const prevIn   = Number(existing.stockIn   ?? row.stockIn   ?? 0);
+      const prevUsed = Number(existing.stockUsed ?? row.stockUsed ?? 0);
+      let stockIn = prevIn, stockUsed = prevUsed;
+      if (delta > 0) stockIn = prevIn + delta;
+      else if (delta < 0) stockUsed = prevUsed + Math.abs(delta);
+      return { ...d, [rowId]: { ...existing, stock: newVal, stockIn, stockUsed } };
+    });
   }
-  function setStockUsed(rowId, val) {
-    setDraft(d => ({ ...d, [rowId]: { ...d[rowId], stockUsed: val } }));
+
+  function setDraftField(rowId, field, val) {
+    setDraft(d => ({ ...d, [rowId]: { ...d[rowId], [field]: val } }));
   }
 
   async function saveRow(row) {
@@ -1724,6 +1780,8 @@ function Inventory() {
       await updateInventoryDoc(row.id, {
         stockIn:     Number(rowDraft.stockIn     ?? row.stockIn     ?? 0),
         stockUsed:   Number(rowDraft.stockUsed   ?? row.stockUsed   ?? 0),
+        owner:       rowDraft.owner     !== undefined ? rowDraft.owner     : (row.owner     || ""),
+        condition:   rowDraft.condition !== undefined ? rowDraft.condition : (row.condition || ""),
         lastUpdated: new Date().toISOString().slice(0, 10),
         updatedBy:   profile?.name || "Unknown"
       });
@@ -1774,7 +1832,101 @@ function Inventory() {
     }
   }
 
+  // Adding an item from the Item Cost tab needs the cost-breakdown fields
+  // (Fabric/Rib/Trims/Labour/Others/Target Price), not the Stock form's
+  // opening-stock/location/supplier fields — those don't apply here.
+  async function addEconomicsItem(e) {
+    e.preventDefault();
+    if (!costForm.item.trim()) return;
+    setAddingItem(true);
+    try {
+      const computed = computeFabricCost(costForm.fabricName, costForm.gramsUsed);
+      const fabricCost = costForm.fabric !== "" ? Number(costForm.fabric) : (computed ?? 0);
+
+      const itemRef = await addDoc(collection(db, "inventory"), {
+        item:         costForm.item,
+        itemId:       nextItemId(rows),
+        category:     costForm.category,
+        unit:         "pcs",
+        openingStock: 0, stockIn: 0, stockUsed: 0, minLevel: 0,
+        unitCostNPR:  0,
+        createdBy:    profile?.name || "Unknown",
+        createdAt:    serverTimestamp()
+      });
+
+      const fabricName = costForm.fabricName.trim();
+      const economicsPayload = {
+        fabric:       fabricCost,
+        fabricName,
+        gramsUsed:    Number(costForm.gramsUsed || 0),
+        rib:          Number(costForm.rib || 0),
+        trims:        Number(costForm.trims || 0),
+        directLabour: Number(costForm.directLabour || 0),
+        others:       Number(costForm.others || 0),
+        targetPrice:  Number(costForm.targetPrice || 0),
+        updatedAt:    serverTimestamp(),
+        updatedBy:    profile?.name || "Unknown"
+      };
+      await setDoc(doc(db, "unit_economics", itemRef.id), economicsPayload, { merge: true });
+
+      const cogsNpr = economicsPayload.fabric + economicsPayload.rib + economicsPayload.trims + economicsPayload.directLabour + economicsPayload.others;
+      await updateDoc(doc(db, "inventory", itemRef.id), {
+        unitCostNPR: cogsNpr,
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        updatedBy: profile?.name || "Unknown"
+      });
+
+      if (fabricName && !findFabricByName(fabricName)) {
+        await addDoc(collection(db, "fabrics"), {
+          name: fabricName, pricePerKg: null, composition: "", gsm: null,
+          weight: "", status: "In Stock", swatchImageUrl: "", createdAt: serverTimestamp()
+        });
+      }
+
+      setCostForm(emptyCostForm);
+      setShowAddForm(false);
+      await loadData();
+    } catch (err) {
+      alert("Failed to add item: " + err.message);
+    } finally {
+      setAddingItem(false);
+    }
+  }
+
   /* ── Unit Economics handlers ── */
+  // Fabric is bought by weight (₨ per 1000g) — this looks up a material's stored
+  // price so per-piece fabric cost can be derived from grams used instead of
+  // hand-calculated on paper first.
+  function findFabricByName(name) {
+    const n = (name || "").trim().toLowerCase();
+    if (!n) return null;
+    return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
+  }
+
+  function computeFabricCost(fabricName, gramsUsed) {
+    const match = findFabricByName(fabricName);
+    const grams = Number(gramsUsed);
+    if (match && match.pricePerKg && grams > 0) {
+      return Math.round((Number(match.pricePerKg) / 1000) * grams * 100) / 100;
+    }
+    return null;
+  }
+
+  // Updates the fabric name / grams-used draft fields and, when a priced material
+  // matches, recomputes the Fabric NPR cell. The cell stays directly editable
+  // afterwards — typing into it overrides the computed value.
+  function updateFabricSelection(patternId, field, value) {
+    setDraftEconomics(prev => {
+      const rowDraft = { ...(prev[patternId] || {}), [field]: value };
+      const currentSaved = unitEconomics[patternId] || {};
+      const fabricName = field === "fabricName" ? value : (rowDraft.fabricName ?? currentSaved.fabricName ?? "");
+      const gramsUsed  = field === "gramsUsed"  ? value : (rowDraft.gramsUsed  ?? currentSaved.gramsUsed  ?? "");
+      const computed = computeFabricCost(fabricName, gramsUsed);
+      if (computed !== null) rowDraft.fabric = computed;
+      return { ...prev, [patternId]: rowDraft };
+    });
+  }
+
   async function saveEconomicsRow(patternId) {
     if (!canEditUnitEconomics) return;
     setSavingRow(patternId);
@@ -1783,6 +1935,8 @@ function Inventory() {
 
     const payload = {
       fabric:       Number(draftData.fabric       ?? currentData.fabric       ?? 0),
+      fabricName:   draftData.fabricName !== undefined ? draftData.fabricName : (currentData.fabricName ?? ""),
+      gramsUsed:    Number(draftData.gramsUsed    ?? currentData.gramsUsed    ?? 0),
       rib:          Number(draftData.rib          ?? currentData.rib          ?? 0),
       trims:        Number(draftData.trims        ?? currentData.trims        ?? 0),
       directLabour: Number(draftData.directLabour ?? currentData.directLabour ?? 0),
@@ -1798,6 +1952,17 @@ function Inventory() {
         ...prev,
         [patternId]: payload
       }));
+
+      // Typing a material name that isn't in the library yet saves it, so it's
+      // there to pick (and price) next time instead of being a dead free-text value.
+      const typedFabricName = payload.fabricName.trim();
+      if (typedFabricName && !findFabricByName(typedFabricName)) {
+        const newFabricRef = await addDoc(collection(db, "fabrics"), {
+          name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
+          weight: "", status: "In Stock", swatchImageUrl: "", createdAt: serverTimestamp()
+        });
+        setFabrics(prev => [...prev, { id: newFabricRef.id, name: typedFabricName, pricePerKg: null }]);
+      }
 
       const cogsNpr = payload.fabric + payload.rib + payload.trims + payload.directLabour + payload.others;
       const invUpdates = {
@@ -1940,8 +2105,8 @@ function Inventory() {
   );
 
   /* ── Draft helpers ── */
-  function draftStockIn(row)   { return draft[row.id]?.stockIn   ?? row.stockIn   ?? 0; }
-  function draftStockUsed(row) { return draft[row.id]?.stockUsed ?? row.stockUsed ?? 0; }
+  function draftStock(row)          { return draft[row.id]?.stock !== undefined ? draft[row.id].stock : getClosing(row); }
+  function draftField(row, field)   { return draft[row.id]?.[field] !== undefined ? draft[row.id][field] : (row[field] || ""); }
 
   // Resolve dynamic title/desc
   let pageTitle = "Inventory & Library";
@@ -2028,8 +2193,79 @@ function Inventory() {
         </div>
       )}
 
+      {/* ── Add Item Form (Item Cost) ── */}
+      {showAddForm && canEditInventory && activeTab === "unit_economics" && (
+        <section className="panel">
+          <h3 style={{ marginBottom: 16, fontSize: "0.95rem", fontWeight: 700 }}>New Cost Item</h3>
+          <form className="grid-form" onSubmit={addEconomicsItem}>
+            <label style={{ gridColumn: "span 2" }}>
+              Item Name
+              <input type="text" value={costForm.item} required placeholder="e.g. UK Hoodie"
+                onChange={e => setCostForm(f => ({ ...f, item: e.target.value }))} />
+            </label>
+            <label>
+              Category
+              <select value={costForm.category} onChange={e => setCostForm(f => ({ ...f, category: e.target.value }))}>
+                {STOCK_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              Fabric / Material
+              <input type="text" list="kinv-fabric-names" value={costForm.fabricName} placeholder="e.g. Waffle"
+                onChange={e => setCostForm(f => ({ ...f, fabricName: e.target.value }))} />
+            </label>
+            <label>
+              Grams Used (per piece)
+              <input type="number" min="0" value={costForm.gramsUsed} placeholder="e.g. 900"
+                onChange={e => setCostForm(f => ({ ...f, gramsUsed: e.target.value }))} />
+            </label>
+            <label>
+              Fabric (NPR)
+              <input type="number" min="0" value={costForm.fabric} placeholder={
+                (() => {
+                  const c = computeFabricCost(costForm.fabricName, costForm.gramsUsed);
+                  return c !== null ? `auto: ${c}` : "0";
+                })()
+              }
+                onChange={e => setCostForm(f => ({ ...f, fabric: e.target.value }))} />
+            </label>
+            <label>
+              Rib (NPR)
+              <input type="number" min="0" value={costForm.rib} placeholder="0"
+                onChange={e => setCostForm(f => ({ ...f, rib: e.target.value }))} />
+            </label>
+            <label>
+              Trims (NPR)
+              <input type="number" min="0" value={costForm.trims} placeholder="0"
+                onChange={e => setCostForm(f => ({ ...f, trims: e.target.value }))} />
+            </label>
+            <label>
+              Labour (NPR)
+              <input type="number" min="0" value={costForm.directLabour} placeholder="0"
+                onChange={e => setCostForm(f => ({ ...f, directLabour: e.target.value }))} />
+            </label>
+            <label>
+              Others (NPR)
+              <input type="number" min="0" value={costForm.others} placeholder="0"
+                onChange={e => setCostForm(f => ({ ...f, others: e.target.value }))} />
+            </label>
+            <label>
+              Target Price (NPR)
+              <input type="number" min="0" value={costForm.targetPrice} placeholder="0"
+                onChange={e => setCostForm(f => ({ ...f, targetPrice: e.target.value }))} />
+            </label>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+              <button type="submit" className="primary-button" disabled={addingItem}>
+                {addingItem ? "Adding…" : "Add Item"}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setShowAddForm(false)}>Cancel</button>
+            </div>
+          </form>
+        </section>
+      )}
+
       {/* ── Add Item Form (Stock) ── */}
-      {showAddForm && canEditInventory && (
+      {showAddForm && canEditInventory && activeTab !== "unit_economics" && (
         <section className="panel">
           <h3 style={{ marginBottom: 16, fontSize: "0.95rem", fontWeight: 700 }}>New Stock Item</h3>
           <form className="grid-form" onSubmit={addItem}>
@@ -2128,19 +2364,16 @@ function Inventory() {
                   <th>Item</th>
                   <th>Category</th>
                   <th>Unit</th>
-                  <th>Opening</th>
-                  <th>Stock In</th>
-                  <th>Stock Used</th>
-                  <th>Closing</th>
-                  <th>Min Level</th>
-                  <th>Status</th>
+                  <th>Stock</th>
+                  <th>Owner / Client</th>
+                  <th>Condition</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found
                     </td>
                   </tr>
@@ -2150,7 +2383,8 @@ function Inventory() {
                   const closing   = getClosing(row, rowDraft);
                   const minLevel  = Number(row.minLevel || 0);
                   const lowStock  = closing <= minLevel;
-                  const isDirty   = rowDraft.stockIn !== undefined || rowDraft.stockUsed !== undefined;
+                  const isDirty   = rowDraft.stockIn !== undefined || rowDraft.stockUsed !== undefined ||
+                                     rowDraft.owner !== undefined || rowDraft.condition !== undefined;
                   const isDelConfirm = deleteConfirm === row.id;
 
                   return (
@@ -2168,35 +2402,30 @@ function Inventory() {
                         <span className="kinv-unit">{row.unit}</span>
                       </td>
                       <td>
-                        <span className="kinv-num">{Number(row.openingStock || 0).toLocaleString()}</span>
-                      </td>
-                      <td>
                         <Stepper
-                          value={draftStockIn(row)}
-                          onChange={val => setStockIn(row.id, val)}
+                          value={draftStock(row)}
+                          onChange={val => setStock(row.id, val, row)}
                           disabled={!canEditInventory}
+                          min={0}
                         />
                       </td>
                       <td>
-                        <Stepper
-                          value={draftStockUsed(row)}
-                          onChange={val => setStockUsed(row.id, val)}
+                        <TextCell
+                          value={draftField(row, "owner")}
+                          onChange={val => setDraftField(row.id, "owner", val)}
                           disabled={!canEditInventory}
+                          width="140px"
+                          placeholder="e.g. Client name"
                         />
                       </td>
                       <td>
-                        <span className={cn("kinv-closing", lowStock && "kinv-closing--low")}>
-                          {closing.toLocaleString()}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="kinv-num">{minLevel}</span>
-                      </td>
-                      <td>
-                        {lowStock
-                          ? <Pill tone="terra">Reorder</Pill>
-                          : <Pill tone="mint">OK</Pill>
-                        }
+                        <TextCell
+                          value={draftField(row, "condition")}
+                          onChange={val => setDraftField(row.id, "condition", val)}
+                          disabled={!canEditInventory}
+                          width="130px"
+                          placeholder="e.g. Packed, Washed"
+                        />
                       </td>
                       <td>
                         {isDelConfirm ? (
@@ -2310,13 +2539,16 @@ function Inventory() {
         {/* ── Unit Economics costing spreadsheet grid ── */}
         {activeTab === "unit_economics" && (showLibrary || showInventory) && (
           <div className="kinv-table-wrap">
+            <datalist id="kinv-fabric-names">
+              {fabrics.map(f => <option key={f.id} value={f.name} />)}
+            </datalist>
             <table className="kinv-table">
               <thead>
                 <tr>
                   <th>S.NO</th>
                   <th>Code</th>
                   <th>Items</th>
-                  <th style={{ textAlign: "right" }}>Fabric</th>
+                  <th style={{ textAlign: "right", minWidth: "150px" }}>Fabric</th>
                   <th style={{ textAlign: "right" }}>Rib</th>
                   <th style={{ textAlign: "right" }}>Trims</th>
                   <th style={{ textAlign: "right" }}>Labour</th>
@@ -2349,6 +2581,9 @@ function Inventory() {
                   const draftCost = draftEconomics[row.id] || {};
 
                   const fabric       = draftCost.fabric       !== undefined ? draftCost.fabric       : (savedCost.fabric       || 0);
+                  const fabricName   = draftCost.fabricName   !== undefined ? draftCost.fabricName   : (savedCost.fabricName   || "");
+                  const gramsUsed    = draftCost.gramsUsed    !== undefined ? draftCost.gramsUsed    : (savedCost.gramsUsed    || "");
+                  const matchedFabric = findFabricByName(fabricName);
                   const rib          = draftCost.rib          !== undefined ? draftCost.rib          : (savedCost.rib          || 0);
                   const trims        = draftCost.trims        !== undefined ? draftCost.trims        : (savedCost.trims        || 0);
                   const directLabour = draftCost.directLabour !== undefined ? draftCost.directLabour : (savedCost.directLabour || 0);
@@ -2382,8 +2617,10 @@ function Inventory() {
                   const target50Npr = cogsNpr * 2;
                   const target50Gbp = target50Npr / 200;
 
-                  const isDirty = draftCost.fabric !== undefined || 
-                                  draftCost.rib !== undefined || 
+                  const isDirty = draftCost.fabric !== undefined ||
+                                  draftCost.fabricName !== undefined ||
+                                  draftCost.gramsUsed !== undefined ||
+                                  draftCost.rib !== undefined ||
                                   draftCost.trims !== undefined || 
                                   draftCost.directLabour !== undefined || 
                                   draftCost.others !== undefined || 
@@ -2423,11 +2660,35 @@ function Inventory() {
                         {row.category && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2, paddingLeft: 6 }}>{row.category}</div>}
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        <CostCell
-                          value={fabric}
-                          onChange={val => updateDraftEconomics(row.id, "fabric", val)}
-                          disabled={!canEditUnitEconomics}
-                        />
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                          <TextCell
+                            value={fabricName}
+                            onChange={val => updateFabricSelection(row.id, "fabricName", val)}
+                            disabled={!canEditUnitEconomics}
+                            width="140px"
+                            list="kinv-fabric-names"
+                            placeholder="Material…"
+                          />
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <CostCell
+                              value={gramsUsed}
+                              onChange={val => updateFabricSelection(row.id, "gramsUsed", val)}
+                              disabled={!canEditUnitEconomics}
+                              width="55px"
+                              placeholder="g"
+                              title="Grams used per piece"
+                            />
+                            <CostCell
+                              value={fabric}
+                              onChange={val => updateDraftEconomics(row.id, "fabric", val)}
+                              disabled={!canEditUnitEconomics}
+                              title="Fabric cost (NPR) — auto-filled from material price × grams, or type your own"
+                            />
+                          </div>
+                          {matchedFabric?.pricePerKg == null && fabricName && (
+                            <span style={{ fontSize: 10, color: "var(--ink-4)" }}>no price set</span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <CostCell
