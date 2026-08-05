@@ -195,10 +195,24 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
               onChange={e => onItemChange(idx, { quantity: e.target.value })} />
           </td>
           <td>
-            <select className="kfin-select" style={{ padding: "5px 4px", fontSize: 12, width: 58 }} value={item.unit || "pcs"}
-              onChange={e => onItemChange(idx, { unit: e.target.value })}>
-              {PURCHASE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
+            {(() => {
+              const isOther = item.unit === "other" || (item.unit && !PURCHASE_UNITS.includes(item.unit));
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <select className="kfin-select" style={{ padding: "5px 4px", fontSize: 12, width: 58 }}
+                    value={isOther ? "other" : (item.unit || "pcs")}
+                    onChange={e => onItemChange(idx, { unit: e.target.value })}>
+                    {PURCHASE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                  {isOther && (
+                    <input type="text" className="kfin-input" style={{ padding: "4px 5px", fontSize: 11, width: 58 }}
+                      value={item.unit === "other" ? "" : item.unit}
+                      placeholder="Type unit"
+                      onChange={e => onItemChange(idx, { unit: e.target.value === "" ? "other" : e.target.value })} />
+                  )}
+                </div>
+              );
+            })()}
           </td>
           <td>
             <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 68 }} value={item.rate} placeholder="Rate"
