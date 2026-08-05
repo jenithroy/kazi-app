@@ -6,6 +6,7 @@ import {
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
 import PageHeader from "../components/PageHeader";
+import SalarySlipModal from "../components/SalarySlipModal";
 import { db, auth, firebaseConfig } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
@@ -193,6 +194,9 @@ function Employees() {
     }
     loadPoints();
   }, []);
+
+  /* ── Salary Slip State ── */
+  const [activeSalarySlip, setActiveSalarySlip] = useState(null);
 
   /* ── Directory State ── */
   const [employees, setEmployees] = useState([]);
@@ -494,11 +498,22 @@ function Employees() {
       <PageHeader
         title="Employee and HR"
         description="Manage employee profiles, salaries, and payroll runs."
-        action={canEdit && activeTab === "directory" ? (
-          <button className="primary-button" onClick={() => { setShowForm(v => !v); setEditId(null); setForm(emptyForm); }}>
-            {showForm && !editId ? "Cancel" : "+ Add Employee"}
-          </button>
-        ) : null}
+        action={
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              className="ghost-button"
+              style={{ display: "flex", alignItems: "center", gap: 6, borderColor: "var(--mint-deep)", color: "var(--mint-deep)", fontWeight: 600 }}
+              onClick={() => setActiveSalarySlip({})}
+            >
+              <span>🖨️ Salary Slip</span>
+            </button>
+            {canEdit && activeTab === "directory" && (
+              <button className="primary-button" onClick={() => { setShowForm(v => !v); setEditId(null); setForm(emptyForm); }}>
+                {showForm && !editId ? "Cancel" : "+ Add Employee"}
+              </button>
+            )}
+          </div>
+        }
       />
 
       <div className="kfin-tabs" style={{ marginBottom: 20 }}>
@@ -678,7 +693,7 @@ function Employees() {
                     <th>Reports To</th>
                     <th>Production</th>
                     <th>Status</th>
-                    {canEdit && <th>Actions</th>}
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -716,24 +731,34 @@ function Employees() {
                       <td style={{ fontSize: "0.82rem", color: "var(--ink-4)" }}>{emp.reportsTo || "—"}</td>
                       <td>{emp.isProductionWorker ? <span style={{ fontSize: 12, color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Yes</span> : <span style={{ fontSize: 12, color: "var(--ink-5)" }}>—</span>}</td>
                       <td>{statusBadge(emp.status)}</td>
-                      {canEdit && (
-                        <td>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
-                              onClick={() => startEdit(emp)}>Edit</button>
-                            <button className="ghost-button"
-                              style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(230,81,0,0.35)" : "rgba(46,125,50,0.4)" }}
-                              onClick={() => toggleStatus(emp)}>
-                              {emp.status === "Active" ? "Deactivate" : "Activate"}
-                            </button>
-                            <button className="ghost-button"
-                              style={{ padding: "4px 10px", fontSize: "0.82rem", color: "var(--terra)", borderColor: "rgba(211,47,47,0.35)" }}
-                              onClick={() => handleDeleteEmployee(emp)}>
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                      <td>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button
+                            className="ghost-button"
+                            style={{ padding: "4px 8px", fontSize: "0.82rem", borderColor: "var(--mint-deep)", color: "var(--mint-deep)", fontWeight: 600 }}
+                            title="Generate & Print Monthly Salary Slip"
+                            onClick={() => setActiveSalarySlip({ empName: emp.name, designation: emp.role, basicSalaryNPR: emp.basicSalaryNPR })}
+                          >
+                            🖨️ Slip
+                          </button>
+                          {canEdit && (
+                            <>
+                              <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
+                                onClick={() => startEdit(emp)}>Edit</button>
+                              <button className="ghost-button"
+                                style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(230,81,0,0.35)" : "rgba(46,125,50,0.4)" }}
+                                onClick={() => toggleStatus(emp)}>
+                                {emp.status === "Active" ? "Deactivate" : "Activate"}
+                              </button>
+                              <button className="ghost-button"
+                                style={{ padding: "4px 10px", fontSize: "0.82rem", color: "var(--terra)", borderColor: "rgba(211,47,47,0.35)" }}
+                                onClick={() => handleDeleteEmployee(emp)}>
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -896,7 +921,7 @@ function Employees() {
             <div className="table-wrap kfin-tbl-wrap" style={{ border: "none", margin: 0 }}>
               <table className="kfin-tbl">
                 <thead>
-                  <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th><th>Net NPR</th><th>Net GBP</th>{canEditPayroll && <th></th>}</tr>
+                  <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th><th>Net NPR</th><th>Net GBP</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {payroll.map(item => (
@@ -953,38 +978,56 @@ function Employees() {
                       </td>
                       <td style={{ fontWeight: 600, color: "var(--mint-deep)" }}>{asCurrency(item.netNPR || 0, "NPR")}</td>
                       <td style={{ color: "var(--ink-3)" }}>{asCurrency((item.netNPR || 0) / GBP_RATE, "GBP")}</td>
-                      {canEditPayroll && (
-                        <td>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button className="kbil-tbl-btn kbil-tbl-btn--primary"
-                              onClick={() => {
-                                setEditingPayrollId(item.id);
-                                setPayrollForm({
-                                  staffName: item.staffName || "",
-                                  role: item.role || "",
-                                  month: item.month || "",
-                                  year: item.year || new Date().getFullYear(),
-                                  basicNPR: item.basicNPR || "",
-                                  lateDays: item.lateDays || 0,
-                                  lateRateNPR: item.lateRateNPR || 500,
-                                  lateSalaryCutDeduction: item.lateSalaryCutDeduction || 0,
-                                  lateCutsCount: item.lateCutsCount || 0,
-                                  bonusNPR: item.bonusNPR || 0,
-                                  pfDeductionNPR: item.pfDeductionNPR || 0,
-                                  note: item.note || "",
-                                });
-                                setShowPayrollForm(true);
-                                scrollAppToTop();
-                              }}>
-                              Edit
-                            </button>
-                            <button className="kbil-tbl-btn kbil-tbl-btn--danger"
-                              onClick={() => handleDeletePayroll(item.id)}>
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                      <td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            className="kbil-tbl-btn kbil-tbl-btn--primary"
+                            title="Print Salary Slip"
+                            onClick={() => setActiveSalarySlip({
+                              empName: item.staffName,
+                              designation: item.role,
+                              month: item.month,
+                              year: item.year,
+                              basicNPR: item.basicNPR,
+                              bonusNPR: item.bonusNPR,
+                              lateDeductionNPR: item.lateDeductionNPR,
+                              pfDeductionNPR: item.pfDeductionNPR
+                            })}
+                          >
+                            🖨️ Slip
+                          </button>
+                          {canEditPayroll && (
+                            <>
+                              <button className="kbil-tbl-btn kbil-tbl-btn--primary"
+                                onClick={() => {
+                                  setEditingPayrollId(item.id);
+                                  setPayrollForm({
+                                    staffName: item.staffName || "",
+                                    role: item.role || "",
+                                    month: item.month || "",
+                                    year: item.year || new Date().getFullYear(),
+                                    basicNPR: item.basicNPR || "",
+                                    lateDays: item.lateDays || 0,
+                                    lateRateNPR: item.lateRateNPR || 500,
+                                    lateSalaryCutDeduction: item.lateSalaryCutDeduction || 0,
+                                    lateCutsCount: item.lateCutsCount || 0,
+                                    bonusNPR: item.bonusNPR || 0,
+                                    pfDeductionNPR: item.pfDeductionNPR || 0,
+                                    note: item.note || "",
+                                  });
+                                  setShowPayrollForm(true);
+                                  scrollAppToTop();
+                                }}>
+                                Edit
+                              </button>
+                              <button className="kbil-tbl-btn kbil-tbl-btn--danger"
+                                onClick={() => handleDeletePayroll(item.id)}>
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -992,6 +1035,15 @@ function Employees() {
             </div>
           </section>
         </>
+      )}
+
+      {/* Salary Slip Modal */}
+      {activeSalarySlip !== null && (
+        <SalarySlipModal
+          initialData={activeSalarySlip}
+          employees={employees}
+          onClose={() => setActiveSalarySlip(null)}
+        />
       )}
     </>
   );

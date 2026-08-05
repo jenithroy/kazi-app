@@ -18,7 +18,7 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { fmt, Icons } from "../components/ui";
-import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseItemsPayload } from "../components/PurchaseRowGroup";
+import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload } from "../components/PurchaseRowGroup";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency } from "../utils/format";
@@ -324,10 +324,22 @@ function Finance() {
     setSubmitting(true);
     try {
       const newId = nextExpenseId();
+      const subtotal = purchaseSubtotal(purchaseForm.items);
+      const vatAmount = purchaseVatAmount(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt);
+      const grandTotal = purchaseGrandTotal(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt);
+
       await addDoc(collection(db, "finance_purchases"), {
-        expenseId: newId, expenseItem: purchaseForm.expenseItem,
-        category: purchaseForm.category, vatBill: purchaseForm.vatBill,
-        amountNPR: itemsTotal(purchaseForm.items), date: purchaseForm.date, createdAt: serverTimestamp(),
+        expenseId: newId,
+        expenseItem: purchaseForm.expenseItem,
+        category: purchaseForm.category,
+        paymentType: purchaseForm.paymentType || "CASH",
+        vatBill: purchaseForm.vatBill,
+        discountAmt: Number(purchaseForm.discountAmt || 0),
+        subtotalNPR: subtotal,
+        vatAmountNPR: vatAmount,
+        amountNPR: grandTotal,
+        date: purchaseForm.date,
+        createdAt: serverTimestamp(),
         items: purchaseItemsPayload(purchaseForm.items)
       });
       setPurchaseForm({ ...emptyPurchaseForm, date: new Date().toISOString().slice(0, 10), items: [{ ...emptyPurchaseForm.items[0] }] });
@@ -826,8 +838,8 @@ function Finance() {
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl kfin-tbl-compact">
                   <thead><tr>
-                    <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>VAT Bill</th>
-                    <th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
+                    <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
+                    <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
                   </tr></thead>
 
                   <PurchaseRowGroup

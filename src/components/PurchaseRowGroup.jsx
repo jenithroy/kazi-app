@@ -1,17 +1,24 @@
 import DualDateInput from "./DualDateInput";
 
-const PURCHASE_CATEGORIES = [
+export const PURCHASE_CATEGORIES = [
   "Office Supplies", "Equipment / IT", "Equipment", "Consumables",
   "Raw Materials", "Furniture & Fixtures", "Setup / Security", "Setup / IT",
   "Setup / Maintenance", "Machinery / Assets", "Miscellaneous / Events",
   "Miscellaneous", "Rent / Lease", "Professional Fees", "Utilities", "Other"
 ];
 
-const emptyLineItem = { particulars: "", quantity: "", rate: "", amount: "" };
+export const PURCHASE_UNITS = [
+  "pcs", "kg", "m", "box", "roll", "ltr", "set", "pkt", "ft", "sqft", "hrs", "days", "lump sum", "other"
+];
+
+export const PAYMENT_TYPES = ["CASH", "Bank", "Credit"];
+
+const emptyLineItem = { particulars: "", quantity: "", unit: "pcs", rate: "", amount: "" };
 
 export const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
-  expenseItem: "", category: "Office Supplies", vatBill: false,
+  expenseItem: "", category: "Office Supplies", paymentType: "CASH", vatBill: false,
+  discountAmt: 0,
   items: [{ ...emptyLineItem }]
 };
 
@@ -40,11 +47,28 @@ export function applyItemChange(items, idx, patch) {
 export function itemsTotal(items) {
   return items.reduce((s, it) => s + (it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0), 0);
 }
+export function purchaseSubtotal(items) {
+  return itemsTotal(items);
+}
+export function purchaseVatAmount(items, vatBill, discountAmt = 0) {
+  if (vatBill !== true) return 0;
+  const sub = purchaseSubtotal(items);
+  const taxable = Math.max(0, sub - Number(discountAmt || 0));
+  return Math.round(taxable * 0.13 * 100) / 100;
+}
+export function purchaseGrandTotal(items, vatBill, discountAmt = 0) {
+  const sub = purchaseSubtotal(items);
+  const taxable = Math.max(0, sub - Number(discountAmt || 0));
+  const vat = vatBill === true ? Math.round(taxable * 0.13 * 100) / 100 : 0;
+  return taxable + vat;
+}
+
 function itemsForEdit(row) {
   if (Array.isArray(row.items) && row.items.length) {
     return row.items.map(it => ({
       particulars: it.particulars || "",
       quantity: it.quantity == null ? "" : String(it.quantity),
+      unit: it.unit || "pcs",
       rate: it.rate == null ? "" : String(it.rate),
       amount: it.amount == null ? "" : String(it.amount)
     }));
@@ -53,15 +77,26 @@ function itemsForEdit(row) {
     return [{
       particulars: row.particulars || "",
       quantity: row.quantity == null ? "" : String(row.quantity),
+      unit: row.unit || "pcs",
       rate: row.rate == null ? "" : String(row.rate),
       amount: row.amountNPR == null ? "" : String(row.amountNPR)
     }];
   }
   return [{ ...emptyLineItem }];
 }
+
 export function initialGroupData(row) {
-  return { date: row.date, expenseItem: row.expenseItem, category: row.category, vatBill: row.vatBill, items: itemsForEdit(row) };
+  return {
+    date: row.date,
+    expenseItem: row.expenseItem,
+    category: row.category,
+    paymentType: row.paymentType || "CASH",
+    vatBill: row.vatBill,
+    discountAmt: row.discountAmt || 0,
+    items: itemsForEdit(row)
+  };
 }
+
 // Serializes line items for Firestore: drops blank particulars, coerces numeric fields.
 export function purchaseItemsPayload(items) {
   return items
@@ -69,10 +104,12 @@ export function purchaseItemsPayload(items) {
     .map(it => ({
       particulars: it.particulars,
       quantity: it.quantity === "" || it.quantity == null ? null : Number(it.quantity),
+      unit: it.unit || "pcs",
       rate: it.rate === "" || it.rate == null ? null : Number(it.rate),
       amount: it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0
     }));
 }
+
 // Enter moves focus to the next field instead of doing nothing; only fires the finish
 // action once the last field in the container is reached.
 function focusNextOnEnter(e, onFinish) {
@@ -82,6 +119,7 @@ function focusNextOnEnter(e, onFinish) {
   const next = fields[fields.indexOf(e.target) + 1];
   if (next) next.focus(); else onFinish?.();
 }
+
 // Pressing Enter on the last particulars row's Rate field appends a fresh row
 // and jumps focus into its Particulars input, instead of bubbling further up.
 function addItemOnEnter(e, onAddItem) {
@@ -96,10 +134,14 @@ function addItemOnEnter(e, onAddItem) {
   });
 }
 
-// One purchase (Date/Party/Category/VAT shared via rowSpan) rendered as one <tr> per particular.
-// Used for both the new-purchase draft row (Finance page) and every existing purchase (Purchases page) — the table itself is the editor.
+// One purchase (Date/Party/Category/Payment/VAT shared via rowSpan) rendered as one <tr> per particular.
 export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
   const items = data.items;
+  const subtotal = purchaseSubtotal(items);
+  const discountAmt = Number(data.discountAmt || 0);
+  const vatAmount = purchaseVatAmount(items, data.vatBill, discountAmt);
+  const grandTotal = purchaseGrandTotal(items, data.vatBill, discountAmt);
+
   return (
     <tbody
       onBlur={e => { if (onBlurAway && !e.currentTarget.contains(e.relatedTarget)) onBlurAway(); }}
@@ -110,7 +152,7 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
           {idx === 0 && (
             <>
               <td rowSpan={items.length} style={{ color: "var(--mint-deep)", fontWeight: 700, fontSize: 12, fontFamily: "var(--mono)", verticalAlign: "top", paddingTop: 10 }}>{expenseId}</td>
-              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 195 }}>
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 180 }}>
                 <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" />
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
@@ -129,10 +171,16 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
                 </select>
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
+                <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.paymentType || "CASH"}
+                  onChange={e => onFieldChange({ paymentType: e.target.value })}>
+                  {PAYMENT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </td>
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
                 <select className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }}
                   value={data.vatBill === null ? "na" : data.vatBill ? "yes" : "no"}
                   onChange={e => { const v = e.target.value; onFieldChange({ vatBill: v === "yes" ? true : v === "no" ? false : null }); }}>
-                  <option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
+                  <option value="yes">Yes (13%)</option><option value="no">No</option><option value="na">N/A</option>
                 </select>
               </td>
             </>
@@ -143,8 +191,14 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
               onChange={e => onItemChange(idx, { particulars: e.target.value })} />
           </td>
           <td>
-            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 52 }} value={item.quantity} placeholder="Qty"
+            <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 48 }} value={item.quantity} placeholder="Qty"
               onChange={e => onItemChange(idx, { quantity: e.target.value })} />
+          </td>
+          <td>
+            <select className="kfin-select" style={{ padding: "5px 4px", fontSize: 12, width: 58 }} value={item.unit || "pcs"}
+              onChange={e => onItemChange(idx, { unit: e.target.value })}>
+              {PURCHASE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
           </td>
           <td>
             <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 68 }} value={item.rate} placeholder="Rate"
@@ -166,11 +220,35 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
             </div>
           </td>
           {idx === 0 && (
-            <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--mint-deep)", fontFamily: "var(--mono)", fontVariantNumeric: "tabular-nums" }}>
-                  NPR {itemsTotal(items).toLocaleString()}
-                </span>
+            <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 160 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: "flex-start" }}>
+                <div style={{ fontSize: 11, color: "var(--ink-4)" }}>
+                  Subtotal: <span style={{ fontWeight: 600, color: "var(--ink)" }}>NPR {subtotal.toLocaleString()}</span>
+                </div>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                  <span>Discount:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    className="kfin-input"
+                    style={{ padding: "2px 4px", fontSize: 11, width: 60 }}
+                    value={data.discountAmt || ""}
+                    placeholder="0"
+                    onChange={e => onFieldChange({ discountAmt: Number(e.target.value || 0) })}
+                  />
+                </div>
+
+                {data.vatBill === true && (
+                  <div style={{ fontSize: 11, color: "var(--mint-deep)", fontWeight: 600 }}>
+                    VAT (13%): + NPR {vatAmount.toLocaleString()}
+                  </div>
+                )}
+
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--mint-deep)", fontFamily: "var(--mono)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
+                  Total: NPR {grandTotal.toLocaleString()}
+                </div>
                 {actionCell}
               </div>
             </td>

@@ -9,7 +9,7 @@ import { asCurrency } from "../utils/format";
 import { Icons } from "../components/ui";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
-  itemsTotal, purchaseItemsPayload,
+  itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload,
 } from "../components/PurchaseRowGroup";
 
 function Purchases() {
@@ -65,9 +65,20 @@ function Purchases() {
     const draft = purchaseDrafts[row.id];
     if (!draft) return;
     try {
+      const subtotal = purchaseSubtotal(draft.items);
+      const vatAmount = purchaseVatAmount(draft.items, draft.vatBill, draft.discountAmt);
+      const grandTotal = purchaseGrandTotal(draft.items, draft.vatBill, draft.discountAmt);
+
       await fsUpdateDoc(doc(db, "finance_purchases", row.id), {
-        expenseItem: draft.expenseItem, category: draft.category,
-        vatBill: draft.vatBill, amountNPR: itemsTotal(draft.items), date: draft.date,
+        expenseItem: draft.expenseItem,
+        category: draft.category,
+        paymentType: draft.paymentType || "CASH",
+        vatBill: draft.vatBill,
+        discountAmt: Number(draft.discountAmt || 0),
+        subtotalNPR: subtotal,
+        vatAmountNPR: vatAmount,
+        amountNPR: grandTotal,
+        date: draft.date,
         items: purchaseItemsPayload(draft.items)
       });
       setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
@@ -156,8 +167,8 @@ function Purchases() {
           <div className="kfin-tbl-wrap">
             <table className="kfin-tbl kfin-tbl-compact kfin-tbl--plain">
               <thead><tr>
-                <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>VAT Bill</th>
-                <th>Particulars</th><th>Qty</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
+                <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
+                <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
               </tr></thead>
 
               {filtered.map(row => (
