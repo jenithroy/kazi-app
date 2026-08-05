@@ -2271,6 +2271,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* ── Tab navigation ── */
 .kfin-tabs {
   display: flex;
+  flex-shrink: 0;
   gap: 0;
   border-bottom: 2px solid var(--line);
   overflow-x: auto;
