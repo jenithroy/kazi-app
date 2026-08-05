@@ -39,7 +39,7 @@ export function applyItemChange(items, idx, patch) {
     const it = next[idx];
     const q = Number(it.quantity), r = Number(it.rate);
     if (it.quantity !== "" && it.rate !== "" && !isNaN(q) && !isNaN(r)) {
-      next = updateLineItem(next, idx, { amount: String(q * r) });
+      next = updateLineItem(next, idx, { amount: String(Math.round(q * r * 100) / 100) });
     }
   }
   return next;
