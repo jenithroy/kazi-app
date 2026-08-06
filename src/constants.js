@@ -15,7 +15,7 @@ export function createdAfterCutoff(data, cutoffMs = HISTORICAL_DATA_CUTOFF_MS) {
 
 // ── Geofence ──────────────────────────────────────────────────────────────────
 // Update lat/lng to the exact GPS coordinates of the office entrance.
-export const WORK_SITE = { lat: 27.689404765566223, lng: 85.30903177475923, name: "Kazi Office, Nepal" };
+export const WORK_SITE = { lat: 27.681622874006003, lng: 85.33697354663745, name: "Kazi Office, Nepal" };
 export const GEOFENCE_RADIUS_M = 100; // metres
 export const GPS_ACCURACY_THRESHOLD_M = 500; // reject readings with worse accuracy than this
 

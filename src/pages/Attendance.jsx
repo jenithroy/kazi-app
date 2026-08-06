@@ -118,6 +118,142 @@ function MonthCalendar({ currentMonthDate, setCurrentMonthDate, selectedDate, se
   );
 }
 
+/* ─── Employee Monthly Report ──────────────────────── */
+function SummaryStat({ label, value, color }) {
+  return (
+    <div style={{ minWidth: 84 }}>
+      <div style={{ fontSize: 10.5, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: color || "var(--ink)" }}>{value}</div>
+    </div>
+  );
+}
+
+function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, setCurrentMonthDate, monthRecords }) {
+  const [monthClockIns, setMonthClockIns] = useState([]);
+  const [loadingClocks, setLoadingClocks] = useState(false);
+
+  const year  = currentMonthDate.getFullYear();
+  const month = currentMonthDate.getMonth();
+  const monthStart = toLocalISOString(new Date(year, month, 1));
+  const monthEnd   = toLocalISOString(new Date(year, month + 1, 0));
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  useEffect(() => {
+    if (!staffId) { setMonthClockIns([]); return; }
+    setLoadingClocks(true);
+    getDocs(query(
+      collection(db, "clock_ins"),
+      where("staffId", "==", staffId),
+      where("date", ">=", monthStart),
+      where("date", "<=", monthEnd)
+    )).then(snap => setMonthClockIns(snap.docs.map(d => d.data())))
+      .catch(err => { console.error("Failed to load clock-ins for report:", err); setMonthClockIns([]); })
+      .finally(() => setLoadingClocks(false));
+  }, [staffId, monthStart, monthEnd]);
+
+  const attByDate = {};
+  monthRecords.filter(r => r.staffId === staffId).forEach(r => { attByDate[r.date] = r; });
+  const clockByDate = {};
+  monthClockIns.forEach(c => { clockByDate[c.date] = c; });
+
+  const days = [];
+  for (let i = 1; i <= daysInMonth; i++) days.push(toLocalISOString(new Date(year, month, i)));
+
+  const summary = days.reduce((acc, d) => {
+    const att = attByDate[d];
+    if (att) {
+      if (att.status === "Present" || att.status === "Half-day") acc.present++;
+      else if (att.status === "Late") { acc.late++; if (att.lateCutApplied) acc.cuts++; }
+      else if (att.status === "Absent") acc.absent++;
+      else if (att.status === "Leave") acc.leave++;
+      acc.hours += Number(att.hours || 0);
+    }
+    return acc;
+  }, { present: 0, late: 0, absent: 0, leave: 0, cuts: 0, hours: 0 });
+
+  return (
+    <div className="kazi-card" style={{ overflow: "hidden" }}>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            value={staffId}
+            onChange={e => setStaffId(e.target.value)}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 13, fontFamily: "var(--font)" }}
+          >
+            <option value="">Select employee…</option>
+            {staff.map(s => <option key={s.uid || s.id} value={s.uid || s.id}>{s.name}</option>)}
+          </select>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{currentMonthDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month - 1, 1))}>← Prev</button>
+          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month + 1, 1))}>Next →</button>
+        </div>
+      </div>
+
+      {!staffId ? (
+        <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🗓️</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>Select an employee to see their monthly attendance</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 20, padding: "14px 20px", borderBottom: "1px solid var(--line)" }}>
+            <SummaryStat label="Present"      value={summary.present} color="var(--mint-deep)" />
+            <SummaryStat label="Late"         value={summary.late}    color="var(--amber-deep)" />
+            <SummaryStat label="Salary cuts"  value={summary.cuts}    color="var(--terra)" />
+            <SummaryStat label="Absent"       value={summary.absent}  color="var(--terra)" />
+            <SummaryStat label="Leave"        value={summary.leave}   color="var(--blue-2)" />
+            <SummaryStat label="Total hours"  value={`${summary.hours}h`} />
+          </div>
+
+          {loadingClocks ? (
+            <div style={{ padding: "16px 20px" }}>
+              {[1,2,3,4,5].map(i => <div key={i} className="kskel kskel-row" />)}
+            </div>
+          ) : (
+            <div className="table-wrap katt-table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Date</th><th>Status</th><th>Clock-in</th><th>Clock-out</th><th>Hours</th><th>Note</th></tr>
+                </thead>
+                <tbody>
+                  {days.map(d => {
+                    const att = attByDate[d];
+                    const clk = clockByDate[d];
+                    const inT  = clk?.clockedInAt?.toDate  ? clk.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})  : null;
+                    const outT = clk?.clockedOutAt?.toDate ? clk.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : null;
+                    const dateLabel = new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                    return (
+                      <tr key={d}>
+                        <td style={{ fontSize: 12.5 }}>{dateLabel}</td>
+                        <td>
+                          {att ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <Pill tone={statusTone(att.status)} dot>{att.status}</Pill>
+                              {att.status === "Late" && att.lateCutApplied && (
+                                <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Cut</span>
+                              )}
+                            </div>
+                          ) : <span style={{ color: "var(--ink-4)", fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{inT  || "—"}</td>
+                        <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{outT || "—"}</td>
+                        <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>{att?.hours != null ? `${att.hours}h` : "—"}</td>
+                        <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{att?.note || ""}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main Component ──────────────────────────────── */
 function Attendance() {
   const { profile } = useAuth();
@@ -136,6 +272,9 @@ function Attendance() {
   const [editingRow, setEditingRow] = useState(null);
   const [monthRecords, setMonthRecords] = useState([]);
   const [confirmPending, setConfirmPending] = useState(null);
+  const [staffList,  setStaffList]  = useState([]);
+  const [viewMode,   setViewMode]   = useState("daily"); // daily | employee
+  const [reportStaffId, setReportStaffId] = useState("");
 
   useEffect(() => {
     loadAll().catch(err => {
@@ -161,7 +300,8 @@ function Attendance() {
     ]);
 
     const staff = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    
+    setStaffList(staff);
+
     setMonthRecords(monthAttSnap.docs.map(d => d.data()));
     setClockIns(clockSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
@@ -271,7 +411,7 @@ function Attendance() {
         <div className="kph">
           <div><h2>Attendance</h2><p>Manage daily logs and clock-ins</p></div>
           <div className="kph-a">
-            {canEdit && (
+            {canEdit && viewMode === "daily" && (
               <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={saveRows} disabled={saving}>
                 <Icons.Plus size={13} sw={2.2} /> {saving ? "Saving…" : "Save Changes"}
               </button>
@@ -286,12 +426,39 @@ function Attendance() {
           <ClockInCard profile={profile} onClockChange={loadAll} />
         )}
 
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          <button
+            className={viewMode === "daily" ? "primary-button" : "ghost-button"}
+            style={{ padding: "6px 14px", fontSize: 12.5 }}
+            onClick={() => setViewMode("daily")}
+          >
+            Daily log
+          </button>
+          <button
+            className={viewMode === "employee" ? "primary-button" : "ghost-button"}
+            style={{ padding: "6px 14px", fontSize: 12.5 }}
+            onClick={() => setViewMode("employee")}
+          >
+            Employee report
+          </button>
+        </div>
+
+        {viewMode === "employee" ? (
+          <EmployeeMonthReport
+            staff={staffList}
+            staffId={reportStaffId}
+            setStaffId={setReportStaffId}
+            currentMonthDate={currentMonthDate}
+            setCurrentMonthDate={setCurrentMonthDate}
+            monthRecords={monthRecords}
+          />
+        ) : (
         <div className="katt-grid">
           {/* Left: Month Calendar */}
-          <MonthCalendar 
-            currentMonthDate={currentMonthDate} 
-            setCurrentMonthDate={setCurrentMonthDate} 
-            selectedDate={selectedDate} 
+          <MonthCalendar
+            currentMonthDate={currentMonthDate}
+            setCurrentMonthDate={setCurrentMonthDate}
+            selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
             monthRecords={monthRecords}
           />
@@ -445,6 +612,7 @@ function Attendance() {
             )}
           </div>
         </div>
+        )}
 
       </div>
 
