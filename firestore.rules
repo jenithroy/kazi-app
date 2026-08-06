@@ -167,17 +167,20 @@ service cloud.firestore {
       allow create, update: if hasPermission("production") || isNepalAdmin() || isSuperAdmin();
       allow delete: if hasPermission("production") || isNepalAdmin() || isSuperAdmin();
     }
+    // VAT bills (invoices), challans, and quotations are Nepal IRD-facing documents —
+    // sequential numbers must never gain gaps or get reused. Once issued a document
+    // can only be Cancelled (status change), never deleted.
     match /invoices/{id} {
       allow create, update: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
-      allow delete: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
     }
     match /challans/{id} {
       allow create, update: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
-      allow delete: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
     }
     match /quotations/{id} {
       allow create, update: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
-      allow delete: if hasPermission("billing") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if false;
     }
     match /counters/{id} {
       allow create, update: if isSignedIn();
