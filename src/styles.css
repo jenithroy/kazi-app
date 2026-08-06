@@ -4903,3 +4903,14 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
     font-size: 11px;
   }
 }
+
+/* Garment Specification Sheet — clean print output */
+@media print {
+  body * { visibility: hidden; }
+  #kinv-spec-print-area, #kinv-spec-print-area * { visibility: visible; }
+  #kinv-spec-print-area {
+    position: absolute; left: 0; top: 0; width: 100%;
+    max-height: none; overflow: visible; padding: 0;
+  }
+  .kinv-no-print { display: none !important; }
+}

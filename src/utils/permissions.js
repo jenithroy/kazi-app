@@ -41,6 +41,14 @@ export function sectionCanEdit(profile, section) {
     }
   }
 
+  // Explicitly grant full Employees page access (directory + payroll) to Wilson
+  if (section === "employees") {
+    const emailLower = profile.email?.toLowerCase();
+    if (emailLower === "wilsonshah98765@gmail.com") {
+      return true;
+    }
+  }
+
   // Explicitly grant tasks edit/add access to Anusha
   if (section === "tasks") {
     const emailLower = profile.email?.toLowerCase();
@@ -129,6 +137,11 @@ export function sectionVisible(profile, sectionKey) {
 // Is a Finance tab visible (and editable) for this user?
 export function financeTabAllowed(profile, tabKey) {
   if (!profile) return false;
+
+  // Explicitly grant Payroll access to Wilson (part of full Employees page access)
+  if (tabKey === "payroll" && profile.email?.toLowerCase() === "wilsonshah98765@gmail.com") {
+    return true;
+  }
 
   // Explicit finance override takes precedence
   let val = profile.permissions?.finance?.[tabKey];
