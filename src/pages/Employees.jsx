@@ -212,7 +212,7 @@ function Employees() {
     staffName: "", role: "",
     month: new Date().toLocaleString("default", { month: "long" }),
     year: new Date().getFullYear(),
-    basicNPR: "", lateDays: 0, lateRateNPR: 500, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: ""
+    basicNPR: "", lateDays: 0, lateSalaryCutDeduction: 0, lateCutsCount: 0, lateAdjustmentNPR: 0, bonusNPR: 0, pfDeductionNPR: 0, note: ""
   });
   const [showPayrollForm, setShowPayrollForm] = useState(false);
   const [editingPayrollId, setEditingPayrollId] = useState(null);
@@ -435,16 +435,16 @@ function Employees() {
   /* ── Payroll Handlers ── */
   function calcPayroll(f) {
     const basic = Number(f.basicNPR || 0);
-    const lateFee = Number(f.lateDays || 0) * Number(f.lateRateNPR || 0);
-    const lateCut = Number(f.lateSalaryCutDeduction || 0);
-    const late = lateFee + lateCut;
+    const autoLate = Number(f.lateSalaryCutDeduction || 0);
+    const adjustment = Number(f.lateAdjustmentNPR || 0);
+    const late = Math.max(0, autoLate + adjustment);
     const pf = Number(f.pfDeductionNPR || 0);
     const bonus = Number(f.bonusNPR || 0);
     const gross = basic + bonus;
     const totalDeductions = late + pf;
     const rawNet = gross - totalDeductions;
     const net = Math.max(0, rawNet);
-    return { gross, late, pf, totalDeductions, net, deductionsExceedGross: rawNet < 0 };
+    return { gross, late, autoLate, adjustment, pf, totalDeductions, net, deductionsExceedGross: rawNet < 0 };
   }
 
   async function handleAddPayroll(e) {
@@ -454,11 +454,11 @@ function Employees() {
     const data = {
       staffName: payrollForm.staffName, role: payrollForm.role,
       month: payrollForm.month, year: Number(payrollForm.year),
-      basicNPR: Number(payrollForm.basicNPR || 0), 
+      basicNPR: Number(payrollForm.basicNPR || 0),
       lateDays: Number(payrollForm.lateDays || 0),
-      lateRateNPR: Number(payrollForm.lateRateNPR || 0), 
       lateSalaryCutDeduction: Number(payrollForm.lateSalaryCutDeduction || 0),
       lateCutsCount: Number(payrollForm.lateCutsCount || 0),
+      lateAdjustmentNPR: Number(payrollForm.lateAdjustmentNPR || 0),
       lateDeductionNPR: late,
       pfDeductionNPR: pf, 
       bonusNPR: Number(payrollForm.bonusNPR || 0),
@@ -474,7 +474,7 @@ function Employees() {
     } else {
       await addDoc(collection(db, "finance_payroll"), { ...data, createdAt: serverTimestamp() });
     }
-    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateRateNPR: 500, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
+    setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateSalaryCutDeduction: 0, lateCutsCount: 0, lateAdjustmentNPR: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
     setShowPayrollForm(false);
     await loadData();
   }
@@ -783,7 +783,7 @@ function Employees() {
                 <h3>{editingPayrollId ? "Edit Payroll Record" : "Payroll Entry"}</h3>
                 <button className="ghost-button" onClick={() => {
                   setShowPayrollForm(v => !v);
-                  if (showPayrollForm) { setEditingPayrollId(null); setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateRateNPR: 500, lateSalaryCutDeduction: 0, lateCutsCount: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" })); }
+                  if (showPayrollForm) { setEditingPayrollId(null); setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateSalaryCutDeduction: 0, lateCutsCount: 0, lateAdjustmentNPR: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" })); }
                 }}>
                   {showPayrollForm ? "✕ Cancel" : "+ Add Payroll"}
                 </button>
@@ -794,7 +794,7 @@ function Employees() {
                   <form className="kfin-form" onSubmit={handleAddPayroll} style={{ background: "transparent", border: "none", padding: 0 }}>
                     <label className="kfin-label">Staff Name
                       <select className="kfin-select" value={payrollForm.staffName}
-                        onChange={e => { const emp = employees.find(em => em.name === e.target.value); setPayrollForm(f => ({ ...f, staffName: e.target.value, role: emp?.role || f.role, basicNPR: emp?.basicSalaryNPR || f.basicNPR })); }} required>
+                        onChange={e => { const emp = employees.find(em => em.name === e.target.value); setPayrollForm(f => ({ ...f, staffName: e.target.value, role: emp?.role || f.role, basicNPR: emp?.basicSalaryNPR || f.basicNPR, lateAdjustmentNPR: 0 })); }} required>
                         <option value="">— Select Staff —</option>
                         {employees.map(em => <option key={em.id} value={em.name}>{em.name}</option>)}
                       </select>
@@ -820,30 +820,46 @@ function Employees() {
                       <input type="number" min="0" className="kfin-input" value={payrollForm.bonusNPR} placeholder="0"
                         onChange={e => setPayrollForm(f => ({ ...f, bonusNPR: e.target.value }))} />
                     </label>
-                    <label className="kfin-label">Late Days
-                      <input type="number" min="0" max="31" className="kfin-input" value={payrollForm.lateDays} placeholder="0"
-                        onChange={e => setPayrollForm(f => ({ ...f, lateDays: e.target.value }))} />
-                    </label>
-                    <label className="kfin-label">Late Fee / Day (NPR)
-                      <input type="number" min="0" className="kfin-input" value={payrollForm.lateRateNPR} placeholder="500"
-                        onChange={e => setPayrollForm(f => ({ ...f, lateRateNPR: e.target.value }))} />
-                    </label>
-                    <label className="kfin-label">Late Cuts (&gt;10m)
-                      <input type="number" min="0" max="31" className="kfin-input" value={payrollForm.lateCutsCount} placeholder="0"
-                        onChange={e => {
-                          const cuts = Number(e.target.value || 0);
-                          const basic = Number(payrollForm.basicNPR || 0);
-                          setPayrollForm(f => ({ 
-                            ...f, 
-                            lateCutsCount: cuts,
-                            lateSalaryCutDeduction: Math.round((basic / 30) * 0.25 * cuts)
-                          }));
-                        }} />
-                    </label>
-                    <label className="kfin-label">Late Salary Cut Deduction (NPR)
-                      <input type="number" min="0" className="kfin-input" value={payrollForm.lateSalaryCutDeduction} placeholder="0"
-                        onChange={e => setPayrollForm(f => ({ ...f, lateSalaryCutDeduction: e.target.value }))} />
-                    </label>
+                    <div className="kfin-full" style={{ padding: "12px 14px", background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 8, display: "flex", flexWrap: "wrap", gap: 20, alignItems: "flex-end" }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Late deduction</div>
+                        <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>Auto-calculated from Attendance</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>Late days</div>
+                        <div style={{ fontSize: 15, fontWeight: 700 }}>{loadingAtt ? "…" : payrollForm.lateDays}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>25% cuts (&gt;10m late)</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: payrollForm.lateCutsCount > 0 ? "var(--terra)" : undefined }}>{loadingAtt ? "…" : payrollForm.lateCutsCount}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>Auto amount (NPR)</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: payrollForm.lateSalaryCutDeduction > 0 ? "var(--terra)" : undefined }}>
+                          {loadingAtt ? "…" : `− ${Number(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}`}
+                        </div>
+                      </div>
+                      <label style={{ fontSize: 10.5, color: "var(--ink-4)", fontWeight: 600 }}>
+                        Adjustment (+/− NPR)
+                        <input type="number" className="kfin-input" style={{ marginTop: 2, width: 130 }} value={payrollForm.lateAdjustmentNPR}
+                          placeholder="0"
+                          onChange={e => setPayrollForm(f => ({ ...f, lateAdjustmentNPR: e.target.value }))} />
+                      </label>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>Final deduction (NPR)</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--terra)" }}>
+                          − {Math.max(0, Number(payrollForm.lateSalaryCutDeduction || 0) + Number(payrollForm.lateAdjustmentNPR || 0)).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                    {Number(payrollForm.lateAdjustmentNPR || 0) !== 0 && (
+                      <div className="kfin-full" style={{ padding: "8px 14px", fontSize: 12, color: "var(--ink-3)" }}>
+                        {Number(payrollForm.lateAdjustmentNPR) > 0
+                          ? `Adding NPR ${Number(payrollForm.lateAdjustmentNPR).toLocaleString()} on top of the auto-calculated cut.`
+                          : `Reducing the auto-calculated cut by NPR ${Math.abs(Number(payrollForm.lateAdjustmentNPR)).toLocaleString()}.`}
+                        {" "}Explain why in the Note field below.
+                      </div>
+                    )}
                     <label className="kfin-label">PF / Other Deduction (NPR)
                       <input type="number" min="0" className="kfin-input" value={payrollForm.pfDeductionNPR} placeholder="0"
                         onChange={e => setPayrollForm(f => ({ ...f, pfDeductionNPR: e.target.value }))} />
@@ -875,20 +891,12 @@ function Employees() {
                           NPR {calc.gross.toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(calc.gross / GBP_RATE, "GBP")})</span>
                         </span>
-                        <span className="kfin-calc-key kfin-calc-deduct">Flat Late Fee ({payrollForm.lateDays} × {payrollForm.lateRateNPR})</span>
-                        <span className="kfin-calc-val kfin-calc-deduct">
-                          − NPR {Math.round(payrollForm.lateDays * payrollForm.lateRateNPR).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Math.round(payrollForm.lateDays * payrollForm.lateRateNPR) / GBP_RATE, "GBP")})</span>
+                        <span className="kfin-calc-key kfin-calc-deduct">
+                          Late Deduction ({payrollForm.lateCutsCount} × 25% cuts{calc.adjustment !== 0 ? `, ${calc.adjustment > 0 ? "+" : "−"} NPR ${Math.abs(calc.adjustment).toLocaleString()} adj.` : ""})
                         </span>
-                        <span className="kfin-calc-key kfin-calc-deduct">25% Salary Cuts ({payrollForm.lateCutsCount} cuts)</span>
                         <span className="kfin-calc-val kfin-calc-deduct">
-                          − NPR {Number(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.lateSalaryCutDeduction || 0) / GBP_RATE, "GBP")})</span>
-                        </span>
-                        <span className="kfin-calc-key kfin-calc-bold">Total Late Deduction</span>
-                        <span className="kfin-calc-val kfin-calc-bold">
                           − NPR {calc.late.toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(calc.late / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(calc.late / GBP_RATE, "GBP")})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-deduct">PF / Other</span>
                         <span className="kfin-calc-val kfin-calc-deduct">
@@ -952,11 +960,16 @@ function Employees() {
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                             <span style={{ fontWeight: 600 }}>− NPR {Number(item.lateDeductionNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.lateDeductionNPR / GBP_RATE, "GBP")})</span>
-                            {item.lateSalaryCutDeduction > 0 && (
+                            {item.lateCutsCount > 0 && (
                               <span style={{ fontSize: "10px", color: "var(--ink-4)", fontStyle: "italic" }}>
-                                (incl. {item.lateCutsCount || 0} cuts)
+                                ({item.lateCutsCount} × 25% cuts)
                               </span>
                             )}
+                            {item.lateAdjustmentNPR ? (
+                              <span style={{ fontSize: "10px", color: "var(--amber-deep)", fontStyle: "italic" }}>
+                                (manually {item.lateAdjustmentNPR > 0 ? "+" : "−"}NPR {Math.abs(item.lateAdjustmentNPR).toLocaleString()})
+                              </span>
+                            ) : null}
                           </div>
                         ) : "—"}
                       </td>
@@ -1008,9 +1021,9 @@ function Employees() {
                                     year: item.year || new Date().getFullYear(),
                                     basicNPR: item.basicNPR || "",
                                     lateDays: item.lateDays || 0,
-                                    lateRateNPR: item.lateRateNPR || 500,
                                     lateSalaryCutDeduction: item.lateSalaryCutDeduction || 0,
                                     lateCutsCount: item.lateCutsCount || 0,
+                                    lateAdjustmentNPR: item.lateAdjustmentNPR || 0,
                                     bonusNPR: item.bonusNPR || 0,
                                     pfDeductionNPR: item.pfDeductionNPR || 0,
                                     note: item.note || "",

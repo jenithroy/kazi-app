@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Fragment } from "react";
 import {
   addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, setDoc
 } from "firebase/firestore";
@@ -290,6 +290,108 @@ function TextCell({ value, onChange, disabled, width = "110px", style = {}, list
   );
 }
 
+/* ── Per-order size-run reconciliation panel (Stock tab) ── */
+function SizeBreakdownPanel({ sizeRows, damageLog, onSizeChange, onAddDamage, onRemoveDamage, disabled, colSpan }) {
+  const [tagInput, setTagInput] = useState("");
+
+  const totalRequired = sizeRows.reduce((s, r) => s + Number(r.required || 0), 0);
+  const totalCounted  = sizeRows.reduce((s, r) => s + Number(r.counted  || 0), 0);
+  const totalDiff = totalCounted - totalRequired;
+  const diffColor = (d) => d < 0 ? "var(--terra)" : d > 0 ? "var(--mint-deep)" : "var(--ink-4)";
+  const diffLabel = (d) => d > 0 ? `+${d}` : String(d);
+
+  function submitTag() {
+    onAddDamage(tagInput);
+    setTagInput("");
+  }
+
+  return (
+    <tr className="kinv-row">
+      <td colSpan={colSpan} style={{ padding: "16px 20px", background: "var(--bg-2)" }}>
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+              Size Breakdown — Required vs Counted
+            </div>
+            <table style={{ borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "2px 14px 6px 0", color: "var(--ink-4)", fontWeight: 600 }}>Size</th>
+                  <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Required</th>
+                  <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Counted</th>
+                  <th style={{ textAlign: "right", padding: "2px 0 6px 14px", color: "var(--ink-4)", fontWeight: 600 }}>Diff</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sizeRows.map(r => {
+                  const diff = Number(r.counted || 0) - Number(r.required || 0);
+                  return (
+                    <tr key={r.size}>
+                      <td style={{ padding: "3px 14px 3px 0", fontFamily: "var(--mono)" }}>{r.size}</td>
+                      <td style={{ padding: "3px 14px", textAlign: "right" }}>
+                        <CostCell value={r.required} onChange={val => onSizeChange(r.size, "required", val)} disabled={disabled} width="64px" />
+                      </td>
+                      <td style={{ padding: "3px 14px", textAlign: "right" }}>
+                        <CostCell value={r.counted} onChange={val => onSizeChange(r.size, "counted", val)} disabled={disabled} width="64px" />
+                      </td>
+                      <td style={{ padding: "3px 0 3px 14px", textAlign: "right", fontWeight: 700, color: diffColor(diff) }}>
+                        {diffLabel(diff)}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ borderTop: "1.5px solid var(--line-strong)" }}>
+                  <td style={{ padding: "5px 14px 0 0", fontWeight: 700 }}>Total</td>
+                  <td style={{ padding: "5px 14px 0", textAlign: "right", fontWeight: 700 }}>{totalRequired}</td>
+                  <td style={{ padding: "5px 14px 0", textAlign: "right", fontWeight: 700 }}>{totalCounted}</td>
+                  <td style={{ padding: "5px 0 0 14px", textAlign: "right", fontWeight: 700, color: diffColor(totalDiff) }}>{diffLabel(totalDiff)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ minWidth: 220 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+              Damage (wash)
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {damageLog.length === 0 && <span style={{ fontSize: 12, color: "var(--ink-4)" }}>None logged</span>}
+              {damageLog.map((tag, i) => (
+                <span key={i} style={{
+                  display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12,
+                  padding: "3px 8px", borderRadius: 12, background: "var(--bg)", border: "1px solid var(--line)"
+                }}>
+                  {tag}
+                  {!disabled && (
+                    <button type="button" onClick={() => onRemoveDamage(i)}
+                      style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-4)", padding: 0, fontSize: 12, lineHeight: 1 }}>
+                      ✕
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            {!disabled && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="text"
+                  value={tagInput}
+                  placeholder="e.g. W-3XL, damaged 2pcs L"
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); submitTag(); } }}
+                  className="kfin-input"
+                  style={{ fontSize: 12, padding: "5px 8px", flex: 1, minWidth: 140 }}
+                />
+                <button type="button" className="kinv-btn-ghost" onClick={submitTag}>Add</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 /* ── Icons ─────────────────────────────────────────────── */
 function TrashIcon({ size = 15 }) {
   return (
@@ -297,6 +399,16 @@ function TrashIcon({ size = 15 }) {
       stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
       <path d="M10 11v6M14 11v6"/>
+    </svg>
+  );
+}
+
+function ChevronIcon({ size = 14, open }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+      <path d="M9 6l6 6-6 6"/>
     </svg>
   );
 }
@@ -1604,6 +1716,7 @@ function Inventory() {
   const [loading, setLoading] = useState(true);
 
   const [draft, setDraft] = useState({});
+  const [expandedRows, setExpandedRows] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [itemForm, setItemForm] = useState(emptyItemForm);
   const [costForm, setCostForm] = useState(emptyCostForm);
@@ -1772,6 +1885,44 @@ function Inventory() {
     setDraft(d => ({ ...d, [rowId]: { ...d[rowId], [field]: val } }));
   }
 
+  // Per-order size-run reconciliation (her "Kati Pugena" notebook pages): required
+  // vs counted stock by size, plus a free-typed wash/damage log — nested under
+  // each Stock row rather than a flat single quantity.
+  function getSizeRows(row) {
+    return Array.isArray(row.sizeRows) && row.sizeRows.length
+      ? row.sizeRows
+      : COMMON_SIZES.map(s => ({ size: s, required: 0, counted: 0 }));
+  }
+  function draftSizeRows(row) {
+    return draft[row.id]?.sizeRows ?? getSizeRows(row);
+  }
+  function updateSizeRow(rowId, row, size, field, val) {
+    setDraft(d => {
+      const current = d[rowId]?.sizeRows ?? getSizeRows(row);
+      const next = current.map(r => r.size === size ? { ...r, [field]: Number(val) || 0 } : r);
+      return { ...d, [rowId]: { ...d[rowId], sizeRows: next } };
+    });
+  }
+  function draftDamageLog(row) {
+    return draft[row.id]?.damageLog ?? (Array.isArray(row.damageLog) ? row.damageLog : []);
+  }
+  function addDamageTag(rowId, row, tag) {
+    if (!tag.trim()) return;
+    setDraft(d => {
+      const current = d[rowId]?.damageLog ?? (Array.isArray(row.damageLog) ? row.damageLog : []);
+      return { ...d, [rowId]: { ...d[rowId], damageLog: [...current, tag.trim()] } };
+    });
+  }
+  function removeDamageTag(rowId, row, idx) {
+    setDraft(d => {
+      const current = d[rowId]?.damageLog ?? (Array.isArray(row.damageLog) ? row.damageLog : []);
+      return { ...d, [rowId]: { ...d[rowId], damageLog: current.filter((_, i) => i !== idx) } };
+    });
+  }
+  function toggleExpandRow(rowId) {
+    setExpandedRows(e => ({ ...e, [rowId]: !e[rowId] }));
+  }
+
   async function saveRow(row) {
     if (!canEditInventory) return;
     setSavingRow(row.id);
@@ -1782,6 +1933,8 @@ function Inventory() {
         stockUsed:   Number(rowDraft.stockUsed   ?? row.stockUsed   ?? 0),
         owner:       rowDraft.owner     !== undefined ? rowDraft.owner     : (row.owner     || ""),
         condition:   rowDraft.condition !== undefined ? rowDraft.condition : (row.condition || ""),
+        sizeRows:    rowDraft.sizeRows  !== undefined ? rowDraft.sizeRows  : getSizeRows(row),
+        damageLog:   rowDraft.damageLog !== undefined ? rowDraft.damageLog : (row.damageLog || []),
         lastUpdated: new Date().toISOString().slice(0, 10),
         updatedBy:   profile?.name || "Unknown"
       });
@@ -2360,6 +2513,7 @@ function Inventory() {
             <table className="kinv-table">
               <thead>
                 <tr>
+                  <th style={{ width: 28 }}></th>
                   <th>Item ID</th>
                   <th>Item</th>
                   <th>Category</th>
@@ -2373,7 +2527,7 @@ function Inventory() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={9} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found
                     </td>
                   </tr>
@@ -2384,11 +2538,25 @@ function Inventory() {
                   const minLevel  = Number(row.minLevel || 0);
                   const lowStock  = closing <= minLevel;
                   const isDirty   = rowDraft.stockIn !== undefined || rowDraft.stockUsed !== undefined ||
-                                     rowDraft.owner !== undefined || rowDraft.condition !== undefined;
+                                     rowDraft.owner !== undefined || rowDraft.condition !== undefined ||
+                                     rowDraft.sizeRows !== undefined || rowDraft.damageLog !== undefined;
                   const isDelConfirm = deleteConfirm === row.id;
+                  const isExpanded = !!expandedRows[row.id];
 
                   return (
-                    <tr key={row.id} className={cn("kinv-row", lowStock && "kinv-row--low")}>
+                    <Fragment key={row.id}>
+                    <tr className={cn("kinv-row", lowStock && "kinv-row--low")}>
+                      <td>
+                        <button
+                          type="button"
+                          className="kinv-btn-ghost"
+                          style={{ padding: "2px 4px" }}
+                          onClick={() => toggleExpandRow(row.id)}
+                          title="Size breakdown & damage log"
+                        >
+                          <ChevronIcon size={13} open={isExpanded} />
+                        </button>
+                      </td>
                       <td>
                         <span className="kinv-id">{row.itemId}</span>
                       </td>
@@ -2471,6 +2639,18 @@ function Inventory() {
                         )}
                       </td>
                     </tr>
+                    {isExpanded && (
+                      <SizeBreakdownPanel
+                        sizeRows={draftSizeRows(row)}
+                        damageLog={draftDamageLog(row)}
+                        onSizeChange={(size, field, val) => updateSizeRow(row.id, row, size, field, val)}
+                        onAddDamage={tag => addDamageTag(row.id, row, tag)}
+                        onRemoveDamage={idx => removeDamageTag(row.id, row, idx)}
+                        disabled={!canEditInventory}
+                        colSpan={9}
+                      />
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
