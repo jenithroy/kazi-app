@@ -98,8 +98,30 @@ const emptyOrderForm = {
   assignedTo: "",
   stage: "Order Received",
   status: "Active",
-  notes: ""
+  notes: "",
+  sampleId: "",
+  sampleName: "",
+  fabricGramsUsed: "",
+  fabricCostPerPcNPR: ""
 };
+
+function findFabricByNameProd(fabrics, name) {
+  const n = (name || "").trim().toLowerCase();
+  if (!n) return null;
+  return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
+}
+
+// Fabric is priced by weight (₨/1000g) in the Fabrics library — this derives the
+// per-piece fabric cost from grams used, same math as the Inventory Item Cost tab,
+// so it doesn't have to be hand-calculated and retyped here too.
+function computeFabricCostProd(fabrics, name, gramsUsed) {
+  const match = findFabricByNameProd(fabrics, name);
+  const grams = Number(gramsUsed);
+  if (match && match.pricePerKg && grams > 0) {
+    return Math.round((Number(match.pricePerKg) / 1000) * grams * 100) / 100;
+  }
+  return null;
+}
 
 /* ── Invoice modal (existing orders) ─────────────────── */
 function InvoiceModal({ order, fields, setFields, onClose, onSubmit, saving }) {
@@ -759,6 +781,8 @@ function Production() {
   const [employees, setEmployees] = useState([]);
   const [orderCosts, setOrderCosts] = useState({});
   const [labourRatePerUnit, setLabourRatePerUnit] = useState(null);
+  const [fabrics, setFabrics] = useState([]);
+  const [samples, setSamples] = useState([]);
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -825,14 +849,18 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchSnap, orderSnap, empSnap, invSnap, costsSnap, payrollSnap] = await Promise.all([
+    const [batchSnap, orderSnap, empSnap, invSnap, costsSnap, payrollSnap, fabricSnap, sampleSnap] = await Promise.all([
       getDocs(collection(db, "production")),
       getDocs(collection(db, "orders")),
       getDocs(collection(db, "employees")),
       getDocs(collection(db, "invoices")),
       getDocs(collection(db, "order_costs")),
       getDocs(collection(db, "finance_payroll")),
+      getDocs(collection(db, "fabrics")),
+      getDocs(collection(db, "samples")),
     ]);
+    setFabrics(fabricSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setSamples(sampleSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     const batchRows = batchSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     batchRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setBatches(batchRows);
@@ -980,11 +1008,50 @@ function Production() {
     return `ORD-${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
   }
 
+  // Fabric type + grams used share the same auto-calc: typing/changing either one
+  // recomputes fabricCostPerPcNPR from the material's stored ₨/kg price, but the
+  // cost field stays directly editable afterwards if she wants to override it.
+  function updateOrderFabric(field, value) {
+    setOrderForm(f => {
+      const next = { ...f, [field]: value };
+      const computed = computeFabricCostProd(
+        fabrics,
+        field === "fabricType" ? value : next.fabricType,
+        field === "fabricGramsUsed" ? value : next.fabricGramsUsed
+      );
+      if (computed !== null) next.fabricCostPerPcNPR = computed;
+      return next;
+    });
+  }
+
+  function selectOrderSample(sampleId) {
+    const sample = samples.find(s => s.id === sampleId);
+    setOrderForm(f => ({
+      ...f,
+      sampleId: sampleId || "",
+      sampleName: sample?.name || "",
+      fabricType: f.fabricType || sample?.fabric_used || f.fabricType,
+      colorway: f.colorway || sample?.color || f.colorway,
+    }));
+  }
+
   async function submitOrder(e) {
     e.preventDefault();
     setSavingOrder(true);
     const total = Number(orderForm.quantity || 0) * Number(orderForm.pricePerPcNPR || 0);
+    const materialCostTotalNPR = Number(orderForm.quantity || 0) * Number(orderForm.fabricCostPerPcNPR || 0);
     try {
+
+    // A fabric type typed here that isn't in the priced Fabrics library yet gets
+    // saved there (no price set) so it's available — and priceable — next time,
+    // instead of being a one-off value disconnected from Inventory.
+    const typedFabricName = (orderForm.fabricType || "").trim();
+    if (typedFabricName && !findFabricByNameProd(fabrics, typedFabricName)) {
+      await addDoc(collection(db, "fabrics"), {
+        name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
+        weight: "", status: "In Stock", swatchImageUrl: "", createdAt: serverTimestamp()
+      });
+    }
 
     if (editingOrder) {
       // Edit existing order
@@ -1000,6 +1067,11 @@ function Production() {
         assignedTo:    orderForm.assignedTo,
         invoiceRef:    orderForm.invoiceRef,
         notes:         orderForm.notes,
+        sampleId:            orderForm.sampleId,
+        sampleName:          orderForm.sampleName,
+        fabricGramsUsed:     Number(orderForm.fabricGramsUsed || 0),
+        fabricCostPerPcNPR:  Number(orderForm.fabricCostPerPcNPR || 0),
+        materialCostTotalNPR,
       });
       setEditingOrder(null);
     } else {
@@ -1012,6 +1084,9 @@ function Production() {
         quantity:      Number(orderForm.quantity || 0),
         pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
         totalValueNPR: total,
+        fabricGramsUsed:    Number(orderForm.fabricGramsUsed || 0),
+        fabricCostPerPcNPR: Number(orderForm.fabricCostPerPcNPR || 0),
+        materialCostTotalNPR,
         stageHistory:  [{ stage: "Order Received", date: todayDate(), by: profile?.name || "Unknown" }],
         createdBy:     profile?.name || "Unknown",
         createdAt:     serverTimestamp(),
@@ -1056,6 +1131,10 @@ function Production() {
       stage:         order.stage || "Order Received",
       status:        order.status || "Active",
       notes:         order.notes || "",
+      sampleId:            order.sampleId || "",
+      sampleName:          order.sampleName || "",
+      fabricGramsUsed:     order.fabricGramsUsed || "",
+      fabricCostPerPcNPR:  order.fabricCostPerPcNPR || "",
     });
     setShowOrderForm(true);
   }
@@ -1802,14 +1881,24 @@ function Production() {
               </label>
               <label>
                 Fabric Type
-                <select value={orderForm.fabricType} onChange={e => setOrderForm(f => ({ ...f, fabricType: e.target.value }))}>
-                  {FABRIC_TYPES.map(t => <option key={t}>{t}</option>)}
-                </select>
+                <input type="text" list="prod-fabric-names" value={orderForm.fabricType} placeholder="e.g. Terry Cotton"
+                  onChange={e => updateOrderFabric("fabricType", e.target.value)} />
+                <datalist id="prod-fabric-names">
+                  {fabrics.map(f => <option key={f.id} value={f.name} />)}
+                  {FABRIC_TYPES.map(t => <option key={t} value={t} />)}
+                </datalist>
               </label>
               <label>
                 Colorway
                 <input type="text" value={orderForm.colorway} placeholder="e.g. Black, Navy, Olive"
                   onChange={e => setOrderForm(f => ({ ...f, colorway: e.target.value }))} />
+              </label>
+              <label>
+                Sample
+                <select value={orderForm.sampleId} onChange={e => selectOrderSample(e.target.value)}>
+                  <option value="">— None —</option>
+                  {samples.map(s => <option key={s.id} value={s.id}>{s.name}{s.product_type ? ` (${s.product_type})` : ""}</option>)}
+                </select>
               </label>
               <label>
                 Quantity (pcs)
@@ -1820,6 +1909,16 @@ function Production() {
                 Price per Piece (NPR)
                 <input type="number" min="0" value={orderForm.pricePerPcNPR} placeholder="0"
                   onChange={e => setOrderForm(f => ({ ...f, pricePerPcNPR: e.target.value }))} />
+              </label>
+              <label>
+                Fabric Used (grams / pc)
+                <input type="number" min="0" value={orderForm.fabricGramsUsed} placeholder="e.g. 900"
+                  onChange={e => updateOrderFabric("fabricGramsUsed", e.target.value)} />
+              </label>
+              <label>
+                Fabric Cost / pc (NPR)
+                <input type="number" min="0" value={orderForm.fabricCostPerPcNPR} placeholder="auto from material price"
+                  onChange={e => setOrderForm(f => ({ ...f, fabricCostPerPcNPR: e.target.value }))} />
               </label>
               <label>
                 Invoice / Challan Ref
@@ -1849,6 +1948,12 @@ function Production() {
                 <div style={{ gridColumn: "span 2", background: "var(--bg-surface-soft)", borderRadius: 10, padding: "10px 16px", border: "1.5px solid var(--line)", fontSize: "0.9rem" }}>
                   Order Value: <strong>NPR {(Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR)).toLocaleString()}</strong>
                   <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {Number(orderForm.pricePerPcNPR).toLocaleString()})</span>
+                  {orderForm.fabricCostPerPcNPR && (
+                    <div style={{ marginTop: 4 }}>
+                      Material Cost: <strong>NPR {(Number(orderForm.quantity) * Number(orderForm.fabricCostPerPcNPR)).toLocaleString()}</strong>
+                      <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {Number(orderForm.fabricCostPerPcNPR).toLocaleString()}/pc)</span>
+                    </div>
+                  )}
                 </div>
               )}
 
