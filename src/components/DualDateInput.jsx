@@ -67,6 +67,7 @@ export default function DualDateInput({ value, onChange, required, className = "
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {mode === "ad" ? (
         <input type="date" className={className} value={value || ""} required={required}
+          data-role="purchase-date"
           onChange={e => onChange(e.target.value)} />
       ) : (
         <div style={{ display: "flex", gap: 3 }}>

@@ -174,10 +174,10 @@ function Purchases() {
                 <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
               </tr></thead>
 
-              {filtered.map(row => (
+              {filtered.map((row, idx) => (
                 <PurchaseRowGroup
                   key={row.id}
-                  expenseId={row.expenseId}
+                  expenseId={`EXP${String(idx + 1).padStart(3, "0")}`}
                   data={purchaseRowData(row)}
                   onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
                   onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}

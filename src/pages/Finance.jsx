@@ -395,6 +395,8 @@ function Finance() {
       setPurchaseSuccess(`✓ ${newId} saved`);
       setTimeout(() => setPurchaseSuccess(""), 4000);
       await loadData();
+      // Straight back to Date so she can start the next purchase without touching the mouse.
+      requestAnimationFrame(() => document.querySelector('[data-role="purchase-date"]')?.focus());
     } catch (err) {
       console.error("Failed to add purchase:", err);
       setPurchaseError(err?.code === "permission-denied"
