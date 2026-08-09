@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteField } from "firebase/firestore";
 import DocPreview from "../components/DocPreview";
+import KeyboardSelect from "../components/KeyboardSelect";
 import { Icons } from "../components/ui";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -255,21 +256,41 @@ function Billing() {
     if (match) openEdit(match);
   }, [invoices, location.state]);
 
-  /* ── Intercept Enter Key to prevent premature form submission ── */
+  /* ── Enter advances to the next field instead of submitting — same
+     Enter-to-advance feel as PurchaseRowGroup.jsx / KeyboardSelect.jsx ── */
   function handleKeyDown(e) {
-    if (e.key === "Enter") {
-      // If it's a textarea, let it handle newlines naturally
-      if (e.target.tagName === "TEXTAREA") {
-        e.stopPropagation();
-        return;
-      }
-      // If it's the submit button, allow submission
-      if (e.target.type === "submit" || (e.target.tagName === "BUTTON" && e.target.type !== "button")) {
-        return;
-      }
-      // Block submission on Enter for all other inputs
-      e.preventDefault();
+    if (e.key !== "Enter") return;
+    // If it's a textarea, let it handle newlines naturally
+    if (e.target.tagName === "TEXTAREA") {
+      e.stopPropagation();
+      return;
     }
+    // If it's the submit button, allow submission
+    if (e.target.type === "submit" || (e.target.tagName === "BUTTON" && e.target.type !== "button")) {
+      return;
+    }
+    e.preventDefault();
+    // textarea included so a multiline field (e.g. Client Address) can be the
+    // *destination* of an advance, even though its own handler keeps Enter as
+    // a newline once focus actually lands there.
+    const fields = Array.from(e.currentTarget.querySelectorAll("input, select, textarea, [data-kb-select]")).filter(el => !el.disabled);
+    const next = fields[fields.indexOf(e.target) + 1];
+    next?.focus();
+  }
+
+  // Enter (not Shift+Enter) on the last row's Rate field appends a fresh line
+  // item and jumps focus into its Description — mirrors addItemOnEnter in
+  // PurchaseRowGroup.jsx. Must ignore every other key or Tab gets hijacked too.
+  function addItemOnEnter(e) {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const container = e.currentTarget.closest("form");
+    setForm(f => ({ ...f, items: [...f.items, { ...emptyItem }] }));
+    requestAnimationFrame(() => {
+      const inputs = container?.querySelectorAll('[data-role="item-description"]');
+      inputs?.[inputs.length - 1]?.focus();
+    });
   }
 
   async function handleSubmit(e) {
@@ -306,6 +327,10 @@ function Billing() {
           updatedBy:      profile?.name || "Unknown",
           updatedAt:      serverTimestamp(),
         };
+        // Manually flipping an invoice to Paid must settle its credit — otherwise
+        // the badge says Paid while Credit Due/Record Payment still show an
+        // outstanding balance from before the status was changed.
+        if (tab === "invoice" && form.status === "Paid") updates.amountPaid = total;
         // Remove read-only fields that shouldn't be overwritten
         delete updates.createdAt;
         delete updates.createdBy;
@@ -712,9 +737,7 @@ function Billing() {
                 {/* Status */}
                 <label className="kfin-label">
                   Status
-                  <select className="kfin-select" value={form.status} onChange={e => setF("status", e.target.value)}>
-                    {STATUS_BY_TYPE[tab].map(s => <option key={s}>{s}</option>)}
-                  </select>
+                  <KeyboardSelect className="kfin-select" value={form.status} options={STATUS_BY_TYPE[tab]} onChange={v => setF("status", v)} />
                 </label>
 
                 {/* Fiscal Year (invoice + challan) */}
@@ -783,11 +806,18 @@ function Billing() {
                   <textarea
                     className="kfin-input"
                     value={form.clientAddress}
-                    placeholder="Street, Ward No., City"
+                    placeholder="Street, Ward No., City (Enter to move on · Shift+Enter for a new line)"
                     rows={2}
                     style={{ resize: "vertical", fontFamily: "var(--font)" }}
                     onChange={e => setF("clientAddress", e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") e.stopPropagation(); }}
+                    onKeyDown={e => {
+                      if (e.key !== "Enter" || e.shiftKey) return; // Shift+Enter still inserts a newline
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const fields = Array.from(e.currentTarget.closest("form").querySelectorAll("input, select, textarea, [data-kb-select]")).filter(el => !el.disabled);
+                      const next = fields[fields.indexOf(e.currentTarget) + 1];
+                      next?.focus();
+                    }}
                   />
                 </label>
               </div>
@@ -810,12 +840,20 @@ function Billing() {
                   <div className="kbil-item-row" key={idx}>
                     <textarea
                       className="kfin-input"
+                      data-role="item-description"
                       value={item.description}
-                      placeholder="Item or service (Supports multiline & formatting)"
+                      placeholder="Item or service (Enter to move on · Shift+Enter for a new line)"
                       rows={2}
                       style={{ resize: "vertical", fontFamily: "var(--font)", minHeight: "38px", padding: "6px 8px" }}
                       onChange={e => updateItem(idx, "description", e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter") e.stopPropagation(); }}
+                      onKeyDown={e => {
+                        if (e.key !== "Enter" || e.shiftKey) return; // Shift+Enter still inserts a newline
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const fields = Array.from(e.currentTarget.closest("form").querySelectorAll("input, select, textarea, [data-kb-select]")).filter(el => !el.disabled);
+                        const next = fields[fields.indexOf(e.currentTarget) + 1];
+                        next?.focus();
+                      }}
                     />
                     <input className="kfin-input" type="number" min="0" step="any" value={item.qty} onChange={e => updateItem(idx, "qty", e.target.value)} />
                     <input className="kfin-input" type="text" value={item.unit} placeholder="Pcs" onChange={e => updateItem(idx, "unit", e.target.value)} />
@@ -827,6 +865,7 @@ function Billing() {
                           type="number" min="0" step="any"
                           value={item.rate} placeholder="0"
                           onChange={e => updateItem(idx, "rate", e.target.value)}
+                          onKeyDown={idx === form.items.length - 1 ? addItemOnEnter : undefined}
                           style={{ flex: 1, minWidth: 0 }}
                         />
                         <button
@@ -1071,8 +1110,9 @@ function Billing() {
                               <button className="kbil-tbl-btn" onClick={() => openEdit(row)}>Edit</button>
                             )}
 
-                            {/* Record payment (invoice) */}
-                            {canEdit && tab === "invoice" && !["Paid", "Cancelled"].includes(row.status) && (
+                            {/* Record payment (invoice) — gated on actual credit due, not the
+                                status label, so a stale/mismatched status can't hide it */}
+                            {canEdit && tab === "invoice" && row.status !== "Cancelled" && creditDue > 0.005 && (
                               <button
                                 className="kbil-tbl-btn kbil-tbl-btn--ok"
                                 onClick={() => {
@@ -1198,7 +1238,7 @@ function Billing() {
       {/* ── Payment Modal ── */}
       {payModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div style={{ background: "var(--surface)", borderRadius: 14, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.22)" }}>
+          <div style={{ background: "var(--card)", borderRadius: 14, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.22)" }}>
             <h3 style={{ margin: "0 0 4px", fontSize: "1.05rem", fontWeight: 700 }}>Record Payment</h3>
             <p style={{ color: "var(--ink-3)", fontSize: 13, margin: "0 0 14px" }}>
               {payModal.docNum} · Total: <strong>{fmtNPR(payModal.totalNPR)}</strong>

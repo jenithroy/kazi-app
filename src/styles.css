@@ -2859,7 +2859,7 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 .kbil-fx-trigger {
   flex-shrink: 0;
   width: 30px; height: 30px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
   background: var(--bg);
   color: var(--mint-deep);
@@ -2875,8 +2875,8 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   top: calc(100% + 6px);
   left: 0;
   z-index: 200;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   padding: 14px 16px 12px;
   width: 290px;
