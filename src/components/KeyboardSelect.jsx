@@ -15,6 +15,10 @@ export default function KeyboardSelect({ value, options, onChange, className, st
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const listRef = useRef(null);
+  // Set right after a type-ahead pick lands a value while the list stays closed.
+  // Without it, the next Enter falls into the "list is closed" branch and reopens
+  // it instead of advancing — as if she hadn't picked anything yet.
+  const justTypedAheadRef = useRef(false);
 
   const selectedIndex = normalized.findIndex(o => o.value === value);
   const current = selectedIndex >= 0 ? normalized[selectedIndex] : null;
@@ -32,10 +36,7 @@ export default function KeyboardSelect({ value, options, onChange, className, st
     if (open) listRef.current?.children[highlight]?.scrollIntoView({ block: "nearest" });
   }, [open, highlight]);
 
-  function commit(idx) {
-    const opt = normalized[idx];
-    if (opt) onChange(opt.value);
-    setOpen(false);
+  function advanceFocus() {
     requestAnimationFrame(() => {
       const container = triggerRef.current?.closest("tbody") || triggerRef.current?.closest("form") || document;
       const fields = Array.from(container.querySelectorAll("input, select, [data-kb-select]"))
@@ -43,6 +44,13 @@ export default function KeyboardSelect({ value, options, onChange, className, st
       const at = fields.indexOf(triggerRef.current);
       fields[at + 1]?.focus();
     });
+  }
+
+  function commit(idx) {
+    const opt = normalized[idx];
+    if (opt) onChange(opt.value);
+    setOpen(false);
+    advanceFocus();
   }
 
   function onKeyDown(e) {
@@ -61,6 +69,7 @@ export default function KeyboardSelect({ value, options, onChange, className, st
           onChange(normalized[idx].value);
           setHighlight(idx);
           setOpen(false);
+          justTypedAheadRef.current = true;
           return;
         }
       }
@@ -69,11 +78,17 @@ export default function KeyboardSelect({ value, options, onChange, className, st
     if (!open) {
       if (e.key === "Enter") {
         e.preventDefault(); e.stopPropagation();
-        setHighlight(selectedIndex >= 0 ? selectedIndex : 0);
-        setOpen(true);
+        if (justTypedAheadRef.current) {
+          justTypedAheadRef.current = false;
+          advanceFocus();
+        } else {
+          setHighlight(selectedIndex >= 0 ? selectedIndex : 0);
+          setOpen(true);
+        }
       }
       return;
     }
+    justTypedAheadRef.current = false;
     if (e.key === "Tab") {
       e.preventDefault(); e.stopPropagation();
       const dir = e.shiftKey ? -1 : 1;
@@ -101,7 +116,7 @@ export default function KeyboardSelect({ value, options, onChange, className, st
         data-kb-select
         className={className}
         disabled={disabled}
-        onClick={() => { if (!disabled) { setHighlight(selectedIndex >= 0 ? selectedIndex : 0); setOpen(o => !o); } }}
+        onClick={() => { if (!disabled) { justTypedAheadRef.current = false; setHighlight(selectedIndex >= 0 ? selectedIndex : 0); setOpen(o => !o); } }}
         onKeyDown={onKeyDown}
         style={{
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
