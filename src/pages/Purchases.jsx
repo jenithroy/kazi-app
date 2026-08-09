@@ -66,8 +66,8 @@ function Purchases() {
     if (!draft) return;
     try {
       const subtotal = purchaseSubtotal(draft.items);
-      const vatAmount = purchaseVatAmount(draft.items, draft.vatBill, draft.discountAmt);
-      const grandTotal = purchaseGrandTotal(draft.items, draft.vatBill, draft.discountAmt);
+      const vatAmount = purchaseVatAmount(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
+      const grandTotal = purchaseGrandTotal(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
 
       await fsUpdateDoc(doc(db, "finance_purchases", row.id), {
         expenseItem: draft.expenseItem,
@@ -75,6 +75,7 @@ function Purchases() {
         paymentType: draft.paymentType || "CASH",
         vatBill: draft.vatBill,
         discountAmt: Number(draft.discountAmt || 0),
+        taxableAmt: Number(draft.taxableAmt || 0),
         subtotalNPR: subtotal,
         vatAmountNPR: vatAmount,
         amountNPR: grandTotal,
@@ -168,7 +169,7 @@ function Purchases() {
             <table className="kfin-tbl kfin-tbl-compact kfin-tbl--plain">
               <thead><tr>
                 <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
-                <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
+                <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
               </tr></thead>
 
               {filtered.map(row => (

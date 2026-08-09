@@ -325,8 +325,8 @@ function Finance() {
     try {
       const newId = nextExpenseId();
       const subtotal = purchaseSubtotal(purchaseForm.items);
-      const vatAmount = purchaseVatAmount(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt);
-      const grandTotal = purchaseGrandTotal(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt);
+      const vatAmount = purchaseVatAmount(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt, purchaseForm.taxableAmt);
+      const grandTotal = purchaseGrandTotal(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt, purchaseForm.taxableAmt);
 
       await addDoc(collection(db, "finance_purchases"), {
         expenseId: newId,
@@ -335,6 +335,7 @@ function Finance() {
         paymentType: purchaseForm.paymentType || "CASH",
         vatBill: purchaseForm.vatBill,
         discountAmt: Number(purchaseForm.discountAmt || 0),
+        taxableAmt: Number(purchaseForm.taxableAmt || 0),
         subtotalNPR: subtotal,
         vatAmountNPR: vatAmount,
         amountNPR: grandTotal,
@@ -839,7 +840,7 @@ function Finance() {
                 <table className="kfin-tbl kfin-tbl-compact">
                   <thead><tr>
                     <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
-                    <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th></th><th>Total / Action</th>
+                    <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
                   </tr></thead>
 
                   <PurchaseRowGroup
