@@ -62,9 +62,12 @@ const EXPENSE_CATEGORIES = [
   "Software & Subscriptions", "Miscellaneous", "Other"
 ];
 
+// Cash and Laxmi Sunrise Bank carry an opening balance because their Ledger-tab
+// view is a running Dr/Cr/Balance table seeded from it — see cashBankLedger.
 const DEFAULT_ACCOUNTS = [
-  { name: "Cash", type: "Asset" },
+  { name: "Cash", type: "Asset", openingBalanceNPR: 20000 },
   { name: "Bank Account", type: "Asset" },
+  { name: "Laxmi Sunrise Bank", type: "Asset", openingBalanceNPR: 251000 },
   { name: "Fonepay", type: "Asset" },
   { name: "Accounts Receivable", type: "Asset" },
   { name: "Inventory", type: "Asset" },
@@ -116,7 +119,12 @@ function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { fmt: fmtC } = useCurrency();
-  const [activeTab, setActiveTab] = useState("expenses");
+  // Restored synchronously (not in an effect) so the page doesn't flash "expenses"
+  // before jumping to the tab she was on when she clicked out to Purchases/Billing.
+  const [activeTab, setActiveTab] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem("financeReturnState"))?.tab || "expenses"; }
+    catch { return "expenses"; }
+  });
 
   const visibleTabs = TABS.filter(t => financeTabAllowed(profile, FINANCE_TAB_KEYS[t]));
   const canEditTab  = (tabLabel) => sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS[tabLabel]);
@@ -160,6 +168,9 @@ function Finance() {
   const [journalForm, setJournalForm] = useState(emptyJournalForm);
   const [journalSubmitting, setJournalSubmitting] = useState(false);
   const [invoices, setInvoices] = useState([]);
+  // In-place edit for a Cash/Bank ledger row sourced from a bank txn or journal entry —
+  // purchase/invoice rows deep-link to their own full editor (Purchases/Billing) instead.
+  const [ledgerDraft, setLedgerDraft] = useState(null); // { type: "bank"|"journal", id, particulars, amount }
 
   /* ── Bank transactions state ── */
   const [bankTxns, setBankTxns]       = useState([]);
@@ -257,6 +268,15 @@ function Finance() {
         const freshSnap = await getDocs(collection(db, "accounts"));
         accs = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       }
+      // Backfill openingBalanceNPR onto accounts seeded before that field existed.
+      for (const def of DEFAULT_ACCOUNTS) {
+        if (def.openingBalanceNPR == null) continue;
+        const acc = accs.find(a => a.name === def.name);
+        if (acc && acc.openingBalanceNPR == null) {
+          await fsUpdateDoc(doc(db, "accounts", acc.id), { openingBalanceNPR: def.openingBalanceNPR });
+          acc.openingBalanceNPR = def.openingBalanceNPR;
+        }
+      }
     }
     const seenAcc = new Set();
     accs = accs.filter(a => { if (seenAcc.has(a.name)) return false; seenAcc.add(a.name); return true; });
@@ -304,7 +324,26 @@ function Finance() {
     }
   }
 
-  useEffect(() => { loadData().catch(console.error); }, []);
+  useEffect(() => {
+    loadData().catch(console.error).finally(() => {
+      // Restore scroll only after this tab's content has actually rendered —
+      // doing it before data loads would scroll into a page that's still short.
+      try {
+        const saved = JSON.parse(sessionStorage.getItem("financeReturnState"));
+        if (saved) {
+          sessionStorage.removeItem("financeReturnState");
+          requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, saved.scrollY || 0)));
+        }
+      } catch { /* ignore malformed/missing saved state */ }
+    });
+  }, []);
+
+  // Called instead of a bare navigate() when a ledger row sends her to Purchases/Billing —
+  // remembers the ledger tab + scroll position so "Back to Finance" lands right back here.
+  function goToLedgerSource(path, state) {
+    sessionStorage.setItem("financeReturnState", JSON.stringify({ tab: activeTab, scrollY: window.scrollY }));
+    navigate(path, { state });
+  }
 
   /* ── Handlers ── */
 
@@ -448,6 +487,20 @@ function Finance() {
     }
   }
 
+  async function commitLedgerDraft() {
+    if (!ledgerDraft) return;
+    const { type, id, particulars, amount } = ledgerDraft;
+    const coll = type === "bank" ? "bank_transactions" : "journal_entries";
+    try {
+      await fsUpdateDoc(doc(db, coll, id), { description: particulars, amountNPR: Number(amount || 0) });
+      setLedgerDraft(null);
+      await loadData();
+    } catch (err) {
+      console.error("Failed to update ledger entry:", err);
+      showError("Failed to update ledger entry. Please try again.");
+    }
+  }
+
   /* ── Order P&L handlers ── */
   function openOplPanel(order) {
     setOplSelectedId(order.id);
@@ -520,6 +573,69 @@ function Finance() {
     }
     return map;
   }, [entries]);
+
+  // Running Cash/Bank ledger — matches Deepa's notebook format (Particulars/Dr/Cr/Balance).
+  // Rows are derived on the fly from Purchases, paid Invoices, Bank txns and Journal
+  // entries — nothing is written back, so there's no separate ledger doc to keep in sync.
+  const cashBankLedger = useMemo(() => {
+    const CASH = "Cash";
+    const BANK = "Laxmi Sunrise Bank";
+    const rowsFor = { [CASH]: [], [BANK]: [] };
+
+    purchases.forEach(p => {
+      const acct = p.paymentType === "CASH" ? CASH : p.paymentType === "Bank" ? BANK : null;
+      if (!acct) return; // Credit purchases move to Accounts Payable, not Cash/Bank
+      rowsFor[acct].push({
+        date: p.date || "", sortKey: p.createdAt?.seconds || 0,
+        particulars: `Purchase — ${p.expenseItem || p.expenseId}`, dr: 0, cr: Number(p.amountNPR || 0),
+        sourceType: "purchase", sourceId: p.id, searchKey: p.expenseId,
+      });
+    });
+
+    invoices.filter(i => i.status === "Paid").forEach(i => {
+      const val = Number(i.totalNPR || 0);
+      const amt = i.currency === "GBP" ? val * GBP_RATE : val;
+      rowsFor[CASH].push({
+        date: i.date || "", sortKey: i.createdAt?.seconds || 0,
+        particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
+        sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName,
+      });
+    });
+
+    bankTxns.forEach(t => {
+      if (t.accountName && t.accountName !== BANK) return; // future multi-bank-account support
+      const amt = Number(t.amountNPR || 0);
+      rowsFor[BANK].push({
+        date: t.date || "", sortKey: t.createdAt?.seconds || 0,
+        particulars: t.description || "Bank transaction",
+        dr: t.type === "credit" ? amt : 0, cr: t.type === "debit" ? amt : 0,
+        sourceType: "bank", sourceId: t.id,
+      });
+    });
+
+    entries.forEach(e => {
+      const amt = Number(e.amountNPR || 0);
+      if (e.debitAccount === CASH || e.debitAccount === BANK) {
+        rowsFor[e.debitAccount].push({ date: e.date || "", sortKey: e.createdAt?.seconds || 0, particulars: e.description || "Journal entry", dr: amt, cr: 0, sourceType: "journal", sourceId: e.id });
+      }
+      if (e.creditAccount === CASH || e.creditAccount === BANK) {
+        rowsFor[e.creditAccount].push({ date: e.date || "", sortKey: e.createdAt?.seconds || 0, particulars: e.description || "Journal entry", dr: 0, cr: amt, sourceType: "journal", sourceId: e.id });
+      }
+    });
+
+    const result = {};
+    for (const name of [CASH, BANK]) {
+      const opening = accounts.find(a => a.name === name)?.openingBalanceNPR || 0;
+      const sorted = rowsFor[name].sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
+      let balance = opening;
+      const rows = sorted.map(r => {
+        balance += r.dr - r.cr;
+        return { ...r, balance };
+      });
+      result[name] = { openingBalanceNPR: opening, rows, closingBalance: balance };
+    }
+    return result;
+  }, [purchases, invoices, bankTxns, entries, accounts]);
 
   const pl = useMemo(() => {
     // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
@@ -1016,15 +1132,84 @@ function Finance() {
 
         {/* ── Ledger ── */}
         {activeTab === "ledger" && (
+          <>
+            {[["Cash", cashBankLedger.Cash], ["Laxmi Sunrise Bank", cashBankLedger["Laxmi Sunrise Bank"]]].map(([name, data]) => (
+              <div className="kfin-block" key={name} style={{ marginBottom: 14 }}>
+                <div className="kfin-block-hd">
+                  <p className="kfin-block-title">{name}</p>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: data.closingBalance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
+                    Balance: NPR {data.closingBalance.toLocaleString()}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 400, marginLeft: 6 }}>
+                      ({asCurrency(data.closingBalance / GBP_RATE, "GBP")})
+                    </span>
+                  </span>
+                </div>
+                <div className="kfin-tbl-wrap">
+                  <table className="kfin-tbl">
+                    <thead><tr><th>Particulars</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th><th>Balance (NPR)</th></tr></thead>
+                    <tbody>
+                      <tr style={{ background: "var(--bg-2)" }}>
+                        <td style={{ fontWeight: 600 }}>Opening Balance</td>
+                        <td></td><td></td>
+                        <td style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>{data.openingBalanceNPR.toLocaleString()}</td>
+                      </tr>
+                      {data.rows.length === 0 ? (
+                        <tr><td colSpan={4} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>No transactions yet.</td></tr>
+                      ) : data.rows.map((r, i) => {
+                        const editing = ledgerDraft && ledgerDraft.type === r.sourceType && ledgerDraft.id === r.sourceId;
+                        const inputStyle = { padding: "3px 6px", fontSize: 12, width: "100%" };
+                        return (
+                          <tr
+                            key={i}
+                            title={canEdit ? (r.sourceType === "purchase" ? "Click to edit in Purchases" : r.sourceType === "invoice" ? "Click to edit in Billing" : "Click to edit") : undefined}
+                            style={{ cursor: canEdit ? "pointer" : "default" }}
+                            onClick={() => {
+                              if (!canEdit || editing) return;
+                              if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
+                              else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
+                              else setLedgerDraft({ type: r.sourceType, id: r.sourceId, particulars: r.particulars, amount: r.dr || r.cr });
+                            }}
+                            onBlur={e => { if (editing && !e.currentTarget.contains(e.relatedTarget)) commitLedgerDraft(); }}
+                          >
+                            <td>
+                              {editing
+                                ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars} autoFocus
+                                    onChange={e => setLedgerDraft(d => ({ ...d, particulars: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                : r.particulars}
+                            </td>
+                            <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>
+                              {editing && r.dr
+                                ? <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={ledgerDraft.amount}
+                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                : (r.dr ? r.dr.toLocaleString() : "—")}
+                            </td>
+                            <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>
+                              {editing && r.cr
+                                ? <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={ledgerDraft.amount}
+                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                : (r.cr ? r.cr.toLocaleString() : "—")}
+                            </td>
+                            <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{r.balance.toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           <div className="kfin-block">
             <div className="kfin-block-hd">
-              <p className="kfin-block-title">Account Ledger</p>
+              <p className="kfin-block-title">Other Accounts</p>
             </div>
-            {Object.keys(ledger).length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No entries yet. Post journal entries to see the ledger.</p>
+            {Object.entries(ledger).filter(([a]) => a !== "Cash" && a !== "Laxmi Sunrise Bank").length === 0
+              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No journal entries yet for other accounts.</p>
               : (
                 <div className="kfin-ledger-grid">
-                  {Object.entries(ledger).sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
+                  {Object.entries(ledger).filter(([a]) => a !== "Cash" && a !== "Laxmi Sunrise Bank").sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
                     const accInfo = accounts.find(a => a.name === account);
                     const accType = accInfo?.type || "Unknown";
                     const isAsset = accType === "Asset";
@@ -1068,7 +1253,8 @@ function Finance() {
                   })}
                 </div>
               )}
-          </div>
+            </div>
+          </>
         )}
 
         {/* ── P&L ── */}
@@ -1257,6 +1443,7 @@ function Finance() {
                     e.preventDefault();
                     await addDoc(collection(db, "bank_transactions"), {
                       ...bankForm,
+                      accountName: "Laxmi Sunrise Bank",
                       amountNPR: Number(bankForm.amountNPR),
                       createdBy: profile?.name || "Unknown",
                       createdAt: serverTimestamp(),

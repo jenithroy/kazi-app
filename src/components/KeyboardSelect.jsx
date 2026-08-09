@@ -47,6 +47,25 @@ export default function KeyboardSelect({ value, options, onChange, className, st
 
   function onKeyDown(e) {
     if (disabled) return;
+
+    // Type-ahead, same as native <select>: a letter/digit jumps straight to the
+    // next option starting with it, searching past the current selection and
+    // wrapping — works whether the list is open or closed.
+    if (e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const n = normalized.length;
+      const start = selectedIndex >= 0 ? selectedIndex : -1;
+      for (let i = 1; i <= n; i++) {
+        const idx = (start + i) % n;
+        if (normalized[idx].label.toLowerCase().startsWith(e.key.toLowerCase())) {
+          e.preventDefault(); e.stopPropagation();
+          onChange(normalized[idx].value);
+          setHighlight(idx);
+          setOpen(false);
+          return;
+        }
+      }
+    }
+
     if (!open) {
       if (e.key === "Enter") {
         e.preventDefault(); e.stopPropagation();

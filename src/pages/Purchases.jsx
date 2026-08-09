@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { collection, deleteDoc, doc, getDocs, updateDoc as fsUpdateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -14,13 +14,15 @@ import {
 
 function Purchases() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS.purchases);
 
   const [purchases, setPurchases] = useState([]);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
+  const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
 
   async function loadPurchases() {
     setLoading(true);

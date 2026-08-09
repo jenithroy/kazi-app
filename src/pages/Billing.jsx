@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteField } from "firebase/firestore";
 import DocPreview from "../components/DocPreview";
+import { Icons } from "../components/ui";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
@@ -125,6 +127,8 @@ function FXPopover({ idx, onApply, onClose }) {
    sequential numbering, partial payment tracking
 ══════════════════════════════════════════════════════ */
 function Billing() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "billing");
   const { fmt: fmtC } = useCurrency();
@@ -149,8 +153,8 @@ function Billing() {
   const [converting, setConverting] = useState(null); // doc id being converted, or null
   const [showCancelled, setShowCancelled] = useState(false);
 
-  // Search/filter state (Fix 1)
-  const [searchQuery, setSearchQuery] = useState("");
+  // Search/filter state (Fix 1) — prefilled when arriving from a Finance-ledger deep link
+  const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
 
   // Payment modal state
   const [payModal, setPayModal]     = useState(null); // { id, docNum, totalNPR, currentPaid, coll }
@@ -238,6 +242,18 @@ function Billing() {
     setShowForm(true);
     scrollAppToTop();
   }
+
+  // Arriving from a Finance-ledger click: jump straight into editing that invoice
+  // instead of landing on the list and making her find + press Edit herself.
+  const autoEditDoneRef = useRef(false);
+  useEffect(() => {
+    if (autoEditDoneRef.current || !location.state?.autoEdit || invoices.length === 0) return;
+    autoEditDoneRef.current = true;
+    const q = (location.state.search || "").toLowerCase();
+    const match = invoices.find(r => (r.invoiceNumber || "").toLowerCase() === q)
+      || invoices.find(r => (r.clientName || "").toLowerCase() === q);
+    if (match) openEdit(match);
+  }, [invoices, location.state]);
 
   /* ── Intercept Enter Key to prevent premature form submission ── */
   function handleKeyDown(e) {
@@ -528,6 +544,15 @@ function Billing() {
   return (
     <>
       <div className="kfin-wrap">
+
+        <button
+          type="button"
+          className="ghost-button"
+          style={{ alignSelf: "flex-start" }}
+          onClick={() => navigate("/finance")}
+        >
+          <Icons.ChevronLeft size={15} sw={2} /> Back to Finance
+        </button>
 
         {/* ── Page Header ── */}
         <div className="kbil-page-hd">
