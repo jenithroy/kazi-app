@@ -31,7 +31,7 @@ function dueIn30(fromDate) {
 
 const emptyInvFields = {
   clientAddress: "", clientPhone: "", clientPAN: "",
-  dueDate: dueIn30(todayDate()), applyVAT: true, paymentTerms: "Net 30",
+  dueDate: dueIn30(todayDate()), applyVAT: true, paymentTerms: "Net 30", paymentType: "CASH",
 };
 
 /* ── Batch form defaults ──────────────────────────────── */
@@ -187,6 +187,15 @@ function InvoiceModal({ order, fields, setFields, onClose, onSubmit, saving }) {
               <option>Net 15</option><option>Net 30</option>
               <option>Net 45</option><option>Net 60</option>
               <option>Due on Receipt</option>
+            </select>
+          </label>
+          <label className="kprod-inv-label">
+            Payment Type
+            <select className="kprod-inv-input" value={fields.paymentType}
+              onChange={e => setFields(f => ({ ...f, paymentType: e.target.value }))}>
+              <option value="CASH">Cash</option>
+              <option value="Bank">Bank</option>
+              <option value="Credit">Credit</option>
             </select>
           </label>
           <label className="kprod-inv-label">
@@ -927,6 +936,7 @@ function Production() {
       challanNumber:  order.invoiceRef || "",
       status:         "Draft",
       applyVAT:       !!fields.applyVAT,
+      paymentType:    fields.paymentType || "CASH",
       note:           order.notes || "",
       items: [{
         description: `${order.styleName || ""}${order.fabricType ? " — " + order.fabricType : ""}${order.colorway ? " (" + order.colorway + ")" : ""}`,
@@ -2016,6 +2026,16 @@ function Production() {
                         <option>Net 45</option>
                         <option>Net 60</option>
                         <option>Due on Receipt</option>
+                      </select>
+                    </label>
+                    <label className="kprod-inv-label">
+                      Payment Type
+                      <select className="kprod-inv-input"
+                        value={invFields.paymentType}
+                        onChange={e => setInvFields(f => ({ ...f, paymentType: e.target.value }))}>
+                        <option value="CASH">Cash</option>
+                        <option value="Bank">Bank</option>
+                        <option value="Credit">Credit</option>
                       </select>
                     </label>
                     <label className="kprod-inv-label" style={{ justifyContent: "flex-end" }}>

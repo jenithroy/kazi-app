@@ -165,8 +165,6 @@ function Billing() {
   // Fix 6: PAN validation error
   const [panError, setPanError] = useState("");
 
-  const [showAudit, setShowAudit] = useState(false);
-
   /* ── Load data ── */
   async function loadAll() {
     const [invSnap, chSnap, qtSnap] = await Promise.all([
@@ -355,7 +353,7 @@ function Billing() {
           createdAt:      serverTimestamp(),
         };
         // Strip fields irrelevant to this doc type
-        if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; }
+        if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; delete record.paymentType; }
         if (tab !== "challan")   { delete record.vehicleNo; delete record.driverName; delete record.routeFrom; delete record.routeTo; }
         if (tab !== "quotation") { delete record.validUntil; delete record.terms; }
         await addDoc(collection(db, meta.coll), record);
@@ -440,6 +438,7 @@ function Billing() {
         clientPhone:      qt.clientPhone || "",
         status:           "Draft",
         applyVAT:         true,
+        paymentType:      "CASH",
         items:            items,
         note:             qt.note || "",
         discountPct:      qt.discountPct || 0,
@@ -535,37 +534,6 @@ function Billing() {
 
   const numField = meta.numberField;
 
-  /* ── Sequence audit (read-only) — checks the real numbers for duplicates or
-     gaps, independent of the display-sort fix above. Cancelled documents keep
-     their number and count toward the sequence — only a genuinely missing
-     number is a gap. ── */
-  const numberAudit = useMemo(() => {
-    function auditOne(list, field, prefix) {
-      const nums = list
-        .map(r => {
-          const m = /(\d+)\s*$/.exec(r[field] || "");
-          return m ? parseInt(m[1], 10) : null;
-        })
-        .filter(n => n !== null)
-        .sort((a, b) => a - b);
-      const seen = new Map();
-      nums.forEach(n => seen.set(n, (seen.get(n) || 0) + 1));
-      const duplicates = [...seen.entries()].filter(([, c]) => c > 1).map(([n]) => n);
-      const missing = [];
-      if (nums.length > 0) {
-        for (let i = nums[0]; i <= nums[nums.length - 1]; i++) {
-          if (!seen.has(i)) missing.push(i);
-        }
-      }
-      return { prefix, count: list.length, min: nums[0] ?? null, max: nums[nums.length - 1] ?? null, duplicates, missing };
-    }
-    return {
-      invoice:   auditOne(invoices,   "invoiceNumber",   DOC_TYPES.invoice.prefix),
-      challan:   auditOne(challans,   "challanNumber",   DOC_TYPES.challan.prefix),
-      quotation: auditOne(quotations, "quotationNumber", DOC_TYPES.quotation.prefix),
-    };
-  }, [invoices, challans, quotations]);
-
   return (
     <>
       <div className="kfin-wrap">
@@ -587,11 +555,6 @@ function Billing() {
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {canEdit && (
-              <button className="kbil-btn-ghost" onClick={() => setShowAudit(v => !v)}>
-                {showAudit ? "✕ Hide" : "🔍 Check numbering"}
-              </button>
-            )}
-            {canEdit && (
               <button className="kbil-btn-primary" onClick={() => {
                 if (showForm) { setShowForm(false); setEditingId(null); setForm(makeEmptyForm(tab)); }
                 else { setEditingId(null); setForm(makeEmptyForm(tab)); setShowForm(true); }
@@ -601,47 +564,6 @@ function Billing() {
             )}
           </div>
         </div>
-
-        {/* ── Sequence audit panel (read-only) ── */}
-        {showAudit && (
-          <div className="kazi-card" style={{ padding: "16px 20px", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Number sequence check</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-              {Object.entries(numberAudit).map(([key, a]) => (
-                <div key={key} style={{ padding: "10px 12px", border: "1px solid var(--line)", borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>
-                    {DOC_TYPES[key].label} ({a.prefix}-###)
-                  </div>
-                  {a.count === 0 ? (
-                    <div style={{ fontSize: 12, color: "var(--ink-4)" }}>No documents yet.</div>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
-                        {a.count} document{a.count !== 1 ? "s" : ""} · range {a.prefix}-{String(a.min).padStart(3, "0")} to {a.prefix}-{String(a.max).padStart(3, "0")}
-                      </div>
-                      {a.duplicates.length === 0 && a.missing.length === 0 ? (
-                        <div style={{ fontSize: 12, color: "var(--mint-deep)", fontWeight: 600, marginTop: 4 }}>✓ Sequential, no gaps or duplicates</div>
-                      ) : (
-                        <>
-                          {a.duplicates.length > 0 && (
-                            <div style={{ fontSize: 12, color: "var(--terra)", fontWeight: 600, marginTop: 4 }}>
-                              ⚠ Duplicate number{a.duplicates.length !== 1 ? "s" : ""}: {a.duplicates.map(n => `${a.prefix}-${String(n).padStart(3, "0")}`).join(", ")}
-                            </div>
-                          )}
-                          {a.missing.length > 0 && (
-                            <div style={{ fontSize: 12, color: "var(--amber-deep)", fontWeight: 600, marginTop: 4 }}>
-                              ⚠ Missing from sequence: {a.missing.map(n => `${a.prefix}-${String(n).padStart(3, "0")}`).join(", ")}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* ── Tabs ── */}
         <div className="tab-row">
@@ -753,6 +675,14 @@ function Billing() {
                   <label className="kfin-label">
                     Payment Terms
                     <input className="kfin-input" type="text" value={form.paymentTerms} placeholder="Net 30" onChange={e => setF("paymentTerms", e.target.value)} />
+                  </label>
+                )}
+
+                {/* Payment Type (invoice) — routes this sale into the Cash or Bank ledger on Finance */}
+                {tab === "invoice" && (
+                  <label className="kfin-label">
+                    Payment Type
+                    <KeyboardSelect className="kfin-select" value={form.paymentType || "CASH"} options={["CASH", "Bank", "Credit"]} onChange={v => setF("paymentType", v)} />
                   </label>
                 )}
 
@@ -1257,7 +1187,7 @@ function Billing() {
                 value={payAmt}
                 autoFocus
                 onChange={e => { setPayAmt(e.target.value); if (payError) setPayError(""); }}
-                placeholder={`Up to ${(payModal.totalNPR - payModal.currentPaid).toFixed(2)}`}
+                placeholder={`Up to ${fmtNPR(payModal.totalNPR - payModal.currentPaid)}`}
                 style={{ marginTop: 4 }}
               />
             </label>

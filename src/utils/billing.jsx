@@ -57,6 +57,7 @@ export function makeEmptyForm(type) {
       applyVAT: true,
       relatedChallan: "", relatedQuotation: "",
       amountPaid: 0,
+      paymentType: "CASH", // Cash | Bank | Credit — which ledger this sale's payment lands in
     };
   }
   if (type === "challan") {

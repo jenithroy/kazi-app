@@ -1,8 +1,10 @@
 export const GBP_RATE = 200;
 
-// finance_purchases / journal_entries docs created before this instant are hidden from
-// the frontend (soft wipe, no data deleted) — new docs created after it show normally.
-export const HISTORICAL_DATA_CUTOFF_MS = new Date("2026-07-29T06:36:29.000Z").getTime();
+// Was hiding finance_purchases/journal_entries created before a fixed instant (a "soft
+// wipe" — no data deleted, just not rendered). Turned off: it was silently hiding real
+// transactions (factory setup costs, etc.), not just stale test data. Set to epoch 0 so
+// createdAfterCutoff() is effectively a no-op everywhere it's still called.
+export const HISTORICAL_DATA_CUTOFF_MS = 0;
 
 export function createdAfterCutoff(data, cutoffMs = HISTORICAL_DATA_CUTOFF_MS) {
   const ts = data?.createdAt;

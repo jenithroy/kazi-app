@@ -624,7 +624,8 @@ function Finance() {
     invoices.filter(i => i.status === "Paid").forEach(i => {
       const val = Number(i.totalNPR || 0);
       const amt = i.currency === "GBP" ? val * GBP_RATE : val;
-      rowsFor[CASH].push({
+      const acct = i.paymentType === "Bank" ? BANK : CASH; // defaults to Cash for older invoices with no paymentType set
+      rowsFor[acct].push({
         date: i.date || "", sortKey: i.createdAt?.seconds || 0,
         particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
         sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName,
@@ -1184,7 +1185,7 @@ function Finance() {
                 </div>
                 <div className="kfin-tbl-wrap">
                   <table className="kfin-tbl">
-                    <thead><tr><th>Particulars</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th><th>Balance (NPR)</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Particulars</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th><th>Balance (NPR)</th></tr></thead>
                     <tbody>
                       {(() => {
                         const editingOpening = ledgerDraft && ledgerDraft.type === "opening" && ledgerDraft.id === data.accountId;
@@ -1198,6 +1199,7 @@ function Finance() {
                             }}
                             onBlur={e => { if (editingOpening && !e.currentTarget.contains(e.relatedTarget)) commitLedgerDraft(); }}
                           >
+                            <td style={{ color: "var(--ink-4)", fontSize: 12 }}>—</td>
                             <td style={{ fontWeight: 600 }}>Opening Balance</td>
                             <td></td><td></td>
                             <td style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>
@@ -1212,7 +1214,7 @@ function Finance() {
                         );
                       })()}
                       {data.rows.length === 0 ? (
-                        <tr><td colSpan={4} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>No transactions yet.</td></tr>
+                        <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>No transactions yet.</td></tr>
                       ) : data.rows.map((r, i) => {
                         const editing = ledgerDraft && ledgerDraft.type === r.sourceType && ledgerDraft.id === r.sourceId;
                         const inputStyle = { padding: "3px 6px", fontSize: 12, width: "100%" };
@@ -1229,6 +1231,7 @@ function Finance() {
                             }}
                             onBlur={e => { if (editing && !e.currentTarget.contains(e.relatedTarget)) commitLedgerDraft(); }}
                           >
+                            <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>{r.date || "—"}</td>
                             <td>
                               {editing
                                 ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars} autoFocus
