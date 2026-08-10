@@ -5,7 +5,7 @@ import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
-import { asCurrency } from "../utils/format";
+import { asCurrency, roundAmount } from "../utils/format";
 import { Icons } from "../components/ui";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
@@ -124,7 +124,7 @@ function Purchases() {
         <div>
           <h1 className="kbil-page-title">Purchases</h1>
           <p className="kbil-page-sub">
-            {purchases.length} record{purchases.length !== 1 ? "s" : ""} · NPR {total.toLocaleString()}
+            {purchases.length} record{purchases.length !== 1 ? "s" : ""} · NPR {roundAmount(total).toLocaleString()}
             <span style={{ marginLeft: 6 }}>/ {asCurrency(total / GBP_RATE, "GBP")}</span>
           </p>
         </div>

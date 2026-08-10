@@ -1,7 +1,11 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { cn, Icons, Avatar } from "./ui";
 import { sectionVisible } from "../utils/permissions";
+import { listFiscalYears, fiscalYearToSlug } from "../utils/fiscalYear";
+
+const FISCAL_YEARS = listFiscalYears({ back: 1, forward: 0 });
 
 // Nav items — badges are null by default (no fake counts)
 const NAV_ITEMS = [
@@ -48,6 +52,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { profile, logout } = useAuth();
   const location = useLocation();
   const role = profile?.appRole || profile?.role || "employee";
+  const [financeOpen, setFinanceOpen] = useState(false);
 
   const items = NAV_ITEMS
     .filter(item => {
@@ -113,11 +118,12 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
             {!collapsed && <div className="kside-group-l">{g.label}</div>}
             {g.items.map(item => {
               const isActive = location.pathname.startsWith(item.to);
-              return (
+              const isFinance = item.to === "/finance";
+
+              const navLink = (
                 <NavLink
-                  key={item.to}
                   to={item.to}
-                  className={cn("kside-item", isActive && "kside-item--active")}
+                  className={cn("kside-item", isFinance && "kside-item--row", isActive && "kside-item--active")}
                   title={collapsed ? item.label : undefined}
                 >
                   <item.Icon size={17} sw={1.7} />
@@ -131,6 +137,44 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
                     <span className="kside-shortcut">{item.shortcut}</span>
                   )}
                 </NavLink>
+              );
+
+              if (!isFinance) return <div key={item.to}>{navLink}</div>;
+
+              return (
+                <div key={item.to}>
+                  <div className="kside-item-row">
+                    {navLink}
+                    {!collapsed && (
+                      <button
+                        type="button"
+                        className={cn("kside-expand-btn", financeOpen && "kside-expand-btn--open")}
+                        onClick={() => setFinanceOpen(v => !v)}
+                        aria-label={financeOpen ? "Hide fiscal years" : "Browse transactions by fiscal year"}
+                        title="Browse transactions by fiscal year"
+                      >
+                        <Icons.ChevronRight size={12} />
+                      </button>
+                    )}
+                  </div>
+                  {!collapsed && financeOpen && (
+                    <div className="kside-subnav">
+                      {FISCAL_YEARS.map(fy => {
+                        const slug = fiscalYearToSlug(fy);
+                        const fySelected = location.pathname === `/finance/${slug}`;
+                        return (
+                          <Link
+                            key={fy}
+                            to={`/finance/${slug}`}
+                            className={cn("kside-subitem", fySelected && "kside-subitem--active")}
+                          >
+                            {fy}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

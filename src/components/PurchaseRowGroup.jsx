@@ -1,5 +1,6 @@
 import DualDateInput from "./DualDateInput";
 import KeyboardSelect from "./KeyboardSelect";
+import { roundAmount } from "../utils/format";
 
 export const PURCHASE_CATEGORIES = [
   "Office Supplies", "Equipment / IT", "Equipment", "Consumables",
@@ -236,7 +237,7 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
             {idx === items.length - 1 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: "flex-start", marginTop: 6 }}>
                 <div style={{ fontSize: 11, color: "var(--ink-4)" }}>
-                  Subtotal: <span style={{ fontWeight: 600, color: "var(--ink)" }}>NPR {subtotal.toLocaleString()}</span>
+                  Subtotal: <span style={{ fontWeight: 600, color: "var(--ink)" }}>NPR {roundAmount(subtotal).toLocaleString()}</span>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
@@ -271,12 +272,12 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
 
                 {data.vatBill === true && (
                   <div style={{ fontSize: 11, color: "var(--mint-deep)", fontWeight: 600 }}>
-                    VAT (13%): + NPR {vatAmount.toLocaleString()}
+                    VAT (13%): + NPR {roundAmount(vatAmount).toLocaleString()}
                   </div>
                 )}
 
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--mint-deep)", fontFamily: "var(--mono)", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>
-                  Total: NPR {grandTotal.toLocaleString()}
+                  Total: NPR {roundAmount(grandTotal).toLocaleString()}
                 </div>
                 {actionCell}
               </div>

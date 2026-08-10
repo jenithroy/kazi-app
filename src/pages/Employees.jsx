@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   addDoc, collection, getDocs, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch,
   query, where, setDoc
@@ -11,7 +12,7 @@ import { db, auth, firebaseConfig } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { TEAM_MEMBERS, GBP_RATE } from "../constants";
-import { asCurrency } from "../utils/format";
+import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
 
 const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", "Marketing", "IT", "Other"];
@@ -159,11 +160,15 @@ function statusBadge(status) {
 
 function Employees() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const canEdit = sectionCanEdit(profile, "employees");
   const canViewPayroll = financeTabAllowed(profile, "payroll");
   const canEditPayroll = canEdit && canViewPayroll;
 
-  const [activeTab, setActiveTab] = useState("directory");
+  // Arrived from Finance's "Payroll This Month" KPI — land straight on the Payroll tab
+  const fromFinance = location.state?.tab === "payroll";
+  const [activeTab, setActiveTab] = useState(fromFinance && canViewPayroll ? "payroll" : "directory");
 
   /* ── Points map: email → totalPoints ── */
   const [pointsMap, setPointsMap] = useState({});
@@ -495,6 +500,16 @@ function Employees() {
 
   return (
     <>
+      {fromFinance && (
+        <button
+          type="button"
+          className="ghost-button"
+          style={{ alignSelf: "flex-start", marginBottom: 12 }}
+          onClick={() => navigate("/finance")}
+        >
+          ← Back to Finance
+        </button>
+      )}
       <PageHeader
         title="Employee and HR"
         description="Manage employee profiles, salaries, and payroll runs."
@@ -718,7 +733,7 @@ function Employees() {
                       <td style={{ fontFamily: "monospace" }}>
                         {emp.basicSalaryNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {Number(emp.basicSalaryNPR).toLocaleString()}</span>
+                            <span>NPR {roundAmount(emp.basicSalaryNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "11px", color: "var(--ink-4)" }}>({asCurrency(emp.basicSalaryNPR / GBP_RATE, "GBP")})</span>
                           </div>
                         ) : "—"}
@@ -836,7 +851,7 @@ function Employees() {
                       <div>
                         <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>Auto amount (NPR)</div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: payrollForm.lateSalaryCutDeduction > 0 ? "var(--terra)" : undefined }}>
-                          {loadingAtt ? "…" : `− ${Number(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}`}
+                          {loadingAtt ? "…" : `− ${roundAmount(payrollForm.lateSalaryCutDeduction || 0).toLocaleString()}`}
                         </div>
                       </div>
                       <label style={{ fontSize: 10.5, color: "var(--ink-4)", fontWeight: 600 }}>
@@ -848,15 +863,15 @@ function Employees() {
                       <div>
                         <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>Final deduction (NPR)</div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--terra)" }}>
-                          − {Math.max(0, Number(payrollForm.lateSalaryCutDeduction || 0) + Number(payrollForm.lateAdjustmentNPR || 0)).toLocaleString()}
+                          − {roundAmount(Math.max(0, Number(payrollForm.lateSalaryCutDeduction || 0) + Number(payrollForm.lateAdjustmentNPR || 0))).toLocaleString()}
                         </div>
                       </div>
                     </div>
                     {Number(payrollForm.lateAdjustmentNPR || 0) !== 0 && (
                       <div className="kfin-full" style={{ padding: "8px 14px", fontSize: 12, color: "var(--ink-3)" }}>
                         {Number(payrollForm.lateAdjustmentNPR) > 0
-                          ? `Adding NPR ${Number(payrollForm.lateAdjustmentNPR).toLocaleString()} on top of the auto-calculated cut.`
-                          : `Reducing the auto-calculated cut by NPR ${Math.abs(Number(payrollForm.lateAdjustmentNPR)).toLocaleString()}.`}
+                          ? `Adding NPR ${roundAmount(payrollForm.lateAdjustmentNPR).toLocaleString()} on top of the auto-calculated cut.`
+                          : `Reducing the auto-calculated cut by NPR ${roundAmount(Math.abs(Number(payrollForm.lateAdjustmentNPR))).toLocaleString()}.`}
                         {" "}Explain why in the Note field below.
                       </div>
                     )}
@@ -878,34 +893,34 @@ function Employees() {
                       <div className="kfin-calc-grid">
                         <span className="kfin-calc-key">Basic Salary</span>
                         <span className="kfin-calc-val">
-                          NPR {Number(payrollForm.basicNPR || 0).toLocaleString()}
+                          NPR {roundAmount(payrollForm.basicNPR || 0).toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.basicNPR || 0) / GBP_RATE, "GBP")})</span>
                         </span>
                         <span className="kfin-calc-key">Bonus</span>
                         <span className="kfin-calc-val">
-                          NPR {Number(payrollForm.bonusNPR || 0).toLocaleString()}
+                          NPR {roundAmount(payrollForm.bonusNPR || 0).toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.bonusNPR || 0) / GBP_RATE, "GBP")})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-bold">Gross Pay</span>
                         <span className="kfin-calc-val kfin-calc-bold">
-                          NPR {calc.gross.toLocaleString()}
+                          NPR {roundAmount(calc.gross).toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(calc.gross / GBP_RATE, "GBP")})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-deduct">
-                          Late Deduction ({payrollForm.lateCutsCount} × 25% cuts{calc.adjustment !== 0 ? `, ${calc.adjustment > 0 ? "+" : "−"} NPR ${Math.abs(calc.adjustment).toLocaleString()} adj.` : ""})
+                          Late Deduction ({payrollForm.lateCutsCount} × 25% cuts{calc.adjustment !== 0 ? `, ${calc.adjustment > 0 ? "+" : "−"} NPR ${roundAmount(Math.abs(calc.adjustment)).toLocaleString()} adj.` : ""})
                         </span>
                         <span className="kfin-calc-val kfin-calc-deduct">
-                          − NPR {calc.late.toLocaleString()}
+                          − NPR {roundAmount(calc.late).toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(calc.late / GBP_RATE, "GBP")})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-deduct">PF / Other</span>
                         <span className="kfin-calc-val kfin-calc-deduct">
-                          − NPR {calc.pf.toLocaleString()}
+                          − NPR {roundAmount(calc.pf).toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(calc.pf / GBP_RATE, "GBP")})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-total">Net Pay</span>
                         <span className="kfin-calc-val kfin-calc-total">
-                          NPR {calc.net.toLocaleString()}
+                          NPR {roundAmount(calc.net).toLocaleString()}
                           <span style={{ fontSize: "11px", color: "var(--mint-deep)", marginLeft: 6, fontWeight: 700 }}>({asCurrency(calc.net / GBP_RATE, "GBP")})</span>
                         </span>
                       </div>
@@ -941,7 +956,7 @@ function Employees() {
                       <td>
                         {item.basicNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {Number(item.basicNPR).toLocaleString()}</span>
+                            <span>NPR {roundAmount(item.basicNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.basicNPR / GBP_RATE, "GBP")})</span>
                           </div>
                         ) : "—"}
@@ -949,7 +964,7 @@ function Employees() {
                       <td>
                         {item.bonusNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {Number(item.bonusNPR).toLocaleString()}</span>
+                            <span>NPR {roundAmount(item.bonusNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.bonusNPR / GBP_RATE, "GBP")})</span>
                           </div>
                         ) : "—"}
@@ -958,7 +973,7 @@ function Employees() {
                       <td style={{ color: item.lateDeductionNPR ? "var(--terra)" : undefined }}>
                         {item.lateDeductionNPR ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            <span style={{ fontWeight: 600 }}>− NPR {Number(item.lateDeductionNPR).toLocaleString()}</span>
+                            <span style={{ fontWeight: 600 }}>− NPR {roundAmount(item.lateDeductionNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.lateDeductionNPR / GBP_RATE, "GBP")})</span>
                             {item.lateCutsCount > 0 && (
                               <span style={{ fontSize: "10px", color: "var(--ink-4)", fontStyle: "italic" }}>
@@ -967,7 +982,7 @@ function Employees() {
                             )}
                             {item.lateAdjustmentNPR ? (
                               <span style={{ fontSize: "10px", color: "var(--amber-deep)", fontStyle: "italic" }}>
-                                (manually {item.lateAdjustmentNPR > 0 ? "+" : "−"}NPR {Math.abs(item.lateAdjustmentNPR).toLocaleString()})
+                                (manually {item.lateAdjustmentNPR > 0 ? "+" : "−"}NPR {roundAmount(Math.abs(item.lateAdjustmentNPR)).toLocaleString()})
                               </span>
                             ) : null}
                           </div>
@@ -976,7 +991,7 @@ function Employees() {
                       <td style={{ color: item.pfDeductionNPR ? "var(--terra)" : undefined }}>
                         {item.pfDeductionNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>− NPR {Number(item.pfDeductionNPR).toLocaleString()}</span>
+                            <span>− NPR {roundAmount(item.pfDeductionNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.pfDeductionNPR / GBP_RATE, "GBP")})</span>
                           </div>
                         ) : "—"}
@@ -984,7 +999,7 @@ function Employees() {
                       <td>
                         {item.grossNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {Number(item.grossNPR).toLocaleString()}</span>
+                            <span>NPR {roundAmount(item.grossNPR).toLocaleString()}</span>
                             <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.grossNPR / GBP_RATE, "GBP")})</span>
                           </div>
                         ) : "—"}

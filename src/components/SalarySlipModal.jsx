@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { roundAmount } from "../utils/format";
 
 export default function SalarySlipModal({ initialData, employees = [], onClose }) {
   const [empId, setEmpId] = useState(initialData?.empId || "EMP-001");
@@ -216,37 +217,37 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
       <tbody>
         <tr>
           <td class="col-title">Basic Salary</td>
-          <td class="col-val">${Number(basicSalary || 0).toLocaleString()}</td>
+          <td class="col-val">${roundAmount(basicSalary || 0).toLocaleString()}</td>
           <td class="col-title">Advance</td>
-          <td class="col-val">${Number(advance || 0) > 0 ? Number(advance).toLocaleString() : "-"}</td>
+          <td class="col-val">${Number(advance || 0) > 0 ? roundAmount(advance).toLocaleString() : "-"}</td>
         </tr>
         <tr>
           <td class="col-title">Allowances</td>
-          <td class="col-val">${Number(allowances || 0) > 0 ? Number(allowances).toLocaleString() : "-"}</td>
+          <td class="col-val">${Number(allowances || 0) > 0 ? roundAmount(allowances).toLocaleString() : "-"}</td>
           <td class="col-title">Income Tax (${taxRatePct}%)</td>
-          <td class="col-val">${computedTax > 0 ? computedTax.toLocaleString() : "-"}</td>
+          <td class="col-val">${computedTax > 0 ? roundAmount(computedTax).toLocaleString() : "-"}</td>
         </tr>
         <tr>
           <td class="col-title">Ot Salary</td>
-          <td class="col-val">${Number(otSalary || 0) > 0 ? Number(otSalary).toLocaleString() : "-"}</td>
+          <td class="col-val">${Number(otSalary || 0) > 0 ? roundAmount(otSalary).toLocaleString() : "-"}</td>
           <td class="col-title">Leave Day</td>
-          <td class="col-val">${Number(leaveDayDeduction || 0) > 0 ? Number(leaveDayDeduction).toLocaleString() : "0"}</td>
+          <td class="col-val">${Number(leaveDayDeduction || 0) > 0 ? roundAmount(leaveDayDeduction).toLocaleString() : "0"}</td>
         </tr>
         <tr>
           <td class="col-title">Receivable Due</td>
-          <td class="col-val">${Number(receivableDue || 0) > 0 ? Number(receivableDue).toLocaleString() : "-"}</td>
+          <td class="col-val">${Number(receivableDue || 0) > 0 ? roundAmount(receivableDue).toLocaleString() : "-"}</td>
           <td class="col-title">Other Payment</td>
-          <td class="col-val">${Number(otherPayment || 0) > 0 ? Number(otherPayment).toLocaleString() : "-"}</td>
+          <td class="col-val">${Number(otherPayment || 0) > 0 ? roundAmount(otherPayment).toLocaleString() : "-"}</td>
         </tr>
         <tr style="background: #fafafa;">
           <td class="col-title" style="font-weight: bold;">Total</td>
-          <td class="col-val" style="font-size: 15px;">${totalEarnings.toLocaleString()}</td>
+          <td class="col-val" style="font-size: 15px;">${roundAmount(totalEarnings).toLocaleString()}</td>
           <td class="col-title" style="font-weight: bold;">Total</td>
-          <td class="col-val" style="font-size: 15px;">${totalDeductions.toLocaleString()}</td>
+          <td class="col-val" style="font-size: 15px;">${roundAmount(totalDeductions).toLocaleString()}</td>
         </tr>
         <tr class="net-salary-row">
           <td class="col-title" style="font-weight: bold;">Net Salary</td>
-          <td class="net-salary-val">${netSalary.toLocaleString()}</td>
+          <td class="net-salary-val">${roundAmount(netSalary).toLocaleString()}</td>
           <td colspan="2"></td>
         </tr>
       </tbody>
@@ -545,38 +546,38 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
                 <tbody>
                   <tr>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Basic Salary</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(basicSalary || 0).toLocaleString()}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{roundAmount(basicSalary || 0).toLocaleString()}</td>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Advance</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(advance || 0) > 0 ? Number(advance).toLocaleString() : "-"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(advance || 0) > 0 ? roundAmount(advance).toLocaleString() : "-"}</td>
                   </tr>
                   <tr>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Allowances</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(allowances || 0) > 0 ? Number(allowances).toLocaleString() : "-"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(allowances || 0) > 0 ? roundAmount(allowances).toLocaleString() : "-"}</td>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Income Tax ({taxRatePct}%)</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{computedTax > 0 ? computedTax.toLocaleString() : "-"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{computedTax > 0 ? roundAmount(computedTax).toLocaleString() : "-"}</td>
                   </tr>
                   <tr>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Ot Salary</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(otSalary || 0) > 0 ? Number(otSalary).toLocaleString() : "-"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(otSalary || 0) > 0 ? roundAmount(otSalary).toLocaleString() : "-"}</td>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Leave Day</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(leaveDayDeduction || 0) > 0 ? Number(leaveDayDeduction).toLocaleString() : "0"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(leaveDayDeduction || 0) > 0 ? roundAmount(leaveDayDeduction).toLocaleString() : "0"}</td>
                   </tr>
                   <tr>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Receivable Due</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(receivableDue || 0) > 0 ? Number(receivableDue).toLocaleString() : "-"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(receivableDue || 0) > 0 ? roundAmount(receivableDue).toLocaleString() : "-"}</td>
                     <td style={{ border: "1px solid #000", padding: "4px 8px" }}>Other Payment</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(otherPayment || 0) > 0 ? Number(otherPayment).toLocaleString() : "-"}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{Number(otherPayment || 0) > 0 ? roundAmount(otherPayment).toLocaleString() : "-"}</td>
                   </tr>
                   <tr style={{ background: "#fafafa" }}>
                     <td style={{ border: "1px solid #000", padding: "4px 8px", fontWeight: "bold" }}>Total</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{totalEarnings.toLocaleString()}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{roundAmount(totalEarnings).toLocaleString()}</td>
                     <td style={{ border: "1px solid #000", padding: "4px 8px", fontWeight: "bold" }}>Total</td>
-                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{totalDeductions.toLocaleString()}</td>
+                    <td style={{ border: "1px solid #000", padding: "4px 8px", textAlign: "right", fontWeight: "bold" }}>{roundAmount(totalDeductions).toLocaleString()}</td>
                   </tr>
                   <tr>
                     <td style={{ border: "1px solid #000", padding: "6px 8px", fontWeight: "bold", fontSize: 14 }}>Net Salary</td>
                     <td style={{ border: "1px solid #000", padding: "6px 8px", textAlign: "center", fontWeight: "bold", color: "#d32f2f", fontSize: 15 }}>
-                      {netSalary.toLocaleString()}
+                      {roundAmount(netSalary).toLocaleString()}
                     </td>
                     <td colSpan="2" style={{ border: "1px solid #000" }}></td>
                   </tr>

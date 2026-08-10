@@ -8,7 +8,9 @@ import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
 import { db, storage } from "../firebase";
+import { roundAmount } from "../utils/format";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
+import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
 
 /* ── Image compression & upload helpers ───────────────── */
 function compressFabricImage(file, maxWidth = 1200, quality = 0.8) {
@@ -144,7 +146,7 @@ const STOCK_CATEGORIES = [
 
 const emptyItemForm = {
   item: "", unit: "pcs", category: "Raw Materials", supplier: "",
-  openingStock: 0, stockIn: 0, stockUsed: 0, minLevel: 0,
+  openingStock: 0, minLevel: 0,
   unitCostNPR: "", location: "", owner: "", condition: ""
 };
 
@@ -201,37 +203,6 @@ function findFabricInLibrary(fabrics, name) {
   const n = (name || "").trim().toLowerCase();
   if (!n) return null;
   return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
-}
-
-/* ── Stepper input ─────────────────────────────────────── */
-function Stepper({ value, onChange, disabled, min = 0 }) {
-  const v = Number(value) || 0;
-  return (
-    <div className={cn("kinv-stepper", disabled && "kinv-stepper--disabled")}>
-      <button
-        type="button"
-        className="kinv-stepper-btn"
-        onClick={() => onChange(Math.max(min, v - 1))}
-        disabled={disabled || v <= min}
-        tabIndex={-1}
-      >−</button>
-      <input
-        className="kinv-stepper-val"
-        type="number"
-        value={v}
-        min={min}
-        disabled={disabled}
-        onChange={e => onChange(Math.max(min, Number(e.target.value) || 0))}
-      />
-      <button
-        type="button"
-        className="kinv-stepper-btn"
-        onClick={() => onChange(v + 1)}
-        disabled={disabled}
-        tabIndex={-1}
-      >+</button>
-    </div>
-  );
 }
 
 /* ── Cost spreadsheet cell input ────────────────────────── */
@@ -323,6 +294,70 @@ function TextCell({ value, onChange, disabled, width = "110px", style = {}, list
 }
 
 /* ── Per-order size-run reconciliation panel (Stock tab) ── */
+/* ── Dated stock ledger — replaces the old silent stepper ── */
+function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, disabled, colSpan }) {
+  const SOURCE_LABEL = { purchase: "Purchase", manual: "Manual", opening: "Opening" };
+  return (
+    <tr className="kinv-row">
+      <td colSpan={colSpan} style={{ padding: "16px 20px", background: "var(--bg-2)", borderBottom: "1px solid var(--line)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+          Stock Ledger
+        </div>
+        {!disabled && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            <input type="date" className="kfin-input" style={{ fontSize: 12, padding: "5px 8px", width: 140 }}
+              value={form.date} onChange={e => onFieldChange("date", e.target.value)} />
+            <select className="kfin-select" style={{ fontSize: 12, padding: "5px 8px", width: 80 }}
+              value={form.direction} onChange={e => onFieldChange("direction", e.target.value)}>
+              <option value="in">In</option>
+              <option value="out">Out</option>
+            </select>
+            <input type="number" min="0" step="any" className="kfin-input" placeholder={`Qty (${unit})`}
+              style={{ fontSize: 12, padding: "5px 8px", width: 100 }}
+              value={form.qty} onChange={e => onFieldChange("qty", e.target.value)} />
+            <input type="text" className="kfin-input" placeholder="Note (optional)"
+              style={{ fontSize: 12, padding: "5px 8px", flex: 1, minWidth: 140 }}
+              value={form.note} onChange={e => onFieldChange("note", e.target.value)} />
+            <button type="button" className="kinv-btn-ghost" onClick={onLog} disabled={logging}>
+              {logging ? "…" : "+ Log Movement"}
+            </button>
+          </div>
+        )}
+        {history.length === 0 ? (
+          <p style={{ fontSize: 12, color: "var(--ink-4)" }}>No dated movements yet — stock quantity comes entirely from Opening Stock until one is logged.</p>
+        ) : (
+          <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%", maxWidth: 560 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "2px 14px 6px 0", color: "var(--ink-4)", fontWeight: 600 }}>Date</th>
+                <th style={{ textAlign: "left", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Source</th>
+                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>In</th>
+                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Out</th>
+                <th style={{ textAlign: "left", padding: "2px 0 6px 14px", color: "var(--ink-4)", fontWeight: 600 }}>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map(m => (
+                <tr key={m.id}>
+                  <td style={{ padding: "3px 14px 3px 0", fontFamily: "var(--mono)" }}>{m.date}</td>
+                  <td style={{ padding: "3px 14px" }}>{SOURCE_LABEL[m.source] || m.source}</td>
+                  <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--mint-deep)", fontWeight: 600 }}>
+                    {m.direction === "in" ? Number(m.qty).toLocaleString() : ""}
+                  </td>
+                  <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--terra)", fontWeight: 600 }}>
+                    {m.direction === "out" ? Number(m.qty).toLocaleString() : ""}
+                  </td>
+                  <td style={{ padding: "3px 0 3px 14px", color: "var(--ink-3)" }}>{m.note || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 function SizeBreakdownPanel({ sizeRows, damageLog, onSizeChange, onAddDamage, onRemoveDamage, disabled, colSpan }) {
   const [tagInput, setTagInput] = useState("");
 
@@ -2261,6 +2296,9 @@ function Inventory() {
   });
 
   const [rows, setRows] = useState([]);
+  const [movements, setMovements] = useState([]); // dated stock_movements — the real ledger
+  const [movementForm, setMovementForm] = useState({}); // rowId -> { date, direction, qty, note }
+  const [loggingMovement, setLoggingMovement] = useState(null); // rowId currently saving
   const [fabrics, setFabrics] = useState([]);
   const [processes, setProcesses] = useState([]);
   const [patterns, setPatterns] = useState([]);
@@ -2339,6 +2377,7 @@ function Inventory() {
     try {
       const promises = [];
       let inventoryIdx = -1;
+      let movementsIdx = -1;
       let fabricsIdx = -1;
       let processesIdx = -1;
       let patternsIdx = -1;
@@ -2350,6 +2389,10 @@ function Inventory() {
         promises.push(getDocs(collection(db, "inventory")));
         unitEconomicsIdx = promises.length;
         promises.push(getDocs(collection(db, "unit_economics")));
+      }
+      if (showInventory) {
+        movementsIdx = promises.length;
+        promises.push(getDocs(collection(db, STOCK_MOVEMENTS_COLLECTION)));
       }
       if (showLibrary) {
         fabricsIdx = promises.length;
@@ -2364,6 +2407,12 @@ function Inventory() {
 
       const results = await Promise.allSettled(promises);
 
+      if (movementsIdx !== -1) {
+        const res = results[movementsIdx];
+        if (res.status === "fulfilled") {
+          setMovements(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
       if (inventoryIdx !== -1) {
         const res = results[inventoryIdx];
         if (res.status === "fulfilled") {
@@ -2413,27 +2462,52 @@ function Inventory() {
 
   useEffect(() => { loadData().catch(console.error); }, [profile]);
 
-  function getClosing(row, rowDraft = {}) {
-    const opening  = Number(row.openingStock || 0);
-    const stockIn  = Number(rowDraft.stockIn  ?? row.stockIn  ?? 0);
-    const stockUsed = Number(rowDraft.stockUsed ?? row.stockUsed ?? 0);
-    return opening + stockIn - stockUsed;
+  // Opening + In - Out, replayed from the item's dated stock_movements —
+  // no more silently mutating a cumulative stepper.
+  function getClosing(row) {
+    const { inTotal, outTotal } = movementTotals(movements, row.id);
+    return Number(row?.openingStock || 0) + inTotal - outTotal;
   }
 
-  // A single +/- stock number, kept as the delta against opening+in-used under
-  // the hood so existing stock-value / low-stock math doesn't need to change.
-  function setStock(rowId, newVal, row) {
-    setDraft(d => {
-      const existing = d[rowId] || {};
-      const prevStock = existing.stock !== undefined ? existing.stock : getClosing(row);
-      const delta = Number(newVal) - Number(prevStock);
-      const prevIn   = Number(existing.stockIn   ?? row.stockIn   ?? 0);
-      const prevUsed = Number(existing.stockUsed ?? row.stockUsed ?? 0);
-      let stockIn = prevIn, stockUsed = prevUsed;
-      if (delta > 0) stockIn = prevIn + delta;
-      else if (delta < 0) stockUsed = prevUsed + Math.abs(delta);
-      return { ...d, [rowId]: { ...existing, stock: newVal, stockIn, stockUsed } };
-    });
+  function draftMovement(row) {
+    return movementForm[row.id] || { date: new Date().toISOString().slice(0, 10), direction: "in", qty: "", note: "" };
+  }
+  function setMovementField(rowId, field, val) {
+    setMovementForm(f => ({ ...f, [rowId]: { ...draftMovement({ id: rowId }), ...f[rowId], [field]: val } }));
+  }
+
+  async function logMovement(row) {
+    if (!canEditInventory) return;
+    const form = draftMovement(row);
+    const qty = Number(form.qty);
+    if (!qty || qty <= 0) { alert("Enter a quantity greater than 0."); return; }
+    const direction = form.direction || "in";
+    if (direction === "out") {
+      const current = getClosing(row);
+      if (qty > current) {
+        const ok = window.confirm(
+          `${row.item}: this "out" of ${qty} ${row.unit} would take the balance from ${current} to ${current - qty} (negative). Continue anyway?`
+        );
+        if (!ok) return;
+      }
+    }
+    setLoggingMovement(row.id);
+    try {
+      await logStockMovement({
+        itemId: row.id,
+        date: form.date || new Date().toISOString().slice(0, 10),
+        qty, direction,
+        source: "manual",
+        note: form.note || "",
+        createdBy: profile?.name || "Unknown",
+      });
+      setMovementForm(f => ({ ...f, [row.id]: { date: new Date().toISOString().slice(0, 10), direction: "in", qty: "", note: "" } }));
+      await loadData();
+    } catch (err) {
+      alert("Failed to log stock movement: " + err.message);
+    } finally {
+      setLoggingMovement(null);
+    }
   }
 
   function setDraftField(rowId, field, val) {
@@ -2484,8 +2558,6 @@ function Inventory() {
     try {
       const rowDraft = draft[row.id] || {};
       await updateInventoryDoc(row.id, {
-        stockIn:     Number(rowDraft.stockIn     ?? row.stockIn     ?? 0),
-        stockUsed:   Number(rowDraft.stockUsed   ?? row.stockUsed   ?? 0),
         owner:       rowDraft.owner     !== undefined ? rowDraft.owner     : (row.owner     || ""),
         condition:   rowDraft.condition !== undefined ? rowDraft.condition : (row.condition || ""),
         sizeRows:    rowDraft.sizeRows  !== undefined ? rowDraft.sizeRows  : getSizeRows(row),
@@ -2523,8 +2595,6 @@ function Inventory() {
         ...itemForm,
         itemId:       nextItemId(rows),
         openingStock: Number(itemForm.openingStock || 0),
-        stockIn:      Number(itemForm.stockIn      || 0),
-        stockUsed:    Number(itemForm.stockUsed    || 0),
         minLevel:     Number(itemForm.minLevel     || 0),
         unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
         createdBy:    profile?.name || "Unknown",
@@ -2556,7 +2626,7 @@ function Inventory() {
         itemId:       nextItemId(rows),
         category:     costForm.category,
         unit:         "pcs",
-        openingStock: 0, stockIn: 0, stockUsed: 0, minLevel: 0,
+        openingStock: 0, minLevel: 0,
         unitCostNPR:  0,
         createdBy:    profile?.name || "Unknown",
         createdAt:    serverTimestamp()
@@ -2813,7 +2883,6 @@ function Inventory() {
   );
 
   /* ── Draft helpers ── */
-  function draftStock(row)          { return draft[row.id]?.stock !== undefined ? draft[row.id].stock : getClosing(row); }
   function draftField(row, field)   { return draft[row.id]?.[field] !== undefined ? draft[row.id][field] : (row[field] || ""); }
 
   // Resolve dynamic title/desc
@@ -2890,7 +2959,7 @@ function Inventory() {
           <div className="kinv-kpi">
             <span className="kinv-kpi-l">STOCK VALUE (NPR)</span>
             <span className="kinv-kpi-v" style={{ fontSize: totalStockValue > 999999 ? 22 : 28 }}>
-              NPR {totalStockValue.toLocaleString()}
+              NPR {roundAmount(totalStockValue).toLocaleString()}
             </span>
             <span className="kinv-kpi-note">closing × unit cost</span>
           </div>
@@ -3073,7 +3142,10 @@ function Inventory() {
                   <th>Item</th>
                   <th>Category</th>
                   <th>Unit</th>
-                  <th>Stock</th>
+                  <th>Opening</th>
+                  <th>In</th>
+                  <th>Out</th>
+                  <th>Balance</th>
                   <th>Owner / Client</th>
                   <th>Condition</th>
                   <th>Action</th>
@@ -3082,18 +3154,20 @@ function Inventory() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found
                     </td>
                   </tr>
                 )}
                 {filtered.map(row => {
                   const rowDraft  = draft[row.id] || {};
-                  const closing   = getClosing(row, rowDraft);
+                  const opening   = Number(row.openingStock || 0);
+                  const { inTotal, outTotal } = movementTotals(movements, row.id);
+                  const closing   = opening + inTotal - outTotal;
                   const minLevel  = Number(row.minLevel || 0);
                   const lowStock  = closing <= minLevel;
-                  const isDirty   = rowDraft.stockIn !== undefined || rowDraft.stockUsed !== undefined ||
-                                     rowDraft.owner !== undefined || rowDraft.condition !== undefined ||
+                  const negative  = closing < 0;
+                  const isDirty   = rowDraft.owner !== undefined || rowDraft.condition !== undefined ||
                                      rowDraft.sizeRows !== undefined || rowDraft.damageLog !== undefined;
                   const isDelConfirm = deleteConfirm === row.id;
                   const isExpanded = !!expandedRows[row.id];
@@ -3107,7 +3181,7 @@ function Inventory() {
                           className="kinv-btn-ghost"
                           style={{ padding: "2px 4px" }}
                           onClick={() => toggleExpandRow(row.id)}
-                          title="Size breakdown & damage log"
+                          title="Stock ledger, size breakdown & damage log"
                         >
                           <ChevronIcon size={13} open={isExpanded} />
                         </button>
@@ -3124,13 +3198,13 @@ function Inventory() {
                       <td>
                         <span className="kinv-unit">{row.unit}</span>
                       </td>
+                      <td><span className="kinv-num">{opening.toLocaleString()}</span></td>
+                      <td><span className="kinv-num" style={{ color: "var(--mint-deep)" }}>{inTotal.toLocaleString()}</span></td>
+                      <td><span className="kinv-num" style={{ color: "var(--terra)" }}>{outTotal.toLocaleString()}</span></td>
                       <td>
-                        <Stepper
-                          value={draftStock(row)}
-                          onChange={val => setStock(row.id, val, row)}
-                          disabled={!canEditInventory}
-                          min={0}
-                        />
+                        <span className="kinv-num" style={{ fontWeight: 700, color: negative ? "var(--terra)" : undefined }}>
+                          {closing.toLocaleString()}
+                        </span>
                       </td>
                       <td>
                         <TextCell
@@ -3195,6 +3269,18 @@ function Inventory() {
                       </td>
                     </tr>
                     {isExpanded && (
+                      <StockLedgerPanel
+                        unit={row.unit}
+                        history={itemMovements(movements, row.id)}
+                        form={draftMovement(row)}
+                        onFieldChange={(field, val) => setMovementField(row.id, field, val)}
+                        onLog={() => logMovement(row)}
+                        logging={loggingMovement === row.id}
+                        disabled={!canEditInventory}
+                        colSpan={12}
+                      />
+                    )}
+                    {isExpanded && (
                       <SizeBreakdownPanel
                         sizeRows={draftSizeRows(row)}
                         damageLog={draftDamageLog(row)}
@@ -3202,7 +3288,7 @@ function Inventory() {
                         onAddDamage={tag => addDamageTag(row.id, row, tag)}
                         onRemoveDamage={idx => removeDamageTag(row.id, row, idx)}
                         disabled={!canEditInventory}
-                        colSpan={9}
+                        colSpan={12}
                       />
                     )}
                     </Fragment>
@@ -3253,13 +3339,13 @@ function Inventory() {
                       <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{row.location || "—"}</td>
                       <td>
                         <span className="kinv-mono">
-                          {row.unitCostNPR ? `NPR ${Number(row.unitCostNPR).toLocaleString()}` : "—"}
+                          {row.unitCostNPR ? `NPR ${roundAmount(row.unitCostNPR).toLocaleString()}` : "—"}
                         </span>
                       </td>
                       <td><span className="kinv-closing">{closing.toLocaleString()}</span></td>
                       <td>
                         <span className="kinv-mono" style={{ color: row.unitCostNPR ? "var(--mint-deep)" : "var(--ink-4)" }}>
-                          {row.unitCostNPR ? `NPR ${stockValue.toLocaleString()}` : "—"}
+                          {row.unitCostNPR ? `NPR ${roundAmount(stockValue).toLocaleString()}` : "—"}
                         </span>
                       </td>
                       <td><span className="kinv-num">{row.minLevel || 0}</span></td>
@@ -3454,7 +3540,7 @@ function Inventory() {
                         />
                       </td>
                       <td style={{ textAlign: "right", minWidth: "130px" }}>
-                        <div style={{ fontWeight: 600, fontSize: "15px", color: "var(--ink-1)" }}>NPR {cogsNpr.toLocaleString()}</div>
+                        <div style={{ fontWeight: 600, fontSize: "15px", color: "var(--ink-1)" }}>NPR {roundAmount(cogsNpr).toLocaleString()}</div>
                         <div style={{ fontSize: "12px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{cogsGbp.toFixed(2)}</div>
                       </td>
                       <td style={{ textAlign: "right" }}>
@@ -3462,7 +3548,7 @@ function Inventory() {
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div style={{ fontWeight: 600, fontSize: "13px" }}>
-                          NPR {(getClosing(row) * cogsNpr).toLocaleString()}
+                          NPR {roundAmount(getClosing(row) * cogsNpr).toLocaleString()}
                         </div>
                       </td>
                       <td style={{ textAlign: "right" }}>
@@ -3480,7 +3566,7 @@ function Inventory() {
                           <>
                             <div style={{ fontWeight: 600, color: marginColor }}>{marginPct.toFixed(1)}%</div>
                             <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>
-                              GP: NPR {gpNpr.toLocaleString()} (£{gpGbp.toFixed(2)})
+                              GP: NPR {roundAmount(gpNpr).toLocaleString()} (£{gpGbp.toFixed(2)})
                             </div>
                           </>
                         ) : (
@@ -3492,7 +3578,7 @@ function Inventory() {
                           <strong>Driver:</strong> {driverText}
                         </div>
                         <div style={{ fontSize: "11px", color: "var(--ink-4)", marginTop: 2 }}>
-                          <strong>50% SP:</strong> NPR {target50Npr.toLocaleString()} (£{target50Gbp.toFixed(2)})
+                          <strong>50% SP:</strong> NPR {roundAmount(target50Npr).toLocaleString()} (£{target50Gbp.toFixed(2)})
                         </div>
                       </td>
                       <td>

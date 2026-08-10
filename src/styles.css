@@ -214,6 +214,24 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kside-badge--amber { background: rgba(212,160,74,.18); color: #e9c486; }
 .kside-shortcut { font-size: 10px; color: var(--ink-5); font-family: var(--mono); margin-left: auto; opacity: 0.7; }
 
+.kside-item-row { display: flex; align-items: center; gap: 2px; }
+.kside-item-row .kside-item--row { flex: 1; width: auto; min-width: 0; }
+.kside-expand-btn {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 24px; height: 24px; padding: 0; border: 0; background: transparent; border-radius: 6px;
+  color: var(--dark-on-2); cursor: pointer; transition: transform .15s, background .15s, color .15s;
+}
+.kside-expand-btn:hover { background: var(--dark-2); color: #fff; }
+.kside-expand-btn--open { transform: rotate(90deg); }
+.kside-subnav { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 6px 34px; }
+.kside-subitem {
+  display: block; padding: 6px 10px; border-radius: 6px; font-size: 12.5px;
+  color: var(--dark-on-2); text-decoration: none; font-family: var(--mono);
+  transition: background .15s, color .15s;
+}
+.kside-subitem:hover { background: var(--dark-2); color: #fff; }
+.kside-subitem--active { background: var(--dark-3); color: var(--mint); font-weight: 600; }
+
 .kside-user {
   display: flex; align-items: center; gap: 10px; padding: 10px;
   background: var(--dark-2); border-radius: 10px;

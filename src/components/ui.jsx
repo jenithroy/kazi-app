@@ -2,13 +2,14 @@
  * Kazi UI Primitives
  * Shared components: Card, Btn, Pill, Avatar, KPI, Progress, Spark, Divider, SegBar
  */
+import { roundAmount } from "../utils/format";
 
 export const cn = (...xs) => xs.filter(Boolean).join(" ");
 
 export const fmt = {
-  gbp: (n) => "£" + Math.round(n).toLocaleString("en-GB"),
-  npr: (n) => "₨ " + Math.round(n).toLocaleString("en-IN"),
-  int: (n) => Math.round(n).toLocaleString("en-GB"),
+  gbp: (n) => "£" + roundAmount(n).toLocaleString("en-GB"),
+  npr: (n) => "₨ " + roundAmount(n).toLocaleString("en-IN"),
+  int: (n) => roundAmount(n).toLocaleString("en-GB"),
   pct: (n, d = 1) => Number(n).toFixed(d) + "%",
 };
 

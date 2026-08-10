@@ -8,6 +8,7 @@ import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { GBP_RATE } from "../constants";
 import { cn, Avatar, Pill } from "../components/ui";
+import { roundAmount } from "../utils/format";
 
 /* ── Constants ─────────────────────────────────────────── */
 const BUDGET_CATEGORIES = ["Equipment", "Materials", "Services", "Training", "Travel", "Other"];
@@ -40,7 +41,7 @@ function formatDate(ts) {
 }
 
 function fmtNPR(n) {
-  return Number(n).toLocaleString("en-IN");
+  return roundAmount(n).toLocaleString("en-IN");
 }
 
 /* ── Urgency pill ──────────────────────────────────────── */
@@ -490,7 +491,7 @@ function Budget() {
                         <td>{row.category}</td>
                         <td>{row.quantity}</td>
                         <td style={{ fontFamily: "monospace" }}>
-                          {row.amountNPR ? <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)" }}>NPR {Number(row.amountNPR).toLocaleString()}</span> : null}
+                          {row.amountNPR ? <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)" }}>NPR {roundAmount(row.amountNPR).toLocaleString()}</span> : null}
                           {row.amount    ? <span style={{ fontWeight: 600 }}>£{Number(row.amount).toFixed(2)}</span> : "—"}
                         </td>
                         <td><span className={urgencyClass(row.urgency)}>{row.urgency}</span></td>

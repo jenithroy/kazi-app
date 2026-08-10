@@ -1,5 +1,6 @@
 import { doc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
+import { roundAmount } from "./format";
 
 export const VAT_RATE = 0.13;
 
@@ -79,7 +80,7 @@ export function makeEmptyForm(type) {
 /* ── Formatting ── */
 export function fmtNPR(n) {
   if (isNaN(n)) n = 0;
-  return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(roundAmount(n));
 }
 
 export function fmtCurrency(n, currency = "NPR") {
@@ -87,7 +88,7 @@ export function fmtCurrency(n, currency = "NPR") {
   if (currency === "GBP") {
     return "£" + new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
   }
-  return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(roundAmount(n));
 }
 
 export function fmtDate(s) {

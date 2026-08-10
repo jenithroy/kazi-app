@@ -5,6 +5,7 @@ import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
 import { todayDate, startOfWeekDate } from "../utils/date";
+import { roundAmount } from "../utils/format";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
 import { useCurrency } from "../context/CurrencyContext";
@@ -1451,7 +1452,7 @@ function BudgetApprovalCard({ br }) {
       <div className="kbr-amt-row">
         <div>
           <div className="num-xl" style={{ fontSize: 22 }}>{fmtC(amtNPR)}</div>
-          <div className="kbr-amt-s mono">₨ {amtNPR.toLocaleString("en-IN")}</div>
+          <div className="kbr-amt-s mono">₨ {roundAmount(amtNPR).toLocaleString("en-IN")}</div>
         </div>
         {state === null && (
           <div className="kbr-actions">

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { GBP_RATE as FALLBACK_RATE } from "../constants";
+import { roundAmount } from "../utils/format";
 
 const CACHE_KEY = "kazi_gbp_rate";
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
@@ -51,9 +52,9 @@ export function CurrencyProvider({ children }) {
   const fmt = useCallback((amountNPR) => {
     const n = Number(amountNPR || 0);
     if (currency === "GBP") {
-      return "£" + Math.round(n / rate).toLocaleString("en-GB");
+      return "£" + roundAmount(n / rate).toLocaleString("en-GB");
     }
-    return "₨ " + Math.round(n).toLocaleString("en-IN");
+    return "₨ " + roundAmount(n).toLocaleString("en-IN");
   }, [currency, rate]);
 
   return (

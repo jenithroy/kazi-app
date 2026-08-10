@@ -7,6 +7,7 @@ import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { db, storage } from "../firebase";
+import { roundAmount } from "../utils/format";
 import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { useRef } from "react";
 import { todayDate } from "../utils/date";
@@ -150,7 +151,7 @@ function InvoiceModal({ order, fields, setFields, onClose, onSubmit, saving }) {
             <span style={{ flex: 1, fontSize: 13, color: "var(--ink)" }}>
               {order.styleName}{order.fabricType ? ` — ${order.fabricType}` : ""}{order.colorway ? ` (${order.colorway})` : ""}
             </span>
-            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{qty.toLocaleString()} pcs × NPR {rate.toLocaleString()}</span>
+            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{qty.toLocaleString()} pcs × NPR {roundAmount(rate).toLocaleString()}</span>
           </div>
         </div>
 
@@ -203,15 +204,15 @@ function InvoiceModal({ order, fields, setFields, onClose, onSubmit, saving }) {
         {/* Totals */}
         <div className="kprod-inv-totals">
           <div className="kprod-inv-totals-row">
-            <span>Subtotal</span><span>NPR {sub.toLocaleString()}</span>
+            <span>Subtotal</span><span>NPR {roundAmount(sub).toLocaleString()}</span>
           </div>
           {fields.applyVAT && (
             <div className="kprod-inv-totals-row">
-              <span>VAT 13%</span><span>NPR {Math.round(vat).toLocaleString()}</span>
+              <span>VAT 13%</span><span>NPR {roundAmount(vat).toLocaleString()}</span>
             </div>
           )}
           <div className="kprod-inv-totals-row kprod-inv-totals-total">
-            <span>Total</span><span>NPR {Math.round(tot).toLocaleString()}</span>
+            <span>Total</span><span>NPR {roundAmount(tot).toLocaleString()}</span>
           </div>
         </div>
 
@@ -1408,7 +1409,7 @@ function Production() {
             </article>
             <article className="stat-card">
               <p className="stat-title">Total Order Value</p>
-              <h3 className="stat-value">NPR {orderStats.totalValue.toLocaleString()}</h3>
+              <h3 className="stat-value">NPR {roundAmount(orderStats.totalValue).toLocaleString()}</h3>
             </article>
           </section>
 
@@ -1450,7 +1451,7 @@ function Production() {
                         <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: 2 }}>
                           {order.quantity?.toLocaleString()} pcs · {order.styleName} · {order.fabricType}
                           {order.colorway ? ` · ${order.colorway}` : ""}
-                          {order.totalValueNPR ? ` · NPR ${Number(order.totalValueNPR).toLocaleString()}` : ""}
+                          {order.totalValueNPR ? ` · NPR ${roundAmount(order.totalValueNPR).toLocaleString()}` : ""}
                         </p>
                         {(order.deliveryDate || order.assignedTo || order.invoiceRef) && (
                           <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginTop: 3 }}>
@@ -1833,7 +1834,7 @@ function Production() {
                     <>
                       <div style={{ gridColumn: "span 2" }}><strong>Item:</strong> {latestInvoice.items[0].description}</div>
                       <div><strong>Qty:</strong> {latestInvoice.items[0].qty?.toLocaleString()} pcs</div>
-                      <div><strong>Rate:</strong> NPR {latestInvoice.items[0].rate?.toLocaleString()}</div>
+                      <div><strong>Rate:</strong> NPR {roundAmount(latestInvoice.items[0].rate || 0).toLocaleString()}</div>
                     </>
                   )}
                 </div>
@@ -1946,12 +1947,12 @@ function Production() {
 
               {orderForm.quantity && orderForm.pricePerPcNPR && (
                 <div style={{ gridColumn: "span 2", background: "var(--bg-surface-soft)", borderRadius: 10, padding: "10px 16px", border: "1.5px solid var(--line)", fontSize: "0.9rem" }}>
-                  Order Value: <strong>NPR {(Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR)).toLocaleString()}</strong>
-                  <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {Number(orderForm.pricePerPcNPR).toLocaleString()})</span>
+                  Order Value: <strong>NPR {roundAmount(Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR)).toLocaleString()}</strong>
+                  <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {roundAmount(orderForm.pricePerPcNPR).toLocaleString()})</span>
                   {orderForm.fabricCostPerPcNPR && (
                     <div style={{ marginTop: 4 }}>
-                      Material Cost: <strong>NPR {(Number(orderForm.quantity) * Number(orderForm.fabricCostPerPcNPR)).toLocaleString()}</strong>
-                      <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {Number(orderForm.fabricCostPerPcNPR).toLocaleString()}/pc)</span>
+                      Material Cost: <strong>NPR {roundAmount(Number(orderForm.quantity) * Number(orderForm.fabricCostPerPcNPR)).toLocaleString()}</strong>
+                      <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {roundAmount(orderForm.fabricCostPerPcNPR).toLocaleString()}/pc)</span>
                     </div>
                   )}
                 </div>
@@ -2033,9 +2034,9 @@ function Production() {
                             const vat = invFields.applyVAT ? sub * VAT_RATE : 0;
                             const tot = sub + vat;
                             return <>
-                              <span>Subtotal: <strong>NPR {sub.toLocaleString()}</strong></span>
-                              {invFields.applyVAT && <span>VAT 13%: <strong>NPR {Math.round(vat).toLocaleString()}</strong></span>}
-                              <span className="kprod-inv-total">Total: <strong>NPR {Math.round(tot).toLocaleString()}</strong></span>
+                              <span>Subtotal: <strong>NPR {roundAmount(sub).toLocaleString()}</strong></span>
+                              {invFields.applyVAT && <span>VAT 13%: <strong>NPR {roundAmount(vat).toLocaleString()}</strong></span>}
+                              <span className="kprod-inv-total">Total: <strong>NPR {roundAmount(tot).toLocaleString()}</strong></span>
                             </>;
                           })()}
                         </div>
