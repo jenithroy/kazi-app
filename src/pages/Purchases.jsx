@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { collection, deleteDoc, doc, getDocs, updateDoc as fsUpdateDoc } from "firebase/firestore";
 import { db } from "../firebase";
@@ -23,6 +23,7 @@ function Purchases() {
   const [loading, setLoading] = useState(true);
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
   const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
+  const deletingIdsRef = useRef(new Set());
 
   async function loadPurchases() {
     setLoading(true);
@@ -64,6 +65,7 @@ function Purchases() {
     });
   }
   async function commitPurchaseDraft(row) {
+    if (deletingIdsRef.current.has(row.id)) return;
     const draft = purchaseDrafts[row.id];
     if (!draft) return;
     try {
@@ -87,14 +89,29 @@ function Purchases() {
       setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
       await loadPurchases();
     } catch (err) {
+      if (deletingIdsRef.current.has(row.id)) return;
       console.error("Failed to update purchase:", err);
       alert("Failed to update purchase. Please try again.");
     }
   }
   async function deletePurchase(id) {
-    if (!window.confirm("Delete this purchase record?")) return;
-    await deleteDoc(doc(db, "finance_purchases", id));
-    await loadPurchases();
+    deletingIdsRef.current.add(id);
+    if (!window.confirm("Delete this purchase record?")) {
+      deletingIdsRef.current.delete(id);
+      return;
+    }
+    try {
+      setPurchaseDrafts(d => { const nd = { ...d }; delete nd[id]; return nd; });
+      setPurchases(prev => prev.filter(p => p.id !== id));
+      await deleteDoc(doc(db, "finance_purchases", id));
+      await loadPurchases();
+    } catch (err) {
+      console.error("Failed to delete purchase:", err);
+      alert("Failed to delete purchase: " + (err.message || "Unknown error"));
+      await loadPurchases();
+    } finally {
+      deletingIdsRef.current.delete(id);
+    }
   }
 
   const filtered = useMemo(() => {
@@ -187,6 +204,7 @@ function Purchases() {
                   actionCell={canEdit && (
                     <div className="kbil-tbl-actions">
                       <button className="kbil-tbl-btn kbil-tbl-btn--danger" type="button"
+                        onMouseDown={e => e.stopPropagation()}
                         onClick={() => deletePurchase(row.id)}>Delete</button>
                     </div>
                   )}
