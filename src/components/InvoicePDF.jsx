@@ -4,7 +4,8 @@
  * Used by DocPreview's "Download PDF" button.
  */
 import { Document, Page, View, Text, Image, StyleSheet } from "@react-pdf/renderer";
-import { fmtCurrency, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
+import { fmtCurrency, fmtCurrencyExact, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
+import { roundAmount } from "../utils/format";
 
 /* ── Colours ─────────────────────────────────────── */
 const G   = "#1a5c1a";
@@ -222,7 +223,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
   const creditDue   = Math.max(0, total - amountPaid);
   const showVAT     = docType === "invoice" && data.applyVAT;
   const showDisc    = discountAmt > 0;
-  const wordsText   = total > 0 ? numWords(total, currency) : "—";
+  const wordsText   = total > 0 ? numWords(roundAmount(total), currency) : "—";
 
   /* Meta rows */
   const metaRows = [];
@@ -304,8 +305,8 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
               {formatDescriptionPDF(it.description)}
               <Text style={[S.tblCell, S.cQty]}>{Number(it.qty) % 1 === 0 ? it.qty : Number(it.qty).toFixed(2)}</Text>
               <Text style={[S.tblCell, S.cUnit]}>{it.unit || "Pcs"}</Text>
-              <Text style={[S.tblCell, S.cRate]}>{fmtCurrency(Number(it.rate || 0), currency)}</Text>
-              <Text style={[S.tblCell, S.cAmt]}>{fmtCurrency(Number(it.qty || 0) * Number(it.rate || 0), currency)}</Text>
+              <Text style={[S.tblCell, S.cRate]}>{fmtCurrencyExact(Number(it.rate || 0), currency)}</Text>
+              <Text style={[S.tblCell, S.cAmt]}>{fmtCurrencyExact(Number(it.qty || 0) * Number(it.rate || 0), currency)}</Text>
             </View>
           )) : (
             <View style={S.tblRow}>
@@ -316,24 +317,24 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
           {/* ── Totals ── */}
           <View style={S.totalsWrap}>
             <View style={S.totalsBox}>
-              <TotRow label="Subtotal" value={fmtCurrency(subtotal, currency)} />
+              <TotRow label="Subtotal" value={fmtCurrencyExact(subtotal, currency)} />
               {showDisc && (
                 <>
-                  <TotRow label={`Discount (${discountPct}%)`} value={`− ${fmtCurrency(discountAmt, currency)}`} labelStyle={{ color: RED }} valueStyle={S.totRed} />
-                  <TotRow label="Taxable Amount" value={fmtCurrency(taxableAmt, currency)} />
+                  <TotRow label={`Discount (${discountPct}%)`} value={`− ${fmtCurrencyExact(discountAmt, currency)}`} labelStyle={{ color: RED }} valueStyle={S.totRed} />
+                  <TotRow label="Taxable Amount" value={fmtCurrencyExact(taxableAmt, currency)} />
                 </>
               )}
-              {showVAT && <TotRow label="VAT @ 13% (Nepal IRD)" value={fmtCurrency(vatAmt, currency)} />}
+              {showVAT && <TotRow label="VAT @ 13% (Nepal IRD)" value={fmtCurrencyExact(vatAmt, currency)} />}
               <TotRow label="Grand Total" value={fmtCurrency(total, currency)} isGrand />
               {docType === "invoice" && amountPaid > 0 && (
                 <>
                   <View style={[S.creditRow, { borderBottomColor: GB }]}>
                     <Text style={[S.creditLbl, { color: G }]}>Amount Paid</Text>
-                    <Text style={[S.creditVal, { color: G }]}>{fmtCurrency(amountPaid, currency)}</Text>
+                    <Text style={[S.creditVal, { color: G }]}>{fmtCurrencyExact(amountPaid, currency)}</Text>
                   </View>
                   <View style={S.creditRow}>
                     <Text style={[S.creditLbl, { color: creditDue > 0 ? RED : G }]}>Credit Balance Due</Text>
-                    <Text style={[S.creditVal, { color: creditDue > 0 ? RED : G }]}>{fmtCurrency(creditDue, currency)}</Text>
+                    <Text style={[S.creditVal, { color: creditDue > 0 ? RED : G }]}>{fmtCurrencyExact(creditDue, currency)}</Text>
                   </View>
                 </>
               )}

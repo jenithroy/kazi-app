@@ -77,7 +77,7 @@ export default function FiscalYearTransactions() {
         out.push({ id: `exp-${d.id}`, type: "Expense", date: r.date, description: `${r.category || "Expense"}${r.note ? " — " + r.note : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
       });
 
-      purSnap.docs.filter(d => d.id !== "__seeded__").forEach(d => {
+      purSnap.docs.filter(d => d.id !== "seed_marker").forEach(d => {
         const r = d.data();
         if (!isDateInFiscalYear(r.date, fiscalYear)) return;
         out.push({ id: `pur-${d.id}`, type: "Purchase", date: r.date, description: `${r.expenseItem || r.expenseId || "Purchase"}${r.category ? " — " + r.category : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });

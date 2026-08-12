@@ -14,6 +14,13 @@ import {
   DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
 } from "../utils/billing.jsx";
+import { adToBsParts, BS_MONTHS } from "../utils/fiscalYear";
+
+function fmtDateBS(iso) {
+  const parts = adToBsParts(iso);
+  if (!parts) return "—";
+  return `${parts.day} ${BS_MONTHS[parts.month]} ${parts.year}`;
+}
 
 /* ── FX rates vs NPR (fallback — overwritten by live fetch) ── */
 const FX_FALLBACK = {
@@ -141,6 +148,7 @@ function Billing() {
   }
 
   const [tab, setTab]               = useState("invoice");
+  const [dateMode, setDateMode]     = useState("ad"); // "ad" | "bs" — toggles the Date column display
   const [invoices, setInvoices]     = useState([]);
   const [challans, setChallans]     = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -965,7 +973,24 @@ function Billing() {
                 <thead>
                   <tr>
                     <th>{meta.label} #</th>
-                    <th>Date</th>
+                    <th>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        Date
+                        <button
+                          type="button"
+                          onClick={() => setDateMode(m => m === "ad" ? "bs" : "ad")}
+                          title="Switch between English (A.D.) and Nepali (B.S.) dates"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            fontSize: 10.5, fontWeight: 600, color: "var(--mint-deep)", cursor: "pointer",
+                            background: "var(--mint-wash)", border: "1px solid rgba(45,155,111,.25)",
+                            borderRadius: 20, padding: "2px 7px 2px 6px", lineHeight: 1.4, textTransform: "none",
+                          }}
+                        >
+                          <span style={{ fontSize: 11 }}>⇄</span>{dateMode === "ad" ? "B.S." : "A.D."}
+                        </button>
+                      </div>
+                    </th>
                     <th>Client</th>
                     <th>PAN</th>
                     {tab === "invoice"   && <th>Related</th>}
@@ -988,7 +1013,7 @@ function Billing() {
                     return (
                       <tr key={row.id}>
                         <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--mint-deep)" }}>{row[numField]}</td>
-                        <td>{fmtDate(row.date)}</td>
+                        <td>{dateMode === "ad" ? fmtDate(row.date) : fmtDateBS(row.date)}</td>
                         <td style={{ fontWeight: 500 }}>{row.clientName}</td>
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{row.clientPAN || "—"}</td>
 
@@ -1104,7 +1129,24 @@ function Billing() {
                   <thead>
                     <tr>
                       <th>{meta.label} #</th>
-                      <th>Date</th>
+                      <th>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        Date
+                        <button
+                          type="button"
+                          onClick={() => setDateMode(m => m === "ad" ? "bs" : "ad")}
+                          title="Switch between English (A.D.) and Nepali (B.S.) dates"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            fontSize: 10.5, fontWeight: 600, color: "var(--mint-deep)", cursor: "pointer",
+                            background: "var(--mint-wash)", border: "1px solid rgba(45,155,111,.25)",
+                            borderRadius: 20, padding: "2px 7px 2px 6px", lineHeight: 1.4, textTransform: "none",
+                          }}
+                        >
+                          <span style={{ fontSize: 11 }}>⇄</span>{dateMode === "ad" ? "B.S." : "A.D."}
+                        </button>
+                      </div>
+                    </th>
                       <th>Client</th>
                       <th>PAN</th>
                       {tab === "invoice"   && <th>Related</th>}
@@ -1122,7 +1164,7 @@ function Billing() {
                     {cancelledDocs.map(row => (
                       <tr key={row.id}>
                         <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--ink-3)" }}>{row[numField]}</td>
-                        <td>{fmtDate(row.date)}</td>
+                        <td>{dateMode === "ad" ? fmtDate(row.date) : fmtDateBS(row.date)}</td>
                         <td style={{ fontWeight: 500 }}>{row.clientName}</td>
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{row.clientPAN || "—"}</td>
 

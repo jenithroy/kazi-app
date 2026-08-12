@@ -18,7 +18,8 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { fmt, Icons } from "../components/ui";
-import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload } from "../components/PurchaseRowGroup";
+import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter } from "../components/PurchaseRowGroup";
+import KeyboardSelect from "../components/KeyboardSelect";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency, roundAmount } from "../utils/format";
@@ -28,6 +29,9 @@ import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/pe
 import { postPurchaseStockIn } from "../utils/stockLedger";
 
 /* ── Seed data ─────────────────────────────────────── */
+// NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
+// so that name can never actually be written and the seed-once check never worked.
+const SEED_MARKER_ID = "seed_marker";
 const SEED_PURCHASES = [
   { expenseId: "EXP001", expenseItem: "Office supplies stationary",  category: "Office Supplies",       vatBill: true,  amountNPR: 5290   },
   { expenseId: "EXP002", expenseItem: "Mobile phones",                category: "Equipment / IT",        vatBill: true,  amountNPR: 45000  },
@@ -164,11 +168,16 @@ function Finance() {
   const [expenseVatProgress, setExpenseVatProgress] = useState(null);
   const expenseFileRef                = useRef(null);
 
+  const journalFormRef = useRef(null);
+
   /* ── Accounting state ── */
   const [entries, setEntries]   = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [journalForm, setJournalForm] = useState(emptyJournalForm);
   const [journalSubmitting, setJournalSubmitting] = useState(false);
+  const [journalEditId, setJournalEditId] = useState(null);
+  const [journalDraft, setJournalDraft] = useState({});
+  const [journalSaving, setJournalSaving] = useState(false);
   const [invoices, setInvoices] = useState([]);
   // In-place edit for a Cash/Bank ledger row sourced from a bank txn or journal entry —
   // purchase/invoice rows deep-link to their own full editor (Purchases/Billing) instead.
@@ -220,16 +229,21 @@ function Finance() {
     expRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setExpenses(expRows);
 
-    let purRows = purchasesSnap.docs.filter(d => d.id !== "__seeded__").map(d => ({ id: d.id, ...d.data() }));
-    const existingIds = new Set(purRows.map(r => r.expenseId).filter(Boolean));
-    const missing = SEED_PURCHASES.filter(p => !existingIds.has(p.expenseId));
-    if (missing.length > 0) {
+    let purRows = purchasesSnap.docs.filter(d => d.id !== SEED_MARKER_ID).map(d => ({ id: d.id, ...d.data() }));
+    // Seed data is backfilled once, ever — the marker doc records that it already
+    // ran, so deleting a seeded purchase (e.g. EXP001) doesn't bring it back on next load.
+    // (Marker ID must not match Firestore's reserved "__*__" pattern — that throws on write.)
+    const alreadySeeded = purchasesSnap.docs.some(d => d.id === SEED_MARKER_ID);
+    if (!alreadySeeded) {
+      const existingIds = new Set(purRows.map(r => r.expenseId).filter(Boolean));
+      const missing = SEED_PURCHASES.filter(p => !existingIds.has(p.expenseId));
       const today = new Date().toISOString().slice(0, 10);
       const batch = writeBatch(db);
       missing.forEach(p => batch.set(doc(db, "finance_purchases", p.expenseId), { ...p, date: today, createdAt: serverTimestamp() }));
+      batch.set(doc(db, "finance_purchases", SEED_MARKER_ID), { seededAt: serverTimestamp() });
       await batch.commit();
       const fresh = await getDocs(collection(db, "finance_purchases"));
-      purRows = fresh.docs.filter(d => d.id !== "__seeded__").map(d => ({ id: d.id, ...d.data() }));
+      purRows = fresh.docs.filter(d => d.id !== SEED_MARKER_ID).map(d => ({ id: d.id, ...d.data() }));
     }
     const seen = new Map();
     const toDelete = [];
@@ -504,11 +518,47 @@ function Finance() {
         createdBy: profile?.name || "Unknown", createdAt: serverTimestamp()
       });
       setJournalForm(emptyJournalForm); await loadData();
+      requestAnimationFrame(() => document.querySelector('[data-role="journal-date"]')?.focus());
     } catch (err) {
       console.error("Failed to post journal entry:", err);
       showError("Failed to post journal entry. Please try again.");
     } finally {
       setJournalSubmitting(false);
+    }
+  }
+
+  function startJournalEdit(entry) {
+    setJournalEditId(entry.id);
+    setJournalDraft({
+      date: entry.date || "", description: entry.description || "",
+      debitAccount: entry.debitAccount, creditAccount: entry.creditAccount,
+      amountNPR: entry.amountNPR ?? "", reference: entry.reference || "",
+    });
+  }
+  function cancelJournalEdit() {
+    setJournalEditId(null);
+    setJournalDraft({});
+  }
+  async function saveJournalEdit(id) {
+    if (journalDraft.debitAccount === journalDraft.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
+    setJournalSaving(true);
+    try {
+      await fsUpdateDoc(doc(db, "journal_entries", id), {
+        date: journalDraft.date,
+        description: journalDraft.description,
+        debitAccount: journalDraft.debitAccount,
+        creditAccount: journalDraft.creditAccount,
+        amountNPR: Number(journalDraft.amountNPR) || 0,
+        reference: journalDraft.reference,
+      });
+      setJournalEditId(null);
+      setJournalDraft({});
+      await loadData();
+    } catch (err) {
+      console.error("Failed to update journal entry:", err);
+      showError("Failed to save changes. Please try again.");
+    } finally {
+      setJournalSaving(false);
     }
   }
 
@@ -1106,23 +1156,22 @@ function Finance() {
                 <div className="kfin-block-hd">
                   <p className="kfin-block-title">Post Journal Entry</p>
                 </div>
-                <form className="kfin-form" onSubmit={addEntry}>
+                <form className="kfin-form" ref={journalFormRef} onSubmit={addEntry}
+                  onKeyDown={e => focusNextOnEnter(e, () => journalFormRef.current?.requestSubmit())}>
                   <label className="kfin-label">Date
-                    <input type="date" className="kfin-input" value={journalForm.date} required onChange={e => setJournalForm(f => ({ ...f, date: e.target.value }))} />
+                    <input type="date" className="kfin-input" data-role="journal-date" value={journalForm.date} required onChange={e => setJournalForm(f => ({ ...f, date: e.target.value }))} />
                   </label>
                   <label className="kfin-label">Amount (NPR)
                     <input type="number" min="1" className="kfin-input" value={journalForm.amountNPR} required placeholder="0"
                       onChange={e => setJournalForm(f => ({ ...f, amountNPR: e.target.value }))} />
                   </label>
                   <label className="kfin-label">Debit Account (Dr)
-                    <select className="kfin-select" value={journalForm.debitAccount} onChange={e => setJournalForm(f => ({ ...f, debitAccount: e.target.value }))}>
-                      {accountNames.map((a, i) => <option key={`${a}-${i}`}>{a}</option>)}
-                    </select>
+                    <KeyboardSelect className="kfin-select" value={journalForm.debitAccount} options={accountNames}
+                      onChange={v => setJournalForm(f => ({ ...f, debitAccount: v }))} />
                   </label>
                   <label className="kfin-label">Credit Account (Cr)
-                    <select className="kfin-select" value={journalForm.creditAccount} onChange={e => setJournalForm(f => ({ ...f, creditAccount: e.target.value }))}>
-                      {accountNames.map((a, i) => <option key={`${a}-${i}`}>{a}</option>)}
-                    </select>
+                    <KeyboardSelect className="kfin-select" value={journalForm.creditAccount} options={accountNames}
+                      onChange={v => setJournalForm(f => ({ ...f, creditAccount: v }))} />
                   </label>
                   <label className="kfin-label kfin-full">Description
                     <input type="text" className="kfin-input" value={journalForm.description} required placeholder="Transaction description"
@@ -1147,20 +1196,78 @@ function Finance() {
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
-                      <thead><tr><th>Date</th><th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th></tr></thead>
+                      <thead><tr><th>Date</th><th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
                       <tbody>
-                        {entries.map(entry => (
-                          <tr key={entry.id}>
-                            <td>{entry.date}</td>
-                            <td style={{ fontWeight: 500 }}>{entry.description}</td>
-                            <td style={{ color: "var(--mint-deep)", fontWeight: 500 }}>{entry.debitAccount}</td>
-                            <td style={{ color: "var(--terra)", fontWeight: 500 }}>{entry.creditAccount}</td>
-                            <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>
-                            <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((entry.amountNPR || 0) / GBP_RATE, "GBP")}</td>
-                            <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{entry.reference || "—"}</td>
-                            <td style={{ fontSize: 12 }}>{entry.createdBy}</td>
-                          </tr>
-                        ))}
+                        {entries.map(entry => {
+                          const editing = journalEditId === entry.id;
+                          const inputStyle = { padding: "3px 6px", fontSize: 12, width: "100%" };
+                          if (!editing) {
+                            return (
+                              <tr key={entry.id}>
+                                <td>{entry.date}</td>
+                                <td style={{ fontWeight: 500 }}>{entry.description}</td>
+                                <td style={{ color: "var(--mint-deep)", fontWeight: 500 }}>{entry.debitAccount}</td>
+                                <td style={{ color: "var(--terra)", fontWeight: 500 }}>{entry.creditAccount}</td>
+                                <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>
+                                <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((entry.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                                <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{entry.reference || "—"}</td>
+                                <td style={{ fontSize: 12 }}>{entry.createdBy}</td>
+                                {canEdit && (
+                                  <td>
+                                    <button type="button" className="ghost-button" style={{ padding: "3px 10px", fontSize: 11.5 }} onClick={() => startJournalEdit(entry)}>
+                                      Edit
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          }
+                          return (
+                            <tr key={entry.id} style={{ background: "var(--mint-soft)" }}
+                              onKeyDown={e => focusNextOnEnter(e, () => saveJournalEdit(entry.id))}>
+                              <td>
+                                <input type="date" className="kfin-input" style={inputStyle} value={journalDraft.date} autoFocus
+                                  onChange={e => setJournalDraft(d => ({ ...d, date: e.target.value }))} />
+                              </td>
+                              <td>
+                                <input className="kfin-input" style={inputStyle} value={journalDraft.description}
+                                  onChange={e => setJournalDraft(d => ({ ...d, description: e.target.value }))} />
+                              </td>
+                              <td>
+                                <KeyboardSelect className="kfin-select" style={inputStyle} value={journalDraft.debitAccount} options={accountNames}
+                                  onChange={v => setJournalDraft(d => ({ ...d, debitAccount: v }))} />
+                              </td>
+                              <td>
+                                <KeyboardSelect className="kfin-select" style={inputStyle} value={journalDraft.creditAccount} options={accountNames}
+                                  onChange={v => setJournalDraft(d => ({ ...d, creditAccount: v }))} />
+                              </td>
+                              <td>
+                                <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={journalDraft.amountNPR}
+                                  onChange={e => setJournalDraft(d => ({ ...d, amountNPR: e.target.value }))} />
+                              </td>
+                              <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+                                {asCurrency((Number(journalDraft.amountNPR) || 0) / GBP_RATE, "GBP")}
+                              </td>
+                              <td>
+                                <input className="kfin-input" style={inputStyle} value={journalDraft.reference}
+                                  onChange={e => setJournalDraft(d => ({ ...d, reference: e.target.value }))} />
+                              </td>
+                              <td style={{ fontSize: 12 }}>{entry.createdBy}</td>
+                              <td>
+                                <div style={{ display: "flex", gap: 4 }}>
+                                  <button type="button" className="primary-button" style={{ padding: "3px 10px", fontSize: 11.5 }}
+                                    disabled={journalSaving} onClick={() => saveJournalEdit(entry.id)}>
+                                    {journalSaving ? "…" : "Save"}
+                                  </button>
+                                  <button type="button" className="ghost-button" style={{ padding: "3px 10px", fontSize: 11.5 }}
+                                    disabled={journalSaving} onClick={cancelJournalEdit}>
+                                    Cancel
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

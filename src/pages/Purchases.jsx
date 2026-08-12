@@ -28,7 +28,7 @@ function Purchases() {
     setLoading(true);
     try {
       const snap = await getDocs(collection(db, "finance_purchases"));
-      let rows = snap.docs.filter(d => d.id !== "__seeded__").map(d => ({ id: d.id, ...d.data() }));
+      let rows = snap.docs.filter(d => d.id !== "seed_marker").map(d => ({ id: d.id, ...d.data() }));
       rows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
       rows = rows.filter(r => createdAfterCutoff(r));
       setPurchases(rows);

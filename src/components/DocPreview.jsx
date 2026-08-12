@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { InvoicePDFDoc } from "./InvoicePDF";
-import { fmtCurrency, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
+import { fmtCurrency, fmtCurrencyExact, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
+import { roundAmount } from "../utils/format";
 
 const TITLES = {
   invoice:   "Tax Invoice",
@@ -81,7 +82,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   const creditDue   = Math.max(0, total - amountPaid);
   const showVAT     = docType === "invoice" && data.applyVAT;
   const showDiscount = discountAmt > 0;
-  const wordsTotal  = total > 0 ? numWords(total, currency) : "—";
+  const wordsTotal  = total > 0 ? numWords(roundAmount(total), currency) : "—";
 
   /* ── Meta rows (right column) ── */
   const metaRows = [];
@@ -205,8 +206,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                     </td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "center" }}>{Number(it.qty) % 1 === 0 ? it.qty : Number(it.qty).toFixed(2)}</td>
                     <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "center" }}>{it.unit || "Pcs"}</td>
-                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrency(Number(it.rate || 0), currency)}</td>
-                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrency(Number(it.qty || 0) * Number(it.rate || 0), currency)}</td>
+                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrencyExact(Number(it.rate || 0), currency)}</td>
+                    <td style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#333", textAlign: "right" }}>{fmtCurrencyExact(Number(it.qty || 0) * Number(it.rate || 0), currency)}</td>
                   </tr>
                 )) : (
                   <tr><td colSpan={6} style={{ padding: "5.5px 8px", borderBottom: `1px solid ${gs}`, color: "#999", textAlign: "center" }}>No items</td></tr>
@@ -220,7 +221,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {/* Subtotal */}
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                   <span style={{ color: "#555" }}>Subtotal</span>
-                  <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrency(subtotal, currency)}</span>
+                  <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrencyExact(subtotal, currency)}</span>
                 </div>
 
                 {/* Discount (Nepal IRD: must show separately) */}
@@ -228,11 +229,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                       <span style={{ color: "#c0392b" }}>Discount ({discountPct}%)</span>
-                      <span style={{ fontWeight: 600, color: "#c0392b" }}>− {fmtCurrency(discountAmt, currency)}</span>
+                      <span style={{ fontWeight: 600, color: "#c0392b" }}>− {fmtCurrencyExact(discountAmt, currency)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                       <span style={{ color: "#555" }}>Taxable Amount</span>
-                      <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrency(taxableAmt, currency)}</span>
+                      <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrencyExact(taxableAmt, currency)}</span>
                     </div>
                   </>
                 )}
@@ -241,7 +242,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {showVAT && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
                     <span style={{ color: "#555" }}>VAT @ 13% (Nepal IRD)</span>
-                    <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrency(vatAmt, currency)}</span>
+                    <span style={{ fontWeight: 600, color: "#333" }}>{fmtCurrencyExact(vatAmt, currency)}</span>
                   </div>
                 )}
 
@@ -256,11 +257,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11, marginTop: 3 }}>
                       <span style={{ color: "#1a5c1a" }}>Amount Paid</span>
-                      <span style={{ fontWeight: 600, color: "#1a5c1a" }}>{fmtCurrency(amountPaid, currency)}</span>
+                      <span style={{ fontWeight: 600, color: "#1a5c1a" }}>{fmtCurrencyExact(amountPaid, currency)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", fontSize: 11.5, fontWeight: 800 }}>
                       <span style={{ color: creditDue > 0 ? "#c0392b" : "#1a5c1a" }}>Credit Balance Due</span>
-                      <span style={{ color: creditDue > 0 ? "#c0392b" : "#1a5c1a" }}>{fmtCurrency(creditDue, currency)}</span>
+                      <span style={{ color: creditDue > 0 ? "#c0392b" : "#1a5c1a" }}>{fmtCurrencyExact(creditDue, currency)}</span>
                     </div>
                   </>
                 )}

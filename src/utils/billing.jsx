@@ -84,6 +84,16 @@ export function fmtNPR(n) {
   return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(roundAmount(n));
 }
 
+// Precise (2-decimal, never rounded) — for invoice/challan line items, Subtotal,
+// Discount, Taxable Amount and VAT, which should stay exact. Only the printed
+// Grand Total itself rounds (fmtCurrency below) — per Deepa's request.
+export function fmtCurrencyExact(n, currency = "NPR") {
+  if (isNaN(n)) n = 0;
+  const locale = currency === "GBP" ? "en-GB" : "en-IN";
+  const symbol = currency === "GBP" ? "£" : "NPR ";
+  return symbol + new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
 export function fmtCurrency(n, currency = "NPR") {
   if (isNaN(n)) n = 0;
   if (currency === "GBP") {

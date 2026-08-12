@@ -89,6 +89,18 @@ function itemsForEdit(row) {
       amount: row.amountNPR == null ? "" : String(row.amountNPR)
     }];
   }
+  // Oldest purchases predate the line-item breakdown entirely — only a top-level
+  // amountNPR exists. Synthesize one line from it so the real total still shows
+  // instead of a blank row computing to NPR 0.
+  if (Number(row.amountNPR) > 0) {
+    return [{
+      particulars: row.expenseItem || "Purchase",
+      quantity: "1",
+      unit: "pcs",
+      rate: String(row.amountNPR),
+      amount: String(row.amountNPR)
+    }];
+  }
   return [{ ...emptyLineItem }];
 }
 
@@ -120,7 +132,7 @@ export function purchaseItemsPayload(items) {
 
 // Enter moves focus to the next field instead of doing nothing; only fires the finish
 // action once the last field in the container is reached.
-function focusNextOnEnter(e, onFinish) {
+export function focusNextOnEnter(e, onFinish) {
   if (e.key !== "Enter" || e.target.tagName === "BUTTON") return;
   e.preventDefault();
   const fields = Array.from(e.currentTarget.querySelectorAll("input, select, [data-kb-select]")).filter(el => !el.disabled);
