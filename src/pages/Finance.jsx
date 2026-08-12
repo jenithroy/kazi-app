@@ -221,12 +221,12 @@ function Finance() {
     setExpenses(expRows);
 
     let purRows = purchasesSnap.docs.filter(d => d.id !== "__seeded__").map(d => ({ id: d.id, ...d.data() }));
-    const existingIds = new Set(purRows.map(r => r.expenseId).filter(Boolean));
-    const missing = SEED_PURCHASES.filter(p => !existingIds.has(p.expenseId));
-    if (missing.length > 0) {
+    const hasSeededDoc = purchasesSnap.docs.some(d => d.id === "__seeded__");
+    if (!hasSeededDoc && purRows.length === 0) {
       const today = new Date().toISOString().slice(0, 10);
       const batch = writeBatch(db);
-      missing.forEach(p => batch.set(doc(db, "finance_purchases", p.expenseId), { ...p, date: today, createdAt: serverTimestamp() }));
+      SEED_PURCHASES.forEach(p => batch.set(doc(db, "finance_purchases", p.expenseId), { ...p, date: today, createdAt: serverTimestamp() }));
+      batch.set(doc(db, "finance_purchases", "__seeded__"), { seededAt: serverTimestamp() });
       await batch.commit();
       const fresh = await getDocs(collection(db, "finance_purchases"));
       purRows = fresh.docs.filter(d => d.id !== "__seeded__").map(d => ({ id: d.id, ...d.data() }));
