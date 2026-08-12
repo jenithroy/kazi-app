@@ -165,7 +165,7 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
 
   return (
     <tbody
-      onBlur={e => { if (onBlurAway && !e.currentTarget.contains(e.relatedTarget)) onBlurAway(); }}
+      onBlur={e => { if (onBlurAway && e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) onBlurAway(); }}
       onKeyDown={e => focusNextOnEnter(e, onFinishEnter)}
     >
       {items.map((item, idx) => (

@@ -60,6 +60,9 @@ service cloud.firestore {
       allow create, update: if hasPermission("inventory") || isNepalStaff() || isSuperAdmin();
       allow delete: if hasPermission("inventory") || isNepalStaff() || isSuperAdmin();
     }
+    match /stock_movements/{id} {
+      allow create, update, delete: if hasPermission("inventory") || hasPermission("finance") || isNepalStaff() || isSuperAdmin();
+    }
     match /qc_logs/{id} {
       allow create, update: if hasPermission("qc") || isNepalStaff() || isSuperAdmin();
       allow delete: if false;

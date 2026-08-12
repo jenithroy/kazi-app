@@ -230,16 +230,15 @@ function Finance() {
     setExpenses(expRows);
 
     let purRows = purchasesSnap.docs.filter(d => d.id !== SEED_MARKER_ID).map(d => ({ id: d.id, ...d.data() }));
-    // Seed data is backfilled once, ever — the marker doc records that it already
-    // ran, so deleting a seeded purchase (e.g. EXP001) doesn't bring it back on next load.
+    // Seed data is backfilled once, ever — the marker doc records that it already ran,
+    // and only fires when the collection is genuinely empty, so deleting a seeded
+    // purchase (e.g. EXP001) doesn't bring it back on next load.
     // (Marker ID must not match Firestore's reserved "__*__" pattern — that throws on write.)
     const alreadySeeded = purchasesSnap.docs.some(d => d.id === SEED_MARKER_ID);
-    if (!alreadySeeded) {
-      const existingIds = new Set(purRows.map(r => r.expenseId).filter(Boolean));
-      const missing = SEED_PURCHASES.filter(p => !existingIds.has(p.expenseId));
+    if (!alreadySeeded && purRows.length === 0) {
       const today = new Date().toISOString().slice(0, 10);
       const batch = writeBatch(db);
-      missing.forEach(p => batch.set(doc(db, "finance_purchases", p.expenseId), { ...p, date: today, createdAt: serverTimestamp() }));
+      SEED_PURCHASES.forEach(p => batch.set(doc(db, "finance_purchases", p.expenseId), { ...p, date: today, createdAt: serverTimestamp() }));
       batch.set(doc(db, "finance_purchases", SEED_MARKER_ID), { seededAt: serverTimestamp() });
       await batch.commit();
       const fresh = await getDocs(collection(db, "finance_purchases"));
