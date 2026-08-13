@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteField, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus } from "../constants";
@@ -14,6 +14,11 @@ function fmtHM(date) {
 }
 function hoursBetween(inDate, outDate) {
   return Math.max(0, Math.round(((outDate - inDate) / 3600000) * 10) / 10);
+}
+function fmtElapsed(ms) {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
 }
 
 export default function ClockInCard({ profile, onClockChange }) {
@@ -30,6 +35,7 @@ export default function ClockInCard({ profile, onClockChange }) {
   const [clockInDate, setClockInDate] = useState(null);      // Date of today's clock-in (for hours calc)
   const [clockedOutAtStr, setClockedOutAtStr] = useState(null);
   const [workedHours, setWorkedHours] = useState(null);
+  const [confirmingOut, setConfirmingOut] = useState(false);
 
   // Live timer
   useEffect(() => {
@@ -188,6 +194,7 @@ export default function ClockInCard({ profile, onClockChange }) {
   const handleClockOut = async () => {
     if (!clockInDocId) return;
     try {
+      setConfirmingOut(false);
       setStatus("saving");
       const now = new Date();
       const hours = clockInDate ? hoursBetween(clockInDate, now) : null;
@@ -220,11 +227,17 @@ export default function ClockInCard({ profile, onClockChange }) {
     if (!clockInDocId) return;
     try {
       setStatus("saving");
-      await setDoc(doc(db, "clock_ins", clockInDocId), { clockedOutAt: null }, { merge: true });
-      await setDoc(doc(db, "attendance", `${today}_${staffId}`), { note: "GPS clock-in" }, { merge: true });
+      await setDoc(doc(db, "clock_ins", clockInDocId), {
+        clockedOutAt: null,
+        workedHours: deleteField(),
+      }, { merge: true });
+      // Revert the attendance row to the clocked-in default so reports don't
+      // keep the shortened worked-hours figure while the day is still running.
+      await setDoc(doc(db, "attendance", `${today}_${staffId}`), { note: "GPS clock-in", hours: 8 }, { merge: true });
       setClockedOutAtStr(null);
       setWorkedHours(null);
       setStatus("clocked");
+      hapticSuccess();
       if (onClockChange) onClockChange();
     } catch (err) {
       console.error("Error clocking back in:", err);
@@ -270,12 +283,15 @@ export default function ClockInCard({ profile, onClockChange }) {
             </svg>
             <div className="kem-clock-inner">
               {status === "idle"         && <><Icons.MapPin size={24} sw={1.8}/><div className="kem-clock-inner-l">Ready to clock in</div></>}
-              {(status === "locating" || status === "saving") && <><Icons.Crosshair size={26} sw={1.8}/><div className="kem-clock-inner-l">Locating…</div></>}
+              {status === "locating"     && <><Icons.Crosshair size={26} sw={1.8}/><div className="kem-clock-inner-l">Locating…</div></>}
+              {status === "saving"       && <><Icons.Crosshair size={26} sw={1.8}/><div className="kem-clock-inner-l">Saving…</div></>}
               {status === "success"      && <><div className="num-xl mono" style={{fontSize:26,color:"var(--mint-deep)"}}>{clockDist}m</div><div className="kem-clock-inner-l">from workshop</div></>}
               {status === "far"          && <><div className="num-xl mono" style={{fontSize:22,color:"var(--terra)"}}>{clockDist && clockDist !== 9999 ? `${(clockDist/1000).toFixed(2)}km` : "—"}</div><div className="kem-clock-inner-l">out of range</div></>}
               {status === "low-accuracy" && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>Weak GPS</div></>}
               {status === "gps-error"    && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>GPS Error</div></>}
-              {status === "clocked"      && <><Icons.Check size={28} sw={2.2} style={{color:"var(--mint-deep)"}}/><div className="kem-clock-inner-l">Clocked in</div></>}
+              {status === "clocked"      && (clockInDate
+                ? <><div className="num-xl mono" style={{fontSize:22,color:"var(--mint-deep)"}}>{fmtElapsed(clockTime - clockInDate)}</div><div className="kem-clock-inner-l">on the clock</div></>
+                : <><Icons.Check size={28} sw={2.2} style={{color:"var(--mint-deep)"}}/><div className="kem-clock-inner-l">Clocked in</div></>)}
               {status === "clocked_out"  && <><div className="num-xl mono" style={{fontSize:24,color:"var(--mint-deep)"}}>{workedHours != null ? `${workedHours}h` : "✓"}</div><div className="kem-clock-inner-l">day complete</div></>}
             </div>
           </div>
@@ -383,13 +399,22 @@ export default function ClockInCard({ profile, onClockChange }) {
                 <Icons.Check size={18} sw={2.2}/>
                 <div>
                   <div>Clocked in at <strong className="mono">{clockedAtStr || "—"}</strong></div>
-                  <span>Have a productive day, {profile?.name?.split(" ")[0]}.</span>
+                  <span>
+                    {confirmingOut
+                      ? "Clocking out records the end of your work day."
+                      : <>Have a productive day, {profile?.name?.split(" ")[0]}.</>}
+                  </span>
                 </div>
               </div>
-              <div className="kem-clock-actions">
-                <Btn kind="outline" size="md" onClick={() => {
-                  if (window.confirm("Clock out now? This records the end of your work day.")) handleClockOut();
-                }}>Clock out</Btn>
+              <div className="kem-clock-actions" style={{ display: "flex", gap: 10 }}>
+                {confirmingOut ? (
+                  <>
+                    <Btn kind="ghost" size="md" onClick={() => setConfirmingOut(false)}>Cancel</Btn>
+                    <Btn kind="mint" size="md" icon={<Icons.Check size={14} sw={2.2}/>} onClick={handleClockOut}>Confirm clock-out</Btn>
+                  </>
+                ) : (
+                  <Btn kind="outline" size="md" onClick={() => setConfirmingOut(true)}>Clock out</Btn>
+                )}
               </div>
             </>
           )}
