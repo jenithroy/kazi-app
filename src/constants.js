@@ -40,10 +40,10 @@ export const TEAM_MEMBERS = [
   { name: "Zen", role: "Director", location: "uk", email: "hi.zenuk@gmail.com", appRole: "uk_admin" },
   // Nepal Admins
   { name: "Wilson", role: "Operations Head", location: "nepal", email: "wilsonshah98765@gmail.com", appRole: "nepal_admin" },
-  { name: "Anmol", role: "Operations Intern", location: "nepal", email: "Basnetanamol21@gmail.com", appRole: "nepal_admin" },
-  { name: "Anusha", role: "Fashion Intern", location: "nepal", email: "anushapantaa@gmail.com", appRole: "nepal_admin" },
-  { name: "Monika", role: "Marketing Co-ordinator", location: "nepal", email: "bhusal.monika14@gmail.com", appRole: "nepal_admin" },
-  { name: "Sunam Deepa", role: "Accountant", location: "nepal", email: "deepasunam581@gmail.com", appRole: "nepal_admin" },
+  { name: "Anmol", role: "Operations Intern", location: "nepal", email: "Basnetanamol21@gmail.com", appRole: "nepal_staff" },
+  { name: "Anusha", role: "Fashion Intern", location: "nepal", email: "anushapantaa@gmail.com", appRole: "nepal_staff" },
+  { name: "Monika", role: "Marketing Co-ordinator", location: "nepal", email: "bhusal.monika14@gmail.com", appRole: "nepal_staff" },
+  { name: "Sunam Deepa", role: "Accountant", location: "nepal", email: "deepasunam581@gmail.com", appRole: "nepal_staff" },
   { name: "Admin", role: "System Admin", location: "nepal", email: "admin@kazi.com", appRole: "super_admin" },
   { name: "Rishav", role: "Developer", location: "nepal", email: "crrishav.business@gmail.com", appRole: "super_admin" },
   // Employees
