@@ -33,46 +33,6 @@ function appRole(profile) {
 export function sectionCanEdit(profile, section) {
   if (!profile) return false;
 
-  // Explicitly grant production edit access to Wilson, Anmol, and Anusha
-  if (section === "production") {
-    const emailLower = profile.email?.toLowerCase();
-    if (["wilsonshah98765@gmail.com", "basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes(emailLower)) {
-      return true;
-    }
-  }
-
-  // Explicitly grant full Employees page access (directory + payroll) to Wilson
-  if (section === "employees") {
-    const emailLower = profile.email?.toLowerCase();
-    if (emailLower === "wilsonshah98765@gmail.com") {
-      return true;
-    }
-  }
-
-  // Explicitly grant tasks edit/add access to Anusha
-  if (section === "tasks") {
-    const emailLower = profile.email?.toLowerCase();
-    if (emailLower === "anushapantaa@gmail.com") {
-      return true;
-    }
-  }
-
-  // Explicitly grant library and inventory edit/add access to Anusha
-  if (section === "library" || section === "inventory") {
-    const emailLower = profile.email?.toLowerCase();
-    if (emailLower === "anushapantaa@gmail.com") {
-      return true;
-    }
-  }
-
-  // Explicitly grant marketing edit/add access to Sarbagya
-  if (section === "marketing") {
-    const emailLower = profile.email?.toLowerCase();
-    if (emailLower === "sarbagyakarkig8@gmail.com") {
-      return true;
-    }
-  }
-
   // Check explicit override first (e.g. for employee overrides like Monika)
   let perm = profile.permissions?.[section];
   if (perm === false) return false;
@@ -102,20 +62,6 @@ export function sectionCanEdit(profile, section) {
 export function sectionVisible(profile, sectionKey) {
   if (!profile) return false;
 
-  // Force visibility for Anusha
-  const emailLower = profile.email?.toLowerCase();
-  if (
-    emailLower === "anushapantaa@gmail.com" &&
-    ["inventory", "library", "tasks"].includes(sectionKey)
-  ) {
-    return true;
-  }
-
-  // Force visibility for Sarbagya to marketing
-  if (emailLower === "sarbagyakarkig8@gmail.com" && sectionKey === "marketing") {
-    return true;
-  }
-
   // Explicit override takes precedence
   let perm = profile.permissions?.[sectionKey];
   if (perm === false) return false;
@@ -137,11 +83,6 @@ export function sectionVisible(profile, sectionKey) {
 // Is a Finance tab visible (and editable) for this user?
 export function financeTabAllowed(profile, tabKey) {
   if (!profile) return false;
-
-  // Explicitly grant Payroll access to Wilson (part of full Employees page access)
-  if (tabKey === "payroll" && profile.email?.toLowerCase() === "wilsonshah98765@gmail.com") {
-    return true;
-  }
 
   // Explicit finance override takes precedence
   let val = profile.permissions?.finance?.[tabKey];

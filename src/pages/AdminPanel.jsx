@@ -12,8 +12,11 @@ const SECTIONS = [
   { key: "attendance", label: "Attendance",       icon: "📅" },
   { key: "production", label: "Production",       icon: "⚙" },
   { key: "inventory",  label: "Inventory",        icon: "📦" },
+  { key: "library",    label: "Library",          icon: "📚" },
   { key: "qc",         label: "Quality Control",  icon: "🛡" },
   { key: "billing",    label: "Billing",          icon: "📄" },
+  { key: "sales",      label: "Sales",            icon: "📈" },
+  { key: "marketing",  label: "Marketing",        icon: "📣" },
   { key: "employees",  label: "Employee and HR",  icon: "👥" },
   { key: "budget",     label: "Budget & Reqs",    icon: "💷" },
 ];

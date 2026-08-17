@@ -101,39 +101,34 @@ export function AuthProvider({ children }) {
                   }
                 });
 
-                // Force production: true for Wilson, Anmol, Anusha
-                const emailLower = (firebaseUser.email || "").toLowerCase();
-                if (["wilsonshah98765@gmail.com", "basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes(emailLower)) {
-                  if (updatedPerms.production !== true) {
-                    updatedPerms.production = true;
-                    needsUpdate = true;
-                  }
-                }
-
-                // Force tasks, library, inventory: true for Anusha
-                if (emailLower === "anushapantaa@gmail.com") {
-                  if (updatedPerms.tasks !== true) {
-                    updatedPerms.tasks = true;
-                    needsUpdate = true;
-                  }
-                  if (updatedPerms.library !== true) {
-                    updatedPerms.library = true;
-                    needsUpdate = true;
-                  }
-                  if (updatedPerms.inventory !== true) {
-                    updatedPerms.inventory = true;
-                    needsUpdate = true;
-                  }
-                }
-
                 if (needsUpdate) {
                   await updateDoc(profileRef, { permissions: updatedPerms });
                 }
                 profileData.permissions = updatedPerms;
               }
+            } else if (["basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes((firebaseUser.email || "").toLowerCase())) {
+              // One-time migration off a former hardcoded permissions.js override (production for both;
+              // tasks/library/inventory for Anusha) — only fills in keys that have never been set, so
+              // the Admin Panel is the sole source of truth for these from here on.
+              const emailLower = (firebaseUser.email || "").toLowerCase();
+              const existingPerms = data?.permissions || {};
+              const updatedPerms = { ...existingPerms };
+              let needsUpdate = false;
+              if (updatedPerms.production === undefined) { updatedPerms.production = true; needsUpdate = true; }
+              if (emailLower === "anushapantaa@gmail.com") {
+                if (updatedPerms.tasks === undefined)     { updatedPerms.tasks = true;     needsUpdate = true; }
+                if (updatedPerms.library === undefined)   { updatedPerms.library = true;   needsUpdate = true; }
+                if (updatedPerms.inventory === undefined) { updatedPerms.inventory = true; needsUpdate = true; }
+              }
+              if (needsUpdate) {
+                await updateDoc(profileRef, { permissions: updatedPerms });
+              }
+              profileData.permissions = updatedPerms;
             } else if ((firebaseUser.email || "").toLowerCase() === "sarbagyakarkig8@gmail.com") {
-              let existingPerms = data?.permissions || {};
-              if (existingPerms.marketing !== true) {
+              // One-time migration off a former hardcoded permissions.js override — only fills in
+              // marketing if it's never been set, so the Admin Panel is authoritative from here on.
+              const existingPerms = data?.permissions || {};
+              if (existingPerms.marketing === undefined) {
                 const updatedPerms = { ...existingPerms, marketing: true };
                 await updateDoc(profileRef, { permissions: updatedPerms });
                 profileData.permissions = updatedPerms;
