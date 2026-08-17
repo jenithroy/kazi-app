@@ -422,7 +422,8 @@ function Attendance() {
         {!canEdit && <p className="banner-warning">UK admin — view only.</p>}
         {message   && <p className="banner-info">{message}</p>}
 
-        {profile && ["anushapantaa@gmail.com", "basnetanamol21@gmail.com"].includes(profile.email?.toLowerCase()) && (
+        {/* Admin-role users with Attendance access still need to clock themselves in/out */}
+        {canEdit && (
           <ClockInCard profile={profile} onClockChange={loadAll} />
         )}
 

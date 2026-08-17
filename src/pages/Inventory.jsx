@@ -2266,12 +2266,18 @@ function SampleCard({ item, canEdit, onEdit, onDelete }) {
 function Inventory() {
   const { profile } = useAuth();
   const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
-  const canEditInventory = sectionCanEdit(profile, "inventory") || isNepalStaff;
-  const canEditLibrary = sectionCanEdit(profile, "library");
-  const canEditUnitEconomics = canEditLibrary || canEditInventory || isNepalStaff;
+  // Inventory & Library are one merged page in the UI (see Sidebar's combined nav item) —
+  // granting either permission unlocks the whole page, so a partial grant (e.g. only
+  // "Inventory" ticked in the Admin Panel) never hides tabs like Tech Packs from someone
+  // who was clearly meant to have full access here.
+  const hasPageAccess = sectionCanEdit(profile, "inventory") || sectionCanEdit(profile, "library") || isNepalStaff;
+  const canEditInventory = hasPageAccess;
+  const canEditLibrary = hasPageAccess;
+  const canEditUnitEconomics = hasPageAccess;
 
-  const showInventory = sectionVisible(profile, "inventory");
-  const showLibrary = sectionVisible(profile, "library");
+  const showPage = sectionVisible(profile, "inventory") || sectionVisible(profile, "library");
+  const showInventory = showPage;
+  const showLibrary = showPage;
 
   const { updateDoc: updateInventoryDoc } = useFirestore("inventory");
 

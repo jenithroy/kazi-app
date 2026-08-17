@@ -41,34 +41,18 @@ export const TEAM_MEMBERS = [
   // Nepal Admins
   { name: "Wilson", role: "Operations Head", location: "nepal", email: "wilsonshah98765@gmail.com", appRole: "nepal_admin" },
   { name: "Anmol", role: "Operations Intern", location: "nepal", email: "Basnetanamol21@gmail.com", appRole: "nepal_staff" },
-  { name: "Anusha", role: "Fashion Intern", location: "nepal", email: "anushapantaa@gmail.com", appRole: "nepal_staff" },
   { name: "Monika", role: "Marketing Co-ordinator", location: "nepal", email: "bhusal.monika14@gmail.com", appRole: "nepal_staff" },
   { name: "Sunam Deepa", role: "Accountant", location: "nepal", email: "deepasunam581@gmail.com", appRole: "nepal_staff" },
   { name: "Admin", role: "System Admin", location: "nepal", email: "admin@kazi.com", appRole: "super_admin" },
   { name: "Rishav", role: "Developer", location: "nepal", email: "crrishav.business@gmail.com", appRole: "super_admin" },
   // Employees
   { name: "Sarbagya Karki", role: "Content Editor", location: "nepal", email: "sarbagyakarkig8@gmail.com", appRole: "nepal_staff" },
-  { name: "Sudhansu", role: "Operations Assistant", location: "nepal", email: "sa4715666@gmail.com", appRole: "employee" },
-  { name: "Bedhant", role: "Management", location: "nepal", email: "bedantrana@gmail.com", appRole: "employee" },
 ];
 
 export const EMPLOYEE_SCHEDULES = {
   "Wilson": { start: "11:00", end: "21:00" },
   "Monika": { start: "12:30", end: "19:00" },
-  "Sudhansu": { start: "11:00", end: "19:00" },
-  "Sudhashu": { start: "11:00", end: "19:00" },
-  "Bedhant": { start: "11:00", end: "19:00" },
   "Anmol": { start: "10:30", end: "18:00" },
-  "Anusha": {
-    days: {
-      "Mon": { start: "15:00", end: "19:00" },
-      "Tue": { start: "15:00", end: "19:00" },
-      "Wed": { start: "15:00", end: "19:00" },
-      "Thu": { start: "15:00", end: "19:00" },
-      "Fri": { start: "15:00", end: "19:00" },
-      "Sun": { start: "10:00", end: "18:00" }
-    }
-  }
 };
 
 export function getEmployeeScheduleForDate(employeeName, dateObj) {

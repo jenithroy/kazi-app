@@ -63,14 +63,10 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
       return sectionVisible(profile, routeKey(item.to));
     })
     .map(item => {
+      // Inventory & Library are a single merged page (see Inventory.jsx) — either
+      // permission unlocks the whole thing, so the label always reflects that.
       if (item.to === "/inventory") {
-        const hasInv = sectionVisible(profile, "inventory");
-        const hasLib = sectionVisible(profile, "library");
-        let label = "Inventory";
-        if (hasInv && hasLib) label = "Inventory & Library";
-        else if (hasLib) label = "Production Library";
-        else if (hasInv) label = "Inventory & Stock";
-        return { ...item, label };
+        return { ...item, label: "Inventory & Library" };
       }
       return item;
     });

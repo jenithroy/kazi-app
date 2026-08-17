@@ -3,6 +3,7 @@ import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTime
 import { db } from "../firebase";
 import { loadCollections } from "../utils/firestore";
 import { useAuth } from "../context/AuthContext";
+import { sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
 import { todayDate, startOfWeekDate } from "../utils/date";
 import { roundAmount } from "../utils/format";
@@ -792,8 +793,8 @@ function NepalAdminDash() {
 
   return (
       <div className="kdash fade-in">
-        {/* Clock-in hero for Anusha & Anmol */}
-        {profile && ["anushapantaa@gmail.com", "basnetanamol21@gmail.com"].includes(profile.email?.toLowerCase()) && (
+        {/* Clock-in hero for admin-role users who still need to clock themselves in/out */}
+        {sectionCanEdit(profile, "attendance") && (
           <ClockInCard profile={profile} onClockChange={() => setTrigger(t => t + 1)} />
         )}
 
