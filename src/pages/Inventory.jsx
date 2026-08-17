@@ -187,8 +187,73 @@ const emptyTechPackSpec = {
   designerName: "", name: "", product_type: "",
   measurements: [], frontSketchUrl: "", backSketchUrl: "",
   washCare: "", fabricRows: [{ fabricName: "", description: "" }], trims: "", remarks: "",
+  construction: {},
   sizes_available: [], tech_pack_images: [], notes: ""
 };
+
+// Construction spec. Fabric and measurements say what a garment is made of and
+// how big it is; these say how it is built, which is what the floor otherwise
+// decides by default and varies between runs. Each `options` list is the house
+// standard — picking from it is the point, the free-text fallback is the escape
+// hatch. `why` is shown to whoever fills the sheet so the choice is informed.
+const CONSTRUCTION_FIELDS = [
+  { key: "neckFinish", label: "Neck finish", group: "Body",
+    options: ["2x2 rib", "1x1 rib", "Bound neck", "Self-fabric band"],
+    why: "2x2 rib recovers after washing; 1x1 and self-fabric sag and curl first." },
+  { key: "neckTape", label: "Neck / shoulder taping", group: "Body",
+    options: ["Twill tape, shoulder to shoulder", "Self-fabric tape", "None"],
+    why: "Taping is what stops the neckline stretching out over the life of the garment." },
+  { key: "shoulderSeam", label: "Shoulder seam", group: "Body",
+    options: ["Set-in, taped", "Set-in, untaped", "Drop shoulder"],
+    why: "Aligned shoulder stitching is what stops an oversized body twisting after wear." },
+  { key: "sideSeam", label: "Side seam", group: "Body",
+    options: ["Side-seamed, overlock + coverstitch", "Side-seamed, flatlock", "French seam", "Tubular (no side seam)"],
+    why: "Tubular is cheaper but twists; flatlock lies flat on knits; French seam encloses every raw edge." },
+  { key: "hem", label: "Body hem", group: "Body",
+    options: ["Coverstitch, twin needle", "Single needle turn-up", "Raw / unfinished"],
+    why: "" },
+  { key: "cuff", label: "Cuff / sleeve finish", group: "Body",
+    options: ["2x2 rib cuff", "Coverstitch hem", "Raw / unfinished"],
+    why: "" },
+  { key: "stitchDensity", label: "Stitch density (SPI)", group: "Body",
+    options: ["10-12 SPI", "12-14 SPI"],
+    why: "Higher density holds seams straight through repeated laundry cycles." },
+
+  { key: "hoodPanels", label: "Hood panels", group: "Hood",
+    options: ["Two-piece", "Three-piece", "One-piece", "N/A"],
+    why: "One-piece is cleanest from the front but puts a seam across the forehead. Two-piece fits closest. Three-piece holds structure best." },
+  { key: "hoodLining", label: "Hood lining", group: "Hood",
+    options: ["Self-fabric lined", "Contrast lined", "Unlined", "N/A"],
+    why: "" },
+  { key: "drawcord", label: "Drawcord and eyelets", group: "Hood",
+    options: ["Flat cord, metal eyelet", "Round cord, metal eyelet", "Flat cord, stitched eyelet", "No drawcord", "N/A"],
+    why: "" },
+  { key: "pocket", label: "Pocket", group: "Hood",
+    options: ["Kangaroo", "Split kangaroo", "Side seam", "None"],
+    why: "" },
+
+  { key: "zipper", label: "Zipper type", group: "Trims",
+    options: ["Single slider", "Two-way dual slider", "Double-sided", "N/A"],
+    why: "Two-way lets the hem open for movement, which is why streetwear outerwear specifies it." },
+  { key: "zipperBrand", label: "Zipper brand and size", group: "Trims",
+    options: ["YKK #5", "YKK #3", "SBS #5"],
+    why: "" },
+
+  { key: "printMethod", label: "Print method", group: "Decoration",
+    options: ["Screen print", "DTG", "DTF", "Puff print", "Discharge", "None"],
+    why: "Screen print lasts longest. DTG suits gradients and one-off sampling. Low-grade DTF feels plasticky and peels." },
+  { key: "printPlacement", label: "Print placement and size", group: "Decoration",
+    options: [],
+    why: "" },
+  { key: "appliqueType", label: "Applique / embroidery", group: "Decoration",
+    options: ["Matching-weight fabric applique", "PU leather applique", "Suede applique", "Flat embroidery", "None"],
+    why: "Applique fabric must match the base weight or the finished panel wrinkles. Large leather patches stiffen the panel." },
+  { key: "washFinish", label: "Wash / finish", group: "Decoration",
+    options: ["None", "Enzyme wash", "Garment dye", "Vintage wash", "Acid wash"],
+    why: "" }
+];
+
+const CONSTRUCTION_GROUPS = ["Body", "Hood", "Trims", "Decoration"];
 
 function nextStyleCode(patterns) {
   const nums = patterns
@@ -1036,6 +1101,9 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
         fabricRows:   fabricRows.filter(r => r.fabricName.trim() !== "" || r.description.trim() !== ""),
         trims:        form.trims,
         remarks:      form.remarks,
+        construction: Object.fromEntries(
+          Object.entries(form.construction || {}).filter(([, v]) => String(v || "").trim() !== "")
+        ),
         sizes_available: form.sizes_available,
         notes:        form.notes
       };
@@ -1216,6 +1284,42 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
             </div>
           </div>
 
+          {/* Construction spec */}
+          <div>
+            <label className="kfin-label" style={{ marginBottom: 6 }}>Construction</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {CONSTRUCTION_GROUPS.map(group => (
+                <div key={group} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-3, #888)", marginBottom: 8 }}>{group}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+                    {CONSTRUCTION_FIELDS.filter(f => f.group === group).map(field => (
+                      <div key={field.key}>
+                        <label className="kfin-label" style={{ fontSize: 12 }} title={field.why || undefined}>
+                          {field.label}
+                        </label>
+                        <input
+                          className="kfin-input"
+                          list={field.options.length ? `kinv-con-${field.key}` : undefined}
+                          value={(form.construction || {})[field.key] || ""}
+                          placeholder={field.options[0] || "Specify"}
+                          onChange={e => set("construction", { ...(form.construction || {}), [field.key]: e.target.value })}
+                        />
+                        {field.options.length > 0 && (
+                          <datalist id={`kinv-con-${field.key}`}>
+                            {field.options.map(opt => <option key={opt} value={opt} />)}
+                          </datalist>
+                        )}
+                        {field.why && (
+                          <div style={{ fontSize: 11, color: "var(--ink-3, #888)", marginTop: 3, lineHeight: 1.4 }}>{field.why}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="kfin-label">Trims and Accessories</label>
             <textarea className="kfin-input" rows={2} value={form.trims} onChange={e => set("trims", e.target.value)} style={{ resize: "vertical" }} placeholder="e.g. 0.5inch placket bias, white thread" />
@@ -1379,6 +1483,19 @@ function TechPackSpecPreview({ item, onClose, onEdit }) {
                       <strong>{r.fabricName || `Fabric ${i + 1}`}:</strong> {r.description || "—"}
                     </div>
                   ))}
+                </td>
+              </tr>
+              <tr>
+                <td style={specLabelStyle}>Construction</td>
+                <td style={specValStyle}>
+                  {(() => {
+                    const spec = item.construction || {};
+                    const filled = CONSTRUCTION_FIELDS.filter(f => String(spec[f.key] || "").trim() !== "");
+                    if (!filled.length) return "—";
+                    return filled.map(f => (
+                      <div key={f.key}>{f.label}: {spec[f.key]}</div>
+                    ));
+                  })()}
                 </td>
               </tr>
               <tr>
