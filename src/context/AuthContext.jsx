@@ -140,6 +140,22 @@ export function AuthProvider({ children }) {
               } else {
                 profileData.permissions = existingPerms;
               }
+            } else if ((firebaseUser.email || "").toLowerCase() === "deepasunam581@gmail.com") {
+              // Accountant — full Finance/Billing/Sales/Employees & HR/Attendance access without the broader nepal_admin role.
+              // Force (not merge-if-undefined) attendance/billing/sales/employees: an earlier bulk
+              // demotion (b766f7c) left explicit `false` overrides on her doc that a plain role-default
+              // fallback can't clear, since sectionVisible() treats an explicit false as final.
+              let existingPerms = data?.permissions || {};
+              const mergedFinance = { ...DEFAULT_NEPAL_ADMIN_PERMISSIONS.finance, ...(existingPerms.finance || {}) };
+              const needsFinanceUpdate = JSON.stringify(mergedFinance) !== JSON.stringify(existingPerms.finance || {});
+              const needsFlagUpdate = existingPerms.billing !== true || existingPerms.sales !== true || existingPerms.employees !== true || existingPerms.attendance !== true;
+              if (needsFinanceUpdate || needsFlagUpdate) {
+                const updatedPerms = { ...existingPerms, finance: mergedFinance, billing: true, sales: true, employees: true, attendance: true };
+                await updateDoc(profileRef, { permissions: updatedPerms });
+                profileData.permissions = updatedPerms;
+              } else {
+                profileData.permissions = existingPerms;
+              }
             } else if (data?.permissions) {
               profileData.permissions = data.permissions;
             }
