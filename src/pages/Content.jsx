@@ -11,8 +11,34 @@ const initialForm = {
   platform: "Instagram",
   contentType: "Reel",
   topic: "",
+  hook: "",
+  shotList: "",
   status: "Draft"
 };
+
+// Shape TRACER's Plan mode imports. Kept deliberately neutral so the editing
+// tool never needs credentials for this app.
+function exportBriefs(rows) {
+  const payload = {
+    source: "kazi-app",
+    exported: new Date().toISOString(),
+    briefs: rows.map((item) => ({
+      topic: item.topic || "",
+      hook: item.hook || "",
+      shotList: item.shotList || "",
+      date: item.date || null,
+      status: item.status === "Posted" ? "posted" : "planned"
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "briefs.json";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function Content() {
   const { profile } = useAuth();
@@ -77,6 +103,11 @@ function Content() {
       <PageHeader
         title="Content Calendar"
         description="Publishing workflow for campaign planning and approval."
+        action={
+          <button className="ghost-button" type="button" onClick={() => exportBriefs(rows)} disabled={!rows.length}>
+            Export briefs for TRACER
+          </button>
+        }
       />
 
       <ReelPlaybook />
@@ -125,6 +156,26 @@ function Content() {
           </label>
 
           <label>
+            Hook
+            <input
+              type="text"
+              value={form.hook}
+              placeholder="the line that opens the reel"
+              onChange={(event) => setForm((current) => ({ ...current, hook: event.target.value }))}
+            />
+          </label>
+
+          <label>
+            Shot List
+            <input
+              type="text"
+              value={form.shotList}
+              placeholder="what to film"
+              onChange={(event) => setForm((current) => ({ ...current, shotList: event.target.value }))}
+            />
+          </label>
+
+          <label>
             Status
             <select
               value={form.status}
@@ -153,6 +204,8 @@ function Content() {
                     <strong>{item.platform}</strong> - {item.contentType}
                   </p>
                   <p>{item.topic}</p>
+                  {item.hook ? <p>&ldquo;{item.hook}&rdquo;</p> : null}
+                  {item.shotList ? <small>Film: {item.shotList}</small> : null}
                   <small>Created by {item.createdBy}</small>
                   <div className="status-row">
                     <span className="badge-muted">{item.status}</span>
