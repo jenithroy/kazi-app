@@ -259,6 +259,9 @@ function Attendance() {
   const { profile } = useAuth();
   const canEdit  = sectionCanEdit(profile, "attendance");
   const isEmployee = profile?.role === "employee" || profile?.role === "nepal_staff";
+  // Hardcoded: Deepa (Accountant, nepal_staff) needs the Employee Report for payroll
+  // without the full daily-log edit rights over everyone else that the admin view grants.
+  const isDeepa = profile?.email?.toLowerCase() === "deepasunam581@gmail.com";
 
   const today = todayDate();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -362,40 +365,71 @@ function Attendance() {
         <div className="kscr fade-in">
           <div className="kph">
             <div><h2>Attendance</h2><p>Your daily log · {new Date(today).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div>
+            {isDeepa && (
+              <div className="kph-a" style={{ display: "flex", gap: 6 }}>
+                <button
+                  className={viewMode === "daily" ? "primary-button" : "ghost-button"}
+                  style={{ padding: "6px 14px", fontSize: 12.5 }}
+                  onClick={() => setViewMode("daily")}
+                >
+                  My Attendance
+                </button>
+                <button
+                  className={viewMode === "employee" ? "primary-button" : "ghost-button"}
+                  style={{ padding: "6px 14px", fontSize: 12.5 }}
+                  onClick={() => setViewMode("employee")}
+                >
+                  Employee report
+                </button>
+              </div>
+            )}
           </div>
 
-          <ClockInCard profile={profile} onClockChange={loadAll} />
+          {isDeepa && viewMode === "employee" ? (
+            <EmployeeMonthReport
+              staff={staffList}
+              staffId={reportStaffId}
+              setStaffId={setReportStaffId}
+              currentMonthDate={currentMonthDate}
+              setCurrentMonthDate={setCurrentMonthDate}
+              monthRecords={monthRecords}
+            />
+          ) : (
+            <>
+              <ClockInCard profile={profile} onClockChange={loadAll} />
 
-          {myRow && (
-            <div className="kazi-card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(myRow.staffName)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(myRow.staffName)}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{myRow.staffName}</div>
-                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
-                  {myRow.role}
-                  {(() => {
-                    const sched = getEmployeeScheduleForDate(myRow.staffName, parseLocalDate(today));
-                    if (!sched) return null;
-                    return ` · Schedule: ${sched.start} - ${sched.end}`;
-                  })()}
+              {myRow && (
+                <div className="kazi-card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(myRow.staffName)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(myRow.staffName)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{myRow.staffName}</div>
+                    <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                      {myRow.role}
+                      {(() => {
+                        const sched = getEmployeeScheduleForDate(myRow.staffName, parseLocalDate(today));
+                        if (!sched) return null;
+                        return ` · Schedule: ${sched.start} - ${sched.end}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <Pill tone={statusTone(myRow.status)} dot>{myRow.status}</Pill>
+                    {myRow.status === "Late" && myRow.lateCutApplied && (
+                      <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Salary Cut</span>
+                    )}
+                    {myRow.status === "Late" && !myRow.lateCutApplied && (
+                      <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace Period</span>
+                    )}
+                    {myClockIn && (
+                      <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+                        {myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}
+                        {myClockIn.clockedOutAt?.toDate ? ` → ${myClockIn.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}` : ""}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <Pill tone={statusTone(myRow.status)} dot>{myRow.status}</Pill>
-                {myRow.status === "Late" && myRow.lateCutApplied && (
-                  <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Salary Cut</span>
-                )}
-                {myRow.status === "Late" && !myRow.lateCutApplied && (
-                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace Period</span>
-                )}
-                {myClockIn && (
-                  <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                    {myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}
-                    {myClockIn.clockedOutAt?.toDate ? ` → ${myClockIn.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}` : ""}
-                  </span>
-                )}
-              </div>
-            </div>
+              )}
+            </>
           )}
         </div>
     );
