@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
 import PageHeader from "../components/PageHeader";
+import ReelPlaybook from "../components/ReelPlaybook";
 import { db } from "../firebase";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
@@ -72,10 +73,13 @@ function Content() {
   }
 
   return (
+    <>
       <PageHeader
         title="Content Calendar"
         description="Publishing workflow for campaign planning and approval."
       />
+
+      <ReelPlaybook />
 
       <section className="panel">
         <h3>Add Content Item</h3>
@@ -170,6 +174,7 @@ function Content() {
           </article>
         ))}
       </section>
+    </>
   );
 }
 
