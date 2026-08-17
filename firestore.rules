@@ -91,9 +91,9 @@ service cloud.firestore {
       allow create, update, delete: if hasPermission("library") || isNepalStaff() || isUkAdmin() || isSuperAdmin();
     }
     match /bank_transactions/{id} {
-      allow read: if isNepalAdmin() || isUkAdmin() || isSuperAdmin();
-      allow create, update: if isNepalAdmin() || isSuperAdmin();
-      allow delete: if isNepalAdmin() || isSuperAdmin();
+      allow read: if hasPermission("finance") || isNepalAdmin() || isUkAdmin() || isSuperAdmin();
+      allow create, update: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
+      allow delete: if hasPermission("finance") || isNepalAdmin() || isSuperAdmin();
     }
     match /content/{id} {
       allow create: if hasPermission("budget") || isNepalStaff() || isSuperAdmin();

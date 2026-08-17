@@ -201,8 +201,9 @@ function Finance() {
 
   /* ── Load data ── */
   async function loadData() {
-    const [payrollSnap, expensesSnap, purchasesSnap, vatBillsSnap, employeesSnap,
-           entriesSnap, accountsSnap, invSnap, bankSnap, ordersSnap, costsSnap, productionSnap, inventorySnap] = await Promise.all([
+    // allSettled — a user lacking read access to one collection (e.g. bank_transactions,
+    // which is admin-only) must not blank out every other Finance tab they DO have access to.
+    const settled = await Promise.allSettled([
       getDocs(collection(db, "finance_payroll")),
       getDocs(collection(db, "finance_expenses")),
       getDocs(collection(db, "finance_purchases")),
@@ -217,6 +218,13 @@ function Finance() {
       getDocs(collection(db, "production")),
       getDocs(collection(db, "inventory")),
     ]);
+    const emptySnap = { docs: [] };
+    const [payrollSnap, expensesSnap, purchasesSnap, vatBillsSnap, employeesSnap,
+           entriesSnap, accountsSnap, invSnap, bankSnap, ordersSnap, costsSnap, productionSnap, inventorySnap] =
+      settled.map(r => {
+        if (r.status === "rejected") { console.error("Finance: failed to load one collection:", r.reason); return emptySnap; }
+        return r.value;
+      });
     setInventoryItems(inventorySnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
     setEmployees(employeesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status !== "Inactive"));
