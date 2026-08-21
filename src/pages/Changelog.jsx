@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icons } from "../components/ui";
 
-const REPO = "jenithroy/kazi-platform";
+const REPO = "jenithroy/kazi-app";
 const PER_PAGE = 30;
-const CACHE_KEY = "kazi_changelog_commits_p1";
+const CACHE_KEY = "kazi_changelog_commits_p1_v2";
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes — avoid hammering GitHub's unauthenticated rate limit
 
 // Maps a conventional-commit type prefix ("feat:", "fix(scope):", ...) to a label/color.
