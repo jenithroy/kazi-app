@@ -3,7 +3,7 @@ import { addDoc, collection, deleteField, doc, getDocs, query, serverTimestamp, 
 import { db } from "../firebase";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus } from "../constants";
-import { todayDate } from "../utils/date";
+import { todayDate, isSaturday } from "../utils/date";
 import { Icons, Btn, Card, Pill } from "./ui";
 import { awardPoints } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
@@ -23,6 +23,7 @@ function fmtElapsed(ms) {
 
 export default function ClockInCard({ profile, onClockChange }) {
   const today = todayDate();
+  const isOfficeClosedToday = isSaturday(today);
   const staffId = profile?.uid || profile?.id || "";
   const { showPointsToast } = useReward();
 
@@ -249,6 +250,16 @@ export default function ClockInCard({ profile, onClockChange }) {
     return (
       <Card pad={false} className="kem-clock" style={{ padding: "32px 24px", display: "flex", justifyContent: "center", alignItems: "center" }}>
         <div style={{ color: "var(--ink-4)" }}>Verifying attendance status…</div>
+      </Card>
+    );
+  }
+
+  if (isOfficeClosedToday && status === "idle") {
+    return (
+      <Card pad={false} className="kem-clock" style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center" }}>
+        <Icons.Check size={26} sw={1.8} style={{ color: "var(--mint-deep)" }} />
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Office closed today</div>
+        <div style={{ fontSize: 13, color: "var(--ink-4)" }}>Saturdays are a company holiday — no clock-in needed.</div>
       </Card>
     );
   }

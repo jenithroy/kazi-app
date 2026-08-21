@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   // ── System ─────────────────────────────────────────────
   { to: "/admin",      label: "Admin",          Icon: Icons.Admin,      group: "system" },
   { to: "/bug-report", label: "Bug Report",     Icon: Icons.Bug,        group: "system" },
+  { to: "/changelog",  label: "Changelog",      Icon: Icons.Changelog,  group: "system" },
 ];
 
 const GROUPS = [
@@ -56,7 +57,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
   const items = NAV_ITEMS
     .filter(item => {
-      if (item.to === "/bug-report") return true;
+      if (item.to === "/bug-report" || item.to === "/changelog") return true;
       if (item.to === "/inventory") {
         return sectionVisible(profile, "inventory") || sectionVisible(profile, "library");
       }

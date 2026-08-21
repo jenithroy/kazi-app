@@ -11,7 +11,7 @@ import SalarySlipModal from "../components/SalarySlipModal";
 import { db, auth, firebaseConfig } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
-import { TEAM_MEMBERS, GBP_RATE } from "../constants";
+import { GBP_RATE } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
 
@@ -311,28 +311,11 @@ function Employees() {
       }
     }
 
-    if (batchHasOps) await batch.commit();
-
-    const seedBatch = writeBatch(db);
-    let seedHasOps = false;
-    for (const m of TEAM_MEMBERS) {
-      if (!seen.has(m.email.toLowerCase())) {
-        const ref = doc(collection(db, "employees"));
-        seedBatch.set(ref, {
-          name: m.name, role: m.role, department: "Operations",
-          email: m.email, phone: "", address: "", panNumber: "",
-          bankAccount: "", bankName: "", bankBranch: "", joinDate: new Date().toISOString().slice(0, 10),
-          basicSalaryNPR: 0, location: m.location, status: "Active",
-          appRole: m.appRole || "employee",
-          createdAt: serverTimestamp()
-        });
-        seedHasOps = true;
-      }
+    if (batchHasOps) {
+      await batch.commit();
+      const freshSnap = await getDocs(collection(db, "employees"));
+      rows = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     }
-    if (seedHasOps) await seedBatch.commit();
-
-    const freshSnap = await getDocs(collection(db, "employees"));
-    rows = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setEmployees(rows);
 

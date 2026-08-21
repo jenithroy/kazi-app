@@ -29,3 +29,13 @@ export function formatDateLabel(value) {
   if (!value) return "-";
   return new Date(value).toLocaleDateString();
 }
+
+/**
+ * True if the given YYYY-MM-DD string (or Date) falls on a Saturday —
+ * the office's weekly holiday in Nepal (Sunday is a normal work day).
+ */
+export function isSaturday(dateStrOrObj) {
+  if (dateStrOrObj instanceof Date) return dateStrOrObj.getDay() === 6;
+  const [y, m, d] = dateStrOrObj.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay() === 6;
+}

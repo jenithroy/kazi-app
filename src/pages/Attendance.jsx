@@ -3,7 +3,7 @@ import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, where
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { db } from "../firebase";
-import { todayDate } from "../utils/date";
+import { todayDate, isSaturday } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate } from "../constants";
 import { Pill, Icons, cn } from "../components/ui";
@@ -157,7 +157,10 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
   monthClockIns.forEach(c => { clockByDate[c.date] = c; });
 
   const days = [];
-  for (let i = 1; i <= daysInMonth; i++) days.push(toLocalISOString(new Date(year, month, i)));
+  for (let i = 1; i <= daysInMonth; i++) {
+    if (new Date(year, month, i).getDay() === 6) continue; // Saturdays are the office holiday — excluded from the report
+    days.push(toLocalISOString(new Date(year, month, i)));
+  }
 
   const summary = days.reduce((acc, d) => {
     const att = attByDate[d];
@@ -223,7 +226,7 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
                     const clk = clockByDate[d];
                     const inT  = clk?.clockedInAt?.toDate  ? clk.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})  : null;
                     const outT = clk?.clockedOutAt?.toDate ? clk.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : null;
-                    const dateLabel = new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                    const dateLabel = parseLocalDate(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
                     return (
                       <tr key={d}>
                         <td style={{ fontSize: 12.5 }}>{dateLabel}</td>
@@ -265,7 +268,7 @@ function Attendance() {
 
   const today = todayDate();
   const [selectedDate, setSelectedDate] = useState(today);
-  const [currentMonthDate, setCurrentMonthDate] = useState(new Date(today));
+  const [currentMonthDate, setCurrentMonthDate] = useState(parseLocalDate(today));
 
   const [rows,       setRows]       = useState([]);
   const [saving,     setSaving]     = useState(false);
@@ -310,7 +313,8 @@ function Attendance() {
 
     const selectedRec = selectedAttSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const attMap = Object.fromEntries(selectedRec.map(r => [r.staffId, r]));
-    
+    const closedDefault = isSaturday(selectedDate) ? "Closed" : "Absent";
+
     setRows(staff.map(m => {
       const rec = attMap[m.uid || m.id];
       return {
@@ -318,7 +322,7 @@ function Attendance() {
         staffId:        m.uid               || m.id,
         staffName:      m.name,
         role:           m.jobRole           || m.role,
-        status:         rec?.status         || "Absent",
+        status:         rec?.status         || closedDefault,
         hours:          rec?.hours          ?? 8,
         note:           rec?.note           || "",
         lateCutApplied: rec?.lateCutApplied || false,
@@ -334,6 +338,7 @@ function Attendance() {
     try {
       const batch = writeBatch(db);
       rows.forEach(row => {
+        if (row.status === "Closed" && !row.id) return; // Saturday placeholder — nothing to persist
         const ref = doc(db, "attendance", row.id || `${selectedDate}_${row.staffId}`);
         batch.set(ref, { 
           date: selectedDate, 
@@ -364,7 +369,7 @@ function Attendance() {
     return (
         <div className="kscr fade-in">
           <div className="kph">
-            <div><h2>Attendance</h2><p>Your daily log · {new Date(today).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div>
+            <div><h2>Attendance</h2><p>Your daily log · {parseLocalDate(today).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div>
             {isDeepa && (
               <div className="kph-a" style={{ display: "flex", gap: 6 }}>
                 <button
@@ -398,7 +403,7 @@ function Attendance() {
             <>
               <ClockInCard profile={profile} onClockChange={loadAll} />
 
-              {myRow && (
+              {myRow && myRow.status !== "Closed" && (
                 <div className="kazi-card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(myRow.staffName)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(myRow.staffName)}</div>
                   <div style={{ flex: 1 }}>
@@ -436,7 +441,8 @@ function Attendance() {
   }
 
   /* ─── Admin view ────────────────────────────────── */
-  const selectedDateStrFormatted = new Date(selectedDate).toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month: "long", year: "numeric" });
+  const selectedDateStrFormatted = parseLocalDate(selectedDate).toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month: "long", year: "numeric" });
+  const isSaturdaySelected = isSaturday(selectedDate);
 
   return (
     <>
@@ -455,6 +461,7 @@ function Attendance() {
 
         {!canEdit && <p className="banner-warning">UK admin — view only.</p>}
         {message   && <p className="banner-info">{message}</p>}
+        {viewMode === "daily" && isSaturdaySelected && <p className="banner-info">🏖️ Office closed on Saturdays — attendance isn't required for this date.</p>}
 
         {/* Admin-role users with Attendance access still need to clock themselves in/out */}
         {canEdit && (
@@ -592,6 +599,8 @@ function Attendance() {
                                   </label>
                                 )}
                               </div>
+                            ) : row.status === "Closed" ? (
+                              <span style={{ fontSize: 12, color: "var(--ink-4)", fontStyle: "italic" }}>Office closed</span>
                             ) : (
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                                 <Pill tone={statusTone(row.status)} dot>{row.status}</Pill>

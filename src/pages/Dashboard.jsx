@@ -1597,6 +1597,8 @@ function MyAttendanceCalendar({ monthAtt = [] }) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayDay = now.getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const firstDow = new Date(year, month, 1).getDay();
+  const leadingOffset = firstDow === 0 ? 6 : firstDow - 1; // 0=Mon offset
 
   // Build a lookup: day-of-month → status from real Firestore data
   const statusMap = {};
@@ -1611,11 +1613,10 @@ function MyAttendanceCalendar({ monthAtt = [] }) {
     else if (s === "absent")     statusMap[day] = "absent";
   });
 
-  // Mark weekends for days without a record
+  // Mark Saturdays (office holiday) for days without a record — Sunday is a normal work day
   days.forEach(d => {
     if (d > todayDay || statusMap[d]) return;
-    const dow = (new Date(year, month, d).getDay() + 6) % 7; // 0=Mon
-    if (dow >= 5) statusMap[d] = "weekend";
+    if (new Date(year, month, d).getDay() === 6) statusMap[d] = "weekend";
   });
 
   return (
@@ -1624,6 +1625,7 @@ function MyAttendanceCalendar({ monthAtt = [] }) {
         {["M","T","W","T","F","S","S"].map((d, i) => <span key={i}>{d}</span>)}
       </div>
       <div className="kem-att-cal-grid">
+        {Array.from({ length: leadingOffset }, (_, i) => <div key={`empty-${i}`} className="kem-att-day" style={{ background: "transparent" }} />)}
         {days.map(d => {
           const s = statusMap[d];
           return (

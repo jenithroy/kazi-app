@@ -4525,6 +4525,163 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   opacity: 0.9;
 }
 
+/* ── Changelog ───────────────────────────────────────── */
+.kchg-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+.kchg-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.kchg-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+  flex-shrink: 0;
+}
+
+.kchg-header-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.kchg-header-sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.kchg-card {
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-2);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.kchg-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kchg-date {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.kchg-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kchg-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s;
+}
+
+.kchg-item:hover {
+  background: var(--bg-2);
+}
+
+.kchg-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.kchg-badge--mint  { background: var(--mint-soft); color: var(--mint-deep); }
+.kchg-badge--terra { background: var(--terra-soft); color: var(--terra); }
+.kchg-badge--blue  { background: var(--blue-soft); color: var(--blue); }
+.kchg-badge--gray  { background: var(--bg-2); color: var(--ink-3); }
+
+.kchg-text {
+  flex: 1;
+  min-width: 200px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.kchg-scope {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-right: 6px;
+}
+
+.kchg-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.kchg-skel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kchg-empty {
+  font-size: 13.5px;
+  color: var(--ink-3);
+  padding: 12px 0;
+}
+
+.kchg-empty--err {
+  color: var(--terra);
+  font-weight: 600;
+}
+
+.kchg-sentinel {
+  min-height: 1px;
+}
+
+.kchg-retry {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--terra);
+  cursor: pointer;
+}
+
+.kchg-retry:hover {
+  text-decoration: underline;
+}
+
 /* ═══════════════════════════════════════════════════════
    RESPONSIVE INLINE-GRID HELPERS
    Use instead of inline gridTemplateColumns so field pairs

@@ -13,6 +13,7 @@ dist/
 serviceAccountKey.json
 *serviceAccount*.json
 *firebase-adminsdk*.json
+key.json
 
 # Claude Code local settings (machine-specific)
 .claude/
