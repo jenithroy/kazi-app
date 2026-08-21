@@ -24,7 +24,7 @@ export const STATUS_BY_TYPE = {
   quotation: ["Draft", "Sent", "Accepted", "Rejected", "Cancelled"],
 };
 
-export const emptyItem = { description: "", qty: 1, unit: "Pcs", rate: "" };
+export const emptyItem = { description: "", qty: 1, unit: "Pcs", rate: "", stockItemId: "" };
 
 /**
  * Returns current Nepal fiscal year string e.g. "2082/83"

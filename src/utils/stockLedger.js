@@ -70,3 +70,26 @@ export async function postPurchaseStockIn({ purchase, items, inventoryItems, cre
   }
   return posted;
 }
+
+// Auto-posts "out" movements for sales invoice line items explicitly linked to
+// an inventory item via stockItemId (invoice descriptions are free-form,
+// client-facing text, so unlike purchases this can't rely on name matching).
+export async function postSaleStockOut({ invoice, items, createdBy }) {
+  const posted = [];
+  for (const it of items || []) {
+    const qty = Number(it.qty);
+    if (!qty || qty <= 0 || !it.stockItemId) continue;
+    await logStockMovement({
+      itemId: it.stockItemId,
+      date: invoice.date,
+      qty,
+      direction: "out",
+      source: "sale",
+      sourceId: invoice.invoiceNumber || null,
+      note: `Invoice ${invoice.invoiceNumber || ""}`.trim(),
+      createdBy,
+    });
+    posted.push(it.stockItemId);
+  }
+  return posted;
+}

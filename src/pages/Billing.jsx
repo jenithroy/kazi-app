@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteField } from "firebase/firestore";
 import DocPreview from "../components/DocPreview";
 import KeyboardSelect from "../components/KeyboardSelect";
-import { Icons } from "../components/ui";
+import { Icons, cn } from "../components/ui";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
@@ -15,6 +15,7 @@ import {
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
 } from "../utils/billing.jsx";
 import { adToBsParts, BS_MONTHS } from "../utils/fiscalYear";
+import { postSaleStockOut } from "../utils/stockLedger";
 
 function fmtDateBS(iso) {
   const parts = adToBsParts(iso);
@@ -152,6 +153,7 @@ function Billing() {
   const [invoices, setInvoices]     = useState([]);
   const [challans, setChallans]     = useState([]);
   const [quotations, setQuotations] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]); // for the invoice line item "Stock Item" link
   const [showForm, setShowForm]     = useState(false);
   const [form, setForm]             = useState(makeEmptyForm("invoice"));
   const [submitting, setSubmitting] = useState(false);
@@ -175,11 +177,13 @@ function Billing() {
 
   /* ── Load data ── */
   async function loadAll() {
-    const [invSnap, chSnap, qtSnap] = await Promise.all([
+    const [invSnap, chSnap, qtSnap, invtSnap] = await Promise.all([
       getDocs(collection(db, "invoices")),
       getDocs(collection(db, "challans")),
       getDocs(collection(db, "quotations")),
+      getDocs(collection(db, "inventory")),
     ]);
+    setInventoryItems(invtSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     // Sort by the immutable sequential number (not the user-editable invoice
     // `date` field) — a backdated/postdated invoice would otherwise scramble
     // the list order even though numbers were assigned strictly in sequence.
@@ -365,6 +369,16 @@ function Billing() {
         if (tab !== "challan")   { delete record.vehicleNo; delete record.driverName; delete record.routeFrom; delete record.routeTo; }
         if (tab !== "quotation") { delete record.validUntil; delete record.terms; }
         await addDoc(collection(db, meta.coll), record);
+        // Deduct stock for any line item explicitly linked to an inventory item —
+        // only on invoice creation, never on edits/status changes, so stock is
+        // deducted exactly once per sale.
+        if (tab === "invoice") {
+          postSaleStockOut({
+            invoice: record,
+            items: record.items,
+            createdBy: profile?.name || "Unknown",
+          }).catch(err => console.error("Stock auto-post failed:", err));
+        }
       }
 
       setForm(makeEmptyForm(tab));
@@ -462,6 +476,14 @@ function Billing() {
         createdBy:        profile?.name || "Unknown",
         createdAt:        serverTimestamp(),
       });
+
+      // No-op unless the quotation's items already carry a stockItemId — quotations
+      // don't expose the Stock Item picker, so this only fires if one is added later.
+      postSaleStockOut({
+        invoice: { date: new Date().toISOString().slice(0, 10), invoiceNumber: invNumber },
+        items,
+        createdBy: profile?.name || "Unknown",
+      }).catch(err => console.error("Stock auto-post failed:", err));
 
       await updateDoc(doc(db, "quotations", qt.id), {
         relatedInvoice: invNumber,
@@ -766,16 +788,17 @@ function Billing() {
                   <h3 className="kbil-items-title">Line Items</h3>
                   <button type="button" className="kbil-items-add" onClick={() => setForm(f => ({ ...f, items: [...f.items, { ...emptyItem }] }))}>+ Add Row</button>
                 </div>
-                <div className="kbil-cols">
+                <div className={cn("kbil-cols", tab === "invoice" && "kbil-cols--invoice")}>
                   <span className="kbil-col-label">Description</span>
                   <span className="kbil-col-label">Qty</span>
                   <span className="kbil-col-label">Unit</span>
                   <span className="kbil-col-label">Rate ({form.currency || "NPR"})</span>
                   <span className="kbil-col-label kbil-col-right">Amount ({form.currency || "NPR"})</span>
+                  {tab === "invoice" && <span className="kbil-col-label">Stock Item</span>}
                   <span />
                 </div>
                 {form.items.map((item, idx) => (
-                  <div className="kbil-item-row" key={idx}>
+                  <div className={cn("kbil-item-row", tab === "invoice" && "kbil-item-row--invoice")} key={idx}>
                     <textarea
                       className="kfin-input"
                       data-role="item-description"
@@ -824,6 +847,19 @@ function Billing() {
                       )}
                     </div>
                     <span className="kbil-item-amount">{(Number(item.qty || 0) * Number(item.rate || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    {tab === "invoice" && (
+                      <select
+                        className="kfin-select"
+                        value={item.stockItemId || ""}
+                        title="Link this line to an inventory item so saving the invoice deducts stock automatically"
+                        onChange={e => updateItem(idx, "stockItemId", e.target.value)}
+                      >
+                        <option value="">— none —</option>
+                        {inventoryItems.map(inv => (
+                          <option key={inv.id} value={inv.id}>{inv.item} ({inv.unit})</option>
+                        ))}
+                      </select>
+                    )}
                     <button type="button" className="kbil-item-del" disabled={form.items.length <= 1} onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}>×</button>
                   </div>
                 ))}

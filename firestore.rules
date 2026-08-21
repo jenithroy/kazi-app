@@ -61,7 +61,7 @@ service cloud.firestore {
       allow delete: if hasPermission("inventory") || isNepalStaff() || isSuperAdmin();
     }
     match /stock_movements/{id} {
-      allow create, update, delete: if hasPermission("inventory") || hasPermission("finance") || isNepalStaff() || isSuperAdmin();
+      allow create, update, delete: if hasPermission("inventory") || hasPermission("finance") || hasPermission("billing") || isNepalStaff() || isSuperAdmin();
     }
     match /qc_logs/{id} {
       allow create, update: if hasPermission("qc") || isNepalStaff() || isSuperAdmin();

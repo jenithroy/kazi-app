@@ -11,6 +11,7 @@ import { db, storage } from "../firebase";
 import { roundAmount } from "../utils/format";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
 import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
+import { COMPANY_NAME, COMPANY_ADDR } from "../utils/billing.jsx";
 
 /* ── Image compression & upload helpers ───────────────── */
 function compressFabricImage(file, maxWidth = 1200, quality = 0.8) {
@@ -296,7 +297,7 @@ function TextCell({ value, onChange, disabled, width = "110px", style = {}, list
 /* ── Per-order size-run reconciliation panel (Stock tab) ── */
 /* ── Dated stock ledger — replaces the old silent stepper ── */
 function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, disabled, colSpan }) {
-  const SOURCE_LABEL = { purchase: "Purchase", manual: "Manual", opening: "Opening" };
+  const SOURCE_LABEL = { purchase: "Purchase", sale: "Sale", manual: "Manual", opening: "Opening" };
   return (
     <tr className="kinv-row">
       <td colSpan={colSpan} style={{ padding: "16px 20px", background: "var(--bg-2)", borderBottom: "1px solid var(--line)" }}>
@@ -355,6 +356,173 @@ function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, 
         )}
       </td>
     </tr>
+  );
+}
+
+/* ── Product-wise Stock Ledger report — Opening + In − Out = Closing, valued
+   at each item's unit cost, replayed from the same dated stock_movements that
+   drive the Stock Levels tab. No separate "opening stock rollover" is needed:
+   a period's opening balance is just the replay of every movement dated
+   before that period's start. ── */
+function stockLedgerReportRows(rows, movements, fromDate, toDate) {
+  return rows.map(row => {
+    const all = itemMovements(movements, row.id);
+    let openingQty = Number(row.openingStock || 0);
+    let inQty = 0, outQty = 0;
+    for (const m of all) {
+      const qty = Number(m.qty || 0);
+      if (m.date < fromDate) {
+        openingQty += m.direction === "in" ? qty : -qty;
+      } else if (m.date <= toDate) {
+        if (m.direction === "in") inQty += qty; else outQty += qty;
+      }
+    }
+    const closingQty = openingQty + inQty - outQty;
+    const unitCost = Number(row.unitCostNPR || 0);
+    return {
+      id: row.id, item: row.item, category: row.category || "Other", unit: row.unit || "",
+      openingQty, inQty, outQty, closingQty,
+      inAmount: inQty * unitCost, outAmount: outQty * unitCost, closingAmount: closingQty * unitCost,
+    };
+  });
+}
+
+function StockLedgerReport({ rows, movements, fromDate, toDate, onFromChange, onToChange }) {
+  const fmtAmt = n => roundAmount(n).toLocaleString();
+  const fmtQty = n => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  const reportRows = stockLedgerReportRows(rows, movements, fromDate, toDate);
+  const byCategory = new Map();
+  for (const r of reportRows) {
+    if (!byCategory.has(r.category)) byCategory.set(r.category, []);
+    byCategory.get(r.category).push(r);
+  }
+  const categoryOrder = [...STOCK_CATEGORIES, ...[...byCategory.keys()].filter(c => !STOCK_CATEGORIES.includes(c))];
+
+  const grand = reportRows.reduce((s, r) => ({
+    openingQty: s.openingQty + r.openingQty, inQty: s.inQty + r.inQty, inAmount: s.inAmount + r.inAmount,
+    outQty: s.outQty + r.outQty, outAmount: s.outAmount + r.outAmount,
+    closingQty: s.closingQty + r.closingQty, closingAmount: s.closingAmount + r.closingAmount,
+  }), { openingQty: 0, inQty: 0, inAmount: 0, outQty: 0, outAmount: 0, closingQty: 0, closingAmount: 0 });
+
+  let sn = 0;
+  const th = { textAlign: "right", padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", borderBottom: "2px solid var(--line-strong)" };
+  const thLeft = { ...th, textAlign: "left" };
+  const td = { textAlign: "right", padding: "5px 10px", fontSize: 12.5, fontFamily: "var(--mono)", borderBottom: "1px solid var(--line)" };
+  const tdLeft = { ...td, textAlign: "left", fontFamily: "var(--font)" };
+
+  return (
+    <div>
+      <div className="kinv-no-print" style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: "var(--ink-4)", fontWeight: 600 }}>
+          From
+          <input type="date" className="kfin-input" style={{ fontSize: 12.5, padding: "6px 8px" }} value={fromDate} onChange={e => onFromChange(e.target.value)} />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: "var(--ink-4)", fontWeight: 600 }}>
+          To
+          <input type="date" className="kfin-input" style={{ fontSize: 12.5, padding: "6px 8px" }} value={toDate} onChange={e => onToChange(e.target.value)} />
+        </label>
+        <button type="button" className="ghost-button" onClick={() => window.print()}>Print</button>
+      </div>
+
+      <div id="kinv-ledger-print-area">
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: ".02em" }}>{COMPANY_NAME.toUpperCase()}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-2)", marginTop: 2 }}>Stock Ledger — Product Wise</div>
+          <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{COMPANY_ADDR}</div>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 6 }}>Report Date: {fromDate}  to  {toDate}</div>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
+            <thead>
+              <tr>
+                <th style={thLeft}>S.N.</th>
+                <th style={thLeft}>Description</th>
+                <th style={th}>Opening Qty</th>
+                <th style={th}>In Qty</th>
+                <th style={th}>In Amount</th>
+                <th style={th}>Out Qty</th>
+                <th style={th}>Out Amount</th>
+                <th style={th}>Balance Qty</th>
+                <th style={th}>Balance Amount</th>
+                <th style={thLeft}>Unit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categoryOrder.filter(cat => byCategory.has(cat)).map(cat => {
+                const items = byCategory.get(cat);
+                const sub = items.reduce((s, r) => ({
+                  openingQty: s.openingQty + r.openingQty, inQty: s.inQty + r.inQty, inAmount: s.inAmount + r.inAmount,
+                  outQty: s.outQty + r.outQty, outAmount: s.outAmount + r.outAmount,
+                  closingQty: s.closingQty + r.closingQty, closingAmount: s.closingAmount + r.closingAmount,
+                }), { openingQty: 0, inQty: 0, inAmount: 0, outQty: 0, outAmount: 0, closingQty: 0, closingAmount: 0 });
+                return (
+                  <Fragment key={cat}>
+                    <tr>
+                      <td colSpan={10} style={{ padding: "10px 10px 4px", fontSize: 12, fontWeight: 700, color: "var(--ink-2)", background: "var(--bg-2)" }}>{cat}</td>
+                    </tr>
+                    {items.map(r => {
+                      sn += 1;
+                      return (
+                        <tr key={r.id}>
+                          <td style={tdLeft}>{sn}</td>
+                          <td style={tdLeft}>{r.item}</td>
+                          <td style={td}>{fmtQty(r.openingQty)}</td>
+                          <td style={td}>{fmtQty(r.inQty)}</td>
+                          <td style={td}>{fmtAmt(r.inAmount)}</td>
+                          <td style={td}>{fmtQty(r.outQty)}</td>
+                          <td style={td}>{fmtAmt(r.outAmount)}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{fmtQty(r.closingQty)}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{fmtAmt(r.closingAmount)}</td>
+                          <td style={tdLeft}>{r.unit}</td>
+                        </tr>
+                      );
+                    })}
+                    <tr>
+                      <td style={tdLeft} colSpan={2}>Subtotal</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{fmtQty(sub.openingQty)}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{fmtQty(sub.inQty)}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{fmtAmt(sub.inAmount)}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{fmtQty(sub.outQty)}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{fmtAmt(sub.outAmount)}</td>
+                      <td style={{ ...td, fontWeight: 700 }}>{fmtQty(sub.closingQty)}</td>
+                      <td style={{ ...td, fontWeight: 700 }}>{fmtAmt(sub.closingAmount)}</td>
+                      <td style={td}></td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
+              {reportRows.length === 0 && (
+                <tr><td colSpan={10} style={{ textAlign: "center", padding: "28px 0", color: "var(--ink-4)", fontSize: 13 }}>No inventory items yet</td></tr>
+              )}
+            </tbody>
+            {reportRows.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td style={{ ...tdLeft, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }} colSpan={2}>TOTAL</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.openingQty)}</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.inQty)}</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtAmt(grand.inAmount)}</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.outQty)}</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtAmt(grand.outAmount)}</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.closingQty)}</td>
+                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtAmt(grand.closingAmount)}</td>
+                  <td style={{ ...td, borderTop: "2px solid var(--line-strong)" }}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        <div style={{ fontSize: 10.5, color: "var(--ink-4)", marginTop: 16, lineHeight: 1.6 }}>
+          <div><strong>Note:</strong></div>
+          <div>Opening Qty = Previous period's closing balance.</div>
+          <div>In Qty (Purchase) = Total quantity purchased. Out Qty (Sales/Issue) = Total quantity sold/issued.</div>
+          <div>Balance Qty = Opening Qty + In Qty − Out Qty. Amounts are valued at each item's recorded unit cost.</div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2289,6 +2457,7 @@ function Inventory() {
   if (showInventory) {
     allowedTabs.push({ key: "stock", label: "Stock Levels" });
     allowedTabs.push({ key: "details", label: "Item Details" });
+    allowedTabs.push({ key: "ledger", label: "Stock Ledger" });
   }
   if (showLibrary) {
     allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
@@ -2303,6 +2472,8 @@ function Inventory() {
 
   const [rows, setRows] = useState([]);
   const [movements, setMovements] = useState([]); // dated stock_movements — the real ledger
+  const [ledgerFrom, setLedgerFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [ledgerTo, setLedgerTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [movementForm, setMovementForm] = useState({}); // rowId -> { date, direction, qty, note }
   const [loggingMovement, setLoggingMovement] = useState(null); // rowId currently saving
   const [fabrics, setFabrics] = useState([]);
@@ -3302,6 +3473,20 @@ function Inventory() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* ── Stock Ledger report (product-wise, date-ranged) ── */}
+        {activeTab === "ledger" && showInventory && (
+          <div style={{ padding: "20px 24px" }}>
+            <StockLedgerReport
+              rows={rows}
+              movements={movements}
+              fromDate={ledgerFrom}
+              toDate={ledgerTo}
+              onFromChange={setLedgerFrom}
+              onToChange={setLedgerTo}
+            />
           </div>
         )}
 

@@ -2792,6 +2792,9 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   border-bottom: 1.5px solid var(--line);
   margin-bottom: 2px;
 }
+.kbil-cols--invoice, .kbil-item-row--invoice {
+  grid-template-columns: 1fr 80px 72px 120px 120px 150px 36px;
+}
 .kbil-col-label {
   font-size: 11px; font-weight: 600; color: var(--ink-4);
   text-transform: uppercase; letter-spacing: .04em;
@@ -5079,11 +5082,12 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   }
 }
 
-/* Garment Specification Sheet — clean print output */
+/* Garment Specification Sheet / Stock Ledger report — clean print output */
 @media print {
   body * { visibility: hidden; }
-  #kinv-spec-print-area, #kinv-spec-print-area * { visibility: visible; }
-  #kinv-spec-print-area {
+  #kinv-spec-print-area, #kinv-spec-print-area *,
+  #kinv-ledger-print-area, #kinv-ledger-print-area * { visibility: visible; }
+  #kinv-spec-print-area, #kinv-ledger-print-area {
     position: absolute; left: 0; top: 0; width: 100%;
     max-height: none; overflow: visible; padding: 0;
   }
