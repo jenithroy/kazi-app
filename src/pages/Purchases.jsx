@@ -77,6 +77,7 @@ function Purchases() {
         expenseItem: draft.expenseItem,
         category: draft.category,
         paymentType: draft.paymentType || "CASH",
+        bankName: draft.bankName || "Nabil Bank",
         vatBill: draft.vatBill,
         discountAmt: Number(draft.discountAmt || 0),
         taxableAmt: Number(draft.taxableAmt || 0),

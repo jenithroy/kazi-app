@@ -18,6 +18,8 @@ export const DOC_TYPES = {
   quotation: { label: "Quotation",    prefix: "QT",  counterField: "nextQuotation", numberField: "quotationNumber", coll: "quotations" },
 };
 
+export const BANK_NAMES = ["Nabil Bank", "Sanima Bank"];
+
 export const STATUS_BY_TYPE = {
   invoice:   ["Draft", "Sent", "Partial", "Paid", "Cancelled"],
   challan:   ["Draft", "Dispatched", "Delivered", "Cancelled"],
@@ -58,6 +60,7 @@ export function makeEmptyForm(type) {
       relatedChallan: "", relatedQuotation: "",
       amountPaid: 0,
       paymentType: "CASH", // Cash | Bank | Credit — which ledger this sale's payment lands in
+      bankName: "Nabil Bank", // which bank ledger, when paymentType is Bank
     };
   }
   if (type === "challan") {

@@ -1,6 +1,7 @@
 import DualDateInput from "./DualDateInput";
 import KeyboardSelect from "./KeyboardSelect";
 import { roundAmount } from "../utils/format";
+import { BANK_NAMES } from "../utils/billing.jsx";
 
 export const PURCHASE_CATEGORIES = [
   "Office Supplies", "Equipment / IT", "Equipment", "Consumables",
@@ -19,7 +20,7 @@ const emptyLineItem = { particulars: "", quantity: "", unit: "pcs", rate: "", am
 
 export const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
-  expenseItem: "", category: "Office Supplies", paymentType: "CASH", vatBill: false,
+  expenseItem: "", category: "Office Supplies", paymentType: "CASH", bankName: "Nabil Bank", vatBill: false,
   discountAmt: 0,
   taxableAmt: 0,
   items: [{ ...emptyLineItem }]
@@ -110,6 +111,7 @@ export function initialGroupData(row) {
     expenseItem: row.expenseItem,
     category: row.category,
     paymentType: row.paymentType || "CASH",
+    bankName: row.bankName || "Nabil Bank",
     vatBill: row.vatBill,
     discountAmt: row.discountAmt || 0,
     taxableAmt: row.taxableAmt || 0,
@@ -191,9 +193,28 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
                   onChange={v => onFieldChange({ category: v })} />
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
-                <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.paymentType || "CASH"}
-                  options={PAYMENT_TYPES}
-                  onChange={v => onFieldChange({ paymentType: v })} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.paymentType || "CASH"}
+                    options={PAYMENT_TYPES}
+                    onChange={v => onFieldChange({ paymentType: v })} />
+                  {data.paymentType === "Bank" && (() => {
+                    const isOtherBank = data.bankName === "other" || (data.bankName && !BANK_NAMES.includes(data.bankName));
+                    return (
+                      <>
+                        <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 12 }}
+                          value={isOtherBank ? "other" : (data.bankName || "Nabil Bank")}
+                          options={[...BANK_NAMES, { value: "other", label: "Other" }]}
+                          onChange={v => onFieldChange({ bankName: v })} />
+                        {isOtherBank && (
+                          <input type="text" className="kfin-input" style={{ padding: "4px 5px", fontSize: 11 }}
+                            value={data.bankName === "other" ? "" : data.bankName}
+                            placeholder="Type bank name"
+                            onChange={e => onFieldChange({ bankName: e.target.value === "" ? "other" : e.target.value })} />
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
                 <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }}
