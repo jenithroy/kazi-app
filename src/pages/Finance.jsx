@@ -120,6 +120,20 @@ function tabLabel(t) {
 
 const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank", "order p&l"];
 
+// Shift+letter tab switching — letters chosen to stay memorable while avoiding
+// collisions between tabs that share a first letter (Purchases/P&L, Bank/Balance Sheet).
+const TAB_SHORTCUTS = {
+  e: "expenses",
+  p: "purchases",
+  v: "vat bills",
+  j: "journal",
+  g: "ledger",
+  l: "p&l",
+  s: "balance sheet",
+  k: "bank",
+  o: "order p&l",
+};
+
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function Finance() {
@@ -136,6 +150,23 @@ function Finance() {
   const visibleTabs = TABS.filter(t => financeTabAllowed(profile, FINANCE_TAB_KEYS[t]));
   const canEditTab  = (tabLabel) => sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS[tabLabel]);
   const canEdit     = canEditTab(activeTab);
+
+  // Kept in a ref (not a dep) so the listener is registered once, not re-bound every render.
+  const visibleTabsRef = useRef(visibleTabs);
+  visibleTabsRef.current = visibleTabs;
+  useEffect(() => {
+    function handleTabShortcut(e) {
+      if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+      const tab = TAB_SHORTCUTS[e.key.toLowerCase()];
+      if (!tab || !visibleTabsRef.current.includes(tab)) return;
+      e.preventDefault();
+      setActiveTab(tab);
+    }
+    window.addEventListener("keydown", handleTabShortcut);
+    return () => window.removeEventListener("keydown", handleTabShortcut);
+  }, []);
 
   /* ── Fix 3: page-level error banner (auto-clears after 5s) ── */
   const [pageError, setPageError] = useState("");
@@ -938,6 +969,7 @@ function Finance() {
               key={t}
               className={`kfin-tab${activeTab === t ? " kfin-tab--on" : ""}`}
               onClick={() => setActiveTab(t)}
+              title={`Shift+${Object.keys(TAB_SHORTCUTS).find(k => TAB_SHORTCUTS[k] === t)?.toUpperCase()}`}
             >
               {tabLabel(t)}
             </button>
