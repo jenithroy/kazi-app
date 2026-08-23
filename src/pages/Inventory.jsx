@@ -334,6 +334,7 @@ function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, 
                 <th style={{ textAlign: "left", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Source</th>
                 <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>In</th>
                 <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Out</th>
+                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Amount (NPR)</th>
                 <th style={{ textAlign: "left", padding: "2px 0 6px 14px", color: "var(--ink-4)", fontWeight: 600 }}>Note</th>
               </tr>
             </thead>
@@ -347,6 +348,9 @@ function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, 
                   </td>
                   <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--terra)", fontWeight: 600 }}>
                     {m.direction === "out" ? Number(m.qty).toLocaleString() : ""}
+                  </td>
+                  <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+                    {m.amountNPR ? roundAmount(m.amountNPR).toLocaleString() : "—"}
                   </td>
                   <td style={{ padding: "3px 0 3px 14px", color: "var(--ink-3)" }}>{m.note || "—"}</td>
                 </tr>
@@ -368,21 +372,25 @@ function stockLedgerReportRows(rows, movements, fromDate, toDate) {
   return rows.map(row => {
     const all = itemMovements(movements, row.id);
     let openingQty = Number(row.openingStock || 0);
-    let inQty = 0, outQty = 0;
+    let inQty = 0, outQty = 0, inAmount = 0, outAmount = 0;
+    const unitCost = Number(row.unitCostNPR || 0);
     for (const m of all) {
       const qty = Number(m.qty || 0);
       if (m.date < fromDate) {
         openingQty += m.direction === "in" ? qty : -qty;
       } else if (m.date <= toDate) {
-        if (m.direction === "in") inQty += qty; else outQty += qty;
+        // Real purchase/sale value when the movement carries one; movements
+        // logged before amountNPR existed fall back to qty × unit cost.
+        const amount = m.amountNPR != null ? Number(m.amountNPR) : qty * unitCost;
+        if (m.direction === "in") { inQty += qty; inAmount += amount; }
+        else { outQty += qty; outAmount += amount; }
       }
     }
     const closingQty = openingQty + inQty - outQty;
-    const unitCost = Number(row.unitCostNPR || 0);
     return {
       id: row.id, item: row.item, category: row.category || "Other", unit: row.unit || "",
       openingQty, inQty, outQty, closingQty,
-      inAmount: inQty * unitCost, outAmount: outQty * unitCost, closingAmount: closingQty * unitCost,
+      inAmount, outAmount, closingAmount: closingQty * unitCost,
     };
   });
 }
@@ -2677,6 +2685,9 @@ function Inventory() {
         source: "manual",
         note: form.note || "",
         createdBy: profile?.name || "Unknown",
+        // Manual adjustments have no transaction of their own to value them by,
+        // so price them at the item's unit cost like the report's legacy fallback.
+        amountNPR: qty * Number(row.unitCostNPR || 0),
       });
       setMovementForm(f => ({ ...f, [row.id]: { date: new Date().toISOString().slice(0, 10), direction: "in", qty: "", note: "" } }));
       await loadData();
