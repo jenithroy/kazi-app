@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { collection, deleteDoc, doc, getDocs, query, where, updateDoc as fsUpdateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, where, updateDoc as fsUpdateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
@@ -24,6 +24,7 @@ function Purchases() {
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
   const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
   const deletingIdsRef = useRef(new Set());
+  const [bankAccounts, setBankAccounts] = useState([]);
 
   async function loadPurchases() {
     setLoading(true);
@@ -38,7 +39,27 @@ function Purchases() {
     }
   }
 
-  useEffect(() => { loadPurchases().catch(console.error); }, []);
+  async function loadBankAccounts() {
+    const snap = await getDocs(collection(db, "accounts"));
+    const names = snap.docs.map(d => d.data()).filter(a => a.isBank).map(a => a.name);
+    setBankAccounts([...new Set(names)].sort());
+  }
+
+  // Mirrors Finance.jsx's addBankAccount — same "accounts" collection, so a bank
+  // added here shows up there (Journal tab) and vice versa.
+  async function addBankAccount(name) {
+    const trimmed = name.trim();
+    if (!trimmed || bankAccounts.includes(trimmed)) return;
+    try {
+      await addDoc(collection(db, "accounts"), { name: trimmed, type: "Asset", isBank: true, createdAt: serverTimestamp() });
+      setBankAccounts(prev => [...prev, trimmed].sort());
+    } catch (err) {
+      console.error("Failed to add bank account:", err);
+      alert("Failed to add bank account. Please try again.");
+    }
+  }
+
+  useEffect(() => { loadPurchases().catch(console.error); loadBankAccounts().catch(console.error); }, []);
 
   function purchaseRowData(row) {
     return purchaseDrafts[row.id] || initialGroupData(row);
@@ -77,6 +98,7 @@ function Purchases() {
         expenseItem: draft.expenseItem,
         category: draft.category,
         paymentType: draft.paymentType || "CASH",
+        bankName: draft.paymentType === "Bank" ? (draft.bankName || "") : "",
         vatBill: draft.vatBill,
         discountAmt: Number(draft.discountAmt || 0),
         taxableAmt: Number(draft.taxableAmt || 0),
@@ -249,6 +271,8 @@ function Purchases() {
                   onAddItem={() => canEdit && addPurchaseItem(row)}
                   onRemoveItem={idx => canEdit && removePurchaseItem(row, idx)}
                   onBlurAway={() => canEdit && commitPurchaseDraft(row)}
+                  bankAccounts={bankAccounts}
+                  onAddBank={addBankAccount}
                   actionCell={canEdit && (
                     <div className="kbil-tbl-actions">
                       <button className="kbil-tbl-btn kbil-tbl-btn--danger" type="button"

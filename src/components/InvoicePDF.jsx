@@ -216,6 +216,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
   const subtotal    = data.subtotalNPR    || 0;
   const discountAmt = data.discountAmtNPR || 0;
   const discountPct = data.discountPct    || 0;
+  const discountLabel = data.discountMode === "amount" ? "Discount" : `Discount (${discountPct}%)`;
   const taxableAmt  = data.taxableAmtNPR  != null ? data.taxableAmtNPR : subtotal - discountAmt;
   const vatAmt      = data.vatAmountNPR   || 0;
   const total       = data.totalNPR       || 0;
@@ -320,7 +321,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
               <TotRow label="Subtotal" value={fmtCurrencyExact(subtotal, currency)} />
               {showDisc && (
                 <>
-                  <TotRow label={`Discount (${discountPct}%)`} value={`− ${fmtCurrencyExact(discountAmt, currency)}`} labelStyle={{ color: RED }} valueStyle={S.totRed} />
+                  <TotRow label={discountLabel} value={`− ${fmtCurrencyExact(discountAmt, currency)}`} labelStyle={{ color: RED }} valueStyle={S.totRed} />
                   <TotRow label="Taxable Amount" value={fmtCurrencyExact(taxableAmt, currency)} />
                 </>
               )}

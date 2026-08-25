@@ -71,13 +71,15 @@ const EXPENSE_CATEGORIES = [
 // view is a running Dr/Cr/Balance table seeded from it — see cashBankLedger.
 const DEFAULT_ACCOUNTS = [
   { name: "Cash", type: "Asset", openingBalanceNPR: 20000 },
-  { name: "Bank Account", type: "Asset" },
-  { name: "Nabil Bank", type: "Asset", openingBalanceNPR: 251000 },
-  { name: "Fonepay", type: "Asset" },
+  { name: "Bank Account", type: "Asset", isBank: true },
+  { name: "Nabil Bank", type: "Asset", openingBalanceNPR: 251000, isBank: true },
+  { name: "Fonepay", type: "Asset", isBank: true },
   { name: "Accounts Receivable", type: "Asset" },
+  { name: "Advance Payable", type: "Asset" },
   { name: "Inventory", type: "Asset" },
   { name: "Equipment & Machinery", type: "Asset" },
   { name: "Accounts Payable", type: "Liability" },
+  { name: "Advance Received", type: "Liability" },
   { name: "Salaries Payable", type: "Liability" },
   { name: "VAT Payable", type: "Liability" },
   { name: "Owner's Equity", type: "Equity" },
@@ -103,8 +105,16 @@ const initialExpense = {
 const emptyJournalForm = {
   date: new Date().toISOString().slice(0, 10),
   description: "", debitAccount: "Cash", creditAccount: "Sales Revenue",
-  amountNPR: "", reference: ""
+  amountNPR: "", reference: "", partyName: ""
 };
+
+// Advance Received/Payable are sub-ledgered by customer/supplier, not just a lump
+// balance — so posting against either one (on either side of the entry) asks for
+// who the advance belongs to.
+const ADVANCE_ACCOUNTS = new Set(["Advance Received", "Advance Payable"]);
+function isAdvanceEntry(f) {
+  return ADVANCE_ACCOUNTS.has(f.debitAccount) || ADVANCE_ACCOUNTS.has(f.creditAccount);
+}
 
 const fmtShort = v => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v);
 
@@ -302,6 +312,15 @@ function Finance() {
           acc.openingBalanceNPR = def.openingBalanceNPR;
         }
       }
+      // Backfill isBank onto accounts (Nabil Bank, Fonepay, etc.) seeded before that field existed.
+      for (const def of DEFAULT_ACCOUNTS) {
+        if (!def.isBank) continue;
+        const acc = accs.find(a => a.name === def.name);
+        if (acc && !acc.isBank) {
+          await fsUpdateDoc(doc(db, "accounts", acc.id), { isBank: true });
+          acc.isBank = true;
+        }
+      }
     }
     // One-time rename of an already-seeded "Laxmi Sunrise Bank" → "Nabil Bank",
     // carrying its opening balance and any bank_transactions across so nothing drops off the ledger.
@@ -406,6 +425,7 @@ function Finance() {
         expenseItem: purchaseForm.expenseItem,
         category: purchaseForm.category,
         paymentType: purchaseForm.paymentType || "CASH",
+        bankName: purchaseForm.paymentType === "Bank" ? (purchaseForm.bankName || "") : "",
         vatBill: purchaseForm.vatBill,
         discountAmt: Number(purchaseForm.discountAmt || 0),
         taxableAmt: Number(purchaseForm.taxableAmt || 0),
@@ -518,10 +538,12 @@ function Finance() {
   async function addEntry(e) {
     e.preventDefault();
     if (journalForm.debitAccount === journalForm.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
+    if (isAdvanceEntry(journalForm) && !journalForm.partyName.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
     setJournalSubmitting(true);
     try {
       await addDoc(collection(db, "journal_entries"), {
         ...journalForm, amountNPR: Number(journalForm.amountNPR),
+        partyName: isAdvanceEntry(journalForm) ? journalForm.partyName.trim() : "",
         createdBy: profile?.name || "Unknown", createdAt: serverTimestamp()
       });
       setJournalForm(emptyJournalForm); await loadData();
@@ -540,6 +562,7 @@ function Finance() {
       date: entry.date || "", description: entry.description || "",
       debitAccount: entry.debitAccount, creditAccount: entry.creditAccount,
       amountNPR: entry.amountNPR ?? "", reference: entry.reference || "",
+      partyName: entry.partyName || "",
     });
   }
   function cancelJournalEdit() {
@@ -548,6 +571,7 @@ function Finance() {
   }
   async function saveJournalEdit(id) {
     if (journalDraft.debitAccount === journalDraft.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
+    if (isAdvanceEntry(journalDraft) && !journalDraft.partyName?.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
     setJournalSaving(true);
     try {
       await fsUpdateDoc(doc(db, "journal_entries", id), {
@@ -557,6 +581,7 @@ function Finance() {
         creditAccount: journalDraft.creditAccount,
         amountNPR: Number(journalDraft.amountNPR) || 0,
         reference: journalDraft.reference,
+        partyName: isAdvanceEntry(journalDraft) ? journalDraft.partyName.trim() : "",
       });
       setJournalEditId(null);
       setJournalDraft({});
@@ -758,6 +783,22 @@ function Finance() {
   }, [accounts, ledger]);
 
   const accountNames = [...new Set(accounts.map(a => a.name))];
+  const bankAccountNames = [...new Set(accounts.filter(a => a.isBank).map(a => a.name))];
+
+  // Lets the Purchase form's bank picker add a brand-new named bank account on the
+  // fly (persisted to the same "accounts" collection the Journal tab reads from),
+  // instead of just a generic "Bank" bucket with no way to tell accounts apart.
+  async function addBankAccount(name) {
+    const trimmed = name.trim();
+    if (!trimmed || accounts.some(a => a.name === trimmed)) return;
+    try {
+      await addDoc(collection(db, "accounts"), { name: trimmed, type: "Asset", isBank: true, createdAt: serverTimestamp() });
+      setAccounts(prev => [...prev, { name: trimmed, type: "Asset", isBank: true }].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (err) {
+      console.error("Failed to add bank account:", err);
+      showError("Failed to add bank account. Please try again.");
+    }
+  }
 
   const donutData = useMemo(() => [
     { name: "Purchases", value: summary.purchNPR,    color: "#1f6e4c" },
@@ -1068,6 +1109,8 @@ function Finance() {
                     onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
                     onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
                     onFinishEnter={addPurchase}
+                    bankAccounts={bankAccountNames}
+                    onAddBank={addBankAccount}
                     actionCell={
                       <button className="primary-button" type="button" disabled={submitting}
                         style={{ padding: "5px 12px", fontSize: 12 }} onClick={addPurchase}>

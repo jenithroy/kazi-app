@@ -43,7 +43,9 @@ export function makeEmptyForm(type) {
     date: new Date().toISOString().slice(0, 10),
     clientName: "", clientPAN: "", clientAddress: "", clientPhone: "",
     status: "Draft", note: "",
+    discountMode: "pct", // "pct" | "amount"
     discountPct: 0,
+    discountFlatAmt: 0,
     currency: "NPR",
     items: [{ ...emptyItem }, { ...emptyItem }, { ...emptyItem }],
   };
@@ -150,13 +152,15 @@ export function numWords(num, currency = "NPR") {
 /**
  * Calc totals — Nepal VAT compliance:
  * Discount is applied BEFORE VAT (IRD Nepal regulation).
+ * discountMode "amount" uses the flat discountFlatAmt (NPR/currency units) instead of a percentage.
  * Returns: { subtotal, discountAmt, taxableAmt, vatAmt, total }
  */
-export function calcTotals(items, applyVAT, discountPct = 0) {
-  const subtotal    = items.reduce((s, it) => s + Number(it.qty || 0) * Number(it.rate || 0), 0);
-  const pct         = Math.min(100, Math.max(0, Number(discountPct) || 0));
-  const discountAmt = subtotal * (pct / 100);
-  const taxableAmt  = subtotal - discountAmt;
+export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct", discountFlatAmt = 0) {
+  const subtotal = items.reduce((s, it) => s + Number(it.qty || 0) * Number(it.rate || 0), 0);
+  const discountAmt = discountMode === "amount"
+    ? Math.min(subtotal, Math.max(0, Number(discountFlatAmt) || 0))
+    : subtotal * (Math.min(100, Math.max(0, Number(discountPct) || 0)) / 100);
+  const taxableAmt = subtotal - discountAmt;
   const vatAmt      = applyVAT ? taxableAmt * VAT_RATE : 0;
   return { subtotal, discountAmt, taxableAmt, vatAmt, total: taxableAmt + vatAmt };
 }

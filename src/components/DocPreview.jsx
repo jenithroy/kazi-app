@@ -75,6 +75,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   const subtotal    = data.subtotalNPR    || 0;
   const discountAmt = data.discountAmtNPR || 0;
   const discountPct = data.discountPct    || 0;
+  const discountLabel = data.discountMode === "amount" ? "Discount" : `Discount (${discountPct}%)`;
   const taxableAmt  = data.taxableAmtNPR  != null ? data.taxableAmtNPR : subtotal - discountAmt;
   const vatAmt      = data.vatAmountNPR   || 0;
   const total       = data.totalNPR       || 0;
@@ -228,7 +229,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {showDiscount && (
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>
-                      <span style={{ color: "#c0392b" }}>Discount ({discountPct}%)</span>
+                      <span style={{ color: "#c0392b" }}>{discountLabel}</span>
                       <span style={{ fontWeight: 600, color: "#c0392b" }}>− {fmtCurrencyExact(discountAmt, currency)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "3.5px 0", borderBottom: `1px solid ${gs}`, fontSize: 11.5 }}>

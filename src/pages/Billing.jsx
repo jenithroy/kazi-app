@@ -227,8 +227,8 @@ function Billing() {
 
   /* ── Form totals (live preview) ── */
   const formTotals = useMemo(
-    () => calcTotals(form.items, form.applyVAT || false, form.discountPct || 0),
-    [form.items, form.applyVAT, form.discountPct],
+    () => calcTotals(form.items, form.applyVAT || false, form.discountPct || 0, form.discountMode, form.discountFlatAmt || 0),
+    [form.items, form.applyVAT, form.discountPct, form.discountMode, form.discountFlatAmt],
   );
 
   /* ── Open edit mode for an existing document ── */
@@ -311,7 +311,7 @@ function Billing() {
     // Fix 6: PAN required if invoice total > 50000 NPR
     if (tab === "invoice") {
       const applyVATPreview = form.applyVAT;
-      const { total: previewTotal } = calcTotals(form.items, applyVATPreview, form.discountPct || 0);
+      const { total: previewTotal } = calcTotals(form.items, applyVATPreview, form.discountPct || 0, form.discountMode, form.discountFlatAmt || 0);
       if (previewTotal > 50000 && !form.clientPAN?.trim()) {
         setPanError("PAN number is required for invoices exceeding NPR 50,000 (Nepal IRD regulation).");
         return;
@@ -321,7 +321,7 @@ function Billing() {
     setSubmitting(true);
     try {
       const applyVAT = tab === "invoice" && form.applyVAT;
-      const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(form.items, applyVAT, form.discountPct);
+      const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(form.items, applyVAT, form.discountPct, form.discountMode, form.discountFlatAmt || 0);
 
       if (editingId) {
         /* ── UPDATE existing document ── */
@@ -329,7 +329,9 @@ function Billing() {
           ...form,
           currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           subtotalNPR:    subtotal,
+          discountMode:    form.discountMode || "pct",
           discountPct:    Number(form.discountPct) || 0,
+          discountFlatAmt: Number(form.discountFlatAmt) || 0,
           discountAmtNPR: discountAmt,
           taxableAmtNPR:  taxableAmt,
           vatAmountNPR:   applyVAT ? vatAmt : 0,
@@ -355,7 +357,9 @@ function Billing() {
           currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           [meta.numberField]: docNumber,
           subtotalNPR:    subtotal,
+          discountMode:    form.discountMode || "pct",
           discountPct:    Number(form.discountPct) || 0,
+          discountFlatAmt: Number(form.discountFlatAmt) || 0,
           discountAmtNPR: discountAmt,
           taxableAmtNPR:  taxableAmt,
           vatAmountNPR:   applyVAT ? vatAmt : 0,
@@ -444,7 +448,7 @@ function Billing() {
         return it;
       });
 
-      const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(items, true, qt.discountPct || 0);
+      const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(items, true, qt.discountPct || 0, qt.discountMode, qt.discountFlatAmt || 0);
       const invNumber = await getNextNumber("invoice");
       const d = new Date(); d.setDate(d.getDate() + 30);
 
@@ -463,7 +467,9 @@ function Billing() {
         paymentType:      "CASH",
         items:            items,
         note:             qt.note || "",
+        discountMode:     qt.discountMode || "pct",
         discountPct:      qt.discountPct || 0,
+        discountFlatAmt:  qt.discountFlatAmt || 0,
         discountAmtNPR:   discountAmt,
         taxableAmtNPR:    taxableAmt,
         relatedQuotation: qt.quotationNumber || "",
@@ -877,15 +883,49 @@ function Billing() {
 
                 {/* Discount */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <label style={{ fontSize: 13, color: "var(--ink-3)", whiteSpace: "nowrap" }}>Discount %</label>
-                  <input
-                    className="kfin-input"
-                    type="number" min="0" max="100" step="0.5"
-                    value={form.discountPct || 0}
-                    style={{ width: 80 }}
-                    onChange={e => setF("discountPct", e.target.value)}
-                  />
-                  {Number(form.discountPct) > 0 && (
+                  <label style={{ fontSize: 13, color: "var(--ink-3)", whiteSpace: "nowrap" }}>Discount</label>
+                  <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setF("discountMode", "pct")}
+                      style={{
+                        padding: "5px 10px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+                        background: (form.discountMode || "pct") === "pct" ? "var(--mint-deep)" : "transparent",
+                        color: (form.discountMode || "pct") === "pct" ? "#fff" : "var(--ink-3)",
+                      }}
+                    >
+                      %
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setF("discountMode", "amount")}
+                      style={{
+                        padding: "5px 10px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
+                        background: form.discountMode === "amount" ? "var(--mint-deep)" : "transparent",
+                        color: form.discountMode === "amount" ? "#fff" : "var(--ink-3)",
+                      }}
+                    >
+                      Amt
+                    </button>
+                  </div>
+                  {(form.discountMode || "pct") === "pct" ? (
+                    <input
+                      className="kfin-input"
+                      type="number" min="0" max="100" step="0.5"
+                      value={form.discountPct || 0}
+                      style={{ width: 80 }}
+                      onChange={e => setF("discountPct", e.target.value)}
+                    />
+                  ) : (
+                    <input
+                      className="kfin-input"
+                      type="number" min="0" step="0.01"
+                      value={form.discountFlatAmt || 0}
+                      style={{ width: 110 }}
+                      onChange={e => setF("discountFlatAmt", e.target.value)}
+                    />
+                  )}
+                  {formTotals.discountAmt > 0 && (
                     <span style={{ fontSize: 12, color: "var(--terra)", fontWeight: 600 }}>
                       − {fmtCurrency(formTotals.discountAmt, form.currency)} off
                     </span>
@@ -897,10 +937,12 @@ function Billing() {
                     <span className="kbil-totals-label">Subtotal</span>
                     <span className="kbil-totals-val">{fmtCurrency(formTotals.subtotal, form.currency)}</span>
                   </div>
-                  {Number(form.discountPct) > 0 && (
+                  {formTotals.discountAmt > 0 && (
                     <>
                       <div className="kbil-totals-row" style={{ color: "var(--terra)" }}>
-                        <span className="kbil-totals-label">Discount ({form.discountPct}%)</span>
+                        <span className="kbil-totals-label">
+                          {(form.discountMode || "pct") === "pct" ? `Discount (${form.discountPct}%)` : "Discount"}
+                        </span>
                         <span className="kbil-totals-val">− {fmtCurrency(formTotals.discountAmt, form.currency)}</span>
                       </div>
                       <div className="kbil-totals-row">
@@ -1072,7 +1114,9 @@ function Billing() {
                         <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.subtotalNPR, row.currency))}</td>
                         {tab === "invoice" && (
                           <td style={{ textAlign: "right", fontSize: 12, color: "var(--terra)", fontVariantNumeric: "tabular-nums" }}>
-                            {row.discountPct > 0 ? `${row.discountPct}%` : "—"}
+                            {row.discountMode === "amount"
+                              ? (row.discountAmtNPR > 0 ? fmtC(toNPR(row.discountAmtNPR, row.currency)) : "—")
+                              : (row.discountPct > 0 ? `${row.discountPct}%` : "—")}
                           </td>
                         )}
                         {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.vatAmountNPR, row.currency))}</td>}
@@ -1223,7 +1267,9 @@ function Billing() {
                         <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.subtotalNPR, row.currency))}</td>
                         {tab === "invoice" && (
                           <td style={{ textAlign: "right", fontSize: 12, color: "var(--terra)", fontVariantNumeric: "tabular-nums" }}>
-                            {row.discountPct > 0 ? `${row.discountPct}%` : "—"}
+                            {row.discountMode === "amount"
+                              ? (row.discountAmtNPR > 0 ? fmtC(toNPR(row.discountAmtNPR, row.currency)) : "—")
+                              : (row.discountPct > 0 ? `${row.discountPct}%` : "—")}
                           </td>
                         )}
                         {tab === "invoice" && <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.vatAmountNPR, row.currency))}</td>}
