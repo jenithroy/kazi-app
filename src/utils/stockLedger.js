@@ -29,7 +29,7 @@ export function itemMovements(movements, itemId) {
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 }
 
-export async function logStockMovement({ itemId, date, qty, direction, source, sourceId, note, createdBy }) {
+export async function logStockMovement({ itemId, date, qty, direction, source, sourceId, note, createdBy, amountNPR }) {
   return addDoc(collection(db, STOCK_MOVEMENTS_COLLECTION), {
     itemId,
     date: date || new Date().toISOString().slice(0, 10),
@@ -38,6 +38,11 @@ export async function logStockMovement({ itemId, date, qty, direction, source, s
     source: source || "manual", // "manual" | "purchase" | "opening"
     sourceId: sourceId || null,
     note: note || "",
+    // The actual purchase/sale value for this movement's qty — lets the Stock
+    // Ledger report show real Purchase/Sales Amount instead of qty × a
+    // manually-typed unit cost. Movements logged before this field existed
+    // are simply 0 and the report falls back to unitCostNPR for those.
+    amountNPR: Number(amountNPR) || 0,
     createdBy: createdBy || "Unknown",
     createdAt: serverTimestamp(),
   });
@@ -65,6 +70,7 @@ export async function postPurchaseStockIn({ purchase, items, inventoryItems, cre
       sourceId: purchase.expenseId || null,
       note: `Purchase ${purchase.expenseId || ""}`.trim(),
       createdBy,
+      amountNPR: Number(it.amount) || 0,
     });
     posted.push(match.item);
   }
@@ -88,6 +94,7 @@ export async function postSaleStockOut({ invoice, items, createdBy }) {
       sourceId: invoice.invoiceNumber || null,
       note: `Invoice ${invoice.invoiceNumber || ""}`.trim(),
       createdBy,
+      amountNPR: qty * (Number(it.rate) || 0),
     });
     posted.push(it.stockItemId);
   }

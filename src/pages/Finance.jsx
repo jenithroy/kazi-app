@@ -20,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { fmt, Icons } from "../components/ui";
 import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter } from "../components/PurchaseRowGroup";
 import KeyboardSelect from "../components/KeyboardSelect";
+import { BANK_NAMES } from "../utils/billing.jsx";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { db, storage } from "../firebase";
 import { asCurrency, roundAmount } from "../utils/format";
@@ -67,13 +68,14 @@ const EXPENSE_CATEGORIES = [
   "Software & Subscriptions", "Miscellaneous", "Other"
 ];
 
-// Cash and Nabil Bank carry an opening balance because their Ledger-tab
+// Cash and the bank accounts carry an opening balance because their Ledger-tab
 // view is a running Dr/Cr/Balance table seeded from it — see cashBankLedger.
 const DEFAULT_ACCOUNTS = [
   { name: "Cash", type: "Asset", openingBalanceNPR: 20000 },
-  { name: "Bank Account", type: "Asset", isBank: true },
-  { name: "Nabil Bank", type: "Asset", openingBalanceNPR: 251000, isBank: true },
-  { name: "Fonepay", type: "Asset", isBank: true },
+  { name: "Bank Account", type: "Asset" },
+  { name: "Nabil Bank", type: "Asset", openingBalanceNPR: 251000 },
+  { name: "Sanima Bank", type: "Asset", openingBalanceNPR: 0 },
+  { name: "Fonepay", type: "Asset" },
   { name: "Accounts Receivable", type: "Asset" },
   { name: "Advance Payable", type: "Asset" },
   { name: "Inventory", type: "Asset" },
@@ -128,6 +130,20 @@ function tabLabel(t) {
 
 const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank", "order p&l"];
 
+// Shift+letter tab switching — letters chosen to stay memorable while avoiding
+// collisions between tabs that share a first letter (Purchases/P&L, Bank/Balance Sheet).
+const TAB_SHORTCUTS = {
+  e: "expenses",
+  p: "purchases",
+  v: "vat bills",
+  j: "journal",
+  g: "ledger",
+  l: "p&l",
+  s: "balance sheet",
+  k: "bank",
+  o: "order p&l",
+};
+
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function Finance() {
@@ -144,6 +160,23 @@ function Finance() {
   const visibleTabs = TABS.filter(t => financeTabAllowed(profile, FINANCE_TAB_KEYS[t]));
   const canEditTab  = (tabLabel) => sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS[tabLabel]);
   const canEdit     = canEditTab(activeTab);
+
+  // Kept in a ref (not a dep) so the listener is registered once, not re-bound every render.
+  const visibleTabsRef = useRef(visibleTabs);
+  visibleTabsRef.current = visibleTabs;
+  useEffect(() => {
+    function handleTabShortcut(e) {
+      if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+      const tab = TAB_SHORTCUTS[e.key.toLowerCase()];
+      if (!tab || !visibleTabsRef.current.includes(tab)) return;
+      e.preventDefault();
+      setActiveTab(tab);
+    }
+    window.addEventListener("keydown", handleTabShortcut);
+    return () => window.removeEventListener("keydown", handleTabShortcut);
+  }, []);
 
   /* ── Fix 3: page-level error banner (auto-clears after 5s) ── */
   const [pageError, setPageError] = useState("");
@@ -196,7 +229,7 @@ function Finance() {
   /* ── Bank transactions state ── */
   const [bankTxns, setBankTxns]       = useState([]);
   const [showBankForm, setShowBankForm] = useState(false);
-  const [bankForm, setBankForm]       = useState({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "" });
+  const [bankForm, setBankForm]       = useState({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "", accountName: "Nabil Bank" });
 
   /* ── Order P&L state ── */
   const [orders, setOrders]               = useState([]);
@@ -312,14 +345,22 @@ function Finance() {
           acc.openingBalanceNPR = def.openingBalanceNPR;
         }
       }
-      // Backfill isBank onto accounts (Nabil Bank, Fonepay, etc.) seeded before that field existed.
-      for (const def of DEFAULT_ACCOUNTS) {
-        if (!def.isBank) continue;
-        const acc = accs.find(a => a.name === def.name);
-        if (acc && !acc.isBank) {
-          await fsUpdateDoc(doc(db, "accounts", acc.id), { isBank: true });
-          acc.isBank = true;
-        }
+    }
+    // Auto-provision an Asset account for any bank name typed into the "Other"
+    // field on a purchase/invoice/bank transaction (beyond the Nabil/Sanima
+    // quick picks), so it gets an opening balance and shows up in the Ledger tab
+    // like any other bank instead of silently dropping off cashBankLedger.
+    {
+      const customBankNames = new Set();
+      purRows.forEach(p => { if (p.paymentType === "Bank" && p.bankName && !BANK_NAMES.includes(p.bankName)) customBankNames.add(p.bankName); });
+      invSnap.docs.forEach(d => { const inv = d.data(); if (inv.paymentType === "Bank" && inv.bankName && !BANK_NAMES.includes(inv.bankName)) customBankNames.add(inv.bankName); });
+      bankSnap.docs.forEach(d => { const name = d.data().accountName; if (name && name !== "Cash" && !BANK_NAMES.includes(name)) customBankNames.add(name); });
+      const existingNames2 = new Set(accs.map(a => a.name));
+      const newBankAccounts = Array.from(customBankNames).filter(n => !existingNames2.has(n));
+      if (newBankAccounts.length > 0) {
+        for (const name of newBankAccounts) await addDoc(collection(db, "accounts"), { name, type: "Asset", openingBalanceNPR: 0, createdAt: serverTimestamp() });
+        const freshSnap = await getDocs(collection(db, "accounts"));
+        accs = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       }
     }
     // One-time rename of an already-seeded "Laxmi Sunrise Bank" → "Nabil Bank",
@@ -425,7 +466,7 @@ function Finance() {
         expenseItem: purchaseForm.expenseItem,
         category: purchaseForm.category,
         paymentType: purchaseForm.paymentType || "CASH",
-        bankName: purchaseForm.paymentType === "Bank" ? (purchaseForm.bankName || "") : "",
+        bankName: purchaseForm.bankName || "Nabil Bank",
         vatBill: purchaseForm.vatBill,
         discountAmt: Number(purchaseForm.discountAmt || 0),
         taxableAmt: Number(purchaseForm.taxableAmt || 0),
@@ -685,17 +726,28 @@ function Finance() {
     return map;
   }, [entries]);
 
+  // Nabil/Sanima plus any bank name typed into the "Other" field on a purchase,
+  // invoice or bank transaction — keeps custom-typed banks from silently
+  // dropping off the Ledger tab and cashBankLedger below.
+  const bankAccountNames = useMemo(() => {
+    const set = new Set(BANK_NAMES);
+    purchases.forEach(p => { if (p.paymentType === "Bank" && p.bankName) set.add(p.bankName); });
+    invoices.forEach(i => { if (i.paymentType === "Bank" && i.bankName) set.add(i.bankName); });
+    bankTxns.forEach(t => { if (t.accountName) set.add(t.accountName); });
+    return [...BANK_NAMES, ...[...set].filter(n => !BANK_NAMES.includes(n)).sort()];
+  }, [purchases, invoices, bankTxns]);
+
   // Running Cash/Bank ledger — matches Deepa's notebook format (Particulars/Dr/Cr/Balance).
   // Rows are derived on the fly from Purchases, paid Invoices, Bank txns and Journal
   // entries — nothing is written back, so there's no separate ledger doc to keep in sync.
   const cashBankLedger = useMemo(() => {
     const CASH = "Cash";
-    const BANK = "Nabil Bank";
-    const rowsFor = { [CASH]: [], [BANK]: [] };
+    const ACCOUNTS = [CASH, ...bankAccountNames];
+    const rowsFor = Object.fromEntries(ACCOUNTS.map(name => [name, []]));
 
     purchases.forEach(p => {
-      const acct = p.paymentType === "CASH" ? CASH : p.paymentType === "Bank" ? BANK : null;
-      if (!acct) return; // Credit purchases move to Accounts Payable, not Cash/Bank
+      const acct = p.paymentType === "CASH" ? CASH : p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : null;
+      if (!acct || !rowsFor[acct]) return; // Credit purchases move to Accounts Payable, not Cash/Bank
       rowsFor[acct].push({
         date: p.date || "", sortKey: p.createdAt?.seconds || 0,
         particulars: `Purchase — ${p.expenseItem || p.expenseId}`, dr: 0, cr: Number(p.amountNPR || 0),
@@ -706,7 +758,8 @@ function Finance() {
     invoices.filter(i => i.status === "Paid").forEach(i => {
       const val = Number(i.totalNPR || 0);
       const amt = i.currency === "GBP" ? val * GBP_RATE : val;
-      const acct = i.paymentType === "Bank" ? BANK : CASH; // defaults to Cash for older invoices with no paymentType set
+      // defaults to Cash for older invoices with no paymentType set
+      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : CASH;
       rowsFor[acct].push({
         date: i.date || "", sortKey: i.createdAt?.seconds || 0,
         particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
@@ -715,9 +768,10 @@ function Finance() {
     });
 
     bankTxns.forEach(t => {
-      if (t.accountName && t.accountName !== BANK) return; // future multi-bank-account support
+      const acct = t.accountName || "Nabil Bank"; // txns logged before multi-bank support default to Nabil
+      if (!rowsFor[acct]) return;
       const amt = Number(t.amountNPR || 0);
-      rowsFor[BANK].push({
+      rowsFor[acct].push({
         date: t.date || "", sortKey: t.createdAt?.seconds || 0,
         particulars: t.description || "Bank transaction",
         dr: t.type === "credit" ? amt : 0, cr: t.type === "debit" ? amt : 0,
@@ -727,16 +781,16 @@ function Finance() {
 
     entries.forEach(e => {
       const amt = Number(e.amountNPR || 0);
-      if (e.debitAccount === CASH || e.debitAccount === BANK) {
+      if (rowsFor[e.debitAccount]) {
         rowsFor[e.debitAccount].push({ date: e.date || "", sortKey: e.createdAt?.seconds || 0, particulars: e.description || "Journal entry", dr: amt, cr: 0, sourceType: "journal", sourceId: e.id });
       }
-      if (e.creditAccount === CASH || e.creditAccount === BANK) {
+      if (rowsFor[e.creditAccount]) {
         rowsFor[e.creditAccount].push({ date: e.date || "", sortKey: e.createdAt?.seconds || 0, particulars: e.description || "Journal entry", dr: 0, cr: amt, sourceType: "journal", sourceId: e.id });
       }
     });
 
     const result = {};
-    for (const name of [CASH, BANK]) {
+    for (const name of ACCOUNTS) {
       const accountId = accounts.find(a => a.name === name)?.id || null;
       const opening = accounts.find(a => a.name === name)?.openingBalanceNPR || 0;
       const sorted = rowsFor[name].sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
@@ -748,7 +802,7 @@ function Finance() {
       result[name] = { accountId, openingBalanceNPR: opening, rows, closingBalance: balance };
     }
     return result;
-  }, [purchases, invoices, bankTxns, entries, accounts]);
+  }, [purchases, invoices, bankTxns, entries, accounts, bankAccountNames]);
 
   const pl = useMemo(() => {
     // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
@@ -783,22 +837,6 @@ function Finance() {
   }, [accounts, ledger]);
 
   const accountNames = [...new Set(accounts.map(a => a.name))];
-  const bankAccountNames = [...new Set(accounts.filter(a => a.isBank).map(a => a.name))];
-
-  // Lets the Purchase form's bank picker add a brand-new named bank account on the
-  // fly (persisted to the same "accounts" collection the Journal tab reads from),
-  // instead of just a generic "Bank" bucket with no way to tell accounts apart.
-  async function addBankAccount(name) {
-    const trimmed = name.trim();
-    if (!trimmed || accounts.some(a => a.name === trimmed)) return;
-    try {
-      await addDoc(collection(db, "accounts"), { name: trimmed, type: "Asset", isBank: true, createdAt: serverTimestamp() });
-      setAccounts(prev => [...prev, { name: trimmed, type: "Asset", isBank: true }].sort((a, b) => a.name.localeCompare(b.name)));
-    } catch (err) {
-      console.error("Failed to add bank account:", err);
-      showError("Failed to add bank account. Please try again.");
-    }
-  }
 
   const donutData = useMemo(() => [
     { name: "Purchases", value: summary.purchNPR,    color: "#1f6e4c" },
@@ -946,6 +984,7 @@ function Finance() {
               key={t}
               className={`kfin-tab${activeTab === t ? " kfin-tab--on" : ""}`}
               onClick={() => setActiveTab(t)}
+              title={`Shift+${Object.keys(TAB_SHORTCUTS).find(k => TAB_SHORTCUTS[k] === t)?.toUpperCase()}`}
             >
               {tabLabel(t)}
             </button>
@@ -1109,8 +1148,6 @@ function Finance() {
                     onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
                     onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
                     onFinishEnter={addPurchase}
-                    bankAccounts={bankAccountNames}
-                    onAddBank={addBankAccount}
                     actionCell={
                       <button className="primary-button" type="button" disabled={submitting}
                         style={{ padding: "5px 12px", fontSize: 12 }} onClick={addPurchase}>
@@ -1329,7 +1366,7 @@ function Finance() {
         {/* ── Ledger ── */}
         {activeTab === "ledger" && (
           <>
-            {[["Cash", cashBankLedger.Cash], ["Nabil Bank", cashBankLedger["Nabil Bank"]]].map(([name, data]) => (
+            {["Cash", ...bankAccountNames].map(name => [name, cashBankLedger[name]]).map(([name, data]) => (
               <div className="kfin-block" key={name} style={{ marginBottom: 14 }}>
                 <div className="kfin-block-hd">
                   <p className="kfin-block-title">{name}</p>
@@ -1423,11 +1460,11 @@ function Finance() {
             <div className="kfin-block-hd">
               <p className="kfin-block-title">Other Accounts</p>
             </div>
-            {Object.entries(ledger).filter(([a]) => a !== "Cash" && a !== "Nabil Bank").length === 0
+            {Object.entries(ledger).filter(([a]) => a !== "Cash" && !bankAccountNames.includes(a)).length === 0
               ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No journal entries yet for other accounts.</p>
               : (
                 <div className="kfin-ledger-grid">
-                  {Object.entries(ledger).filter(([a]) => a !== "Cash" && a !== "Nabil Bank").sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
+                  {Object.entries(ledger).filter(([a]) => a !== "Cash" && !bankAccountNames.includes(a)).sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
                     const accInfo = accounts.find(a => a.name === account);
                     const accType = accInfo?.type || "Unknown";
                     const isAsset = accType === "Asset";
@@ -1661,15 +1698,34 @@ function Finance() {
                     e.preventDefault();
                     await addDoc(collection(db, "bank_transactions"), {
                       ...bankForm,
-                      accountName: "Nabil Bank",
+                      accountName: bankForm.accountName || "Nabil Bank",
                       amountNPR: Number(bankForm.amountNPR),
                       createdBy: profile?.name || "Unknown",
                       createdAt: serverTimestamp(),
                     });
-                    setBankForm({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "" });
+                    setBankForm({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "", accountName: "Nabil Bank" });
                     setShowBankForm(false);
                     await loadData();
                   }}>
+                    {(() => {
+                      const isOtherBank = bankForm.accountName === "other" || (bankForm.accountName && !BANK_NAMES.includes(bankForm.accountName));
+                      return (
+                        <>
+                          <label className="kfin-label">Bank
+                            <select className="kfin-select" value={isOtherBank ? "other" : bankForm.accountName} onChange={e => setBankForm(f => ({ ...f, accountName: e.target.value }))}>
+                              {BANK_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
+                              <option value="other">Other</option>
+                            </select>
+                          </label>
+                          {isOtherBank && (
+                            <label className="kfin-label">Bank Name
+                              <input type="text" className="kfin-input" value={bankForm.accountName === "other" ? "" : bankForm.accountName}
+                                placeholder="Type bank name" onChange={e => setBankForm(f => ({ ...f, accountName: e.target.value === "" ? "other" : e.target.value }))} />
+                            </label>
+                          )}
+                        </>
+                      );
+                    })()}
                     <label className="kfin-label">Date
                       <input type="date" className="kfin-input" value={bankForm.date} required onChange={e => setBankForm(f => ({ ...f, date: e.target.value }))} />
                     </label>
@@ -1729,15 +1785,16 @@ function Finance() {
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
                   <thead>
-                    <tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th>{canEdit && <th></th>}</tr>
+                    <tr><th>Date</th><th>Bank</th><th>Description</th><th>Category</th><th>Type</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th>{canEdit && <th></th>}</tr>
                   </thead>
                   <tbody>
                     {bankTxns.length === 0 && (
-                      <tr><td colSpan={canEdit ? 8 : 7} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>No transactions yet — add one above.</td></tr>
+                      <tr><td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>No transactions yet — add one above.</td></tr>
                     )}
                     {bankTxns.map(t => (
                       <tr key={t.id}>
                         <td>{t.date || "—"}</td>
+                        <td style={{ color: "var(--ink-3)" }}>{t.accountName || "Nabil Bank"}</td>
                         <td style={{ fontWeight: 500 }}>{t.description}</td>
                         <td>{t.category || "—"}</td>
                         <td>

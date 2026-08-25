@@ -11,7 +11,7 @@ import { sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE } from "../constants";
 import { scrollAppToTop } from "../utils/scroll";
 import {
-  DOC_TYPES, STATUS_BY_TYPE, emptyItem, makeEmptyForm,
+  DOC_TYPES, STATUS_BY_TYPE, BANK_NAMES, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
 } from "../utils/billing.jsx";
 import { adToBsParts, BS_MONTHS } from "../utils/fiscalYear";
@@ -369,7 +369,7 @@ function Billing() {
           createdAt:      serverTimestamp(),
         };
         // Strip fields irrelevant to this doc type
-        if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; delete record.paymentType; }
+        if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; delete record.paymentType; delete record.bankName; }
         if (tab !== "challan")   { delete record.vehicleNo; delete record.driverName; delete record.routeFrom; delete record.routeTo; }
         if (tab !== "quotation") { delete record.validUntil; delete record.terms; }
         await addDoc(collection(db, meta.coll), record);
@@ -721,6 +721,28 @@ function Billing() {
                     <KeyboardSelect className="kfin-select" value={form.paymentType || "CASH"} options={["CASH", "Bank", "Credit"]} onChange={v => setF("paymentType", v)} />
                   </label>
                 )}
+
+                {/* Bank (invoice, only when Payment Type is Bank) — which bank ledger this sale lands in */}
+                {tab === "invoice" && form.paymentType === "Bank" && (() => {
+                  const isOtherBank = form.bankName === "other" || (form.bankName && !BANK_NAMES.includes(form.bankName));
+                  return (
+                    <>
+                      <label className="kfin-label">
+                        Bank
+                        <KeyboardSelect className="kfin-select" value={isOtherBank ? "other" : (form.bankName || "Nabil Bank")}
+                          options={[...BANK_NAMES, { value: "other", label: "Other" }]}
+                          onChange={v => setF("bankName", v)} />
+                      </label>
+                      {isOtherBank && (
+                        <label className="kfin-label">
+                          Bank Name
+                          <input className="kfin-input" type="text" value={form.bankName === "other" ? "" : form.bankName}
+                            placeholder="Type bank name" onChange={e => setF("bankName", e.target.value === "" ? "other" : e.target.value)} />
+                        </label>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* Challan — Transport Details (Nepal compliance) */}
                 {tab === "challan" && (

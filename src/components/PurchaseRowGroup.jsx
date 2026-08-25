@@ -1,7 +1,7 @@
-import { useState } from "react";
 import DualDateInput from "./DualDateInput";
 import KeyboardSelect from "./KeyboardSelect";
 import { roundAmount } from "../utils/format";
+import { BANK_NAMES } from "../utils/billing.jsx";
 
 export const PURCHASE_CATEGORIES = [
   "Office Supplies", "Equipment / IT", "Equipment", "Consumables",
@@ -20,7 +20,7 @@ const emptyLineItem = { particulars: "", quantity: "", unit: "pcs", rate: "", am
 
 export const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
-  expenseItem: "", category: "Office Supplies", paymentType: "CASH", bankName: "", vatBill: false,
+  expenseItem: "", category: "Office Supplies", paymentType: "CASH", bankName: "Nabil Bank", vatBill: false,
   discountAmt: 0,
   taxableAmt: 0,
   items: [{ ...emptyLineItem }]
@@ -111,7 +111,7 @@ export function initialGroupData(row) {
     expenseItem: row.expenseItem,
     category: row.category,
     paymentType: row.paymentType || "CASH",
-    bankName: row.bankName || "",
+    bankName: row.bankName || "Nabil Bank",
     vatBill: row.vatBill,
     discountAmt: row.discountAmt || 0,
     taxableAmt: row.taxableAmt || 0,
@@ -156,61 +156,8 @@ function addItemOnEnter(e, onAddItem) {
   });
 }
 
-// Shown under Payment Type once "Bank" is picked — choose an existing named bank
-// account or add a new one (persisted by the parent via onAddBank so it's reusable
-// on future purchases, not just typed once and forgotten like the unit-field "other").
-function BankPicker({ value, bankAccounts, onChange, onAddBank }) {
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-
-  function commitNewBank() {
-    const name = draft.trim();
-    if (name) { onAddBank?.(name); onChange(name); }
-    setAdding(false);
-    setDraft("");
-  }
-
-  // The select stays mounted (mirrors the unit-field "other" pattern above) instead
-  // of being swapped out for the text input — KeyboardSelect's own Enter/advance
-  // logic reads its trigger's DOM position to focus the *next* field, and that
-  // breaks (jumps focus to the first field on the whole page) if its trigger button
-  // has already unmounted by the time that runs.
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <KeyboardSelect
-        className="kfin-select"
-        style={{ padding: "4px 5px", fontSize: 11, width: 100, marginTop: 3 }}
-        value={adding ? "__add__" : (bankAccounts.includes(value) ? value : "")}
-        options={[
-          { value: "", label: "Select bank…" },
-          ...bankAccounts.map(b => ({ value: b, label: b })),
-          { value: "__add__", label: "+ Add New Bank" },
-        ]}
-        onChange={v => {
-          if (v === "__add__") setAdding(true);
-          else { setAdding(false); onChange(v); }
-        }}
-      />
-      {adding && (
-        <input
-          type="text" autoFocus className="kfin-input"
-          style={{ padding: "4px 5px", fontSize: 11, width: 100 }}
-          placeholder="New bank name"
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); commitNewBank(); }
-            else if (e.key === "Escape") { e.stopPropagation(); setAdding(false); setDraft(""); }
-          }}
-          onBlur={commitNewBank}
-        />
-      )}
-    </div>
-  );
-}
-
 // One purchase (Date/Party/Category/Payment/VAT shared via rowSpan) rendered as one <tr> per particular.
-export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError, bankAccounts = [], onAddBank }) {
+export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
   const items = data.items;
   const subtotal = purchaseSubtotal(items);
   const discountAmt = Number(data.discountAmt || 0);
@@ -245,18 +192,29 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
                   options={PURCHASE_CATEGORIES}
                   onChange={v => onFieldChange({ category: v })} />
               </td>
-              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: data.paymentType === "Bank" ? 108 : undefined }}>
-                <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.paymentType || "CASH"}
-                  options={PAYMENT_TYPES}
-                  onChange={v => onFieldChange({ paymentType: v, bankName: v === "Bank" ? data.bankName : "" })} />
-                {data.paymentType === "Bank" && (
-                  <BankPicker
-                    value={data.bankName || ""}
-                    bankAccounts={bankAccounts}
-                    onChange={name => onFieldChange({ bankName: name })}
-                    onAddBank={onAddBank}
-                  />
-                )}
+              <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }} value={data.paymentType || "CASH"}
+                    options={PAYMENT_TYPES}
+                    onChange={v => onFieldChange({ paymentType: v })} />
+                  {data.paymentType === "Bank" && (() => {
+                    const isOtherBank = data.bankName === "other" || (data.bankName && !BANK_NAMES.includes(data.bankName));
+                    return (
+                      <>
+                        <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 12 }}
+                          value={isOtherBank ? "other" : (data.bankName || "Nabil Bank")}
+                          options={[...BANK_NAMES, { value: "other", label: "Other" }]}
+                          onChange={v => onFieldChange({ bankName: v })} />
+                        {isOtherBank && (
+                          <input type="text" className="kfin-input" style={{ padding: "4px 5px", fontSize: 11 }}
+                            value={data.bankName === "other" ? "" : data.bankName}
+                            placeholder="Type bank name"
+                            onChange={e => onFieldChange({ bankName: e.target.value === "" ? "other" : e.target.value })} />
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
                 <KeyboardSelect className="kfin-select" style={{ padding: "5px 6px", fontSize: 13 }}
