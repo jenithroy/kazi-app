@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { addDoc, collection, deleteField, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { haversineDistance } from "../utils/geo";
-import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus } from "../constants";
+import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus, setEmployeeScheduleOverrides } from "../constants";
 import { todayDate, isSaturday } from "../utils/date";
 import { Icons, Btn, Card, Pill } from "./ui";
 import { awardPoints } from "../utils/rewardService";
@@ -42,6 +42,14 @@ export default function ClockInCard({ profile, onClockChange }) {
   useEffect(() => {
     const t = setInterval(() => setClockTime(new Date()), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // Load per-employee work schedules so the late-arrival calc on clock-in
+  // respects times edited in Employee Directory → Schedule.
+  useEffect(() => {
+    getDocs(collection(db, "employees"))
+      .then(snap => setEmployeeScheduleOverrides(snap.docs.map(d => d.data())))
+      .catch(err => console.warn("Could not load employee schedules:", err));
   }, []);
 
   // Fetch initial clock-in status

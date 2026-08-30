@@ -5,7 +5,7 @@ import { sectionCanEdit } from "../utils/permissions";
 import { db } from "../firebase";
 import { todayDate, isSaturday } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
-import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate } from "../constants";
+import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate, setEmployeeScheduleOverrides } from "../constants";
 import { Pill, Icons, cn } from "../components/ui";
 import ClockInCard from "../components/ClockInCard";
 
@@ -298,12 +298,16 @@ function Attendance() {
     const monthStart = toLocalISOString(new Date(year, month, 1));
     const monthEnd = toLocalISOString(new Date(year, month + 1, 0));
 
-    const [usersSnap, monthAttSnap, selectedAttSnap, clockSnap] = await Promise.all([
+    const [usersSnap, monthAttSnap, selectedAttSnap, clockSnap, empSnap] = await Promise.all([
       getDocs(query(collection(db, "users"), where("role", "in", ["nepal_admin","employee","nepal_staff"]))),
       getDocs(query(collection(db, "attendance"), where("date", ">=", monthStart), where("date", "<=", monthEnd))),
       getDocs(query(collection(db, "attendance"), where("date", "==", selectedDate))),
       getDocs(query(collection(db, "clock_ins"),  where("date", "==", selectedDate))),
+      getDocs(collection(db, "employees")),
     ]);
+
+    // Honour work schedules edited in Employee Directory → Schedule
+    setEmployeeScheduleOverrides(empSnap.docs.map(d => d.data()));
 
     const staff = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     setStaffList(staff);
@@ -608,7 +612,7 @@ function Attendance() {
                                   <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Cut</span>
                                 )}
                                 {row.status === "Late" && !row.lateCutApplied && (row.lateMinutes > 0 ? (
-                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }} title={`${row.lateMinutes}m late`}>Grace (≤10m)</span>
+                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }} title={`${row.lateMinutes}m late`}>Grace (&lt;15m)</span>
                                 ) : (
                                   <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace</span>
                                 ))}

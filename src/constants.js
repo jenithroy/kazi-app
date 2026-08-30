@@ -55,8 +55,42 @@ export const EMPLOYEE_SCHEDULES = {
   "Anmol": { start: "10:30", end: "18:00" },
 };
 
+export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Per-employee schedules edited from Employee Directory → Schedule and stored on the
+// employee doc. Populated at runtime by setEmployeeScheduleOverrides(); keyed by
+// lower-cased name. These take precedence over the hard-coded EMPLOYEE_SCHEDULES above.
+const runtimeSchedules = {};
+
+export function setEmployeeScheduleOverrides(employeeDocs = []) {
+  employeeDocs.forEach(emp => {
+    const name = (emp?.name || "").trim().toLowerCase();
+    if (!name) return;
+    if (emp.scheduleStart && emp.scheduleEnd) {
+      runtimeSchedules[name] = {
+        start: emp.scheduleStart,
+        end: emp.scheduleEnd,
+        workingDays: Array.isArray(emp.scheduleWorkingDays) && emp.scheduleWorkingDays.length
+          ? emp.scheduleWorkingDays
+          : null,
+      };
+    } else {
+      delete runtimeSchedules[name];
+    }
+  });
+}
+
 export function getEmployeeScheduleForDate(employeeName, dateObj) {
   if (!employeeName) return null;
+
+  const override = runtimeSchedules[employeeName.trim().toLowerCase()];
+  if (override) {
+    if (override.workingDays && !override.workingDays.includes(WEEKDAYS[dateObj.getDay()])) {
+      return null; // scheduled day off — treat like the no-schedule default
+    }
+    return { start: override.start, end: override.end };
+  }
+
   const nameKey = Object.keys(EMPLOYEE_SCHEDULES).find(
     k => k.toLowerCase() === employeeName.toLowerCase()
   );
@@ -64,8 +98,7 @@ export function getEmployeeScheduleForDate(employeeName, dateObj) {
 
   const sched = EMPLOYEE_SCHEDULES[nameKey];
   if (sched.days) {
-    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const dayName = daysOfWeek[dateObj.getDay()];
+    const dayName = WEEKDAYS[dateObj.getDay()];
     return sched.days[dayName] || null;
   }
   return sched;
@@ -94,7 +127,8 @@ export function calculateAttendanceStatus(employeeName, clockInDate) {
   const diffMs = clockInDate.getTime() - scheduledTime.getTime();
   const diffMins = diffMs / (1000 * 60);
 
-  if (diffMins > 10) {
+  if (diffMins >= 15) {
+    // 15+ minutes past scheduled start → forfeit 25% of that day's salary
     return {
       status: "Late",
       lateCutApplied: true,

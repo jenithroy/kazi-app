@@ -11,7 +11,7 @@ import SalarySlipModal from "../components/SalarySlipModal";
 import { db, auth, firebaseConfig } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
-import { GBP_RATE } from "../constants";
+import { GBP_RATE, WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
 
@@ -46,7 +46,23 @@ const emptyForm = {
   basicSalaryNPR: "", location: "nepal", status: "Active",
   reportsTo: "", isProductionWorker: false,
   appRole: "employee",
+  scheduleStart: "", scheduleEnd: "",
+  scheduleWorkingDays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri"],
 };
+
+const DEFAULT_WORKING_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
+
+function scheduleSummary(emp) {
+  if (!emp.scheduleStart || !emp.scheduleEnd) return null;
+  const days = Array.isArray(emp.scheduleWorkingDays) && emp.scheduleWorkingDays.length
+    ? emp.scheduleWorkingDays
+    : DEFAULT_WORKING_DAYS;
+  const offDays = WEEKDAYS.filter(d => !days.includes(d));
+  return {
+    time: `${emp.scheduleStart}–${emp.scheduleEnd}`,
+    off: offDays.length && offDays.length < 7 ? offDays.join(", ") : offDays.length === 7 ? "every day" : "none",
+  };
+}
 
 /* ── Org chart ───────────────────────────────────────── */
 const ORG_CSS = `
@@ -158,6 +174,88 @@ function statusBadge(status) {
     : <span className="badge-danger">Inactive</span>;
 }
 
+// Compact editor for just an employee's work schedule (start/end + working days).
+// Feeds the "Late" auto-calculation in Attendance.
+function ScheduleModal({ emp, onClose, onSave }) {
+  const [start, setStart] = useState(emp.scheduleStart || "");
+  const [end, setEnd] = useState(emp.scheduleEnd || "");
+  const [days, setDays] = useState(
+    Array.isArray(emp.scheduleWorkingDays) && emp.scheduleWorkingDays.length
+      ? emp.scheduleWorkingDays
+      : DEFAULT_WORKING_DAYS
+  );
+  const [saving, setSaving] = useState(false);
+
+  function toggleDay(d) {
+    setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await onSave({
+        scheduleStart: start,
+        scheduleEnd: end,
+        scheduleWorkingDays: WEEKDAYS.filter(d => days.includes(d)),
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <form className="kbrf-modal" style={{ maxWidth: 400 }} onSubmit={submit}>
+        <div className="kbrf-modal-hd">
+          <span>Work Schedule — {emp.name}</span>
+          <button type="button" className="kbrf-modal-close" onClick={onClose}>✕</button>
+        </div>
+        <p style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 0 }}>
+          Used to auto-flag late clock-ins in Attendance. Leave times blank to fall back to the default 10:00 rule.
+        </p>
+        <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+          <label style={{ flex: 1, display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
+            Start time
+            <input type="time" value={start} onChange={e => setStart(e.target.value)}
+              style={{ marginTop: 4, padding: "7px 10px", borderRadius: 8, border: "1.5px solid var(--line)" }} />
+          </label>
+          <label style={{ flex: 1, display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
+            End time
+            <input type="time" value={end} onChange={e => setEnd(e.target.value)}
+              style={{ marginTop: 4, padding: "7px 10px", borderRadius: 8, border: "1.5px solid var(--line)" }} />
+          </label>
+        </div>
+        <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600 }}>Working days</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+          {WEEKDAYS.map(d => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => toggleDay(d)}
+              style={{
+                padding: "5px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                border: `1.5px solid ${days.includes(d) ? "var(--mint-deep)" : "var(--line)"}`,
+                background: days.includes(d) ? "var(--mint-soft)" : "var(--card)",
+                color: days.includes(d) ? "var(--mint-deep)" : "var(--ink-4)",
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+          <button type="submit" className="primary-button" disabled={saving}>
+            {saving ? "Saving…" : "Save Schedule"}
+          </button>
+          <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function Employees() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -210,6 +308,7 @@ function Employees() {
   const [submitting, setSubmitting] = useState(false);
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
+  const [scheduleEmp, setScheduleEmp] = useState(null);
 
   /* ── Payroll State ── */
   const [payroll, setPayroll] = useState([]);
@@ -318,6 +417,7 @@ function Employees() {
     }
     rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setEmployees(rows);
+    setEmployeeScheduleOverrides(rows);
 
     if (canViewPayroll) {
       const pRows = paySnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -397,6 +497,15 @@ function Employees() {
 
   async function toggleStatus(emp) {
     await updateDoc(doc(db, "employees", emp.id), { status: emp.status === "Active" ? "Inactive" : "Active" });
+    await loadData();
+  }
+
+  async function saveSchedule(empId, schedule) {
+    await updateDoc(doc(db, "employees", empId), {
+      ...schedule,
+      updatedBy: profile?.name || "Unknown",
+      updatedAt: serverTimestamp(),
+    });
     await loadData();
   }
 
@@ -644,6 +753,51 @@ function Employees() {
                     <option value="uk_admin">UK Admin (Director)</option>
                   </select>
                 </label>
+                <div style={{ gridColumn: "span 2", padding: "14px 16px", background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ink-4)", marginBottom: 10 }}>
+                    Work Schedule
+                    <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, marginLeft: 8, fontSize: 11 }}>
+                      — drives the late-arrival auto-flag in Attendance
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    <label style={{ display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
+                      Start time
+                      <input type="time" value={form.scheduleStart}
+                        onChange={e => setForm(f => ({ ...f, scheduleStart: e.target.value }))}
+                        style={{ marginTop: 4 }} />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
+                      End time
+                      <input type="time" value={form.scheduleEnd}
+                        onChange={e => setForm(f => ({ ...f, scheduleEnd: e.target.value }))}
+                        style={{ marginTop: 4 }} />
+                    </label>
+                    <div style={{ display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
+                      Working days
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                        {WEEKDAYS.map(d => {
+                          const on = (form.scheduleWorkingDays || DEFAULT_WORKING_DAYS).includes(d);
+                          return (
+                            <button key={d} type="button"
+                              onClick={() => setForm(f => {
+                                const cur = f.scheduleWorkingDays || DEFAULT_WORKING_DAYS;
+                                return { ...f, scheduleWorkingDays: cur.includes(d) ? cur.filter(x => x !== d) : [...cur, d] };
+                              })}
+                              style={{
+                                padding: "5px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                border: `1.5px solid ${on ? "var(--mint-deep)" : "var(--line)"}`,
+                                background: on ? "var(--mint-soft)" : "var(--card)",
+                                color: on ? "var(--mint-deep)" : "var(--ink-4)",
+                              }}>
+                              {d}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: 12 }}>
                   <input type="checkbox" checked={!!form.isProductionWorker}
                     onChange={e => setForm(f => ({ ...f, isProductionWorker: e.target.checked }))}
@@ -689,6 +843,7 @@ function Employees() {
                     <th>PAN</th>
                     <th>Bank Details</th>
                     <th>Reports To</th>
+                    <th>Schedule</th>
                     <th>Production</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -727,6 +882,17 @@ function Employees() {
                         {emp.bankAccount && <div style={{ fontFamily: "monospace", marginTop: 2 }}>{emp.bankAccount}</div>}
                       </td>
                       <td style={{ fontSize: "0.82rem", color: "var(--ink-4)" }}>{emp.reportsTo || "—"}</td>
+                      <td style={{ fontSize: "0.8rem" }}>
+                        {(() => {
+                          const s = scheduleSummary(emp);
+                          return s ? (
+                            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.35 }}>
+                              <span style={{ fontFamily: "monospace" }}>{s.time}</span>
+                              <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>off: {s.off}</span>
+                            </div>
+                          ) : <span style={{ color: "var(--ink-5)" }}>—</span>;
+                        })()}
+                      </td>
                       <td>{emp.isProductionWorker ? <span style={{ fontSize: 12, color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Yes</span> : <span style={{ fontSize: 12, color: "var(--ink-5)" }}>—</span>}</td>
                       <td>{statusBadge(emp.status)}</td>
                       <td>
@@ -743,6 +909,9 @@ function Employees() {
                             <>
                               <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
                                 onClick={() => startEdit(emp)}>Edit</button>
+                              <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
+                                title="Edit work schedule (start/end time & working days)"
+                                onClick={() => setScheduleEmp(emp)}>Schedule</button>
                               <button className="ghost-button"
                                 style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(230,81,0,0.35)" : "rgba(46,125,50,0.4)" }}
                                 onClick={() => toggleStatus(emp)}>
@@ -828,7 +997,7 @@ function Employees() {
                         <div style={{ fontSize: 15, fontWeight: 700 }}>{loadingAtt ? "…" : payrollForm.lateDays}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>25% cuts (&gt;10m late)</div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-4)" }}>25% cuts (&ge;15m late)</div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: payrollForm.lateCutsCount > 0 ? "var(--terra)" : undefined }}>{loadingAtt ? "…" : payrollForm.lateCutsCount}</div>
                       </div>
                       <div>
@@ -1046,6 +1215,15 @@ function Employees() {
             </div>
           </section>
         </>
+      )}
+
+      {/* Schedule Modal */}
+      {scheduleEmp && canEdit && (
+        <ScheduleModal
+          emp={scheduleEmp}
+          onClose={() => setScheduleEmp(null)}
+          onSave={(schedule) => saveSchedule(scheduleEmp.id, schedule)}
+        />
       )}
 
       {/* Salary Slip Modal */}
