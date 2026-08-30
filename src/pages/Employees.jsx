@@ -48,6 +48,7 @@ const emptyForm = {
   appRole: "employee",
   scheduleStart: "", scheduleEnd: "",
   scheduleWorkingDays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri"],
+  scheduleDayOverrides: {}, // { Tue: { start: "09:30", end: "15:30" } }
 };
 
 const DEFAULT_WORKING_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -58,9 +59,13 @@ function scheduleSummary(emp) {
     ? emp.scheduleWorkingDays
     : DEFAULT_WORKING_DAYS;
   const offDays = WEEKDAYS.filter(d => !days.includes(d));
+  const ovr = emp.scheduleDayOverrides && typeof emp.scheduleDayOverrides === "object"
+    ? Object.entries(emp.scheduleDayOverrides).filter(([, v]) => v && (v.start || v.end))
+    : [];
   return {
     time: `${emp.scheduleStart}–${emp.scheduleEnd}`,
     off: offDays.length && offDays.length < 7 ? offDays.join(", ") : offDays.length === 7 ? "every day" : "none",
+    exceptions: ovr.map(([d, v]) => `${d} ${v.start || emp.scheduleStart}–${v.end || emp.scheduleEnd}`),
   };
 }
 
@@ -174,88 +179,6 @@ function statusBadge(status) {
     : <span className="badge-danger">Inactive</span>;
 }
 
-// Compact editor for just an employee's work schedule (start/end + working days).
-// Feeds the "Late" auto-calculation in Attendance.
-function ScheduleModal({ emp, onClose, onSave }) {
-  const [start, setStart] = useState(emp.scheduleStart || "");
-  const [end, setEnd] = useState(emp.scheduleEnd || "");
-  const [days, setDays] = useState(
-    Array.isArray(emp.scheduleWorkingDays) && emp.scheduleWorkingDays.length
-      ? emp.scheduleWorkingDays
-      : DEFAULT_WORKING_DAYS
-  );
-  const [saving, setSaving] = useState(false);
-
-  function toggleDay(d) {
-    setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
-  }
-
-  async function submit(e) {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await onSave({
-        scheduleStart: start,
-        scheduleEnd: end,
-        scheduleWorkingDays: WEEKDAYS.filter(d => days.includes(d)),
-      });
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <form className="kbrf-modal" style={{ maxWidth: 400 }} onSubmit={submit}>
-        <div className="kbrf-modal-hd">
-          <span>Work Schedule — {emp.name}</span>
-          <button type="button" className="kbrf-modal-close" onClick={onClose}>✕</button>
-        </div>
-        <p style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 0 }}>
-          Used to auto-flag late clock-ins in Attendance. Leave times blank to fall back to the default 10:00 rule.
-        </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-          <label style={{ flex: 1, display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
-            Start time
-            <input type="time" value={start} onChange={e => setStart(e.target.value)}
-              style={{ marginTop: 4, padding: "7px 10px", borderRadius: 8, border: "1.5px solid var(--line)" }} />
-          </label>
-          <label style={{ flex: 1, display: "flex", flexDirection: "column", fontSize: 12, fontWeight: 600 }}>
-            End time
-            <input type="time" value={end} onChange={e => setEnd(e.target.value)}
-              style={{ marginTop: 4, padding: "7px 10px", borderRadius: 8, border: "1.5px solid var(--line)" }} />
-          </label>
-        </div>
-        <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600 }}>Working days</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-          {WEEKDAYS.map(d => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => toggleDay(d)}
-              style={{
-                padding: "5px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                border: `1.5px solid ${days.includes(d) ? "var(--mint-deep)" : "var(--line)"}`,
-                background: days.includes(d) ? "var(--mint-soft)" : "var(--card)",
-                color: days.includes(d) ? "var(--mint-deep)" : "var(--ink-4)",
-              }}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-          <button type="submit" className="primary-button" disabled={saving}>
-            {saving ? "Saving…" : "Save Schedule"}
-          </button>
-          <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
 function Employees() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -308,7 +231,6 @@ function Employees() {
   const [submitting, setSubmitting] = useState(false);
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
-  const [scheduleEmp, setScheduleEmp] = useState(null);
 
   /* ── Payroll State ── */
   const [payroll, setPayroll] = useState([]);
@@ -497,15 +419,6 @@ function Employees() {
 
   async function toggleStatus(emp) {
     await updateDoc(doc(db, "employees", emp.id), { status: emp.status === "Active" ? "Inactive" : "Active" });
-    await loadData();
-  }
-
-  async function saveSchedule(empId, schedule) {
-    await updateDoc(doc(db, "employees", empId), {
-      ...schedule,
-      updatedBy: profile?.name || "Unknown",
-      updatedAt: serverTimestamp(),
-    });
     await loadData();
   }
 
@@ -797,6 +710,55 @@ function Employees() {
                       </div>
                     </div>
                   </div>
+                  {(() => {
+                    const days = (form.scheduleWorkingDays && form.scheduleWorkingDays.length ? form.scheduleWorkingDays : DEFAULT_WORKING_DAYS);
+                    const ovr = form.scheduleDayOverrides && typeof form.scheduleDayOverrides === "object" ? form.scheduleDayOverrides : {};
+                    const entries = WEEKDAYS.filter(d => ovr[d]).map(d => [d, ovr[d]]);
+                    const setOvr = next => setForm(f => ({ ...f, scheduleDayOverrides: next }));
+                    const patchEntry = (day, patch) => setOvr({ ...ovr, [day]: { ...ovr[day], ...patch } });
+                    const removeEntry = day => { const n = { ...ovr }; delete n[day]; setOvr(n); };
+                    const moveEntry = (from, to) => { const n = { ...ovr }; n[to] = n[from]; delete n[from]; setOvr(n); };
+                    const freeDay = WEEKDAYS.filter(d => days.includes(d) && !ovr[d])[0];
+                    return (
+                      <div style={{ marginTop: 14, borderTop: "1px dashed var(--line)", paddingTop: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>
+                          Day exceptions
+                          <span style={{ fontWeight: 400, color: "var(--ink-4)", fontSize: 11, marginLeft: 6 }}>— different hours on a specific day (e.g. Anmol on Tuesday)</span>
+                        </div>
+                        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                          {entries.map(([day, v]) => (
+                            <div key={day} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                              <label style={{ display: "flex", flexDirection: "column", fontSize: 11, fontWeight: 600 }}>
+                                Day
+                                <select value={day} onChange={e => moveEntry(day, e.target.value)} style={{ marginTop: 4 }}>
+                                  {WEEKDAYS.filter(d => days.includes(d) && (d === day || !ovr[d])).map(d => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                              </label>
+                              <label style={{ display: "flex", flexDirection: "column", fontSize: 11, fontWeight: 600 }}>
+                                Start
+                                <input type="time" value={v.start || ""} onChange={e => patchEntry(day, { start: e.target.value })} style={{ marginTop: 4 }} />
+                              </label>
+                              <label style={{ display: "flex", flexDirection: "column", fontSize: 11, fontWeight: 600 }}>
+                                End
+                                <input type="time" value={v.end || ""} onChange={e => patchEntry(day, { end: e.target.value })} style={{ marginTop: 4 }} />
+                              </label>
+                              <button type="button" className="ghost-button"
+                                style={{ padding: "4px 10px", fontSize: "0.8rem", color: "var(--terra)", borderColor: "rgba(211,47,47,0.35)" }}
+                                onClick={() => removeEntry(day)}>Remove</button>
+                            </div>
+                          ))}
+                          {freeDay ? (
+                            <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: "0.82rem", alignSelf: "flex-start" }}
+                              onClick={() => patchEntry(freeDay, { start: form.scheduleStart, end: form.scheduleEnd })}>
+                              + Add exception
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Every working day already has an exception.</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <label style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: 12 }}>
                   <input type="checkbox" checked={!!form.isProductionWorker}
@@ -889,6 +851,9 @@ function Employees() {
                             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.35 }}>
                               <span style={{ fontFamily: "monospace" }}>{s.time}</span>
                               <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>off: {s.off}</span>
+                              {s.exceptions.map(x => (
+                                <span key={x} style={{ fontSize: "10px", color: "var(--amber-deep)", fontFamily: "monospace" }}>{x}</span>
+                              ))}
                             </div>
                           ) : <span style={{ color: "var(--ink-5)" }}>—</span>;
                         })()}
@@ -909,9 +874,6 @@ function Employees() {
                             <>
                               <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
                                 onClick={() => startEdit(emp)}>Edit</button>
-                              <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
-                                title="Edit work schedule (start/end time & working days)"
-                                onClick={() => setScheduleEmp(emp)}>Schedule</button>
                               <button className="ghost-button"
                                 style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(230,81,0,0.35)" : "rgba(46,125,50,0.4)" }}
                                 onClick={() => toggleStatus(emp)}>
@@ -1217,14 +1179,6 @@ function Employees() {
         </>
       )}
 
-      {/* Schedule Modal */}
-      {scheduleEmp && canEdit && (
-        <ScheduleModal
-          emp={scheduleEmp}
-          onClose={() => setScheduleEmp(null)}
-          onSave={(schedule) => saveSchedule(scheduleEmp.id, schedule)}
-        />
-      )}
 
       {/* Salary Slip Modal */}
       {activeSalarySlip !== null && (

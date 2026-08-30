@@ -57,9 +57,9 @@ export const EMPLOYEE_SCHEDULES = {
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// Per-employee schedules edited from Employee Directory → Schedule and stored on the
-// employee doc. Populated at runtime by setEmployeeScheduleOverrides(); keyed by
-// lower-cased name. These take precedence over the hard-coded EMPLOYEE_SCHEDULES above.
+// Per-employee schedules edited from the Employee Directory (Edit → Work Schedule) and
+// stored on the employee doc. Populated at runtime by setEmployeeScheduleOverrides();
+// keyed by lower-cased name. These take precedence over the hard-coded EMPLOYEE_SCHEDULES.
 const runtimeSchedules = {};
 
 export function setEmployeeScheduleOverrides(employeeDocs = []) {
@@ -73,6 +73,9 @@ export function setEmployeeScheduleOverrides(employeeDocs = []) {
         workingDays: Array.isArray(emp.scheduleWorkingDays) && emp.scheduleWorkingDays.length
           ? emp.scheduleWorkingDays
           : null,
+        dayOverrides: emp.scheduleDayOverrides && typeof emp.scheduleDayOverrides === "object"
+          ? emp.scheduleDayOverrides // { Tue: { start, end } }
+          : null,
       };
     } else {
       delete runtimeSchedules[name];
@@ -85,8 +88,13 @@ export function getEmployeeScheduleForDate(employeeName, dateObj) {
 
   const override = runtimeSchedules[employeeName.trim().toLowerCase()];
   if (override) {
-    if (override.workingDays && !override.workingDays.includes(WEEKDAYS[dateObj.getDay()])) {
+    const dayName = WEEKDAYS[dateObj.getDay()];
+    if (override.workingDays && !override.workingDays.includes(dayName)) {
       return null; // scheduled day off — treat like the no-schedule default
+    }
+    const dayOvr = override.dayOverrides && override.dayOverrides[dayName];
+    if (dayOvr && (dayOvr.start || dayOvr.end)) {
+      return { start: dayOvr.start || override.start, end: dayOvr.end || override.end };
     }
     return { start: override.start, end: override.end };
   }
