@@ -1452,6 +1452,23 @@ function Finance() {
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      {(() => {
+                        const totalDr = data.rows.reduce((s, r) => s + Number(r.dr || 0), 0);
+                        const totalCr = data.rows.reduce((s, r) => s + Number(r.cr || 0), 0);
+                        return (
+                          <tr style={{ background: "var(--bg-2)", fontWeight: 700, borderTop: "2px solid var(--line)" }}>
+                            <td></td>
+                            <td style={{ fontWeight: 700 }}>Gross Total</td>
+                            <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>{roundAmount(totalDr).toLocaleString()}</td>
+                            <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>{roundAmount(totalCr).toLocaleString()}</td>
+                            <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: data.closingBalance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
+                              {roundAmount(data.closingBalance).toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })()}
+                    </tfoot>
                   </table>
                 </div>
               </div>
