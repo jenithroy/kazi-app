@@ -480,14 +480,18 @@ function Tasks() {
     Promise.all([loadColumns(), loadTasks(), loadCustomers(), loadAssignees()]).then(() => setLoading(false)).catch(console.error);
   }, []);
 
+  // Staff see only their own assigned tasks — unless they've been granted an
+  // explicit tasks permission (canEdit), which promotes them to the full board.
+  const ownTasksOnly = (role === "employee" || role === "nepal_staff") && !canEdit;
+
   const visibleTasks = useMemo(() => {
     let t = tasks;
-    if (role === "employee" || role === "nepal_staff") t = t.filter(x => x.assignee === profile?.name);
+    if (ownTasksOnly) t = t.filter(x => x.assignee === profile?.name);
     if (filter) t = t.filter(x => x.assignee === filter);
     if (catFilter) t = t.filter(x => x.category === catFilter);
     if (custFilter) t = t.filter(x => x.customer === custFilter);
     return t;
-  }, [tasks, filter, catFilter, custFilter, role, profile]);
+  }, [tasks, filter, catFilter, custFilter, ownTasksOnly, profile]);
 
   const byColumn = useMemo(() =>
     columns.reduce((acc, col) => { acc[col.label] = visibleTasks.filter(t => t.status === col.label); return acc; }, {}),
@@ -635,7 +639,7 @@ function Tasks() {
             <div className="kph" style={{ padding: "8px 0 12px" }}>
               <div>
                 <h2>Tasks</h2>
-                <p>{(role === "employee" || role === "nepal_staff") ? "Your assigned work" : "Team task board"}</p>
+                <p>{ownTasksOnly ? "Your assigned work" : "Team task board"}</p>
               </div>
               <div className="kph-a">
                 <button
