@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
+import { fetchAll } from "../lib/db";
 
 /**
  * useLeaderboard
  *
- * Reads the `user_points` collection once on mount.
- * Each doc has: { totalPoints, weeklyPoints, displayName }
+ * Reads user_points once on mount.
+ * Each row has: { id, totalPoints, weeklyPoints, displayName }
  * Returns:
  *   allTime  — [{uid, displayName, points, rank}, ...] sorted by totalPoints desc
  *   weekly   — [{uid, displayName, points, rank}, ...] sorted by weeklyPoints desc
@@ -21,12 +20,11 @@ export function useLeaderboard() {
     let active = true;
     async function load() {
       try {
-        const snap = await getDocs(collection(db, "user_points"));
+        const rows = await fetchAll("user_points");
         if (!active) return;
-        const rows = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
 
         const ranked = (sorted) =>
-          sorted.map((entry, i) => ({ ...entry, rank: i + 1 }));
+          sorted.map((entry, i) => ({ ...entry, uid: entry.id, rank: i + 1 }));
 
         setAllTime(ranked(
           [...rows].sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0))

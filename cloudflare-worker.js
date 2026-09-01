@@ -1,4 +1,9 @@
-// Cloudflare Worker: Meta Messenger & Nabil Bank Webhook with Firestore REST Integration
+// Cloudflare Worker: Meta Messenger & Nabil Bank Webhook (Supabase REST)
+//
+// NOTE: this file is not referenced by wrangler.jsonc (which deploys
+// worker/index.js) nor by bank-webhook-worker/wrangler.toml. Its bank half
+// duplicates bank-webhook-worker/src/index.js. Kept in step so no code here
+// still writes to Firestore, but it is a candidate for deletion.
 
 const MY_VERIFY_TOKEN = "kazi_messenger_verify_token";
 const PAGE_ACCESS_TOKEN = "EAAOIc42t2PYBRtZCtZA82ZBycZCrRGOBeFc7lYiOs3IESzCZB1zkKdDItOA5EPNKzbUlrjmyvKbVVt6nLpRqVoH4lYMExaHnVODZAe6WrR5oSyGzhCCzaKTQhwdsfzhZBSzzLxQ2HzbvDEtZBgw3ERKVCpJWI6ZCDQd04AQQRQGojLN9TnybZCDoATbyP5ZBuWAGvYA5u7MT2QZAddvSoxJ72Dxe6TUJ8NvyAujL5blEDMNIhbZBTRgg8w9MRv7mfgvSTeSIA0SaPZCraoD4lM9mbUtdvbBDsZD";
@@ -56,43 +61,32 @@ export default {
             return new Response("Internal Server Error: Missing server credentials", { status: 500 });
           }
 
-          // Exchange service account key for Google OAuth2 access token
-          let accessToken;
-          try {
-            accessToken = await getGoogleAccessToken(clientEmail, privateKey);
-          } catch (authErr) {
-            console.error("Failed to authenticate service account:", authErr.message);
-            return new Response("Internal Server Error: Database authentication failed", { status: 500 });
-          }
-
-          // Format document for Firestore REST API
-          const firestoreDoc = {
-            fields: {
-              date: { stringValue: String(date) },
-              type: { stringValue: String(type) },
-              amount: { doubleValue: Number(amount) },
-              balance: { doubleValue: Number(balance) },
-              remarks: { stringValue: String(remarks || "") },
-              timestamp: { timestampValue: String(timestamp) },
-              createdAt: { timestampValue: new Date().toISOString() }
-            }
+          // A plain row and a static key — no JWT signing or OAuth exchange.
+          const row = {
+            txn_date_text: String(date),
+            txn_at: new Date(timestamp).toISOString(),
+            // Constrained to exactly Credit/Debit; the bank's casing varies.
+            type: /^cr/i.test(String(type)) ? "Credit" : "Debit",
+            amount: Number(amount),
+            balance: Number(balance),
+            remarks: String(remarks || ""),
+            description: String(remarks || ""),
           };
 
-          const projectId = env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID;
-          const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/bank_transactions`;
-
-          const dbResponse = await fetch(firestoreUrl, {
+          const dbResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/bank_transactions`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${accessToken}`
+              apikey: env.SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              Prefer: "return=minimal",
             },
-            body: JSON.stringify(firestoreDoc)
+            body: JSON.stringify(row)
           });
 
           if (!dbResponse.ok) {
             const errorText = await dbResponse.text();
-            console.error("Firestore REST API Error response:", errorText);
+            console.error("Supabase REST error response:", errorText);
             return new Response("Internal Server Error: Database write failed", { status: 500 });
           }
 
@@ -122,34 +116,36 @@ export default {
               if (senderId && messageText) {
                 console.log(`Received message from ${senderId}: ${messageText}`);
 
-                const projectId = env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID;
-                const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/messages`;
-
-                const firestorePayload = {
-                  fields: {
-                    senderId: { stringValue: senderId },
-                    text: { stringValue: messageText },
-                    timestamp: { stringValue: new Date().toISOString() }
-                  }
+                // legacy_sender_id, not sender_id: the sender is a Meta psid,
+                // not a member of staff, and sender_id is a foreign key into
+                // people. thread_id groups the conversation.
+                const row = {
+                  legacy_sender_id: senderId,
+                  thread_id: senderId,
+                  text: messageText,
+                  sent_at: new Date().toISOString(),
                 };
 
                 try {
-                  const dbResponse = await fetch(firestoreUrl, {
+                  const dbResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/messages`, {
                     method: "POST",
                     headers: {
-                      "Content-Type": "application/json"
+                      "Content-Type": "application/json",
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                      Prefer: "return=minimal",
                     },
-                    body: JSON.stringify(firestorePayload)
+                    body: JSON.stringify(row)
                   });
 
                   if (!dbResponse.ok) {
                     const errorText = await dbResponse.text();
-                    console.error("Firestore REST API Error:", errorText);
+                    console.error("Supabase REST error:", errorText);
                   } else {
-                    console.log("Successfully saved message to Firestore.");
+                    console.log("Saved inbound message.");
                   }
                 } catch (dbErr) {
-                  console.error("Failed to connect to Firestore REST API:", dbErr.message);
+                  console.error("Failed to reach Supabase:", dbErr.message);
                 }
 
                 const accessToken = env.PAGE_ACCESS_TOKEN || PAGE_ACCESS_TOKEN;
@@ -196,96 +192,6 @@ export default {
   }
 };
 
-/**
- * Generates a Google OAuth2 access token for the datastore scope
- * using Web Crypto APIs to sign an RS256 JWT assertion.
- */
-async function getGoogleAccessToken(clientEmail, privateKey) {
-  const pemHeader = "-----BEGIN PRIVATE KEY-----";
-  const pemFooter = "-----END PRIVATE KEY-----";
-  const pemContents = privateKey
-    .replace(pemHeader, "")
-    .replace(pemFooter, "")
-    .replace(/\\n/g, "")
-    .replace(/\s/g, "");
-
-  const binaryDerString = atob(pemContents);
-  const binaryDer = new Uint8Array(binaryDerString.length);
-  for (let i = 0; i < binaryDerString.length; i++) {
-    binaryDer[i] = binaryDerString.charCodeAt(i);
-  }
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: { name: "SHA-256" }
-    },
-    false,
-    ["sign"]
-  );
-
-  const header = {
-    alg: "RS256",
-    typ: "JWT"
-  };
-
-  const now = Math.floor(Date.now() / 1000);
-  const claims = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/datastore",
-    aud: "https://oauth2.googleapis.com/token",
-    exp: now + 3600,
-    iat: now
-  };
-
-  const base64UrlEncode = (obj) => {
-    const str = JSON.stringify(obj);
-    const bytes = new TextEncoder().encode(str);
-    const binary = String.fromCharCode(...bytes);
-    return btoa(binary)
-      .replace(/=/g, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
-  };
-
-  const encodedHeader = base64UrlEncode(header);
-  const encodedClaims = base64UrlEncode(claims);
-  const tokenInput = `${encodedHeader}.${encodedClaims}`;
-
-  const inputBytes = new TextEncoder().encode(tokenInput);
-  const signatureBuffer = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    inputBytes
-  );
-
-  const signatureArray = new Uint8Array(signatureBuffer);
-  const signatureBinary = String.fromCharCode(...signatureArray);
-  const encodedSignature = btoa(signatureBinary)
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-
-  const jwt = `${tokenInput}.${encodedSignature}`;
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Google OAuth2 token exchange error: ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.access_token;
-}
+// The Google service-account JWT signing helper that used to live here is
+// gone with Firestore. Supabase authenticates with a static key, so there is
+// no token exchange to perform and no private key for this worker to hold.

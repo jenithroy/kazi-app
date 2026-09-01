@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { collection, getDocs } from "firebase/firestore";
+import { fetchAll } from "../lib/db";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { financeTabAllowed } from "../utils/permissions";
 import { GBP_RATE } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import {
   slugToFiscalYear, fiscalYearToSlug, fiscalYearDateRangeAD,
-  isDateInFiscalYear, parseFiscalYearLabel, fiscalYearLabel,
+  fiscalYearForDate, parseFiscalYearLabel,
 } from "../utils/fiscalYear";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -50,7 +49,11 @@ export default function FiscalYearTransactions() {
   const anyAccess = canExpenses || canPurchases || canPayroll || canJournal || canBank;
 
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState([]);
+  // Every transaction, tagged with the fiscal year it falls in. Holding all of
+  // them rather than only the year on screen is what lets the Prev/Next buttons
+  // know which years actually contain anything — and it means changing year is
+  // a re-filter rather than another six round trips.
+  const [allRows, setAllRows] = useState([]);
   const [typeFilter, setTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -59,63 +62,86 @@ export default function FiscalYearTransactions() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [expSnap, purSnap, payrollSnap, journalSnap, bankSnap, invSnap] = await Promise.all([
-        canExpenses ? getDocs(collection(db, "finance_expenses"))  : Promise.resolve({ docs: [] }),
-        canPurchases ? getDocs(collection(db, "finance_purchases")) : Promise.resolve({ docs: [] }),
-        canPayroll   ? getDocs(collection(db, "finance_payroll"))   : Promise.resolve({ docs: [] }),
-        canJournal   ? getDocs(collection(db, "journal_entries"))   : Promise.resolve({ docs: [] }),
-        canBank      ? getDocs(collection(db, "bank_transactions")) : Promise.resolve({ docs: [] }),
-        canPurchases || canJournal ? getDocs(collection(db, "invoices")) : Promise.resolve({ docs: [] }),
+      // The finance-tab checks below only decide what to bother fetching. RLS
+      // re-applies them server-side, so a tab someone cannot see returns
+      // nothing even if this list were wrong.
+      const [expRows, purRows, payrollRows, journalRows, bankRows, invRows] = await Promise.all([
+        canExpenses  ? fetchAll("finance_expenses")  : [],
+        canPurchases ? fetchAll("finance_purchases") : [],
+        canPayroll   ? fetchAll("finance_payroll")   : [],
+        canJournal   ? fetchAll("journal_entries")   : [],
+        canBank      ? fetchAll("bank_transactions") : [],
+        canPurchases || canJournal ? fetchAll("invoices") : [],
       ]);
       if (cancelled) return;
 
       const out = [];
+      // fy is null for a row with an unusable date; those are dropped, the
+      // same as before when they matched no year.
+      const push = (fy, row) => { if (fy) out.push({ ...row, fy }); };
 
-      expSnap.docs.forEach(d => {
-        const r = d.data();
-        if (!isDateInFiscalYear(r.date, fiscalYear)) return;
-        out.push({ id: `exp-${d.id}`, type: "Expense", date: r.date, description: `${r.category || "Expense"}${r.note ? " — " + r.note : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
+      expRows.forEach(r => {
+        push(fiscalYearForDate(r.date), { id: `exp-${r.id}`, type: "Expense", date: r.date, description: `${r.category || "Expense"}${r.note ? " — " + r.note : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
       });
 
-      purSnap.docs.filter(d => d.id !== "seed_marker").forEach(d => {
-        const r = d.data();
-        if (!isDateInFiscalYear(r.date, fiscalYear)) return;
-        out.push({ id: `pur-${d.id}`, type: "Purchase", date: r.date, description: `${r.expenseItem || r.expenseId || "Purchase"}${r.category ? " — " + r.category : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
+      purRows.forEach(r => {
+        push(fiscalYearForDate(r.date), { id: `pur-${r.id}`, type: "Purchase", date: r.date, description: `${r.expenseItem || r.expenseId || "Purchase"}${r.category ? " — " + r.category : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
       });
 
-      payrollSnap.docs.forEach(d => {
-        const r = d.data();
+      payrollRows.forEach(r => {
         const monthIdx = MONTHS.indexOf(r.month);
         const repDate = r.year && monthIdx >= 0 ? `${r.year}-${String(monthIdx + 1).padStart(2, "0")}-01` : null;
-        if (!isDateInFiscalYear(repDate, fiscalYear)) return;
-        out.push({ id: `pay-${d.id}`, type: "Payroll", date: repDate, description: `${r.staffName || "Staff"}${r.role ? " — " + r.role : ""} (${r.month} ${r.year})`, amountNPR: Number(r.grossNPR || r.netNPR || 0), sign: -1 });
+        push(repDate && fiscalYearForDate(repDate), { id: `pay-${r.id}`, type: "Payroll", date: repDate, description: `${r.staffName || "Staff"}${r.role ? " — " + r.role : ""} (${r.month} ${r.year})`, amountNPR: Number(r.grossNPR || r.netNPR || 0), sign: -1 });
       });
 
-      journalSnap.docs.forEach(d => {
-        const r = d.data();
-        if (!isDateInFiscalYear(r.date, fiscalYear)) return;
-        out.push({ id: `jnl-${d.id}`, type: "Journal", date: r.date, description: `${r.description || "Journal entry"} (Dr ${r.debitAccount} / Cr ${r.creditAccount})`, amountNPR: Number(r.amountNPR || 0), sign: 0 });
+      journalRows.forEach(r => {
+        push(fiscalYearForDate(r.date), { id: `jnl-${r.id}`, type: "Journal", date: r.date, description: `${r.description || "Journal entry"} (Dr ${r.debitAccount} / Cr ${r.creditAccount})`, amountNPR: Number(r.amountNPR || 0), sign: 0 });
       });
 
-      bankSnap.docs.forEach(d => {
-        const r = d.data();
-        if (!isDateInFiscalYear(r.date, fiscalYear)) return;
-        out.push({ id: `bnk-${d.id}`, type: "Bank", date: r.date, description: r.description || "Bank transaction", amountNPR: Number(r.amountNPR || 0), sign: r.type === "credit" ? 1 : -1 });
+      bankRows.forEach(r => {
+        // The view calls the column "amount", and the stored type is capitalised
+        // ("Credit"/"Debit") — comparing against "credit" made every
+        // transaction an outflow of zero.
+        push(fiscalYearForDate(r.date), { id: `bnk-${r.id}`, type: "Bank", date: r.date, description: r.description || "Bank transaction", amountNPR: Number(r.amount ?? 0), sign: String(r.type || "").toLowerCase() === "credit" ? 1 : -1 });
       });
 
-      invSnap.docs.forEach(d => {
-        const r = d.data();
-        if (r.status !== "Paid" || !isDateInFiscalYear(r.date, fiscalYear)) return;
+      invRows.forEach(r => {
+        if (r.status !== "Paid") return;
         const val = Number(r.totalNPR || 0);
         const amt = r.currency === "GBP" ? val * GBP_RATE : val;
-        out.push({ id: `inv-${d.id}`, type: "Sales", date: r.date, description: `${r.clientName || ""}${r.invoiceNumber ? " — " + r.invoiceNumber : ""}`, amountNPR: amt, sign: 1 });
+        push(fiscalYearForDate(r.date), { id: `inv-${r.id}`, type: "Sales", date: r.date, description: `${r.clientName || ""}${r.invoiceNumber ? " — " + r.invoiceNumber : ""}`, amountNPR: amt, sign: 1 });
       });
 
       out.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      if (!cancelled) { setRows(out); setLoading(false); }
+      if (!cancelled) { setAllRows(out); setLoading(false); }
     })().catch(err => { console.error(err); if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [fiscalYear, anyAccess, canExpenses, canPurchases, canPayroll, canJournal, canBank]);
+    // Deliberately not keyed on fiscalYear — the data covers every year, so
+    // switching year filters what we already have.
+  }, [anyAccess, canExpenses, canPurchases, canPayroll, canJournal, canBank]);
+
+  const rows = useMemo(() => allRows.filter(r => r.fy === fiscalYear), [allRows, fiscalYear]);
+
+  /**
+   * Fiscal years that actually contain something, oldest first.
+   *
+   * The current year is always included even when empty: it is where a first
+   * transaction will land, so refusing to show it would be strange, and it
+   * keeps the page navigable when the books are brand new.
+   */
+  const yearsWithData = useMemo(() => {
+    const years = new Set(allRows.map(r => r.fy));
+    years.add(fiscalYear);
+    return [...years].sort((a, b) => parseFiscalYearLabel(a).startYear - parseFiscalYearLabel(b).startYear);
+  }, [allRows, fiscalYear]);
+
+  // The next populated year in each direction, or null when there is none.
+  // Stepping to the neighbouring year would strand you on an empty page, and
+  // skipping to the nearest one with records means a gap in the books does not
+  // cut off everything behind it.
+  const here = yearsWithData.indexOf(fiscalYear);
+  const prevYear = here > 0 ? yearsWithData[here - 1] : null;
+  const nextYear = here >= 0 && here < yearsWithData.length - 1 ? yearsWithData[here + 1] : null;
 
   const filtered = useMemo(() => {
     let list = rows;
@@ -133,9 +159,9 @@ export default function FiscalYearTransactions() {
     return { byType, inflow, outflow, net: inflow - outflow };
   }, [rows]);
 
-  function gotoYear(delta) {
-    const { startYear } = parseFiscalYearLabel(fiscalYear);
-    navigate(`/finance/${fiscalYearToSlug(fiscalYearLabel(startYear + delta))}`);
+  function gotoYear(label) {
+    if (!label) return;
+    navigate(`/finance/${fiscalYearToSlug(label)}`);
   }
 
   const types = ["Expense", "Purchase", "Payroll", "Journal", "Bank", "Sales"].filter(t => rows.some(r => r.type === t));
@@ -151,8 +177,27 @@ export default function FiscalYearTransactions() {
         description={`${fyRange.startAD} to ${fyRange.endAD} (B.S. Shrawan 1 – Ashar end)`}
         action={
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="ghost-button" style={{ padding: "6px 12px" }} onClick={() => gotoYear(-1)}>← Prev Year</button>
-            <button className="ghost-button" style={{ padding: "6px 12px" }} onClick={() => gotoYear(1)}>Next Year →</button>
+            {/* Disabled, with the reason in the tooltip, rather than hidden —
+                a control that vanishes reads as a bug, and the title explains
+                that there is simply nothing recorded further back or forward. */}
+            <button
+              className="ghost-button"
+              style={{ padding: "6px 12px" }}
+              disabled={loading || !prevYear}
+              title={prevYear ? `Go to FY ${prevYear}` : "No earlier transactions recorded"}
+              onClick={() => gotoYear(prevYear)}
+            >
+              ← {prevYear ? `FY ${prevYear}` : "Prev Year"}
+            </button>
+            <button
+              className="ghost-button"
+              style={{ padding: "6px 12px" }}
+              disabled={loading || !nextYear}
+              title={nextYear ? `Go to FY ${nextYear}` : "No later transactions recorded"}
+              onClick={() => gotoYear(nextYear)}
+            >
+              {nextYear ? `FY ${nextYear}` : "Next Year"} →
+            </button>
           </div>
         }
       />

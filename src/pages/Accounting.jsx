@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc, collection, getDocs, serverTimestamp
-} from "firebase/firestore";
+import { fetchAll, insertRow } from "../lib/db";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip
 } from "recharts";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { asCurrency } from "../utils/format";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
@@ -63,26 +60,25 @@ function Accounting() {
   const [invoices, setInvoices] = useState([]);
 
   async function loadData() {
-    const [entriesSnap, accountsSnap, expSnap, purSnap, paySnap, invSnap] = await Promise.all([
-      getDocs(collection(db, "journal_entries")),
-      getDocs(collection(db, "accounts")),
-      getDocs(collection(db, "finance_expenses")),
-      getDocs(collection(db, "finance_purchases")),
-      getDocs(collection(db, "finance_payroll")),
-      getDocs(collection(db, "invoices")),
+    const [entryRowsAll, accountRows, expRows, purRows, payRows, invRows] = await Promise.all([
+      fetchAll("journal_entries"),
+      fetchAll("accounts"),
+      fetchAll("finance_expenses"),
+      fetchAll("finance_purchases"),
+      fetchAll("finance_payroll"),
+      fetchAll("invoices"),
     ]);
 
-    const entryRows = entriesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => createdAfterCutoff(r));
+    const entryRows = entryRowsAll.filter(r => createdAfterCutoff(r));
     entryRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setEntries(entryRows);
 
-    let accs = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let accs = accountRows;
     if (accs.length === 0) {
       for (const acc of DEFAULT_ACCOUNTS) {
-        await addDoc(collection(db, "accounts"), { ...acc, createdAt: serverTimestamp() });
+        await insertRow("accounts", acc);
       }
-      const freshSnap = await getDocs(collection(db, "accounts"));
-      accs = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      accs = await fetchAll("accounts");
     }
     // Deduplicate by name — keep first occurrence per name
     const seen = new Set();
@@ -90,10 +86,10 @@ function Accounting() {
     accs.sort((a, b) => a.name.localeCompare(b.name));
     setAccounts(accs);
 
-    setExpenses(expSnap.docs.map(d => d.data()));
-    setPurchases(purSnap.docs.map(d => d.data()).filter(d => d.expenseId).filter(d => createdAfterCutoff(d)));
-    setPayroll(paySnap.docs.map(d => d.data()));
-    setInvoices(invSnap.docs.map(d => d.data()));
+    setExpenses(expRows);
+    setPurchases(purRows.filter(d => d.expenseId).filter(d => createdAfterCutoff(d)));
+    setPayroll(payRows);
+    setInvoices(invRows);
   }
 
   useEffect(() => { loadData().catch(console.error); }, []);
@@ -105,11 +101,10 @@ function Accounting() {
       return;
     }
     setSubmitting(true);
-    await addDoc(collection(db, "journal_entries"), {
+    await insertRow("journal_entries", {
       ...form,
       amountNPR: Number(form.amountNPR),
       createdBy: profile?.name || "Unknown",
-      createdAt: serverTimestamp()
     });
     setForm(emptyForm);
     await loadData();

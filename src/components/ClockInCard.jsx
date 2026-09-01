@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { addDoc, collection, deleteField, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
-import { db } from "../firebase";
+import { fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus, setEmployeeScheduleOverrides } from "../constants";
-import { todayDate, isSaturday } from "../utils/date";
+import { todayDate, isSaturday, tsDate } from "../utils/date";
 import { Icons, Btn, Card, Pill } from "./ui";
 import { awardPoints } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
@@ -24,7 +23,10 @@ function fmtElapsed(ms) {
 export default function ClockInCard({ profile, onClockChange }) {
   const today = todayDate();
   const isOfficeClosedToday = isSaturday(today);
-  const staffId = profile?.uid || profile?.id || "";
+  // Attendance and clock-ins are keyed by the person's row in `people`, not by
+  // the Firebase uid they happened to sign in with — someone can now arrive
+  // through either provider and must land on the same attendance record.
+  const personId = profile?.personId || "";
   const { showPointsToast } = useReward();
 
   const [status, setStatus] = useState("checking_status"); // checking_status, idle, locating, success, far, low-accuracy, gps-error, clocked, clocked_out
@@ -47,33 +49,30 @@ export default function ClockInCard({ profile, onClockChange }) {
   // Load per-employee work schedules so the late-arrival calc on clock-in
   // respects times edited in Employee Directory → Schedule.
   useEffect(() => {
-    getDocs(collection(db, "employees"))
-      .then(snap => setEmployeeScheduleOverrides(snap.docs.map(d => d.data())))
+    fetchAll("employees")
+      .then(setEmployeeScheduleOverrides)
       .catch(err => console.warn("Could not load employee schedules:", err));
   }, []);
 
   // Fetch initial clock-in status
   useEffect(() => {
     async function checkCurrentStatus() {
-      if (!staffId) return;
+      if (!personId) return;
       try {
-        const snap = await getDocs(query(
-          collection(db, "clock_ins"),
-          where("staffId", "==", staffId),
-          where("date", "==", today)
-        ));
-        if (!snap.empty) {
-          const docData = snap.docs[0].data();
-          const docId = snap.docs[0].id;
-          setClockInDocId(docId);
+        const rows = await fetchAll("clock_ins", {
+          filters: [{ field: "person_id", value: personId }, { field: "date", value: today }],
+        });
+        if (rows.length) {
+          const docData = rows[0];
+          setClockInDocId(docData.id);
           setClockDist(docData.distanceToSiteM ?? null);
 
-          const inDate = docData.clockedInAt?.toDate ? docData.clockedInAt.toDate() : null;
+          const inDate = tsDate(docData.clockedInAt);
           setClockInDate(inDate);
           setClockedAtStr(inDate ? fmtHM(inDate) : "earlier");
 
           if (docData.clockedOutAt) {
-            const outDate = docData.clockedOutAt.toDate ? docData.clockedOutAt.toDate() : null;
+            const outDate = tsDate(docData.clockedOutAt);
             setClockedOutAtStr(outDate ? fmtHM(outDate) : "earlier");
             setWorkedHours(inDate && outDate ? hoursBetween(inDate, outDate) : null);
             setStatus("clocked_out");
@@ -89,7 +88,7 @@ export default function ClockInCard({ profile, onClockChange }) {
       }
     }
     checkCurrentStatus();
-  }, [staffId, today]);
+  }, [personId, today]);
 
   const RADIUS = GEOFENCE_RADIUS_M;
   const ringPct = clockDist == null ? 0 : Math.max(0, Math.min(100, (1 - clockDist / RADIUS) * 100));
@@ -125,33 +124,31 @@ export default function ClockInCard({ profile, onClockChange }) {
     try {
       setStatus("saving");
       // Double check to prevent duplicates
-      const existing = await getDocs(query(
-        collection(db, "clock_ins"),
-        where("staffId", "==", staffId),
-        where("date", "==", today)
-      ));
-      
+      const existing = await fetchAll("clock_ins", {
+        filters: [{ field: "person_id", value: personId }, { field: "date", value: today }],
+      });
+
       let docId = clockInDocId;
-      if (existing.empty) {
+      if (!existing.length) {
         const clockData = {
-          staffId,
+          person_id: personId,
           staffName: profile?.name || "Unknown",
-          role: profile?.jobRole || profile?.role || "",
+          role: profile?.positionLabel || "",
           date: today,
           lat: clockCoords?.lat ?? null,
           lng: clockCoords?.lng ?? null,
           accuracyM: clockCoords?.accuracy ?? null,
           distanceToSiteM: isBypass ? (clockDist ?? null) : clockDist,
-          clockedInAt: serverTimestamp(),
+          clockedInAt: new Date().toISOString(),
         };
         if (isBypass) {
           clockData.bypassUsed = true;
         }
-        const clockRef = await addDoc(collection(db, "clock_ins"), clockData);
-        docId = clockRef.id;
+        const saved = await insertRow("clock_ins", clockData);
+        docId = saved.id;
         setClockInDocId(docId);
       } else {
-        docId = existing.docs[0].id;
+        docId = existing[0].id;
         setClockInDocId(docId);
       }
 
@@ -159,20 +156,21 @@ export default function ClockInCard({ profile, onClockChange }) {
       const now = new Date();
       const statusCalc = calculateAttendanceStatus(profile?.name || "", now);
       
-      const attRef = doc(db, "attendance", `${today}_${staffId}`);
-      await setDoc(attRef, {
+      // One attendance row per person per day — enforced by a unique
+      // constraint rather than by naming the document, so a second clock-in
+      // updates today's row instead of creating a duplicate.
+      await upsertRow("attendance", {
         date: today,
-        staffId,
+        person_id: personId,
         staffName: profile?.name || "Unknown",
-        role: profile?.jobRole || profile?.role || "",
+        role: profile?.positionLabel || "",
         status: statusCalc.status,
         hours: 8,
         note: isBypass ? "GPS clock-in (low-accuracy bypass)" : "GPS clock-in",
         loggedBy: "GPS",
-        createdAt: serverTimestamp(),
         lateCutApplied: statusCalc.lateCutApplied,
         lateMinutes: statusCalc.lateMinutes,
-      }, { merge: true });
+      }, ["person_id", "date"]);
 
       setClockedAtStr(fmtHM(now));
       setClockInDate(now);
@@ -182,12 +180,12 @@ export default function ClockInCard({ profile, onClockChange }) {
       hapticSuccess();
 
       // Award attendance points if clocked in on time
-      if (statusCalc.status === "Present" && staffId) {
+      if (statusCalc.status === "Present" && personId) {
         const pts = await awardPoints({
-          uid: staffId,
+          uid: personId,
           displayName: profile?.name || "",
           eventType: "attendance_present",
-          sourceId: staffId + "_" + today,
+          sourceId: personId + "_" + today,
           reason: "On-time attendance",
         });
         if (pts) showPointsToast(pts, "On-time attendance");
@@ -208,17 +206,18 @@ export default function ClockInCard({ profile, onClockChange }) {
       const now = new Date();
       const hours = clockInDate ? hoursBetween(clockInDate, now) : null;
 
-      await setDoc(doc(db, "clock_ins", clockInDocId), {
-        clockedOutAt: serverTimestamp(),
+      await updateRow("clock_ins", clockInDocId, {
+        clockedOutAt: new Date().toISOString(),
         ...(hours != null ? { workedHours: hours } : {}),
-      }, { merge: true });
+      });
 
       // Record actual worked hours on the attendance row
-      const attRef = doc(db, "attendance", `${today}_${staffId}`);
-      await setDoc(attRef, {
+      await upsertRow("attendance", {
+        date: today,
+        person_id: personId,
         note: "GPS clock-in & out",
         ...(hours != null ? { hours } : {}),
-      }, { merge: true });
+      }, ["person_id", "date"]);
 
       setClockedOutAtStr(fmtHM(now));
       setWorkedHours(hours);
@@ -236,13 +235,20 @@ export default function ClockInCard({ profile, onClockChange }) {
     if (!clockInDocId) return;
     try {
       setStatus("saving");
-      await setDoc(doc(db, "clock_ins", clockInDocId), {
+      // Clearing a column is just setting it null here — no deleteField()
+      // sentinel, because the column exists whether or not it holds a value.
+      await updateRow("clock_ins", clockInDocId, {
         clockedOutAt: null,
-        workedHours: deleteField(),
-      }, { merge: true });
+        workedHours: null,
+      });
       // Revert the attendance row to the clocked-in default so reports don't
       // keep the shortened worked-hours figure while the day is still running.
-      await setDoc(doc(db, "attendance", `${today}_${staffId}`), { note: "GPS clock-in", hours: 8 }, { merge: true });
+      await upsertRow("attendance", {
+        date: today,
+        person_id: personId,
+        note: "GPS clock-in",
+        hours: 8,
+      }, ["person_id", "date"]);
       setClockedOutAtStr(null);
       setWorkedHours(null);
       setStatus("clocked");

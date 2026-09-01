@@ -2,5 +2,8 @@ name = "bank-webhook-worker"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
+# SUPABASE_URL is not a secret; the service key is.
+# Set it with:  wrangler secret put SUPABASE_SERVICE_KEY
+#               wrangler secret put WEBHOOK_SECRET_KEY
 [vars]
-FIREBASE_PROJECT_ID = "kazi-manufacturing"
+SUPABASE_URL = "https://ydaoyjacqcmxpgpwrgwt.supabase.co"

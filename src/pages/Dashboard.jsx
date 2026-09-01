@@ -1,11 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
-import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
-import { db } from "../firebase";
-import { loadCollections } from "../utils/firestore";
+import { deleteRow, fetchAll, fetchOne, loadCollections, subscribe, updateRow, upsertRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
-import { todayDate, startOfWeekDate } from "../utils/date";
+import { todayDate, startOfWeekDate, tsMillis } from "../utils/date";
 import { roundAmount } from "../utils/format";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
@@ -179,24 +177,23 @@ function ActiveOrdersRow({ orders = [] }) {
   const [assignments, setAssignments] = useState({});
 
   useEffect(() => {
-    const q = query(
-      collection(db, "order_assignments"),
-      where("status", "in", ["pending", "accepted", "in_progress"])
-    );
-    const unsub = onSnapshot(q, snap => {
+    async function load() {
       try {
+        const rows = await fetchAll("order_assignments", {
+          filters: [{ field: "status", op: "in", value: ["pending", "accepted", "in_progress"] }],
+        });
         const map = {};
-        snap.docs.forEach(d => {
-          const a = { id: d.id, ...d.data() };
+        rows.forEach(a => {
           // keep the most recent assignment per order
-          if (!map[a.orderId] || (a.assignedAt?.seconds || 0) > (map[a.orderId].assignedAt?.seconds || 0)) {
+          if (!map[a.orderId] || tsMillis(a.assignedAt) > tsMillis(map[a.orderId].assignedAt)) {
             map[a.orderId] = a;
           }
         });
         setAssignments(map);
-      } catch (_) { /* non-critical */ }
-    }, () => { /* ignore permission errors */ });
-    return unsub;
+      } catch (_) { /* non-critical — the row still renders without it */ }
+    }
+    load();
+    return subscribe("order_assignments", load);
   }, []);
 
   if (orders.length === 0) return null;
@@ -264,34 +261,35 @@ function DispatchQueueCard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(
-      collection(db, "order_assignments"),
-      where("status", "in", ["pending", "accepted", "in_progress", "timed_out"])
-    );
-    const unsub = onSnapshot(q, snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort: timed_out first, then pending, then active
-      data.sort((a, b) => {
-        const order = { timed_out: 0, pending: 1, accepted: 2, in_progress: 3 };
-        return (order[a.status] ?? 9) - (order[b.status] ?? 9);
-      });
-      setAssignments(data);
-      setLoading(false);
-    }, () => { setLoading(false); /* ignore permission errors */ });
-    return unsub;
+    async function load() {
+      try {
+        const data = await fetchAll("order_assignments", {
+          filters: [{ field: "status", op: "in", value: ["pending", "accepted", "in_progress", "timed_out"] }],
+        });
+        // Sort: timed_out first, then pending, then active
+        data.sort((a, b) => {
+          const order = { timed_out: 0, pending: 1, accepted: 2, in_progress: 3 };
+          return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+        });
+        setAssignments(data);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load().catch(() => setLoading(false));
+    return subscribe("order_assignments", () => load().catch(() => {}));
   }, []);
 
   function timeSince(ts) {
     if (!ts) return "—";
-    const secs = ts.seconds ? ts.seconds : Math.floor(new Date(ts).getTime() / 1000);
-    const diff = Math.floor(Date.now() / 1000) - secs;
+    const diff = Math.floor((Date.now() - tsMillis(ts)) / 1000);
     if (diff < 60) return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
-  const sorted = assignments; // already sorted by onSnapshot handler
+  const sorted = assignments; // already sorted by the loader above
 
   function statusPill(status) {
     if (status === "timed_out")  return <Pill tone="terra">⚠️ Timed out</Pill>;
@@ -342,17 +340,15 @@ function ProductPnLCard({ canEdit }) {
   // Load from Firestore; seed from constants if empty
   useEffect(() => {
     async function load() {
-      const snap = await getDocs(collection(db, "product_costs"));
-      if (snap.empty) {
+      // product_costs is keyed by `code`, not a generated id.
+      const rows = await fetchAll("product_costs");
+      if (rows.length === 0) {
         // First load — seed from constants
-        const batch = [];
-        for (const p of PRODUCT_COSTS) {
-          batch.push(setDoc(doc(db, "product_costs", p.code), { ...p, updatedAt: new Date().toISOString() }));
-        }
-        await Promise.all(batch);
+        await Promise.all(PRODUCT_COSTS.map(p =>
+          upsertRow("product_costs", { ...p, updatedAt: new Date().toISOString() }, ["code"])));
         setProducts(PRODUCT_COSTS.map(p => ({ id: p.code, ...p })));
       } else {
-        setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.code.localeCompare(b.code)));
+        setProducts([...rows].sort((a, b) => a.code.localeCompare(b.code)));
       }
       setLoading(false);
     }
@@ -370,7 +366,7 @@ function ProductPnLCard({ canEdit }) {
     const total = computedTotal(form);
     const data = { ...form, total, updatedAt: new Date().toISOString() };
     COST_COLS.forEach(c => { data[c] = Number(data[c]) || 0; });
-    await setDoc(doc(db, "product_costs", form.code.trim()), data);
+    await upsertRow("product_costs", { ...data, code: form.code.trim() }, ["code"]);
     setProducts(prev => {
       const exists = prev.find(p => p.id === form.code.trim());
       const updated = { id: form.code.trim(), ...data };
@@ -385,8 +381,7 @@ function ProductPnLCard({ canEdit }) {
 
   async function handleDelete(id) {
     if (!window.confirm(`Delete ${id}?`)) return;
-    const { deleteDoc } = await import("firebase/firestore");
-    await deleteDoc(doc(db, "product_costs", id));
+    await deleteRow("product_costs", id);
     setProducts(prev => prev.filter(p => p.id !== id));
   }
 
@@ -491,14 +486,15 @@ function getLevel(pts) {
 
 function MyPointsCard({ profile }) {
   const [pts, setPts] = useState(null);
-  const uid = profile?.uid;
+  // Points are filed against the person, not the sign-in account.
+  const personId = profile?.personId;
 
   useEffect(() => {
-    if (!uid) return;
-    getDoc(doc(db, "user_points", uid)).then(snap => {
-      if (snap.exists()) setPts(snap.data());
-    });
-  }, [uid]);
+    if (!personId) return;
+    fetchAll("user_points", { filters: [{ field: "personId", value: personId }] })
+      .then(rows => { if (rows[0]) setPts(rows[0]); })
+      .catch(() => { /* rewards are optional — never block the dashboard */ });
+  }, [personId]);
 
   const total   = pts?.totalPoints  || 0;
   const weekly  = pts?.weeklyPoints || 0;
@@ -545,14 +541,14 @@ function TeamPointsCard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getDocs(collection(db, "user_points")).then(snap => {
-      const data = snap.docs
-        .map(d => ({ uid: d.id, ...d.data() }))
-        .filter(e => e.displayName)
-        .sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
-      setEntries(data);
-      setLoading(false);
-    });
+    fetchAll("user_points")
+      .then(rows => {
+        setEntries(rows
+          .filter(e => e.displayName)
+          .sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0)));
+      })
+      .catch(() => { /* rewards are off by default — show an empty board */ })
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -765,12 +761,13 @@ function NepalAdminDash() {
 
   // Live listeners to trigger reload on database changes
   useEffect(() => {
-    const unsubPayroll = onSnapshot(collection(db, "finance_payroll"), () => setTrigger(t => t + 1));
-    const unsubExpenses = onSnapshot(collection(db, "finance_expenses"), () => setTrigger(t => t + 1));
-    const unsubPurchases = onSnapshot(collection(db, "finance_purchases"), () => setTrigger(t => t + 1));
-    const unsubEmployees = onSnapshot(collection(db, "employees"), () => setTrigger(t => t + 1));
-    const unsubOrders = onSnapshot(collection(db, "orders"), () => setTrigger(t => t + 1));
-    const unsubInvoices = onSnapshot(collection(db, "invoices"), () => setTrigger(t => t + 1));
+    const bump = () => setTrigger(t => t + 1);
+    const unsubPayroll = subscribe("finance_payroll", bump);
+    const unsubExpenses = subscribe("finance_expenses", bump);
+    const unsubPurchases = subscribe("finance_purchases", bump);
+    const unsubEmployees = subscribe("employees", bump);
+    const unsubOrders = subscribe("orders", bump);
+    const unsubInvoices = subscribe("invoices", bump);
     return () => {
       unsubPayroll();
       unsubExpenses();
@@ -1092,32 +1089,30 @@ function UKAdminDash() {
     async function load() {
       const today = todayDate();
 
-      const results = await Promise.allSettled([
-        getDocs(collection(db, "invoices")),
-        getDocs(collection(db, "orders")),
-        getDocs(collection(db, "qc_logs")),
-        getDocs(collection(db, "attendance")),
-        getDocs(collection(db, "budget_requests")),
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "finance_payroll")),
-        getDocs(collection(db, "order_costs")),
-        getDocs(collection(db, "tasks")),
-        getDocs(collection(db, "inventory")),
-        getDocs(collection(db, "employees")),
-      ]);
-      const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-      const [invoicesSnap, ordersSnap, qcSnap, attSnap, budgetSnap, usersSnap, payrollSnap, costsSnap, tasksSnap, inventorySnap, employeesSnap] = results.map(docs);
+      // A collection this position cannot read comes back empty rather than
+      // throwing, so one restricted panel never blanks the whole dashboard.
+      const {
+        invoices, orders, qcLogs, attendance, budgetRequests,
+        users, payroll: payrollSnap, orderCosts: costsSnap,
+        tasks: tasksSnap, inventory: inventorySnap, employees: employeesSnap,
+      } = await loadCollections({
+        invoices: "invoices",
+        orders: "orders",
+        qcLogs: "qc_logs",
+        attendance: "attendance",
+        budgetRequests: "budget_requests",
+        users: "users",
+        payroll: "finance_payroll",
+        orderCosts: "order_costs",
+        tasks: "tasks",
+        inventory: "inventory",
+        employees: "employees",
+      });
 
-      const totalStaff = usersSnap.filter(d => {
-        const r = d.data().role;
-        return ["nepal_admin","employee","nepal_staff"].includes(r);
-      }).length || 7;
-
-      const invoices = invoicesSnap.map(d => ({ id: d.id, ...d.data() }));
-      const orders = ordersSnap.map(d => ({ id: d.id, ...d.data() }));
-      const qcLogs = qcSnap.map(d => d.data());
-      const attendance = attSnap.map(d => d.data());
-      const budgetRequests = budgetSnap.map(d => ({ id: d.id, ...d.data() }));
+      // Headcount is now just the active roster — the old filter tested a
+      // per-user `role` string that no longer exists, since access comes
+      // from the person’s position.
+      const totalStaff = users.filter(u => u.status !== "Inactive").length || 7;
 
       const thisMonth = new Date().toISOString().slice(0, 7);
       const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -1137,14 +1132,14 @@ function UKAdminDash() {
 
       // Payroll — current month first, then employee base salaries as estimate
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      const payrollData = payrollSnap.map(d => d.data());
+      const payrollData = payrollSnap;
       const curMonthName = MONTH_NAMES[new Date().getMonth()];
       const curYear = new Date().getFullYear();
       let payrollRecs = payrollData.filter(p => p.month === curMonthName && Number(p.year) === curYear);
       const payrollIsEstimate = payrollRecs.length === 0;
 
       // Estimated profit from order_costs
-      const orderCostsData = costsSnap.map(d => d.data());
+      const orderCostsData = costsSnap;
       const totalCostNPR = orderCostsData.reduce((s, c) => s + Number(c.material || 0) + Number(c.labour || 0) + Number(c.overhead || 0) + Number(c.shipping || 0), 0);
       const totalRevAllNPR = orders.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
       const estProfitNPR = totalRevAllNPR - totalCostNPR;
@@ -1179,13 +1174,13 @@ function UKAdminDash() {
       ];
 
       const payrollNPR = payrollIsEstimate
-        ? employeesSnap.map(d => d.data()).filter(e => e.status === "Active").reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0)
+        ? employeesSnap.filter(e => e.status === "Active").reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0)
         : payrollRecs.reduce((s, p) => s + Number(p.grossNPR || p.netNPR || p.amountNPR || p.amount || 0), 0);
       const salesTarget = getSalesTargetInfo(invoices);
 
       // Ops alerts
-      const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
-      const inventory = inventorySnap.map(d => ({ id: d.id, ...d.data() }));
+      const tasks = tasksSnap;
+      const inventory = inventorySnap;
       const overdueInvoices = invoices.filter(inv => inv.dueDate && inv.dueDate < today && inv.status !== "Paid" && inv.status !== "Cancelled");
       const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
       const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
@@ -1213,10 +1208,11 @@ function UKAdminDash() {
 
   // Live listeners to trigger reload on database changes
   useEffect(() => {
-    const unsubPayroll = onSnapshot(collection(db, "finance_payroll"), () => setTrigger(t => t + 1));
-    const unsubInvoices = onSnapshot(collection(db, "invoices"), () => setTrigger(t => t + 1));
-    const unsubOrders = onSnapshot(collection(db, "orders"), () => setTrigger(t => t + 1));
-    const unsubEmployees = onSnapshot(collection(db, "employees"), () => setTrigger(t => t + 1));
+    const bump = () => setTrigger(t => t + 1);
+    const unsubPayroll = subscribe("finance_payroll", bump);
+    const unsubInvoices = subscribe("invoices", bump);
+    const unsubOrders = subscribe("orders", bump);
+    const unsubEmployees = subscribe("employees", bump);
     return () => {
       unsubPayroll();
       unsubInvoices();
@@ -1425,9 +1421,9 @@ function BudgetApprovalCard({ br }) {
   async function handleDecision(decision) {
     setSaving(true);
     try {
-      await updateDoc(doc(db, "budget_requests", br.id), {
+      await updateRow("budget_requests", br.id, {
         status: decision === "approved" ? "Approved" : "Rejected",
-        reviewedAt: serverTimestamp(),
+        reviewedAt: new Date().toISOString(),
       });
       setState(decision);
     } catch (err) {
@@ -1478,22 +1474,23 @@ function EmployeeDash() {
   async function load() {
     const today = todayDate();
     const name = profile?.name || "";
-    const results = await Promise.allSettled([
-      getDocs(query(collection(db, "attendance"), where("date", "==", today))),
-      getDocs(collection(db, "tasks")),
-      getDocs(collection(db, "invoices")),
-    ]);
-    const docs = (r) => r.status === "fulfilled" ? r.value.docs : [];
-    const [attSnap, tasksSnap, invoicesSnap] = results.map(docs);
-    const myRecord = attSnap.map(d => d.data()).find(r => r.staffName === name);
-    const tasks = tasksSnap.map(d => ({ id: d.id, ...d.data() }));
+    const { todayAtt, tasks, invoices } = await loadCollections({
+      todayAtt: { collection: "attendance", filters: [{ field: "date", value: today }] },
+      tasks: "tasks",
+      invoices: "invoices",
+    });
+    const myRecord = todayAtt.find(r => r.staffName === name);
     const myTasks = tasks.filter(t => (t.assignee || "").toLowerCase() === name.toLowerCase());
-    const invoices = invoicesSnap.map(d => ({ id: d.id, ...d.data() }));
     const salesTarget = getSalesTargetInfo(invoices);
 
     // Month attendance — targeted query by staffName (avoids full-collection fetch)
     let allAtt = [];
-    try { allAtt = (await getDocs(query(collection(db, "attendance"), where("staffName", "==", name)))).docs.map(d => d.data()); } catch (_) {}
+    // Scoped to this person rather than pulling the whole table.
+    try {
+      allAtt = await fetchAll("attendance", {
+        filters: [{ field: "person_id", value: profile?.personId }],
+      });
+    } catch (_) { /* the rest of the card still renders */ }
 
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;

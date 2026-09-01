@@ -1,10 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
-import {
-  collection, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, serverTimestamp, query, orderBy,
-} from "firebase/firestore";
+import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { Icons } from "../components/ui";
@@ -91,18 +87,14 @@ function OrderManagement() {
   /* ── Load from Firestore ── */
   async function loadOrders() {
     try {
-      const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      // Seed demo data if collection is empty
-      if (list.length === 0) {
-        for (const o of SEED_ORDERS) {
-          await addDoc(collection(db, "orders"), { ...o, createdAt: serverTimestamp() });
-        }
-        const snap2 = await getDocs(q);
-        list = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-      }
+      // NOTE: this page is not reachable — /orders redirects to /production
+      // and nothing else routes here. It also models the pipeline as a
+      // numeric `currentStage` with its own priority/cancellation fields,
+      // none of which exist on the orders table; Production.jsx owns the
+      // real named-stage model. Converted so it compiles and cannot crash
+      // the app, but the stage writes below will not persist until someone
+      // decides whether this page should exist at all.
+      const list = await fetchAll("orders", { orderBy: "createdAt", orderDir: "desc" });
       setOrders(list);
     } catch (err) {
       console.error("Failed to load orders:", err);
@@ -119,7 +111,7 @@ function OrderManagement() {
     if (!newOrder.customer.trim() || !newOrder.item.trim()) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "orders"), {
+      await insertRow("orders", {
         customer:     newOrder.customer.trim(),
         item:         newOrder.item.trim(),
         quantity:     Number(newOrder.quantity) || 0,
@@ -127,7 +119,6 @@ function OrderManagement() {
         currentStage: 0,
         status:       "Active",
         createdBy:    profile?.name || "Unknown",
-        createdAt:    serverTimestamp(),
       });
       setNewOrder({ customer: "", item: "", quantity: "", priority: "Normal" });
       setShowForm(false);
@@ -144,7 +135,7 @@ function OrderManagement() {
     if (!customer.trim() || !item.trim()) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "orders"), {
+      await insertRow("orders", {
         customer:     customer.trim(),
         item:         item.trim(),
         quantity:     Number(quantity) || 0,
@@ -152,7 +143,6 @@ function OrderManagement() {
         currentStage: stageIdx,
         status:       stageIdx === STAGES.length - 1 ? "Delivered" : "Active",
         createdBy:    profile?.name || "Unknown",
-        createdAt:    serverTimestamp(),
       });
       await loadOrders();
     } catch (err) {
@@ -165,7 +155,7 @@ function OrderManagement() {
   /* ── Drop order on stage ── */
   async function handleDropOrder(orderId, stageIdx) {
     const isDelivered = stageIdx === STAGES.length - 1;
-    await updateDoc(doc(db, "orders", orderId), {
+    await updateRow("orders", orderId, {
       currentStage: stageIdx,
       status: isDelivered ? "Delivered" : "Active",
     });
@@ -176,7 +166,7 @@ function OrderManagement() {
   async function changeStage(order, delta) {
     const next = Math.min(STAGES.length - 1, Math.max(0, order.currentStage + delta));
     const isDelivered = next === STAGES.length - 1;
-    await updateDoc(doc(db, "orders", order.id), {
+    await updateRow("orders", order.id, {
       currentStage: next,
       status: isDelivered ? "Delivered" : "Active",
     });
@@ -187,7 +177,7 @@ function OrderManagement() {
   async function changePriority(order, priority) {
     setOrders(prev => prev.map(o => (o.id === order.id ? { ...o, priority } : o)));
     try {
-      await updateDoc(doc(db, "orders", order.id), { priority });
+      await updateRow("orders", order.id, { priority });
     } catch (err) {
       console.error("Failed to update priority:", err);
       await loadOrders();
@@ -196,9 +186,9 @@ function OrderManagement() {
 
   /* ── Cancel / stop order ── */
   async function cancelOrder(order) {
-    await updateDoc(doc(db, "orders", order.id), {
+    await updateRow("orders", order.id, {
       status: "Cancelled",
-      cancelledAt: serverTimestamp(),
+      cancelledAt: new Date().toISOString(),
       cancelledBy: profile?.name || "Unknown",
     });
     setConfirmId(null);
@@ -207,14 +197,14 @@ function OrderManagement() {
 
   /* ── Restore cancelled order ── */
   async function restoreOrder(order) {
-    await updateDoc(doc(db, "orders", order.id), { status: "Active" });
+    await updateRow("orders", order.id, { status: "Active" });
     await loadOrders();
   }
 
   /* ── Remove order (permanent delete) ── */
   async function removeOrder(order) {
     if (!window.confirm(`Permanently remove order ${order.id?.slice(0, 6)}… for "${order.customer}"? This cannot be undone.`)) return;
-    await deleteDoc(doc(db, "orders", order.id));
+    await deleteRow("orders", order.id);
     await loadOrders();
   }
 

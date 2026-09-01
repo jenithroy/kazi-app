@@ -1,30 +1,10 @@
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
-
 /**
- * Load multiple Firestore collections in parallel using Promise.allSettled.
- * Each value in collectionsMap is a collection name string.
- * Returns an object keyed by the same keys, where each value is an array of
- * { id, ...data } objects. Collections that fail (e.g. permission denied)
- * return an empty array so a single bad collection never crashes the caller.
+ * Kept as a re-export so the pages that import `loadCollections` from here
+ * carry on working. The implementation moved to lib/db.js when the data moved
+ * to Supabase; the contract is unchanged -- pass a map of key -> collection
+ * name, get back a map of key -> array, and a collection that fails comes back
+ * empty rather than taking the page down.
  *
- * Example:
- *   const { attendance, orders } = await loadCollections({ attendance: "attendance", orders: "orders" });
+ * New code should import from "../lib/db" directly.
  */
-export async function loadCollections(collectionsMap) {
-  const keys = Object.keys(collectionsMap);
-  const results = await Promise.allSettled(
-    keys.map(k => getDocs(collection(db, collectionsMap[k])))
-  );
-  const out = {};
-  keys.forEach((k, i) => {
-    const result = results[i];
-    if (result.status === "fulfilled") {
-      out[k] = result.value.docs.map(d => ({ id: d.id, ...d.data() }));
-    } else {
-      console.warn(`loadCollections: failed to load "${collectionsMap[k]}":`, result.reason);
-      out[k] = [];
-    }
-  });
-  return out;
-}
+export { loadCollections } from "../lib/db";

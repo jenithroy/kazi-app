@@ -1,51 +1,53 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import {
-  addDoc, collection, getDocs, serverTimestamp, doc, updateDoc, deleteDoc, writeBatch,
-  query, where, setDoc
-} from "firebase/firestore";
-import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
+import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
+import { authClient, createSignupClient, supabase } from "../supabase";
 import PageHeader from "../components/PageHeader";
 import SalarySlipModal from "../components/SalarySlipModal";
-import { db, auth, firebaseConfig } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { GBP_RATE, WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
+import { tsMillis } from "../utils/date";
 
 const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", "Marketing", "IT", "Other"];
 
-// Creates the employee's Firebase Auth account on a throwaway secondary app instance
-// (so signing them up doesn't kick the admin out of their own session), then emails
-// them a link to set their own password.
-async function createEmployeeLogin(email) {
-  const secondaryApp = initializeApp(firebaseConfig, `employee-signup-${Date.now()}`);
-  const secondaryAuth = getAuth(secondaryApp);
+// Creates the employee's Supabase account on a throwaway client (so signing
+// them up does not replace the admin's own session), links it to their
+// people row, then emails them a link to set their own password.
+//
+// An address that already has an account is not an error — it means they were
+// added before, or still sign in through Firebase — so we just send the
+// set-password email and let them come across.
+async function createEmployeeLogin(email, personId) {
+  const signup = createSignupClient();
   try {
-    const tempPassword = crypto.randomUUID();
-    await createUserWithEmailAndPassword(secondaryAuth, email, tempPassword);
-    await sendPasswordResetEmail(secondaryAuth, email);
-    await signOut(secondaryAuth);
-  } catch (err) {
-    if (err.code === "auth/email-already-in-use") {
-      await sendPasswordResetEmail(auth, email);
-    } else {
-      throw err;
+    const { data, error } = await signup.auth.signUp({
+      email,
+      password: crypto.randomUUID(),
+    });
+    if (error && !/already/i.test(error.message)) throw error;
+
+    if (data?.user?.id && personId) {
+      // Straight to the table: auth_uid is deliberately not exposed through
+      // the employees view, so updateRow would drop it.
+      await supabase.from("people").update({ auth_uid: data.user.id }).eq("id", personId);
     }
   } finally {
-    await deleteApp(secondaryApp);
+    await signup.auth.signOut().catch(() => {});
   }
+  await authClient.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/login`,
+  });
 }
 
 const emptyForm = {
-  name: "", role: "", department: "Operations", email: "", phone: "",
+  name: "", positionId: "", department: "Operations", email: "", phone: "",
   address: "", panNumber: "", bankAccount: "", bankName: "", bankBranch: "",
   joinDate: new Date().toISOString().slice(0, 10),
   basicSalaryNPR: "", location: "nepal", status: "Active",
   reportsTo: "", isProductionWorker: false,
-  appRole: "employee",
   scheduleStart: "", scheduleEnd: "",
   scheduleWorkingDays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri"],
   scheduleDayOverrides: {}, // { Tue: { start: "09:30", end: "15:30" } }
@@ -197,20 +199,16 @@ function Employees() {
   useEffect(() => {
     async function loadPoints() {
       try {
-        const [usersSnap, pointsSnap] = await Promise.all([
-          getDocs(collection(db, "users")),
-          getDocs(collection(db, "user_points")),
+        const [users, points] = await Promise.all([
+          fetchAll("users"),
+          fetchAll("user_points"),
         ]);
-        // uid → totalPoints
-        const uidToPoints = {};
-        pointsSnap.docs.forEach(d => { uidToPoints[d.id] = d.data().totalPoints || 0; });
-        // email (lowercased) → totalPoints via uid
+        const byPerson = {};
+        points.forEach(p => { byPerson[p.personId] = p.totalPoints || 0; });
         const map = {};
-        usersSnap.docs.forEach(d => {
-          const { email, uid } = d.data();
-          const id = uid || d.id;
-          if (email && uidToPoints[id] != null) {
-            map[email.toLowerCase()] = uidToPoints[id];
+        users.forEach(u => {
+          if (u.email && byPerson[u.personId] != null) {
+            map[u.email.toLowerCase()] = byPerson[u.personId];
           }
         });
         setPointsMap(map);
@@ -226,6 +224,9 @@ function Employees() {
 
   /* ── Directory State ── */
   const [employees, setEmployees] = useState([]);
+  // The position list drives both the dropdown and, through
+  // position_permissions, everything the person is allowed to see.
+  const [positions, setPositions] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -264,16 +265,14 @@ function Employees() {
         const start = `${payrollForm.year}-${monthNum}-01`;
         const end = `${payrollForm.year}-${monthNum}-${String(daysInMonth).padStart(2, "0")}`;
 
-        const attSnap = await getDocs(query(
-          collection(db, "attendance"),
-          where("date", ">=", start),
-          where("date", "<=", end)
-        ));
+        const attRows = await fetchAll("attendance", { filters: [
+          { field: "date", op: "gte", value: start },
+          { field: "date", op: "lte", value: end },
+        ] });
 
         if (!active) return;
 
-        const logs = attSnap.docs
-          .map(d => d.data())
+        const logs = attRows
           .filter(r => r.staffName?.toLowerCase() === payrollForm.staffName.toLowerCase());
 
         const lateDays = logs.filter(r => r.status === "Late").length;
@@ -308,42 +307,24 @@ function Employees() {
   }, [payrollForm.staffName, payrollForm.month, payrollForm.year, payrollForm.basicNPR]);
 
   async function loadData() {
-    const [empSnap, paySnap] = await Promise.all([
-      getDocs(collection(db, "employees")),
-      canViewPayroll ? getDocs(collection(db, "finance_payroll")) : { docs: [] }
+    const [rows, payRows, positionRows] = await Promise.all([
+      fetchAll("employees"),
+      canViewPayroll ? fetchAll("finance_payroll") : [],
+      fetchAll("positions"),
     ]);
 
-    let rows = empSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    const batch = writeBatch(db);
-    let batchHasOps = false;
-
-    // Group by email — keep first, delete duplicates
-    const seen = new Map();
-    for (const row of rows) {
-      const email = (row.email || "").toLowerCase();
-      if (email) {
-        if (seen.has(email)) {
-          batch.delete(doc(db, "employees", row.id));
-          batchHasOps = true;
-        } else {
-          seen.set(email, row);
-        }
-      }
-    }
-
-    if (batchHasOps) {
-      await batch.commit();
-      const freshSnap = await getDocs(collection(db, "employees"));
-      rows = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
+    // The de-duplicate-by-email pass is gone: people.email is a citext column
+    // with a unique index, so a second row with the same address cannot be
+    // created in the first place. Deleting rows on every page load to repair
+    // that was papering over a missing constraint.
+    setPositions(positionRows);
     rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setEmployees(rows);
     setEmployeeScheduleOverrides(rows);
 
     if (canViewPayroll) {
-      const pRows = paySnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      pRows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      const pRows = [...payRows];
+      pRows.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
       setPayroll(pRows);
     }
   }
@@ -356,50 +337,26 @@ function Employees() {
     setSubmitting(true);
     const data = { ...form, basicSalaryNPR: Number(form.basicSalaryNPR || 0) };
     const isNewEmployee = !editId;
+    let personId = editId;
     if (editId) {
-      await updateDoc(doc(db, "employees", editId), { ...data, updatedBy: profile?.name || "Unknown", updatedAt: serverTimestamp() });
+      await updateRow("employees", editId, { ...data, updatedBy: profile?.name || "Unknown", updatedAt: new Date().toISOString() });
       setEditId(null);
     } else {
-      await addDoc(collection(db, "employees"), { ...data, createdBy: profile?.name || "Unknown", createdAt: serverTimestamp() });
+      const created = await insertRow("employees", { ...data, createdBy: profile?.name || "Unknown" });
+      personId = created?.id || null;
     }
 
-    // Sync user profile stub in users collection
-    if (data.email) {
+    // There is no separate user record to keep in step any more. `employees`
+    // and `users` were two views of one thing that had to be written twice and
+    // could drift apart; both now read the same `people` row, and the position
+    // saved above is what grants access.
+    if (data.email && isNewEmployee) {
       try {
-        const userQuery = query(collection(db, "users"), where("email", "==", data.email.toLowerCase()));
-        const userSnap = await getDocs(userQuery);
-        if (!userSnap.empty) {
-          const userDocRef = doc(db, "users", userSnap.docs[0].id);
-          await updateDoc(userDocRef, {
-            name: data.name,
-            role: data.appRole || "employee",
-            jobRole: data.role,
-            location: data.location,
-          });
-        } else {
-          const stubId = data.email.toLowerCase().replace(/[^a-z0-9]/g, "_");
-          await setDoc(doc(db, "users", stubId), {
-            name: data.name,
-            role: data.appRole || "employee",
-            jobRole: data.role,
-            email: data.email,
-            location: data.location,
-            isStub: true,
-            permissions: {}
-          }, { merge: true });
-        }
+        await createEmployeeLogin(data.email, personId);
+        alert(`${data.name} was added — a password-setup email was sent to ${data.email}.`);
       } catch (err) {
-        console.warn("Failed to sync user profile stub:", err);
-      }
-
-      if (isNewEmployee) {
-        try {
-          await createEmployeeLogin(data.email);
-          alert(`${data.name} was added — a password-setup email was sent to ${data.email}.`);
-        } catch (err) {
-          console.warn("Failed to auto-create login:", err);
-          alert(`${data.name} was saved, but their login email couldn't be sent automatically (${err.message}). You can add them manually in Firebase Authentication.`);
-        }
+        console.warn("Failed to auto-create login:", err);
+        alert(`${data.name} was saved, but their login email couldn't be sent automatically (${err.message}). You can invite them from the Supabase dashboard under Authentication.`);
       }
     }
 
@@ -418,23 +375,18 @@ function Employees() {
   }
 
   async function toggleStatus(emp) {
-    await updateDoc(doc(db, "employees", emp.id), { status: emp.status === "Active" ? "Inactive" : "Active" });
+    await updateRow("employees", emp.id, { status: emp.status === "Active" ? "Inactive" : "Active" });
     await loadData();
   }
 
   async function handleDeleteEmployee(emp) {
-    if (!window.confirm(`Are you sure you want to delete employee ${emp.name}? This will also delete their system permissions/user record.`)) return;
+    if (!window.confirm(`Are you sure you want to delete employee ${emp.name}? They will lose access immediately.`)) return;
     try {
-      await deleteDoc(doc(db, "employees", emp.id));
-      if (emp.email) {
-        const userQuery = query(collection(db, "users"), where("email", "==", emp.email.toLowerCase()));
-        const userSnap = await getDocs(userQuery);
-        if (!userSnap.empty) {
-          for (const d of userSnap.docs) {
-            await deleteDoc(doc(db, "users", d.id));
-          }
-        }
-      }
+      // One row, one delete. Their permissions went with the position on this
+      // record, so there is no second user document left behind to clean up.
+      // Their sign-in account is not touched — it simply resolves to nobody,
+      // and every policy then denies it.
+      await deleteRow("employees", emp.id);
       await loadData();
     } catch (err) {
       console.error("Error deleting employee:", err);
@@ -479,10 +431,10 @@ function Employees() {
       loggedBy: profile?.name || "Unknown",
     };
     if (editingPayrollId) {
-      await updateDoc(doc(db, "finance_payroll", editingPayrollId), data);
+      await updateRow("finance_payroll", editingPayrollId, data);
       setEditingPayrollId(null);
     } else {
-      await addDoc(collection(db, "finance_payroll"), { ...data, createdAt: serverTimestamp() });
+      await insertRow("finance_payroll", data);
     }
     setPayrollForm(f => ({ ...f, staffName: "", role: "", basicNPR: "", lateDays: 0, lateSalaryCutDeduction: 0, lateCutsCount: 0, lateAdjustmentNPR: 0, bonusNPR: 0, pfDeductionNPR: 0, note: "" }));
     setShowPayrollForm(false);
@@ -491,7 +443,7 @@ function Employees() {
 
   async function handleDeletePayroll(id) {
     if (!window.confirm("Delete this payroll record?")) return;
-    await deleteDoc(doc(db, "finance_payroll", id));
+    await deleteRow("finance_payroll", id);
     await loadData();
   }
 
@@ -580,8 +532,23 @@ function Employees() {
                 </label>
                 <label>
                   Role / Position
-                  <input type="text" value={form.role} required placeholder="e.g. Operations Manager"
-                    onChange={e => setForm(f => ({ ...f, role: e.target.value }))} />
+                  <select
+                    value={form.positionId}
+                    required
+                    onChange={e => setForm(f => ({ ...f, positionId: e.target.value }))}
+                  >
+                    <option value="" disabled>Select a position…</option>
+                    {[...positions]
+                      .sort((a, b) => (b.tier - a.tier) || a.label.localeCompare(b.label))
+                      .map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                  </select>
+                  <span className="kfield-hint">
+                    Access follows from the position — every page and finance tab
+                    this person can open is set by the permission matrix, not per
+                    person. Changing it here changes what they can see.
+                  </span>
                 </label>
                 <label>
                   Department
@@ -657,15 +624,11 @@ function Employees() {
                     <option>Inactive</option>
                   </select>
                 </label>
-                <label>
-                  System Role
-                  <select value={form.appRole || "employee"} onChange={e => setForm(f => ({ ...f, appRole: e.target.value }))}>
-                    <option value="employee">Employee (Read-Only)</option>
-                    <option value="nepal_staff">Nepal Staff (Stitchers/Workers)</option>
-                    <option value="nepal_admin">Nepal Admin (Factory Ops)</option>
-                    <option value="uk_admin">UK Admin (Director)</option>
-                  </select>
-                </label>
+                {/* The separate "System Role" dropdown is gone. It set a second,
+                    parallel notion of seniority that could disagree with the
+                    person's actual job — someone could be an Operations Intern
+                    with UK Admin access. Position is now the only input to
+                    permissions, so there is one thing to set and one to audit. */}
                 <div style={{ gridColumn: "span 2", padding: "14px 16px", background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ink-4)", marginBottom: 10 }}>
                     Work Schedule
@@ -816,12 +779,10 @@ function Employees() {
                     <tr key={emp.id}>
                       <td style={{ fontWeight: 600 }}>{emp.name}</td>
                       <td>
+                        {/* `role` is the position's label, joined in by the view —
+                            the same string the dropdown offers, so what is shown
+                            here is exactly what governs their access. */}
                         <div>{emp.role}</div>
-                        {emp.appRole && (
-                          <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: 4, background: "var(--bg-2)", color: "var(--ink-3)", fontWeight: 600, display: "inline-block", marginTop: 4 }}>
-                            {emp.appRole === "nepal_admin" ? "Nepal Admin" : emp.appRole === "uk_admin" ? "UK Admin" : emp.appRole === "nepal_staff" ? "Nepal Staff" : "Employee"}
-                          </span>
-                        )}
                       </td>
                       <td>{emp.department || "—"}</td>
                       <td>

@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, deleteDoc, where, orderBy, limit
-} from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
-import { db, storage } from "../firebase";
+import { storage } from "../firebase";
+import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { roundAmount } from "../utils/format";
 import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { useRef } from "react";
-import { todayDate } from "../utils/date";
+import { todayDate, tsMillis } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
@@ -325,7 +323,7 @@ function EmbellishmentPicker({ order, canEdit, onUpdate }) {
     if (!canEdit || saving) return;
     setSaving(true);
     try {
-      await updateDoc(doc(db, "orders", order.id), { embellishments: next });
+      await updateRow("orders", order.id, { embellishments: next });
       await onUpdate?.();
     } finally {
       setSaving(false);
@@ -406,15 +404,11 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, on
   useEffect(() => {
     if (!expanded) return;
     setAssignmentLoading(true);
-    getDocs(
-      query(
-        collection(db, "order_assignments"),
-        where("orderId", "==", order.id),
-        orderBy("assignedAt", "desc"),
-        limit(1)
-      )
-    ).then(snap => {
-      setLatestAssignment(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() });
+    fetchAll("order_assignments", {
+      filters: [{ field: "orderId", value: order.id }],
+      orderBy: "assignedAt", orderDir: "desc", limit: 1,
+    }).then(rows => {
+      setLatestAssignment(rows[0] || null);
     }).catch(() => {}).finally(() => setAssignmentLoading(false));
   }, [expanded, order.id]);
 
@@ -696,7 +690,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
       };
 
       const updatedNotes = [...(order.notesList || []), newNote];
-      await updateDoc(doc(db, "orders", order.id), { notesList: updatedNotes });
+      await updateRow("orders", order.id, { notesList: updatedNotes });
       setNoteText("");
       setFile(null);
       setProgress(null);
@@ -721,7 +715,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
         }
       }
       const updatedNotes = (order.notesList || []).filter(n => n.id !== noteId);
-      await updateDoc(doc(db, "orders", order.id), { notesList: updatedNotes });
+      await updateRow("orders", order.id, { notesList: updatedNotes });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error("Failed to delete note:", err);
@@ -919,8 +913,8 @@ function Production() {
   const latestInvoice = useMemo(() => {
     if (!invoices || invoices.length === 0) return null;
     const sorted = [...invoices].sort((a, b) => {
-      const timeA = a.createdAt?.seconds || (a.date ? new Date(a.date).getTime() / 1000 : 0);
-      const timeB = b.createdAt?.seconds || (b.date ? new Date(b.date).getTime() / 1000 : 0);
+      const timeA = tsMillis(a.createdAt) || (a.date ? new Date(a.date).getTime() : 0);
+      const timeB = tsMillis(b.createdAt) || (b.date ? new Date(b.date).getTime() : 0);
       return timeB - timeA;
     });
     return sorted[0];
@@ -964,31 +958,32 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchSnap, orderSnap, empSnap, invSnap, costsSnap, payrollSnap, fabricSnap, sampleSnap] = await Promise.all([
-      getDocs(collection(db, "production")),
-      getDocs(collection(db, "orders")),
-      getDocs(collection(db, "employees")),
-      getDocs(collection(db, "invoices")),
-      getDocs(collection(db, "order_costs")),
-      getDocs(collection(db, "finance_payroll")),
-      getDocs(collection(db, "fabrics")),
-      getDocs(collection(db, "samples")),
+    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows] = await Promise.all([
+      fetchAll("production"),
+      fetchAll("orders"),
+      fetchAll("employees"),
+      fetchAll("invoices"),
+      fetchAll("order_costs"),
+      fetchAll("finance_payroll"),
+      fetchAll("fabrics"),
+      fetchAll("samples"),
     ]);
-    setFabrics(fabricSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    setSamples(sampleSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    const batchRows = batchSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setFabrics(fabricRows);
+    setSamples(sampleRows);
+    const batchRows = [...batchRowsRaw];
     batchRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setBatches(batchRows);
 
-    const orderRows = orderSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const orderRows = [...orderRowsRaw];
     orderRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setOrders(orderRows);
 
-    setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status !== "Inactive"));
-    setInvoices(invSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setEmployees(empRows.filter(e => e.status !== "Inactive"));
+    setInvoices(invRows);
 
+    // Keyed by the order it belongs to, which is what the cards look up.
     const costs = {};
-    costsSnap.docs.forEach(d => { costs[d.id] = d.data(); });
+    costRows.forEach(c => { if (c.orderId) costs[c.orderId] = c; });
     setOrderCosts(costs);
 
     // Auto labour rate: last month payroll ÷ units produced
@@ -999,8 +994,7 @@ function Production() {
     const lastMonthYear = lastMonth.getFullYear();
     const lastMonthKey = lastMonth.toISOString().slice(0, 7);
 
-    const payrollData = payrollSnap.docs.map(d => d.data());
-    const empData = empSnap.docs.map(d => d.data());
+    const empData = empRows;
     const prodWorkers = new Set(empData.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase()));
     const lastMonthPayroll = payrollData
       .filter(p => p.month === lastMonthName && Number(p.year) === lastMonthYear)
@@ -1052,9 +1046,8 @@ function Production() {
       subtotalNPR:    subtotal,
       vatAmountNPR:   vatAmt,
       totalNPR:       total,
-      linkedOrderId:  orderId || "",
+      linkedOrderId:  orderId || null,
       createdBy:      profile?.name || "Unknown",
-      createdAt:      serverTimestamp(),
     };
   }
 
@@ -1076,7 +1069,7 @@ function Production() {
     try {
       const passed  = Number(batchForm.passed  || 0);
       const rejected = Number(batchForm.rejected || 0);
-      const batchRef = await addDoc(collection(db, "production"), {
+      const batchRef = await insertRow("production", {
         batchId: nextBatchId,
         date: batchForm.date,
         cut: Number(batchForm.cut || 0),
@@ -1085,7 +1078,6 @@ function Production() {
         rejected,
         note: batchForm.note,
         loggedBy: profile?.name || "Unknown",
-        createdAt: serverTimestamp()
       });
       setBatchForm(initialBatchForm);
       await loadData();
@@ -1163,15 +1155,15 @@ function Production() {
     // instead of being a one-off value disconnected from Inventory.
     const typedFabricName = (orderForm.fabricType || "").trim();
     if (typedFabricName && !findFabricByNameProd(fabrics, typedFabricName)) {
-      await addDoc(collection(db, "fabrics"), {
+      await insertRow("fabrics", {
         name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
-        weight: "", status: "In Stock", swatchImageUrl: "", createdAt: serverTimestamp()
+        weight: "", status: "In Stock", swatchImageUrl: "",
       });
     }
 
     if (editingOrder) {
       // Edit existing order
-      await updateDoc(doc(db, "orders", editingOrder.id), {
+      await updateRow("orders", editingOrder.id, {
         customerName:  orderForm.customerName,
         styleName:     orderForm.styleName,
         fabricType:    orderForm.fabricType,
@@ -1180,10 +1172,12 @@ function Production() {
         pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
         totalValueNPR: total,
         deliveryDate:  orderForm.deliveryDate,
-        assignedTo:    orderForm.assignedTo,
+        // assigned_to is a foreign key into people; the view exposes the
+        // joined name as assignedTo, which is read-only.
+        assigned_to:   orderForm.assignedTo || null,
         invoiceRef:    orderForm.invoiceRef,
         notes:         orderForm.notes,
-        sampleId:            orderForm.sampleId,
+        sampleId:            orderForm.sampleId || null,
         sampleName:          orderForm.sampleName,
         fabricGramsUsed:     Number(orderForm.fabricGramsUsed || 0),
         fabricCostPerPcNPR:  Number(orderForm.fabricCostPerPcNPR || 0),
@@ -1205,16 +1199,20 @@ function Production() {
         materialCostTotalNPR,
         stageHistory:  [{ stage: "Order Received", date: todayDate(), by: profile?.name || "Unknown" }],
         createdBy:     profile?.name || "Unknown",
-        createdAt:     serverTimestamp(),
-        ...(invNum ? { invoiceNumber: invNum } : {}),
+        // The order carries the invoice NUMBER as invoiceRef; invoiceNumber
+        // is the invoice document's own field, not the order's.
+        ...(invNum ? { invoiceRef: invNum } : {}),
       };
-      const orderRef = await addDoc(collection(db, "orders"), orderDoc);
+      delete orderDoc.assignedTo;
+      orderDoc.assigned_to = orderForm.assignedTo || null;
+      orderDoc.sampleId = orderForm.sampleId || null;
+      const orderRef = await insertRow("orders", orderDoc);
       if (issueInvoice && invNum) {
         const invDoc = buildInvoiceDoc(
           { ...orderForm, quantity: orderDoc.quantity },
           invFields, invNum, orderRef.id
         );
-        await addDoc(collection(db, "invoices"), invDoc);
+        await insertRow("invoices", invDoc);
       }
     }
 
@@ -1243,7 +1241,7 @@ function Production() {
       quantity:      order.quantity || "",
       pricePerPcNPR: order.pricePerPcNPR || "",
       invoiceRef:    order.invoiceRef || "",
-      assignedTo:    order.assignedTo || "",
+      assignedTo:    order.assigned_to || "",
       stage:         order.stage || "Order Received",
       status:        order.status || "Active",
       notes:         order.notes || "",
@@ -1260,8 +1258,8 @@ function Production() {
     setSavingInvoice(true);
     const invNum = nextInvoiceNumber();
     const invDoc = buildInvoiceDoc(order, fields, invNum, order.id);
-    await addDoc(collection(db, "invoices"), invDoc);
-    await updateDoc(doc(db, "orders", order.id), { invoiceNumber: invNum });
+    await insertRow("invoices", invDoc);
+    await updateRow("orders", order.id, { invoiceRef: invNum });
     setInvoiceModal(null);
     await loadData();
     setSavingInvoice(false);
@@ -1273,7 +1271,7 @@ function Production() {
     const newStage = STAGES[curIdx + 1];
     const newStatus = newStage === "Delivered" ? "Completed" : order.status;
     const history = [...(order.stageHistory || []), { stage: newStage, date: todayDate(), by: profile?.name || "Unknown" }];
-    await updateDoc(doc(db, "orders", order.id), { stage: newStage, status: newStatus, stageHistory: history });
+    await updateRow("orders", order.id, { stage: newStage, status: newStatus, stageHistory: history });
     notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: newStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
     // Auto-dispatch the new stage to the next available worker
     try {
@@ -1318,18 +1316,18 @@ function Production() {
     if (curIdx <= 0) return;
     const newStage = STAGES[curIdx - 1];
     const history = [...(order.stageHistory || []), { stage: `↩ Reverted to ${newStage}`, date: todayDate(), by: profile?.name || "Unknown" }];
-    await updateDoc(doc(db, "orders", order.id), { stage: newStage, status: "Active", stageHistory: history });
+    await updateRow("orders", order.id, { stage: newStage, status: "Active", stageHistory: history });
     await loadData();
   }
 
   async function updateOrderStatus(order, status) {
-    await updateDoc(doc(db, "orders", order.id), { status });
+    await updateRow("orders", order.id, { status });
     await loadData();
   }
 
   async function deleteOrder(order) {
     if (!window.confirm(`Are you sure you want to permanently delete order ${order.orderId}?`)) return;
-    await deleteDoc(doc(db, "orders", order.id));
+    await deleteRow("orders", order.id);
     await loadData();
   }
 
@@ -1339,7 +1337,7 @@ function Production() {
     const targetStage = col.stages[0];
     if (order.stage === targetStage) return;
     const history = [...(order.stageHistory || []), { stage: targetStage, date: todayDate(), by: profile?.name || "Unknown" }];
-    await updateDoc(doc(db, "orders", orderId), { stage: targetStage, status: "Active", stageHistory: history });
+    await updateRow("orders", orderId, { stage: targetStage, status: "Active", stageHistory: history });
     notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: targetStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
     await loadData();
   }
@@ -2045,7 +2043,7 @@ function Production() {
                 Assigned To
                 <select value={orderForm.assignedTo} onChange={e => setOrderForm(f => ({ ...f, assignedTo: e.target.value }))}>
                   <option value="">— Select —</option>
-                  {employees.map(em => <option key={em.id} value={em.name}>{em.name}</option>)}
+                  {employees.map(em => <option key={em.id} value={em.id}>{em.name}</option>)}
                 </select>
               </label>
               <label>

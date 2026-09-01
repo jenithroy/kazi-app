@@ -1,231 +1,240 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { auth, db } from "../firebase";
-import { TEAM_MEMBERS } from "../constants";
-import { DEFAULT_NEPAL_ADMIN_PERMISSIONS } from "../utils/permissions";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
+import { auth as firebaseAuth } from "../firebase";
+import { authClient, supabase } from "../supabase";
 import { initPushNotifications } from "../utils/native";
 
 const AuthContext = createContext(null);
 
+/**
+ * Legacy role names, derived from the position's tier.
+ *
+ * Pages still branch on strings like "nepal_admin". Those checks predate the
+ * position matrix and should be replaced with sectionCanEdit()/sectionVisible()
+ * calls, which ask the real question ("may this person edit billing?") instead
+ * of guessing from a job label. Until that happens this keeps them working.
+ *
+ * Nothing is *enforced* here. RLS decides what a query returns; this only
+ * drives which buttons the UI bothers to draw.
+ */
+function legacyRole(tier, location) {
+  if (tier >= 4) return "super_admin";
+  if (tier >= 3) return location === "uk" ? "uk_admin" : "nepal_admin";
+  if (tier >= 2) return "nepal_admin";
+  if (tier >= 1) return "employee";
+  return "nepal_staff";
+}
+
+/**
+ * Load everything about the signed-in person in one round trip each.
+ *
+ * All three of these are answered by the database for whoever holds the token:
+ * me() resolves the person, my_permissions runs app_can_view/app_can_edit over
+ * every section, my_finance_tabs does the same for the finance sub-tabs. If the
+ * token maps to nobody (removed from people, or set Inactive) me() comes back
+ * empty and we return null — which the app treats as signed out.
+ */
+async function loadProfile() {
+  const [meRes, permRes, tabRes] = await Promise.all([
+    supabase.rpc("me"),
+    supabase.from("my_permissions").select("section_id, aliases, can_view, can_edit"),
+    supabase.from("my_finance_tabs").select("tab_id, can_view"),
+  ]);
+
+  if (meRes.error) throw meRes.error;
+
+  const me = Array.isArray(meRes.data) ? meRes.data[0] : meRes.data;
+  if (!me) return null;
+
+  const permissions = {};
+  const aliases = {};
+  for (const row of permRes.data || []) {
+    permissions[row.section_id] = { canView: !!row.can_view, canEdit: !!row.can_edit };
+    for (const a of row.aliases || []) aliases[a] = row.section_id;
+  }
+
+  const financeTabs = {};
+  for (const row of tabRes.data || []) financeTabs[row.tab_id] = !!row.can_view;
+
+  const tier = Number.isFinite(me.tier) ? me.tier : -1;
+  const role = legacyRole(tier, me.location);
+
+  return {
+    personId: me.person_id,
+    id: me.person_id,
+    name: me.full_name,
+    email: me.email,
+    positionId: me.position_id,
+    positionLabel: me.position_label,
+    displayRole: me.position_label,
+    jobRole: me.position_label,
+    tier,
+    location: me.location,
+    permissions,
+    financeTabs,
+    aliases,
+    // Compatibility with pages that still branch on role strings.
+    role,
+    appRole: role,
+  };
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [user, setUser]       = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState("");
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
+  // Both SDKs fire on startup. Whichever resolves a person first wins; the
+  // other must not then overwrite a good profile with null.
+  const generation = useRef(0);
 
-      if (!firebaseUser) {
+  const refresh = useCallback(async (identity) => {
+    const gen = ++generation.current;
+
+    if (!identity) {
+      // Only clear if nothing else signed in while we were deciding.
+      if (gen === generation.current) {
+        setUser(null);
         setProfile(null);
         setLoading(false);
+      }
+      return;
+    }
+
+    try {
+      const next = await loadProfile();
+      if (gen !== generation.current) return; // superseded
+
+      if (!next) {
+        // A token that resolves to nobody is not a login. It happens when
+        // someone has an auth account but no active `people` row — removed
+        // from staff, or set Inactive. Every policy denies them anyway, so
+        // holding the token open would only let them past the route guard to
+        // a shell full of empty pages.
+        //
+        // Drop it rather than leave it sitting in storage, or the app bounces
+        // between login and dashboard on every reload.
+        //
+        // State first, sign-out second, and deliberately so: signing out fires
+        // both SDKs' listeners, which start another resolve and bump the
+        // generation — so anything set after the await would be discarded as
+        // superseded and the person would land back on login with no idea why.
+        setUser(null);
+        setProfile(null);
+        setError("That account has no active staff record. Ask an administrator to check it.");
+        setLoading(false);
+        await Promise.allSettled([authClient.auth.signOut(), firebaseSignOut(firebaseAuth)]);
         return;
       }
 
-      try {
-        const profileRef = doc(db, "users", firebaseUser.uid);
+      setUser(identity);
+      setProfile(next);
+      setError("");
+    } catch (err) {
+      if (gen !== generation.current) return;
+      console.error("AuthContext: failed to load profile:", err);
+      // Failing open here would be the whole bug: no profile must mean no
+      // access, whether that is because there is no record or because the
+      // lookup broke.
+      setUser(null);
+      setProfile(null);
+      setError(err.message || "Could not load your profile.");
+    } finally {
+      if (gen === generation.current) setLoading(false);
+    }
+  }, []);
 
-        // 1. Try to find in firestore employees collection first
-        let dbEmployee = null;
-        try {
-          const empQuery = query(
-            collection(db, "employees"),
-            where("email", "==", (firebaseUser.email || "").toLowerCase())
-          );
-          const empSnap = await getDocs(empQuery);
-          if (!empSnap.empty) {
-            dbEmployee = empSnap.docs[0].data();
-          }
-        } catch (err) {
-          console.warn("Failed to fetch employee record from firestore:", err);
-        }
+  useEffect(() => {
+    let cancelled = false;
 
-        // Check if this email belongs to a known team member
-        const teamMember = TEAM_MEMBERS.find(
-          m => m.email.toLowerCase() === (firebaseUser.email || "").toLowerCase()
-        );
+    // Whoever is signed in right now, preferring the Supabase session.
+    async function resolve() {
+      const { data } = await authClient.auth.getSession();
+      if (cancelled) return;
+      if (data?.session?.user) return refresh(data.session.user);
+      if (firebaseAuth.currentUser) return refresh(firebaseAuth.currentUser);
+      return refresh(null);
+    }
 
-        if (dbEmployee || teamMember) {
-          const name = dbEmployee?.name || teamMember?.name || firebaseUser.displayName || firebaseUser.email;
-          const status = dbEmployee?.status || "Active";
-          
-          // If status is Inactive, assign role "inactive", else resolve appRole
-          // Safety fail-safe: admin@kazi.com must always have super_admin access to avoid lockout.
-          const role = (firebaseUser.email || "").toLowerCase() === "admin@kazi.com"
-            ? "super_admin"
-            : (status === "Inactive" ? "inactive" : (teamMember?.appRole || dbEmployee?.appRole || "employee"));
-          const jobRole = dbEmployee?.role || teamMember?.role || "";
-          const location = dbEmployee?.location || teamMember?.location || "nepal";
-
-          // Build profile from DB/TEAM_MEMBERS
-          const profileData = {
-            uid:     firebaseUser.uid,
-            name,
-            role,   // "nepal_admin" / "uk_admin" / "employee" / "inactive"
-            jobRole,      // job title e.g. "Operations Head"
-            location,
-            email:   firebaseUser.email,
-          };
-
-          // Try to sync to Firestore — but don't block on failure
-          try {
-            await setDoc(profileRef, profileData, { merge: true });
-
-            // Read permissions from Firestore for all roles (to support custom overrides like Monika)
-            const snap = await getDoc(profileRef);
-            const data = snap.data();
-
-            if (role === "nepal_admin") {
-              if (!data?.permissions) {
-                await updateDoc(profileRef, { permissions: DEFAULT_NEPAL_ADMIN_PERMISSIONS });
-                profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
-              } else {
-                let existingPerms = data.permissions;
-                let needsUpdate = false;
-                const updatedPerms = { ...existingPerms };
-
-                // Merge default permissions if they are missing
-                Object.keys(DEFAULT_NEPAL_ADMIN_PERMISSIONS).forEach(key => {
-                  if (key === "finance") {
-                    updatedPerms.finance = {
-                      ...DEFAULT_NEPAL_ADMIN_PERMISSIONS.finance,
-                      ...(existingPerms.finance || {})
-                    };
-                    if (JSON.stringify(updatedPerms.finance) !== JSON.stringify(existingPerms.finance || {})) {
-                      needsUpdate = true;
-                    }
-                  } else if (existingPerms[key] === undefined) {
-                    updatedPerms[key] = DEFAULT_NEPAL_ADMIN_PERMISSIONS[key];
-                    needsUpdate = true;
-                  }
-                });
-
-                if (needsUpdate) {
-                  await updateDoc(profileRef, { permissions: updatedPerms });
-                }
-                profileData.permissions = updatedPerms;
-              }
-            } else if (["basnetanamol21@gmail.com", "anushapantaa@gmail.com"].includes((firebaseUser.email || "").toLowerCase())) {
-              // One-time migration off a former hardcoded permissions.js override (production for both;
-              // tasks/library/inventory for Anusha) — only fills in keys that have never been set, so
-              // the Admin Panel is the sole source of truth for these from here on.
-              const emailLower = (firebaseUser.email || "").toLowerCase();
-              const existingPerms = data?.permissions || {};
-              const updatedPerms = { ...existingPerms };
-              let needsUpdate = false;
-              if (updatedPerms.production === undefined) { updatedPerms.production = true; needsUpdate = true; }
-              if (emailLower === "anushapantaa@gmail.com") {
-                if (updatedPerms.tasks === undefined)     { updatedPerms.tasks = true;     needsUpdate = true; }
-                if (updatedPerms.library === undefined)   { updatedPerms.library = true;   needsUpdate = true; }
-                if (updatedPerms.inventory === undefined) { updatedPerms.inventory = true; needsUpdate = true; }
-              }
-              if (needsUpdate) {
-                await updateDoc(profileRef, { permissions: updatedPerms });
-              }
-              profileData.permissions = updatedPerms;
-            } else if ((firebaseUser.email || "").toLowerCase() === "sarbagyakarkig8@gmail.com") {
-              // One-time migration off a former hardcoded permissions.js override — only fills in
-              // marketing if it's never been set, so the Admin Panel is authoritative from here on.
-              const existingPerms = data?.permissions || {};
-              if (existingPerms.marketing === undefined) {
-                const updatedPerms = { ...existingPerms, marketing: true };
-                await updateDoc(profileRef, { permissions: updatedPerms });
-                profileData.permissions = updatedPerms;
-              } else {
-                profileData.permissions = existingPerms;
-              }
-            } else if ((firebaseUser.email || "").toLowerCase() === "deepasunam581@gmail.com") {
-              // Accountant — full Finance/Billing/Sales/Employees & HR/Attendance access without the broader nepal_admin role.
-              // Force (not merge-if-undefined) attendance/billing/sales/employees: an earlier bulk
-              // demotion (b766f7c) left explicit `false` overrides on her doc that a plain role-default
-              // fallback can't clear, since sectionVisible() treats an explicit false as final.
-              let existingPerms = data?.permissions || {};
-              const mergedFinance = { ...DEFAULT_NEPAL_ADMIN_PERMISSIONS.finance, ...(existingPerms.finance || {}) };
-              const needsFinanceUpdate = JSON.stringify(mergedFinance) !== JSON.stringify(existingPerms.finance || {});
-              const needsFlagUpdate = existingPerms.billing !== true || existingPerms.sales !== true || existingPerms.employees !== true || existingPerms.attendance !== true;
-              if (needsFinanceUpdate || needsFlagUpdate) {
-                const updatedPerms = { ...existingPerms, finance: mergedFinance, billing: true, sales: true, employees: true, attendance: true };
-                await updateDoc(profileRef, { permissions: updatedPerms });
-                profileData.permissions = updatedPerms;
-              } else {
-                profileData.permissions = existingPerms;
-              }
-            } else if (data?.permissions) {
-              profileData.permissions = data.permissions;
-            }
-          } catch (syncErr) {
-            console.warn("Firestore sync failed (rules may need deploying):", syncErr.message);
-            // App still works with local data
-            if (role === "nepal_admin") {
-              profileData.permissions = DEFAULT_NEPAL_ADMIN_PERMISSIONS;
-            }
-          }
-
-          setProfile(profileData);
-          initPushNotifications(async (token) => {
-            if (token && firebaseUser?.uid) {
-              await setDoc(doc(db, "users", firebaseUser.uid), { fcmToken: token }, { merge: true });
-            }
-          });
-        } else {
-          // Unknown user — load existing profile or create minimal default
-          let loadedProfile = null;
-          try {
-            const profileSnap = await getDoc(profileRef);
-            if (profileSnap.exists()) {
-              loadedProfile = profileSnap.data();
-            } else {
-              const defaultProfile = {
-                uid:      firebaseUser.uid,
-                name:     firebaseUser.displayName || firebaseUser.email,
-                role:     "employee",
-                location: "nepal",
-                email:    firebaseUser.email,
-              };
-              await setDoc(profileRef, defaultProfile);
-              loadedProfile = defaultProfile;
-            }
-          } catch (syncErr) {
-            console.warn("Firestore profile load failed:", syncErr.message);
-            loadedProfile = {
-              uid:   firebaseUser.uid,
-              name:  firebaseUser.displayName || firebaseUser.email,
-              role:  "employee",
-              email: firebaseUser.email,
-            };
-          }
-          setProfile(loadedProfile);
-          initPushNotifications(async (token) => {
-            if (token && firebaseUser?.uid) {
-              await setDoc(doc(db, "users", firebaseUser.uid), { fcmToken: token }, { merge: true });
-            }
-          });
-        }
-      } catch (error) {
-        console.error("Auth state error:", error);
-      } finally {
-        setLoading(false);
-      }
+    const { data: sub } = authClient.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
+      if (session?.user) refresh(session.user);
+      // A Supabase sign-out does not mean signed out — the person may still
+      // hold a Firebase session. Re-resolve rather than assuming.
+      else resolve();
     });
 
-    return () => unsub();
+    // Either way we re-resolve: a Firebase sign-in may or may not be the
+    // identity we end up using, and a Firebase sign-out does not rule out a
+    // live Supabase session.
+    const unsubFirebase = onAuthStateChanged(firebaseAuth, () => {
+      if (!cancelled) resolve();
+    });
+
+    resolve();
+
+    return () => {
+      cancelled = true;
+      sub?.subscription?.unsubscribe();
+      unsubFirebase();
+    };
+  }, [refresh]);
+
+  // Register for push once we know which person to file the token against.
+  // Native only — initPushNotifications returns immediately on the web.
+  useEffect(() => {
+    const personId = profile?.personId;
+    if (!personId) return;
+    initPushNotifications(async (token) => {
+      if (!token) return;
+      const { error: err } = await supabase
+        .from("people")
+        .update({ fcm_token: token })
+        .eq("id", personId);
+      if (err) console.warn("Could not save the push token:", err.message);
+    });
+  }, [profile?.personId]);
+
+  const signOut = useCallback(async () => {
+    generation.current++;
+    setUser(null);
+    setProfile(null);
+    // Sign out of both, so a stale session on either side cannot revive access.
+    await Promise.allSettled([authClient.auth.signOut(), firebaseSignOut(firebaseAuth)]);
+    setLoading(false);
   }, []);
 
   const value = useMemo(
     () => ({
       user,
       profile,
+      /**
+       * The only thing route guards should test.
+       *
+       * Holding a token is not the same as being signed in: it has to resolve
+       * to an active person before it means anything, because that person's
+       * position is what every permission is read from. Checking `user` alone
+       * let anyone with any account into the whole app.
+       */
+      authenticated: !!(user && profile),
       role: profile?.role,
       loading,
-      logout: () => signOut(auth),
+      error,
+      signOut,
+      logout: signOut, // the name Sidebar has always called it
+      reloadProfile: () => refresh(user),
     }),
-    [user, profile, loading]
+    [user, profile, loading, error, signOut, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside an AuthProvider");
+  return ctx;
 }
+
+export default AuthContext;

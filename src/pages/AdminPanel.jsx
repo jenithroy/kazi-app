@@ -1,8 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import { collection, getDocs, doc, updateDoc, setDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { fetchAll, upsertRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
-import { TEAM_MEMBERS } from "../constants";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { Avatar, cn } from "../components/ui";
 
@@ -60,7 +58,13 @@ const DISPATCH_STAGES = [
   { stage: "Delivered",             order: 9, enabled: false, timeoutHours: 2  },
 ];
 
-const WORKER_ROLES = ["nepal_admin", "employee", "nepal_staff"];
+// Who can be put on a production stage: anyone still employed.
+//
+// This used to filter on a per-user `role` string ("nepal_staff" and friends).
+// That field is gone — a person's role is now their position's label, e.g.
+// "Fashion Designer" — so the filter matched nobody, every stage had an empty
+// worker list, and dispatch could only ever answer "No workers configured".
+const isAssignable = (u) => u.status !== "Inactive" && !!u.name;
 
 /* ── StageRow ────────────────────────────────────────────── */
 function StageRow({ stageDoc, workerPool, onUpdate }) {
@@ -72,8 +76,7 @@ function StageRow({ stageDoc, workerPool, onUpdate }) {
 
   async function handleToggle() {
     setSavingToggle(true);
-    const ref = doc(db, "stage_config", stage);
-    await setDoc(ref, { enabled: !enabled }, { merge: true });
+    await upsertRow("stage_config", { stage, enabled: !enabled }, ["stage"]);
     onUpdate(stage, { enabled: !enabled });
     setSavingToggle(false);
   }
@@ -83,8 +86,7 @@ function StageRow({ stageDoc, workerPool, onUpdate }) {
     setLocalTimeout(val);
     if (val === timeoutHours) return;
     setSavingTimeout(true);
-    const ref = doc(db, "stage_config", stage);
-    await setDoc(ref, { timeoutHours: val }, { merge: true });
+    await upsertRow("stage_config", { stage, timeoutHours: val }, ["stage"]);
     onUpdate(stage, { timeoutHours: val });
     setSavingTimeout(false);
   }
@@ -96,8 +98,7 @@ function StageRow({ stageDoc, workerPool, onUpdate }) {
       ? workerUids.filter(id => id !== uid)
       : [...workerUids, uid];
     const newNames = newUids.map(id => workerPool.find(w => w.id === id)?.name || id);
-    const ref = doc(db, "stage_config", stage);
-    await setDoc(ref, { workerUids: newUids, workerNames: newNames }, { merge: true });
+    await upsertRow("stage_config", { stage, workerUids: newUids, workerNames: newNames }, ["stage"]);
     onUpdate(stage, { workerUids: newUids, workerNames: newNames });
     setSavingWorkers(false);
   }
@@ -180,34 +181,27 @@ function ProductionChain({ users }) {
   const [stages,  setStages]  = useState(null); // null = loading
   const [seeding, setSeeding] = useState(false);
 
-  const workerPool = users.filter(u => WORKER_ROLES.includes(u.role));
+  const workerPool = users.filter(isAssignable);
 
   const loadStages = useCallback(async () => {
-    const snap = await getDocs(collection(db, "stage_config"));
-    if (snap.empty) {
-      // Seed defaults
+    let rows = await fetchAll("stage_config");
+    if (rows.length === 0) {
       setSeeding(true);
-      for (const s of DISPATCH_STAGES) {
-        await setDoc(doc(db, "stage_config", s.stage), {
-          stage:        s.stage,
-          order:        s.order,
-          enabled:      s.enabled,
-          timeoutHours: s.timeoutHours,
+      for (const st of DISPATCH_STAGES) {
+        await upsertRow("stage_config", {
+          stage:        st.stage,
+          order:        st.order,
+          enabled:      st.enabled,
+          timeoutHours: st.timeoutHours,
           workerUids:   [],
           workerNames:  [],
-        });
+        }, ["stage"]);
       }
       setSeeding(false);
-      // Re-fetch after seeding
-      const snap2 = await getDocs(collection(db, "stage_config"));
-      const rows = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => a.order - b.order);
-      setStages(rows);
-    } else {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => a.order - b.order);
-      setStages(rows);
+      rows = await fetchAll("stage_config");
     }
+    rows = [...rows].sort((a, b) => a.order - b.order);
+    setStages(rows);
   }, []);
 
   useEffect(() => { loadStages().catch(console.error); }, [loadStages]);
@@ -316,64 +310,56 @@ export default function AdminPanel() {
   const [savingTg,      setSavingTg]      = useState(false);
 
   async function loadUsers() {
-    const snap = await getDocs(collection(db, "users"));
-    const firestoreUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const emailToDoc = new Map(firestoreUsers.map(u => [(u.email || "").toLowerCase(), u]));
+    // The old TEAM_MEMBERS reconciliation is gone. It kept a hardcoded list
+    // in the client in step with stub user documents it created itself —
+    // two sources of truth for who works here, neither of them the staff
+    // record. `people` is now the only one, and access comes from the
+    // position on it.
+    const [people, posPerms, posTabs] = await Promise.all([
+      fetchAll("employees"),
+      fetchAll("position_permissions"),
+      fetchAll("position_finance_tabs"),
+    ]);
 
-    for (const m of TEAM_MEMBERS) {
-      const existing = emailToDoc.get(m.email.toLowerCase());
-      if (!existing) {
-        const stubId = m.email.toLowerCase().replace(/[^a-z0-9]/g, "_");
-        const stub = {
-          name: m.name, role: m.appRole, jobRole: m.role,
-          email: m.email, location: m.location, isStub: true,
-          permissions: {}
-        };
-        await setDoc(doc(db, "users", stubId), stub, { merge: true });
-        emailToDoc.set(m.email.toLowerCase(), { id: stubId, ...stub });
-      } else {
-        if (existing.role !== m.appRole || existing.name !== m.name) {
-          await updateDoc(doc(db, "users", existing.id), { role: m.appRole, name: m.name });
-          existing.role = m.appRole; existing.name = m.name;
-        }
-        if (!existing.permissions) {
-          await updateDoc(doc(db, "users", existing.id), { permissions: {} });
-          existing.permissions = {};
-        }
-      }
+    // Effective access per position, in the shape the grid already reads.
+    const byPosition = {};
+    for (const p of posPerms) {
+      (byPosition[p.position_id] ||= { permissions: {}, financeTabs: {} })
+        .permissions[p.section_id] = { canView: !!p.can_view, canEdit: !!p.can_edit };
+    }
+    for (const t of posTabs) {
+      (byPosition[t.position_id] ||= { permissions: {}, financeTabs: {} })
+        .financeTabs[t.tab_id] = !!t.can_view;
     }
 
-    const freshSnap = await getDocs(collection(db, "users"));
-    const rows = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rows = people.map(p => ({
+      ...p,
+      permissions: byPosition[p.positionId]?.permissions || {},
+      financeTabs: byPosition[p.positionId]?.financeTabs || {},
+    }));
     rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setUsers(rows);
-
-    // Auto-select first editable user
-    const firstEditable = rows.find(u => u.role !== "super_admin");
-    if (firstEditable) setSelected(firstEditable.id);
+    if (rows[0]) setSelected(rows[0].id);
   }
 
   useEffect(() => { loadUsers().catch(console.error); }, []);
 
-  async function toggle(userId, path, current) {
-    const key = userId + path;
-    setSaving(s => ({ ...s, [key]: true }));
-    await updateDoc(doc(db, "users", userId), { ["permissions." + path]: !current });
-    setUsers(prev => prev.map(u => {
-      if (u.id !== userId) return u;
-      const perms = JSON.parse(JSON.stringify(u.permissions || {}));
-      const keys = path.split(".");
-      if (keys.length === 1) perms[keys[0]] = !current;
-      else { if (!perms[keys[0]]) perms[keys[0]] = {}; perms[keys[0]][keys[1]] = !current; }
-      return { ...u, permissions: perms };
-    }));
-    setSaving(s => { const n = { ...s }; delete n[key]; return n; });
+  // Read-only now. Access is derived from the person’s position via
+  // position_permissions, and the database re-derives it on every query —
+  // so a per-person override written here would change the switch on screen
+  // and nothing else. Change the position in Employees & HR instead.
+  function toggle() {
+    window.alert(
+      "Access follows a person's position and can't be set per person here.\n\n" +
+      "To change what someone can see, change their Role / Position in Employees & HR."
+    );
   }
 
-  async function resetToDefault(user) {
-    if (!window.confirm(`Reset ${user.name}'s permissions to defaults?`)) return;
-    await updateDoc(doc(db, "users", user.id), { permissions: {} });
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, permissions: {} } : u));
+  function resetToDefault(user) {
+    window.alert(
+      `${user.name} already has exactly the access their position grants — ` +
+      "there are no per-person overrides left to reset."
+    );
   }
 
   // Sync telegram input when selection changes
@@ -385,7 +371,7 @@ export default function AdminPanel() {
   async function saveTelegramId(userId, value) {
     const parsed = value.trim() === "" ? null : Number(value);
     setSavingTg(true);
-    await setDoc(doc(db, "users", userId), { telegramId: parsed ?? null }, { merge: true });
+    await upsertRow("employees", { id: userId, telegramId: parsed ?? null }, ["id"]);
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, telegramId: parsed ?? null } : u));
     setSavingTg(false);
   }

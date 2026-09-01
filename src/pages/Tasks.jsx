@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc, collection, deleteDoc, doc, getDocs,
-  serverTimestamp, updateDoc, writeBatch, query, orderBy,
-} from "firebase/firestore";
+import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { TEAM_MEMBERS } from "../constants";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { cn, Avatar, Pill, Btn, Icons } from "../components/ui";
@@ -429,44 +425,43 @@ function Tasks() {
   const [editSaving,   setEditSaving]  = useState(false);
 
   async function loadColumns() {
-    const snap = await getDocs(collection(db, "task_columns"));
-    let cols = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let cols = await fetchAll("task_columns");
+
+    // Drop duplicate labels, keeping the first. Deleting is best-effort:
+    // someone who can view the board but not edit it still gets a clean
+    // list on screen rather than an error.
     const seen = new Map();
-    const delBatch = writeBatch(db);
-    let hasDels = false;
+    const dupes = [];
     for (const c of cols) {
       const key = (c.label || "").toLowerCase();
-      if (seen.has(key)) { delBatch.delete(doc(db, "task_columns", c.id)); hasDels = true; }
+      if (seen.has(key)) dupes.push(c.id);
       else seen.set(key, c);
     }
-    if (hasDels) await delBatch.commit();
+    if (dupes.length) {
+      await Promise.allSettled(dupes.map(id => deleteRow("task_columns", id)));
+    }
     cols = [...seen.values()];
+
     if (cols.length === 0) {
-      const batch = writeBatch(db);
-      DEFAULT_COLUMNS.forEach(c => batch.set(doc(collection(db, "task_columns")), c));
-      await batch.commit();
-      const fresh = await getDocs(collection(db, "task_columns"));
-      cols = fresh.docs.map(d => ({ id: d.id, ...d.data() }));
+      await Promise.all(DEFAULT_COLUMNS.map(c => insertRow("task_columns", c)));
+      cols = await fetchAll("task_columns");
     }
     cols.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
     setColumns(cols);
   }
 
   async function loadTasks() {
-    const snap = await getDocs(collection(db, "tasks"));
-    setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setTasks(await fetchAll("tasks"));
   }
 
   async function loadCustomers() {
-    const snap = await getDocs(query(collection(db, "customers"), orderBy("name")));
-    setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setCustomers(await fetchAll("customers", { orderBy: "name", orderDir: "asc" }));
   }
 
   async function loadAssignees() {
     try {
-      const snap = await getDocs(collection(db, "employees"));
-      const list = snap.docs
-        .map(d => d.data())
+      const rows = await fetchAll("employees");
+      const list = rows
         .filter(emp => emp.status !== "Inactive" && emp.name)
         .map(emp => ({ name: emp.name, email: emp.email || "" }));
       list.sort((a, b) => a.name.localeCompare(b.name));
@@ -500,7 +495,7 @@ function Tasks() {
 
   async function handleAdd(data) {
     try {
-      await addDoc(collection(db, "tasks"), { ...data, createdBy: profile?.name || "Unknown", createdAt: serverTimestamp() });
+      await insertRow("tasks", { ...data, createdBy: profile?.name || "Unknown" });
       await loadTasks();
     } catch (err) {
       console.error("Error adding task:", err);
@@ -512,10 +507,10 @@ function Tasks() {
   async function handleDelete(id) {
     if (!window.confirm("Delete this task?")) return;
     try {
-      await deleteDoc(doc(db, "tasks", id));
+      await deleteRow("tasks", id);
       setTasks(cur => cur.filter(t => t.id !== id));
     } catch (err) {
-      alert("Could not delete task — Firestore rules may need redeploying.");
+      alert("Could not delete task — you may not have permission to edit tasks.");
       console.error(err);
     }
   }
@@ -523,7 +518,7 @@ function Tasks() {
   async function handleDrop(taskId, newStatus) {
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.status === newStatus) return;
-    await updateDoc(doc(db, "tasks", taskId), { status: newStatus });
+    await updateRow("tasks", taskId, { status: newStatus });
     setTasks(cur => cur.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
     if (newStatus === "Done" && task.assignee) {
       const uid = await resolveUidByName(task.assignee);
@@ -565,7 +560,7 @@ function Tasks() {
     if (!editTask || !editForm.title.trim()) return;
     setEditSaving(true);
     try {
-      await updateDoc(doc(db, "tasks", editTask.id), {
+      await updateRow("tasks", editTask.id, {
         title:       editForm.title.trim(),
         description: editForm.description,
         assignee:    editForm.assignee,
@@ -606,12 +601,12 @@ function Tasks() {
 
   async function handleAddColumn(label, tone) {
     const maxOrder = columns.reduce((m, c) => Math.max(m, c.order ?? 0), 0);
-    await addDoc(collection(db, "task_columns"), { label, tone: tone || "neutral", order: maxOrder + 1 });
+    await insertRow("task_columns", { label, tone: tone || "neutral", order: maxOrder + 1 });
     await loadColumns();
   }
 
   async function handleDeleteColumn(colId) {
-    await deleteDoc(doc(db, "task_columns", colId));
+    await deleteRow("task_columns", colId);
     setColumns(cur => cur.filter(c => c.id !== colId));
   }
 
@@ -623,9 +618,7 @@ function Tasks() {
     const [moved] = newCols.splice(fromIdx, 1);
     newCols.splice(toIdx, 0, moved);
     setColumns(newCols.map((c, i) => ({ ...c, order: i })));
-    const batch = writeBatch(db);
-    newCols.forEach((c, i) => batch.update(doc(db, "task_columns", c.id), { order: i }));
-    await batch.commit();
+    await Promise.all(newCols.map((c, i) => updateRow("task_columns", c.id, { order: i })));
   }
 
   return (

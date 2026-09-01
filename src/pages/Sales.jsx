@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import { db } from "../firebase";
+import { fetchAll } from "../lib/db";
 import { KPI } from "../components/ui";
 
 const STAGES = [
@@ -49,10 +48,13 @@ export default function Sales() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getDocs(query(collection(db, "production"), orderBy("date", "desc")))
-      .then(snap => {
-        setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      })
+    // Reads `orders`, not `production`. This funnel groups by stage and values
+    // it with pricePerPcNPR, both of which live on an order — `production` holds
+    // cut/stitched/passed batch counts and never had those fields, so the funnel
+    // was being built from a collection that could not answer the question.
+    fetchAll("orders", { orderBy: "date", orderDir: "desc" })
+      .then(setOrders)
+      .catch(err => console.error("Sales: failed to load orders:", err))
       .finally(() => setLoading(false));
   }, []);
 

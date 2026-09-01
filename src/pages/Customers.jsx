@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  addDoc, collection, deleteDoc, doc, getDocs,
-  orderBy, query, serverTimestamp, updateDoc,
-} from "firebase/firestore";
-import { db } from "../firebase";
+import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { Icons } from "../components/ui";
 
@@ -138,8 +134,7 @@ function Customers() {
   const [editing, setEditing]     = useState(null);
 
   async function load() {
-    const snap = await getDocs(query(collection(db, "customers"), orderBy("name")));
-    setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setCustomers(await fetchAll("customers", { orderBy: "name", orderDir: "asc" }));
   }
 
   useEffect(() => { load().finally(() => setLoading(false)); }, []);
@@ -149,9 +144,9 @@ function Customers() {
 
   async function handleSave(form) {
     if (editing) {
-      await updateDoc(doc(db, "customers", editing.id), form);
+      await updateRow("customers", editing.id, form);
     } else {
-      await addDoc(collection(db, "customers"), { ...form, createdAt: serverTimestamp() });
+      await insertRow("customers", form);
     }
     setShowForm(false);
     setEditing(null);
@@ -161,10 +156,10 @@ function Customers() {
   async function handleDelete(id) {
     if (!window.confirm("Delete this customer?")) return;
     try {
-      await deleteDoc(doc(db, "customers", id));
+      await deleteRow("customers", id);
       setCustomers(c => c.filter(x => x.id !== id));
     } catch {
-      alert("Could not delete — check Firestore rules.");
+      alert("Could not delete — you may not have permission to edit customers.");
     }
   }
 

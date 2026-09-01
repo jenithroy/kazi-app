@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
+import { fetchAll, insertRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { todayDate } from "../utils/date";
@@ -24,15 +23,12 @@ function QualityControl() {
   const [form, setForm] = useState(initialForm);
 
   async function loadData() {
-    const [qcSnap, productionSnap] = await Promise.all([
-      getDocs(collection(db, "qc_logs")),
-      getDocs(collection(db, "production"))
+    const [qcRows, productionRows] = await Promise.all([
+      fetchAll("qc_logs"),
+      fetchAll("production"),
     ]);
 
-    const qcRows = qcSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
     qcRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-
-    const productionRows = productionSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
     productionRows.sort((a, b) => (b.batchId || "").localeCompare(a.batchId || ""));
 
     setLogs(qcRows);
@@ -53,14 +49,13 @@ function QualityControl() {
 
     const nextId = `QC${String(logs.length + 1).padStart(3, "0")}`;
 
-    await addDoc(collection(db, "qc_logs"), {
+    await insertRow("qc_logs", {
       qcId: nextId,
       ...form,
       inspected: Number(form.inspected || 0),
       passed: Number(form.passed || 0),
       rejected: Number(form.rejected || 0),
       checkedBy: profile?.name || "Unknown",
-      createdAt: serverTimestamp()
     });
 
     setForm(initialForm);

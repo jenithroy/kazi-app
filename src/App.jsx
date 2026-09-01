@@ -21,36 +21,61 @@ import Marketing from "./pages/Marketing";
 import BugReport from "./pages/BugReport";
 import Changelog from "./pages/Changelog";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RequireSection from "./components/RequireSection";
+import LandingRedirect from "./components/LandingRedirect";
 
+/**
+ * Every route names the section it belongs to.
+ *
+ * Signing in used to be the only check, so the address bar was an open door —
+ * any account could load /finance, /employees or /admin. The section here is
+ * matched against the same position matrix the database enforces, so the page
+ * a person can reach and the data they can read now agree.
+ *
+ * Bug Report and Changelog are deliberately ungated: everyone may file a bug
+ * and read release notes, which is how the sidebar has always treated them.
+ */
 function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute />}>
-        <Route path="/admin" element={<AdminPanel />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/attendance" element={<Attendance />} />
-        <Route path="/production" element={<Production />} />
-        <Route path="/inventory" element={<Inventory />} />
-        <Route path="/qc" element={<QualityControl />} />
-        <Route path="/finance" element={<Finance />} />
-        <Route path="/finance/:fy" element={<FiscalYearTransactions />} />
-        <Route path="/purchases" element={<Purchases />} />
-        <Route path="/tasks" element={<Tasks />} />
-        <Route path="/content" element={<Budget />} />
-        <Route path="/orders" element={<Navigate to="/production" replace />} />
-        <Route path="/billing" element={<Billing />} />
-        <Route path="/employees" element={<Employees />} />
-        <Route path="/directors" element={<Directors />} />
-        <Route path="/customers" element={<Customers />} />
-        <Route path="/messenger" element={<Messenger />} />
-        <Route path="/marketing" element={<Marketing />} />
-        <Route path="/bug-report" element={<BugReport />} />
-        <Route path="/changelog" element={<Changelog />} />
-        <Route path="/sales" element={<Sales />} />
-        <Route path="/library" element={<Navigate to="/inventory" replace />} />
-        <Route path="/accounting" element={<Navigate to="/finance" replace />} />
+        <Route path="/dashboard"   element={<RequireSection section="dashboard"><Dashboard /></RequireSection>} />
+        <Route path="/tasks"       element={<RequireSection section="tasks"><Tasks /></RequireSection>} />
+        <Route path="/attendance"  element={<RequireSection section="attendance"><Attendance /></RequireSection>} />
+        <Route path="/production"  element={<RequireSection section="production"><Production /></RequireSection>} />
+        <Route path="/qc"          element={<RequireSection section="quality_control"><QualityControl /></RequireSection>} />
+        {/* Inventory and Product Library are one merged screen, so either opens it. */}
+        <Route path="/inventory"   element={<RequireSection anyOf={["inventory", "library"]}><Inventory /></RequireSection>} />
+        <Route path="/sales"       element={<RequireSection section="sales"><Sales /></RequireSection>} />
+        <Route path="/finance"     element={<RequireSection section="finance"><Finance /></RequireSection>} />
+        <Route path="/finance/:fy" element={<RequireSection section="finance"><FiscalYearTransactions /></RequireSection>} />
+        <Route path="/purchases"   element={<RequireSection section="purchases"><Purchases /></RequireSection>} />
+        <Route path="/billing"     element={<RequireSection section="billing"><Billing /></RequireSection>} />
+        {/* /content renders Budget — named for the page it shows, not its path. */}
+        <Route path="/content"     element={<RequireSection section="budget"><Budget /></RequireSection>} />
+        <Route path="/employees"   element={<RequireSection section="employees"><Employees /></RequireSection>} />
+        <Route path="/directors"   element={<RequireSection section="directors"><Directors /></RequireSection>} />
+        <Route path="/customers"   element={<RequireSection section="customers"><Customers /></RequireSection>} />
+        <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
+        <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
+        <Route path="/admin"       element={<RequireSection section="admin"><AdminPanel /></RequireSection>} />
+
+        {/* Open to everyone who is signed in. */}
+        <Route path="/bug-report"  element={<BugReport />} />
+        <Route path="/changelog"   element={<Changelog />} />
+
+        <Route path="/orders"      element={<Navigate to="/production" replace />} />
+        <Route path="/library"     element={<Navigate to="/inventory" replace />} />
+        <Route path="/accounting"  element={<Navigate to="/finance" replace />} />
+
+        {/* An unknown path goes to a page this person can actually open, rather
+            than always /dashboard — which not every position can see. */}
+        <Route path="*" element={<LandingRedirect />} />
       </Route>
+
+      {/* Unknown path while signed out: the guard sends it to /login and
+          remembers where they were headed. */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

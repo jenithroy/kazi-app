@@ -1,86 +1,57 @@
 import { useCallback, useState } from "react";
-import {
-  addDoc as firebaseAddDoc,
-  collection,
-  doc,
-  getDocs as firebaseGetDocs,
-  orderBy,
-  query,
-  updateDoc as firebaseUpdateDoc,
-  where
-} from "firebase/firestore";
-import { db } from "../firebase";
+import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 
+/**
+ * Per-collection CRUD with loading and error state.
+ *
+ * Same shape it had when this read Firestore -- the method names are kept so
+ * callers do not change -- but every call now goes to Supabase, where RLS
+ * decides what comes back and what is allowed through.
+ *
+ * The `filters` option still takes { field, op, value }; ops are PostgREST's
+ * ("eq", "neq", "gt", "gte", "lt", "lte", "like", "in") rather than Firestore's
+ * "==", and default to equality.
+ */
 export default function useFirestore(collectionName) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const run = useCallback(async (fn, failure) => {
+    setLoading(true);
+    setError("");
+    try {
+      return await fn();
+    } catch (err) {
+      setError(err.message || failure);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const getDocs = useCallback(
-    async ({ filters = [], orderByField, orderDirection = "desc" } = {}) => {
-      setLoading(true);
-      setError("");
-      try {
-        const constraints = [];
-
-        filters.forEach(({ field, op = "==", value }) => {
-          constraints.push(where(field, op, value));
-        });
-
-        if (orderByField) {
-          constraints.push(orderBy(orderByField, orderDirection));
-        }
-
-        const q = constraints.length
-          ? query(collection(db, collectionName), ...constraints)
-          : query(collection(db, collectionName));
-
-        const snapshot = await firebaseGetDocs(q);
-        return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-      } catch (err) {
-        const message = err.message || "Failed to fetch documents";
-        setError(message);
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [collectionName]
+    ({ filters = [], orderByField, orderDirection = "desc" } = {}) =>
+      run(
+        () => fetchAll(collectionName, { filters, orderBy: orderByField, orderDir: orderDirection }),
+        "Failed to fetch documents"
+      ),
+    [collectionName, run]
   );
 
   const addDoc = useCallback(
-    async (payload) => {
-      setLoading(true);
-      setError("");
-      try {
-        return await firebaseAddDoc(collection(db, collectionName), payload);
-      } catch (err) {
-        const message = err.message || "Failed to create document";
-        setError(message);
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [collectionName]
+    (payload) => run(() => insertRow(collectionName, payload), "Failed to create document"),
+    [collectionName, run]
   );
 
   const updateDoc = useCallback(
-    async (id, payload) => {
-      setLoading(true);
-      setError("");
-      try {
-        const ref = doc(db, collectionName, id);
-        await firebaseUpdateDoc(ref, payload);
-      } catch (err) {
-        const message = err.message || "Failed to update document";
-        setError(message);
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [collectionName]
+    (id, payload) => run(() => updateRow(collectionName, id, payload), "Failed to update document"),
+    [collectionName, run]
   );
 
-  return { getDocs, addDoc, updateDoc, loading, error };
+  const removeDoc = useCallback(
+    (id) => run(() => deleteRow(collectionName, id), "Failed to delete document"),
+    [collectionName, run]
+  );
+
+  return { getDocs, addDoc, updateDoc, removeDoc, loading, error };
 }

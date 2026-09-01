@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { collection, deleteDoc, doc, getDocs, query, where, updateDoc as fsUpdateDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { deleteRow, fetchAll, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
@@ -28,8 +27,7 @@ function Purchases() {
   async function loadPurchases() {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "finance_purchases"));
-      let rows = snap.docs.filter(d => d.id !== "seed_marker").map(d => ({ id: d.id, ...d.data() }));
+      let rows = await fetchAll("finance_purchases");
       rows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
       rows = rows.filter(r => createdAfterCutoff(r));
       setPurchases(rows);
@@ -73,7 +71,7 @@ function Purchases() {
       const vatAmount = purchaseVatAmount(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
       const grandTotal = purchaseGrandTotal(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
 
-      await fsUpdateDoc(doc(db, "finance_purchases", row.id), {
+      await updateRow("finance_purchases", row.id, {
         expenseItem: draft.expenseItem,
         category: draft.category,
         paymentType: draft.paymentType || "CASH",
@@ -108,7 +106,7 @@ function Purchases() {
       setPurchases(prev => prev.filter(p => p.id !== id));
 
       // 1. Delete main purchase document
-      await deleteDoc(doc(db, "finance_purchases", id));
+      await deleteRow("finance_purchases", id);
 
       // 2. Delete linked vat_bills, stock_movements, journal_entries
       const matchIds = Array.from(new Set([expenseId, id].filter(Boolean)));
@@ -116,9 +114,8 @@ function Purchases() {
       for (const expId of matchIds) {
         // vat_bills
         try {
-          const vatSnap = await getDocs(query(collection(db, "vat_bills"), where("expenseId", "==", expId)));
-          for (const vDoc of vatSnap.docs) {
-            const vData = vDoc.data();
+          const vatRows = await fetchAll("vat_bills", { filters: [{ field: "expenseId", value: expId }] });
+          for (const vData of vatRows) {
             if (vData.storagePath) {
               try {
                 const { ref: storageRef, deleteObject } = await import("firebase/storage");
@@ -126,7 +123,7 @@ function Purchases() {
                 await deleteObject(storageRef(storage, vData.storagePath));
               } catch (_) {}
             }
-            await deleteDoc(doc(db, "vat_bills", vDoc.id));
+            await deleteRow("vat_bills", vData.id);
           }
         } catch (e) {
           console.error("Failed to delete linked vat_bills:", e);
@@ -134,9 +131,12 @@ function Purchases() {
 
         // stock_movements
         try {
-          const stockSnap = await getDocs(query(collection(db, "stock_movements"), where("source", "==", "purchase"), where("sourceId", "==", expId)));
-          for (const sDoc of stockSnap.docs) {
-            await deleteDoc(doc(db, "stock_movements", sDoc.id));
+          const stockRows = await fetchAll("stock_movements", { filters: [
+            { field: "source", value: "purchase" },
+            { field: "sourceId", value: expId },
+          ] });
+          for (const sRow of stockRows) {
+            await deleteRow("stock_movements", sRow.id);
           }
         } catch (e) {
           console.error("Failed to delete linked stock_movements:", e);
@@ -144,9 +144,12 @@ function Purchases() {
 
         // journal_entries
         try {
-          const jSnap = await getDocs(query(collection(db, "journal_entries"), where("expenseId", "==", expId)));
-          for (const jDoc of jSnap.docs) {
-            await deleteDoc(doc(db, "journal_entries", jDoc.id));
+          // Journal entries link back through `reference`, not an expenseId
+          // field — that key never existed as a column, so the old query
+          // matched nothing and these entries were quietly orphaned.
+          const jRows = await fetchAll("journal_entries", { filters: [{ field: "reference", value: expId }] });
+          for (const jRow of jRows) {
+            await deleteRow("journal_entries", jRow.id);
           }
         } catch (e) {
           console.error("Failed to delete linked journal_entries:", e);

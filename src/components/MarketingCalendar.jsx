@@ -11,17 +11,13 @@
 //   notes         string    — Notes / captions / hooks
 //   timeSlot      string    — e.g. "10:00 AM – 2:00 PM"
 //   mediaUrl      string    — Thumbnail URL or null
-//   createdAt     Timestamp — serverTimestamp()
+//   createdAt     timestamptz — defaulted by the database
 // ============================================================
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 
 // ── Firebase imports ──────────────────────────────────────
-import { db } from '../firebase';
-import {
-  collection, addDoc, setDoc, updateDoc, deleteDoc,
-  doc, onSnapshot, serverTimestamp, query
-} from 'firebase/firestore';
+import { deleteRow, fetchAll, insertRow, subscribe, updateRow } from '../lib/db';
 
 // ── Constants ─────────────────────────────────────────────
 const TYPE_CFG = {
@@ -82,31 +78,27 @@ export default function MarketingCalendar() {
 
   // ── Firebase realtime listener & auto-seed ──
   useEffect(() => {
-    const q = query(collection(db, 'content_calendar'));
     let isSeeding = false;
 
-    const unsub = onSnapshot(q, async (snap) => {
-      if (snap.empty && !isSeeding) {
-        isSeeding = true;
-        try {
-          for (const item of SEED) {
-            await addDoc(collection(db, 'content_calendar'), {
-              ...item,
-              createdAt: serverTimestamp()
-            });
-          }
-        } catch (e) {
-          console.error("Error seeding content_calendar:", e);
+    async function load() {
+      try {
+        const fetched = await fetchAll('content_calendar');
+        if (fetched.length === 0 && !isSeeding) {
+          isSeeding = true;
+          for (const item of SEED) await insertRow('content_calendar', item);
+          setItems(await fetchAll('content_calendar'));
+          isSeeding = false;
+          return;
         }
-      } else {
-        const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setItems(fetched);
+      } catch (err) {
+        console.error("Could not load the content calendar:", err);
       }
-    }, (err) => {
-      console.error("Firestore content_calendar listener error:", err);
-    });
+    }
 
-    return unsub;
+    load();
+    // Several people plan against this board at once, so keep watching.
+    return subscribe('content_calendar', load);
   }, []);
 
   // ── Derived ───────────────────────────────────────────
@@ -123,9 +115,8 @@ export default function MarketingCalendar() {
   const addInboxItem = useCallback(async () => {
     const title = newIdea.trim();
     if (!title) return;
-    const docRef = doc(collection(db, 'content_calendar'));
     const item = {
-      id: docRef.id,
+      id: null, // filled in by the database
       title,
       status: 'inbox',
       scheduledDate: null,
@@ -139,7 +130,7 @@ export default function MarketingCalendar() {
     setNewIdea('');
     newIdeaRef.current?.focus();
     try {
-      await setDoc(docRef, {
+      const saved = await insertRow('content_calendar', {
         title: item.title,
         status: item.status,
         scheduledDate: item.scheduledDate,
@@ -147,8 +138,9 @@ export default function MarketingCalendar() {
         notes: item.notes,
         timeSlot: item.timeSlot,
         mediaUrl: item.mediaUrl,
-        createdAt: serverTimestamp()
       });
+      // Swap the placeholder for the real row id so edits and deletes land.
+      setItems(prev => prev.map(i => (i === item ? { ...item, id: saved.id } : i)));
     } catch (err) {
       console.error("Error adding inbox item to Firestore:", err);
       alert("Failed to save idea to server. Please check your internet connection.");
@@ -156,9 +148,9 @@ export default function MarketingCalendar() {
   }, [newIdea]);
 
   const addInboxItemFromToolbar = useCallback(async () => {
-    const docRef = doc(collection(db, 'content_calendar'));
     const item = {
-      id: docRef.id,
+      id: null, // filled in by the database
+      
       title: 'New Content Idea',
       status: 'inbox',
       scheduledDate: null,
@@ -171,7 +163,7 @@ export default function MarketingCalendar() {
     setItems(prev => [item, ...prev]);
     setSelected(item);
     try {
-      await setDoc(docRef, {
+      const saved = await insertRow('content_calendar', {
         title: item.title,
         status: item.status,
         scheduledDate: item.scheduledDate,
@@ -179,10 +171,12 @@ export default function MarketingCalendar() {
         notes: item.notes,
         timeSlot: item.timeSlot,
         mediaUrl: item.mediaUrl,
-        createdAt: serverTimestamp()
       });
+      // Swap the placeholder for the real row id so edits and deletes land.
+      setItems(prev => prev.map(i => (i === item ? { ...item, id: saved.id } : i)));
+      setSelected(prev => (prev === item ? { ...item, id: saved.id } : prev));
     } catch (err) {
-      console.error("Error creating content idea in Firestore:", err);
+      console.error("Could not create the content idea:", err);
       alert("Failed to save new content idea. Please check your internet connection.");
     }
   }, []);
@@ -191,9 +185,9 @@ export default function MarketingCalendar() {
     setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'scheduled', scheduledDate: date } : i));
     setSelected(prev => prev?.id === id ? { ...prev, status: 'scheduled', scheduledDate: date } : prev);
     try {
-      await updateDoc(doc(db, 'content_calendar', id), {
+      await updateRow('content_calendar', id, {
         status: 'scheduled',
-        scheduledDate: date
+        scheduledDate: date,
       });
     } catch (err) {
       console.error("Error scheduling item in Firestore:", err);
@@ -213,7 +207,7 @@ export default function MarketingCalendar() {
       mediaUrl: updated.mediaUrl || null
     };
     try {
-      await setDoc(doc(db, 'content_calendar', updated.id), payload, { merge: true });
+      await updateRow('content_calendar', updated.id, payload);
     } catch (err) {
       console.error("Error updating item in Firestore:", err);
     }
@@ -223,7 +217,7 @@ export default function MarketingCalendar() {
     setItems(prev => prev.filter(i => i.id !== id));
     setSelected(prev => prev?.id === id ? null : prev);
     try {
-      await deleteDoc(doc(db, 'content_calendar', id));
+      await deleteRow('content_calendar', id);
     } catch (err) {
       console.error("Error deleting item from Firestore:", err);
     }
@@ -233,9 +227,9 @@ export default function MarketingCalendar() {
     setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'inbox', scheduledDate: null } : i));
     setSelected(prev => prev?.id === id ? { ...prev, status: 'inbox', scheduledDate: null } : prev);
     try {
-      await updateDoc(doc(db, 'content_calendar', id), {
+      await updateRow('content_calendar', id, {
         status: 'inbox',
-        scheduledDate: null
+        scheduledDate: null,
       });
     } catch (err) {
       console.error("Error unscheduling item in Firestore:", err);
@@ -261,9 +255,9 @@ export default function MarketingCalendar() {
   const todayStr = fmtDate(today.getFullYear(), today.getMonth(), today.getDate());
 
   const openNewForDate = useCallback(async (dateStr) => {
-    const docRef = doc(collection(db, 'content_calendar'));
     const item = {
-      id: docRef.id,
+      id: null, // filled in by the database
+      
       title: 'New Content Idea',
       status: 'scheduled',
       scheduledDate: dateStr,
@@ -276,7 +270,7 @@ export default function MarketingCalendar() {
     setItems(prev => [...prev, item]);
     setSelected(item);
     try {
-      await setDoc(docRef, {
+      const saved = await insertRow('content_calendar', {
         title: item.title,
         status: item.status,
         scheduledDate: item.scheduledDate,
@@ -284,8 +278,9 @@ export default function MarketingCalendar() {
         notes: item.notes,
         timeSlot: item.timeSlot,
         mediaUrl: item.mediaUrl,
-        createdAt: serverTimestamp()
       });
+      // Swap the placeholder for the real row id so edits and deletes land.
+      setItems(prev => prev.map(i => (i === item ? { ...item, id: saved.id } : i)));
     } catch (err) {
       console.error("Error creating content item for date in Firestore:", err);
       alert("Failed to save content item for date. Please check your internet connection.");
@@ -583,7 +578,7 @@ function EditDrawer({ item, t, onSave, onDelete, onUnschedule, onClose }) {
     const next = { ...form, [field]: value };
     setForm(next);
     onSave(next);
-    // FIREBASE → updateDoc(doc(db,'content_calendar',item.id), { [field]: value });
+    // Persisted via updateRow('content_calendar', item.id, { [field]: value }).
   };
 
   const cfg = TYPE_CFG[form.type] || TYPE_CFG.Shoot;

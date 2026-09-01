@@ -1,15 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  serverTimestamp,
-  setDoc,
-  updateDoc as fsUpdateDoc,
-  writeBatch
-} from "firebase/firestore";
 import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import {
   Cell, Legend, Pie, PieChart,
@@ -22,17 +11,20 @@ import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, apply
 import KeyboardSelect from "../components/KeyboardSelect";
 import { BANK_NAMES } from "../utils/billing.jsx";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
-import { db, storage } from "../firebase";
+import { storage } from "../firebase";
+import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { asCurrency, roundAmount } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { postPurchaseStockIn } from "../utils/stockLedger";
+import { tsMillis, tsDate } from "../utils/date";
 
 /* ── Seed data ─────────────────────────────────────── */
 // NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
 // so that name can never actually be written and the seed-once check never worked.
-const SEED_MARKER_ID = "seed_marker";
+const isBankCredit = (t) => String(t?.type || "").toLowerCase() === "credit";
+
 const SEED_PURCHASES = [
   { expenseId: "EXP001", expenseItem: "Office supplies stationary",  category: "Office Supplies",       vatBill: true,  amountNPR: 5290   },
   { expenseId: "EXP002", expenseItem: "Mobile phones",                category: "Equipment / IT",        vatBill: true,  amountNPR: 45000  },
@@ -247,19 +239,19 @@ function Finance() {
     // allSettled — a user lacking read access to one collection (e.g. bank_transactions,
     // which is admin-only) must not blank out every other Finance tab they DO have access to.
     const settled = await Promise.allSettled([
-      getDocs(collection(db, "finance_payroll")),
-      getDocs(collection(db, "finance_expenses")),
-      getDocs(collection(db, "finance_purchases")),
-      getDocs(collection(db, "vat_bills")),
-      getDocs(collection(db, "employees")),
-      getDocs(collection(db, "journal_entries")),
-      getDocs(collection(db, "accounts")),
-      getDocs(collection(db, "invoices")),
-      getDocs(collection(db, "bank_transactions")),
-      getDocs(collection(db, "orders")),
-      getDocs(collection(db, "order_costs")),
-      getDocs(collection(db, "production")),
-      getDocs(collection(db, "inventory")),
+      fetchAll("finance_payroll"),
+      fetchAll("finance_expenses"),
+      fetchAll("finance_purchases"),
+      fetchAll("vat_bills"),
+      fetchAll("employees"),
+      fetchAll("journal_entries"),
+      fetchAll("accounts"),
+      fetchAll("invoices"),
+      fetchAll("bank_transactions"),
+      fetchAll("orders"),
+      fetchAll("order_costs"),
+      fetchAll("production"),
+      fetchAll("inventory"),
     ]);
     const emptySnap = { docs: [] };
     const [payrollSnap, expensesSnap, purchasesSnap, vatBillsSnap, employeesSnap,
@@ -268,80 +260,71 @@ function Finance() {
         if (r.status === "rejected") { console.error("Finance: failed to load one collection:", r.reason); return emptySnap; }
         return r.value;
       });
-    setInventoryItems(inventorySnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setInventoryItems(inventorySnap);
 
-    setEmployees(employeesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status !== "Inactive"));
-    setPayroll(payrollSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    const txns = bankSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setEmployees(employeesSnap.filter(e => e.status !== "Inactive"));
+    setPayroll(payrollSnap);
+    const txns = [...bankSnap];
     txns.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setBankTxns(txns);
 
-    const expRows = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const expRows = [...expensesSnap];
     expRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setExpenses(expRows);
 
-    let purRows = purchasesSnap.docs.filter(d => d.id !== SEED_MARKER_ID).map(d => ({ id: d.id, ...d.data() }));
-    // Seed data is backfilled once, ever — the marker doc records that it already ran,
-    // and only fires when the collection is genuinely empty, so deleting a seeded
-    // purchase (e.g. EXP001) doesn't bring it back on next load.
-    // (Marker ID must not match Firestore's reserved "__*__" pattern — that throws on write.)
-    const alreadySeeded = purchasesSnap.docs.some(d => d.id === SEED_MARKER_ID);
-    if (!alreadySeeded && purRows.length === 0) {
+    let purRows = [...purchasesSnap];
+    // Backfill the starter purchases only into a genuinely empty table. The
+    // old marker-document trick is gone: it existed so a re-seed could be
+    // detected in a store with no constraints, and it wrote a fake purchase
+    // row that every read then had to filter back out.
+    if (purRows.length === 0) {
       const today = new Date().toISOString().slice(0, 10);
-      const batch = writeBatch(db);
-      SEED_PURCHASES.forEach(p => batch.set(doc(db, "finance_purchases", p.expenseId), { ...p, date: today, createdAt: serverTimestamp() }));
-      batch.set(doc(db, "finance_purchases", SEED_MARKER_ID), { seededAt: serverTimestamp() });
-      await batch.commit();
-      const fresh = await getDocs(collection(db, "finance_purchases"));
-      purRows = fresh.docs.filter(d => d.id !== SEED_MARKER_ID).map(d => ({ id: d.id, ...d.data() }));
+      await Promise.all(SEED_PURCHASES.map(p =>
+        upsertRow("finance_purchases", { ...p, date: today }, ["expense_ref"])));
+      purRows = await fetchAll("finance_purchases");
     }
+    // Collapse any duplicate expense refs for display, keeping the first.
+    // This used to DELETE the losers on every page load, which is not
+    // something a read should do — a transient glitch could quietly destroy
+    // accounting records. Postgres has no duplicates today, so hiding rather
+    // than deleting costs nothing and cannot lose a purchase.
     const seen = new Map();
-    const toDelete = [];
     for (const r of purRows) {
-      const prev = seen.get(r.expenseId);
-      if (!prev) { seen.set(r.expenseId, r); }
-      else { const keepNew = r.id === r.expenseId; toDelete.push((keepNew ? prev : r).id); if (keepNew) seen.set(r.expenseId, r); }
+      if (!seen.has(r.expenseId)) seen.set(r.expenseId, r);
     }
-    if (toDelete.length > 0) {
-      const cb = writeBatch(db);
-      toDelete.forEach(id => cb.delete(doc(db, "finance_purchases", id)));
-      await cb.commit();
-      purRows = [...seen.values()];
-    }
+    if (seen.size !== purRows.length) purRows = [...seen.values()];
     purRows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
     allPurchaseIdsRef.current = purRows.map(r => r.expenseId).filter(Boolean);
     purRows = purRows.filter(r => createdAfterCutoff(r));
     setPurchases(purRows);
 
-    const bills = vatBillsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    bills.sort((a, b) => (b.uploadedAt?.seconds || 0) - (a.uploadedAt?.seconds || 0));
+    const bills = [...vatBillsSnap];
+    bills.sort((a, b) => tsMillis(b.uploadedAt) - tsMillis(a.uploadedAt));
     setVatBills(bills);
     if (!vatExpenseId && purRows.length > 0) setVatExpenseId(purRows[0].expenseId || "");
 
-    const entryRows = entriesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => createdAfterCutoff(r));
+    const entryRows = entriesSnap.filter(r => createdAfterCutoff(r));
     entryRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setEntries(entryRows);
 
-    let accs = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let accs = [...accountsSnap];
     if (accs.length === 0) {
-      for (const acc of DEFAULT_ACCOUNTS) await addDoc(collection(db, "accounts"), { ...acc, createdAt: serverTimestamp() });
-      const freshSnap = await getDocs(collection(db, "accounts"));
-      accs = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      for (const acc of DEFAULT_ACCOUNTS) await insertRow("accounts", acc);
+      accs = await fetchAll("accounts");
     } else {
       // Sync any new accounts added to DEFAULT_ACCOUNTS (e.g. Fonepay)
       const existingNames = new Set(accs.map(a => a.name));
       const missing = DEFAULT_ACCOUNTS.filter(a => !existingNames.has(a.name));
       if (missing.length > 0) {
-        for (const acc of missing) await addDoc(collection(db, "accounts"), { ...acc, createdAt: serverTimestamp() });
-        const freshSnap = await getDocs(collection(db, "accounts"));
-        accs = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        for (const acc of missing) await insertRow("accounts", acc);
+        accs = await fetchAll("accounts");
       }
       // Backfill openingBalanceNPR onto accounts seeded before that field existed.
       for (const def of DEFAULT_ACCOUNTS) {
         if (def.openingBalanceNPR == null) continue;
         const acc = accs.find(a => a.name === def.name);
         if (acc && acc.openingBalanceNPR == null) {
-          await fsUpdateDoc(doc(db, "accounts", acc.id), { openingBalanceNPR: def.openingBalanceNPR });
+          await updateRow("accounts", acc.id, { openingBalanceNPR: def.openingBalanceNPR });
           acc.openingBalanceNPR = def.openingBalanceNPR;
         }
       }
@@ -353,40 +336,41 @@ function Finance() {
     {
       const customBankNames = new Set();
       purRows.forEach(p => { if (p.paymentType === "Bank" && p.bankName && !BANK_NAMES.includes(p.bankName)) customBankNames.add(p.bankName); });
-      invSnap.docs.forEach(d => { const inv = d.data(); if (inv.paymentType === "Bank" && inv.bankName && !BANK_NAMES.includes(inv.bankName)) customBankNames.add(inv.bankName); });
-      bankSnap.docs.forEach(d => { const name = d.data().accountName; if (name && name !== "Cash" && !BANK_NAMES.includes(name)) customBankNames.add(name); });
+      invSnap.forEach(inv => { if (inv.paymentType === "Bank" && inv.bankName && !BANK_NAMES.includes(inv.bankName)) customBankNames.add(inv.bankName); });
+      // bank_transactions has no per-account name — the importer feeds a
+      // single account — so there is nothing to harvest here any more.
       const existingNames2 = new Set(accs.map(a => a.name));
       const newBankAccounts = Array.from(customBankNames).filter(n => !existingNames2.has(n));
       if (newBankAccounts.length > 0) {
-        for (const name of newBankAccounts) await addDoc(collection(db, "accounts"), { name, type: "Asset", openingBalanceNPR: 0, createdAt: serverTimestamp() });
-        const freshSnap = await getDocs(collection(db, "accounts"));
-        accs = freshSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        for (const name of newBankAccounts) await insertRow("accounts", { name, type: "Asset", openingBalanceNPR: 0 });
+        accs = await fetchAll("accounts");
       }
     }
     // One-time rename of an already-seeded "Laxmi Sunrise Bank" → "Nabil Bank",
     // carrying its opening balance and any bank_transactions across so nothing drops off the ledger.
     const oldBankAcc = accs.find(a => a.name === "Laxmi Sunrise Bank");
     if (oldBankAcc && !accs.find(a => a.name === "Nabil Bank")) {
-      await fsUpdateDoc(doc(db, "accounts", oldBankAcc.id), { name: "Nabil Bank" });
+      await updateRow("accounts", oldBankAcc.id, { name: "Nabil Bank" });
       oldBankAcc.name = "Nabil Bank";
-      const staleTxns = bankSnap.docs.filter(d => d.data().accountName === "Laxmi Sunrise Bank");
-      for (const d of staleTxns) await fsUpdateDoc(doc(db, "bank_transactions", d.id), { accountName: "Nabil Bank" });
+      // The transactions themselves carry no account name, so there is
+      // nothing further to rename.
     }
     const seenAcc = new Set();
     accs = accs.filter(a => { if (seenAcc.has(a.name)) return false; seenAcc.add(a.name); return true; });
     accs.sort((a, b) => a.name.localeCompare(b.name));
     setAccounts(accs);
 
-    setInvoices(invSnap.docs.map(d => d.data()));
+    setInvoices(invSnap);
 
     // Orders
-    const orderRows = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    orderRows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    const orderRows = [...ordersSnap];
+    orderRows.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
     setOrders(orderRows);
 
     // Order costs — keyed by orderId (doc ID = orderId)
     const costsMap = {};
-    costsSnap.docs.forEach(d => { costsMap[d.id] = { id: d.id, ...d.data() }; });
+    // Keyed by the order reference the P&L form writes against.
+    costsSnap.forEach(c => { if (c.orderId) costsMap[c.orderId] = c; });
     setOrderCosts(costsMap);
 
     // Auto labour rate: last month's payroll ÷ last month's units passed
@@ -397,8 +381,8 @@ function Finance() {
     const lastMonthName = MONTH_NAMES[lastMonth.getMonth()];
     const lastMonthYear = lastMonth.getFullYear();
 
-    const payrollData = payrollSnap.docs.map(d => d.data());
-    const allEmployees = employeesSnap.docs.map(d => d.data());
+    const payrollData = payrollSnap;
+    const allEmployees = employeesSnap;
     const productionWorkers = new Set(
       allEmployees.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase())
     );
@@ -408,7 +392,7 @@ function Finance() {
       .filter(r => productionWorkers.size === 0 || productionWorkers.has((r.staffName || "").toLowerCase()))
       .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
 
-    const productionData = productionSnap.docs.map(d => d.data());
+    const productionData = productionSnap;
     const lastMonthUnits = productionData
       .filter(b => (b.date || "").slice(0, 7) === lastMonthKey)
       .reduce((s, b) => s + Number(b.passed || 0), 0);
@@ -474,10 +458,9 @@ function Finance() {
         vatAmountNPR: vatAmount,
         amountNPR: grandTotal,
         date: purchaseForm.date,
-        createdAt: serverTimestamp(),
         items: purchaseItemsPayload(purchaseForm.items)
       };
-      await addDoc(collection(db, "finance_purchases"), purchasePayload);
+      await insertRow("finance_purchases", purchasePayload);
       // Auto-post stock-in for any line item whose particulars name an existing
       // inventory item (e.g. "Buff Meat") — silently skips everything else
       // (rent, fees, etc. aren't stock).
@@ -505,12 +488,12 @@ function Finance() {
 
   async function deleteExpense(id) {
     if (!window.confirm("Delete this expense?")) return;
-    await deleteDoc(doc(db, "finance_expenses", id));
+    await deleteRow("finance_expenses", id);
     await loadData();
   }
 
   async function markExpensePaid(id, current) {
-    await fsUpdateDoc(doc(db, "finance_expenses", id), { status: current === "Paid" ? null : "Paid" });
+    await updateRow("finance_expenses", id, { status: current === "Paid" ? null : "Paid" });
     await loadData();
   }
 
@@ -518,9 +501,9 @@ function Finance() {
     e.preventDefault(); if (!canEdit) return;
     setSubmitting(true);
     try {
-      const docRef = await addDoc(collection(db, "finance_expenses"), {
+      const docRef = await insertRow("finance_expenses", {
         ...expenseForm, amountNPR: Number(expenseForm.amountNPR || 0),
-        loggedBy: profile?.name || "Unknown", createdAt: serverTimestamp()
+        loggedBy: profile?.name || "Unknown",
       });
       if (expenseForm.vatBill && expenseVatFile) {
         const safeName = expenseVatFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -531,11 +514,11 @@ function Finance() {
           task.on("state_changed", snap => setExpenseVatProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)), reject, resolve);
         });
         const url = await getDownloadURL(fileRef);
-        await addDoc(collection(db, "vat_bills"), {
+        await insertRow("vat_bills", {
           expenseId: docRef.id, expenseItem: expenseForm.note || expenseForm.category,
           fileName: expenseVatFile.name, fileUrl: url, storagePath: path,
           fileType: expenseVatFile.type, uploadedBy: profile?.name || "Unknown",
-          uploadedAt: serverTimestamp(), source: "expense"
+          source: "expense"
         });
       }
       setExpenseForm(initialExpense);
@@ -558,10 +541,10 @@ function Finance() {
       });
       const url = await getDownloadURL(fileRef);
       const purchase = purchases.find(p => p.expenseId === vatExpenseId);
-      await addDoc(collection(db, "vat_bills"), {
+      await insertRow("vat_bills", {
         expenseId: vatExpenseId, expenseItem: purchase?.expenseItem || "",
         fileName: vatFile.name, fileUrl: url, storagePath: path, fileType: vatFile.type,
-        uploadedBy: profile?.name || "Unknown", uploadedAt: serverTimestamp()
+        uploadedBy: profile?.name || "Unknown",
       });
       setVatFile(null); setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -573,7 +556,7 @@ function Finance() {
   async function deleteVatBill(bill) {
     if (!window.confirm(`Delete "${bill.fileName}"?`)) return;
     try { if (bill.storagePath) await deleteObject(storageRef(storage, bill.storagePath)); } catch (_) {}
-    await deleteDoc(doc(db, "vat_bills", bill.id)); await loadData();
+    await deleteRow("vat_bills", bill.id); await loadData();
   }
 
   async function addEntry(e) {
@@ -582,10 +565,10 @@ function Finance() {
     if (isAdvanceEntry(journalForm) && !journalForm.partyName.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
     setJournalSubmitting(true);
     try {
-      await addDoc(collection(db, "journal_entries"), {
+      await insertRow("journal_entries", {
         ...journalForm, amountNPR: Number(journalForm.amountNPR),
         partyName: isAdvanceEntry(journalForm) ? journalForm.partyName.trim() : "",
-        createdBy: profile?.name || "Unknown", createdAt: serverTimestamp()
+        createdBy: profile?.name || "Unknown",
       });
       setJournalForm(emptyJournalForm); await loadData();
       requestAnimationFrame(() => document.querySelector('[data-role="journal-date"]')?.focus());
@@ -615,7 +598,7 @@ function Finance() {
     if (isAdvanceEntry(journalDraft) && !journalDraft.partyName?.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
     setJournalSaving(true);
     try {
-      await fsUpdateDoc(doc(db, "journal_entries", id), {
+      await updateRow("journal_entries", id, {
         date: journalDraft.date,
         description: journalDraft.description,
         debitAccount: journalDraft.debitAccount,
@@ -640,10 +623,10 @@ function Finance() {
     const { type, id, particulars, amount } = ledgerDraft;
     try {
       if (type === "opening") {
-        await fsUpdateDoc(doc(db, "accounts", id), { openingBalanceNPR: Number(amount || 0) });
+        await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) });
       } else {
         const coll = type === "bank" ? "bank_transactions" : "journal_entries";
-        await fsUpdateDoc(doc(db, coll, id), { description: particulars, amountNPR: Number(amount || 0) });
+        await updateRow(coll, id, { description: particulars, amountNPR: Number(amount || 0) });
       }
       setLedgerDraft(null);
       await loadData();
@@ -675,14 +658,14 @@ function Finance() {
     try {
       const order = orders.find(o => o.id === oplSelectedId);
       const costKey = order?.orderId || order?.id || oplSelectedId;
-      await setDoc(doc(db, "order_costs", costKey), {
+      await upsertRow("order_costs", {
         orderId:  costKey,
         material: Number(oplCostForm.material || 0),
         labour:   Number(oplCostForm.labour   || 0),
         overhead: Number(oplCostForm.overhead  || 0),
         shipping: Number(oplCostForm.shipping  || 0),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+        updatedAt: new Date().toISOString(),
+      }, ["order_ref"]);
       await loadData();
       setOplSelectedId(null);
     } catch (err) {
@@ -749,7 +732,7 @@ function Finance() {
       const acct = p.paymentType === "CASH" ? CASH : p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : null;
       if (!acct || !rowsFor[acct]) return; // Credit purchases move to Accounts Payable, not Cash/Bank
       rowsFor[acct].push({
-        date: p.date || "", sortKey: p.createdAt?.seconds || 0,
+        date: p.date || "", sortKey: tsMillis(p.createdAt),
         particulars: `Purchase — ${p.expenseItem || p.expenseId}`, dr: 0, cr: Number(p.amountNPR || 0),
         sourceType: "purchase", sourceId: p.id, searchKey: p.expenseId,
       });
@@ -761,7 +744,7 @@ function Finance() {
       // defaults to Cash for older invoices with no paymentType set
       const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : CASH;
       rowsFor[acct].push({
-        date: i.date || "", sortKey: i.createdAt?.seconds || 0,
+        date: i.date || "", sortKey: tsMillis(i.createdAt),
         particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
         sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName,
       });
@@ -770,11 +753,11 @@ function Finance() {
     bankTxns.forEach(t => {
       const acct = t.accountName || "Nabil Bank"; // txns logged before multi-bank support default to Nabil
       if (!rowsFor[acct]) return;
-      const amt = Number(t.amountNPR || 0);
+      const amt = Number(t.amount ?? t.amountNPR ?? 0);
       rowsFor[acct].push({
-        date: t.date || "", sortKey: t.createdAt?.seconds || 0,
+        date: t.date || "", sortKey: tsMillis(t.createdAt),
         particulars: t.description || "Bank transaction",
-        dr: t.type === "credit" ? amt : 0, cr: t.type === "debit" ? amt : 0,
+        dr: isBankCredit(t) ? amt : 0, cr: isBankCredit(t) ? 0 : amt,
         sourceType: "bank", sourceId: t.id,
       });
     });
@@ -782,10 +765,10 @@ function Finance() {
     entries.forEach(e => {
       const amt = Number(e.amountNPR || 0);
       if (rowsFor[e.debitAccount]) {
-        rowsFor[e.debitAccount].push({ date: e.date || "", sortKey: e.createdAt?.seconds || 0, particulars: e.description || "Journal entry", dr: amt, cr: 0, sourceType: "journal", sourceId: e.id });
+        rowsFor[e.debitAccount].push({ date: e.date || "", sortKey: tsMillis(e.createdAt), particulars: e.description || "Journal entry", dr: amt, cr: 0, sourceType: "journal", sourceId: e.id });
       }
       if (rowsFor[e.creditAccount]) {
-        rowsFor[e.creditAccount].push({ date: e.date || "", sortKey: e.createdAt?.seconds || 0, particulars: e.description || "Journal entry", dr: 0, cr: amt, sourceType: "journal", sourceId: e.id });
+        rowsFor[e.creditAccount].push({ date: e.date || "", sortKey: tsMillis(e.createdAt), particulars: e.description || "Journal entry", dr: 0, cr: amt, sourceType: "journal", sourceId: e.id });
       }
     });
 
@@ -1206,8 +1189,9 @@ function Finance() {
                       <thead><tr><th>Expense ID</th><th>Expense Item</th><th>File</th><th>Uploaded By</th><th>Date</th><th>Actions</th></tr></thead>
                       <tbody>
                         {vatBills.map(bill => {
-                          const uploadDate = bill.uploadedAt?.seconds
-                            ? new Date(bill.uploadedAt.seconds * 1000).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                          const uploadedOn = tsDate(bill.uploadedAt);
+                          const uploadDate = uploadedOn
+                            ? uploadedOn.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
                             : "—";
                           const isImg = bill.fileType?.startsWith("image/");
                           return (
@@ -1713,13 +1697,12 @@ function Finance() {
                 {showBankForm && (
                   <form className="kfin-form" onSubmit={async e => {
                     e.preventDefault();
-                    await addDoc(collection(db, "bank_transactions"), {
+                    await insertRow("bank_transactions", {
                       ...bankForm,
                       accountName: bankForm.accountName || "Nabil Bank",
                       amountNPR: Number(bankForm.amountNPR),
                       createdBy: profile?.name || "Unknown",
-                      createdAt: serverTimestamp(),
-                    });
+                                  });
                     setBankForm({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "", accountName: "Nabil Bank" });
                     setShowBankForm(false);
                     await loadData();
@@ -1775,8 +1758,8 @@ function Finance() {
 
             {/* Summary strip */}
             {(() => {
-              const totalIn  = bankTxns.filter(t => t.type === "credit").reduce((s, t) => s + Number(t.amountNPR || 0), 0);
-              const totalOut = bankTxns.filter(t => t.type === "debit").reduce((s, t) => s + Number(t.amountNPR || 0), 0);
+              const totalIn  = bankTxns.filter(t => isBankCredit(t)).reduce((s, t) => s + Number(t.amount ?? 0), 0);
+              const totalOut = bankTxns.filter(t => !isBankCredit(t)).reduce((s, t) => s + Number(t.amount ?? 0), 0);
               const net = totalIn - totalOut;
               return (
                 <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -1815,20 +1798,20 @@ function Finance() {
                         <td style={{ fontWeight: 500 }}>{t.description}</td>
                         <td>{t.category || "—"}</td>
                         <td>
-                          <span style={{ fontWeight: 600, color: t.type === "credit" ? "var(--mint-deep)" : "var(--terra)" }}>
-                            {t.type === "credit" ? "Credit" : "Debit"}
+                          <span style={{ fontWeight: 600, color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)" }}>
+                            {isBankCredit(t) ? "Credit" : "Debit"}
                           </span>
                         </td>
-                        <td style={{ color: t.type === "credit" ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 }}>
-                          {t.type === "credit" ? "+" : "−"} NPR {roundAmount(t.amountNPR || 0).toLocaleString()}
+                        <td style={{ color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 }}>
+                          {isBankCredit(t) ? "+" : "−"} NPR {roundAmount(t.amount ?? 0).toLocaleString()}
                         </td>
-                        <td style={{ color: "var(--ink-3)" }}>{asCurrency((t.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                        <td style={{ color: "var(--ink-3)" }}>{asCurrency((t.amount ?? 0) / GBP_RATE, "GBP")}</td>
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{t.reference || "—"}</td>
                         {canEdit && (
                           <td>
                             <button onClick={async () => {
                               if (!window.confirm("Delete this transaction?")) return;
-                              await deleteDoc(doc(db, "bank_transactions", t.id));
+                              await deleteRow("bank_transactions", t.id);
                               await loadData();
                             }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-5)", fontSize: 16 }}>×</button>
                           </td>
@@ -1851,13 +1834,11 @@ function Finance() {
               if (oplStatusFilter === "active"    && (st === "completed" || st === "cancelled")) return false;
               if (oplStatusFilter === "completed" && st !== "completed") return false;
             }
-            if (oplDateFrom && o.createdAt?.seconds) {
-              const d = new Date(o.createdAt.seconds * 1000).toISOString().slice(0, 10);
-              if (d < oplDateFrom) return false;
-            }
-            if (oplDateTo && o.createdAt?.seconds) {
-              const d = new Date(o.createdAt.seconds * 1000).toISOString().slice(0, 10);
-              if (d > oplDateTo) return false;
+            const createdOn = tsDate(o.createdAt);
+            if (createdOn) {
+              const d = createdOn.toISOString().slice(0, 10);
+              if (oplDateFrom && d < oplDateFrom) return false;
+              if (oplDateTo   && d > oplDateTo)   return false;
             }
             return true;
           });

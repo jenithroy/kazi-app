@@ -1,5 +1,4 @@
-import { doc, runTransaction } from "firebase/firestore";
-import { db } from "../firebase";
+import { supabase } from "../lib/db";
 import { roundAmount } from "./format";
 
 export const VAT_RATE = 0.13;
@@ -168,19 +167,25 @@ export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct
   return { subtotal, discountAmt, taxableAmt, vatAmt, total: taxableAmt + vatAmt };
 }
 
-/* ── Atomic sequential numbering via Firestore transaction ── */
+/**
+ * Allocate the next sequential document number, e.g. "INV-050".
+ *
+ * The whole read-increment-write happens in one statement inside the database
+ * (see migration 0014). Doing it from here would mean two people raising an
+ * invoice at the same moment could read the same counter and both take the same
+ * number — not acceptable for IRD-numbered documents, which must run unbroken
+ * and unduplicated. The row lock inside the function makes the second caller
+ * wait and receive the next value instead.
+ *
+ * Throws if the signed-in person may not edit billing, so the sequence cannot
+ * be advanced — leaving a gap in the books — by someone who could not have
+ * filed the document anyway.
+ */
 export async function getNextNumber(type) {
-  const meta = DOC_TYPES[type];
-  if (!meta) throw new Error("Unknown doc type: " + type);
-  const counterRef = doc(db, "counters", "billing");
-  const num = await runTransaction(db, async (tx) => {
-    const snap = await tx.get(counterRef);
-    const data = snap.exists() ? snap.data() : {};
-    const current = data[meta.counterField] || 1;
-    tx.set(counterRef, { [meta.counterField]: current + 1 }, { merge: true });
-    return current;
-  });
-  return `${meta.prefix}-${String(num).padStart(3, "0")}`;
+  if (!DOC_TYPES[type]) throw new Error("Unknown doc type: " + type);
+  const { data, error } = await supabase.rpc("next_doc_number", { kind: type });
+  if (error) throw error;
+  return data;
 }
 
 export function statusBadge(status) {

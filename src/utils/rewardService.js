@@ -1,15 +1,4 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  where,
-  runTransaction,
-  setDoc,
-  getDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../firebase";
+import { supabase } from "../lib/db";
 
 // Set to false to pause all point awards without removing the integration code
 const REWARDS_ENABLED = false;
@@ -37,55 +26,22 @@ export const POINT_VALUES = {
 export async function resolveUidByName(name) {
   if (!name) return null;
   try {
-    const q = query(collection(db, "users"), where("name", "==", name));
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    const data = snap.docs[0].data();
-    return data.uid || snap.docs[0].id || null;
+    // Returns the person's id, not a sign-in uid — award_points() keys on the
+    // `people` row, so someone keeps their points whichever provider they
+    // signed in through.
+    const { data, error } = await supabase
+      .from("people").select("id").eq("full_name", name).maybeSingle();
+    if (error) throw error;
+    return data?.id || null;
   } catch (err) {
     console.error("resolveUidByName error:", err);
     return null;
   }
 }
 
-// ---------------------------------------------------------------------------
-// _buildTransactionId
-// Deterministic doc ID for idempotency: uid + eventType + sourceId
-// ---------------------------------------------------------------------------
-function _buildTransactionId(uid, eventType, sourceId) {
-  return `${uid}__${eventType}__${sourceId}`;
-}
-
-// ---------------------------------------------------------------------------
-// _updateLeaderboardArray
-// Given an existing array entry list, increment the matching user's points,
-// re-sort descending, re-assign ranks, and return the new array.
-// Creates the user entry if it doesn't exist yet.
-// ---------------------------------------------------------------------------
-function _updateLeaderboardArray(arr, uid, displayName, delta) {
-  const list = arr ? [...arr] : [];
-  const idx = list.findIndex((e) => e.uid === uid);
-
-  if (idx >= 0) {
-    list[idx] = { ...list[idx], points: (list[idx].points || 0) + delta };
-  } else {
-    list.push({ uid, displayName, points: delta });
-  }
-
-  // Sort descending by points
-  list.sort((a, b) => b.points - a.points);
-
-  // Re-assign ranks (ties share the same rank)
-  let rank = 1;
-  for (let i = 0; i < list.length; i++) {
-    if (i > 0 && list[i].points < list[i - 1].points) {
-      rank = i + 1;
-    }
-    list[i] = { ...list[i], rank };
-  }
-
-  return list;
-}
+// The idempotency key ("person__event__source") is now built and enforced
+// inside award_points() — see migration 0016 — so there is nothing to compose
+// here any more.
 
 // ---------------------------------------------------------------------------
 // awardPoints
@@ -114,66 +70,23 @@ export async function awardPoints({
     return null;
   }
 
-  const txId = _buildTransactionId(uid, eventType, sourceId);
-  const txRef       = doc(db, "point_transactions", txId);
-  const pointsRef   = doc(db, "user_points", uid);
-  const leaderRef   = doc(db, "leaderboard", "current");
-
   try {
-    const newTotal = await runTransaction(db, async (tx) => {
-      // --- Idempotency guard ---
-      const txSnap = await tx.get(txRef);
-      if (txSnap.exists()) {
-        return null; // already awarded
-      }
-
-      // --- Read current user_points doc (may not exist yet) ---
-      const pointsSnap = await tx.get(pointsRef);
-      const existing   = pointsSnap.exists() ? pointsSnap.data() : {};
-      const newTotal   = (existing.totalPoints  || 0) + totalAward;
-      const newWeekly  = (existing.weeklyPoints || 0) + totalAward;
-
-      // --- Read current leaderboard doc (may not exist yet) ---
-      const leaderSnap  = await tx.get(leaderRef);
-      const leaderData  = leaderSnap.exists() ? leaderSnap.data() : {};
-      const newAllTime  = _updateLeaderboardArray(leaderData.allTime,  uid, displayName, totalAward);
-      const newWeeklyLb = _updateLeaderboardArray(leaderData.weekly,   uid, displayName, totalAward);
-
-      // --- Write: user_points ---
-      tx.set(pointsRef, {
-        uid,
-        displayName,
-        totalPoints:  newTotal,
-        weeklyPoints: newWeekly,
-        lastUpdated:  serverTimestamp(),
-      }, { merge: true });
-
-      // --- Write: point_transactions (idempotency record) ---
-      tx.set(txRef, {
-        uid,
-        displayName,
-        eventType,
-        sourceId,
-        reason:      reason || eventType,
-        basePoints,
-        bonusPoints,
-        totalAward,
-        createdAt:   serverTimestamp(),
-      });
-
-      // --- Write: leaderboard/current ---
-      tx.set(leaderRef, {
-        allTime:     newAllTime,
-        weekly:      newWeeklyLb,
-        lastUpdated: serverTimestamp(),
-      }, { merge: true });
-
-      return newTotal;
+    // One call, one transaction. The database does the idempotency check, the
+    // running totals and the leaderboard rebuild together — see migration 0016.
+    // Doing it in steps from here would let two simultaneous awards read the
+    // same total and one overwrite the other.
+    const { data, error } = await supabase.rpc('award_points', {
+      p_person_id:    uid,
+      p_display_name: displayName || null,
+      p_event_type:   eventType,
+      p_source_id:    String(sourceId),
+      p_points:       totalAward,
+      p_reason:       reason || eventType,
     });
-
-    return newTotal; // null if idempotency guard fired, otherwise new total
+    if (error) throw error;
+    return data; // null when already awarded, otherwise the new total
   } catch (err) {
-    console.error("awardPoints transaction failed:", err);
+    console.error('awardPoints failed:', err);
     throw err;
   }
 }

@@ -1,8 +1,7 @@
 // Transaction-level stock ledger — dated in/out movements per inventory item,
 // replacing the old silent stepper (openingStock/stockIn/stockUsed with no dates
 // or history). Balance is always derived by replaying movements, never stored.
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { insertRow } from "../lib/db";
 
 export const STOCK_MOVEMENTS_COLLECTION = "stock_movements";
 
@@ -26,11 +25,14 @@ export function stockClosing(item, movements) {
 export function itemMovements(movements, itemId) {
   return movements
     .filter(m => m.itemId === itemId)
-    .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+    // createdAt is an ISO timestamp string now, not a Firestore Timestamp, so
+    // it compares lexicographically — same ordering, no .seconds to read.
+    .sort((a, b) => (a.date || "").localeCompare(b.date || "") ||
+                    String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
 }
 
 export async function logStockMovement({ itemId, date, qty, direction, source, sourceId, note, createdBy, amountNPR }) {
-  return addDoc(collection(db, STOCK_MOVEMENTS_COLLECTION), {
+  return insertRow(STOCK_MOVEMENTS_COLLECTION, {
     itemId,
     date: date || new Date().toISOString().slice(0, 10),
     qty: Number(qty) || 0,
@@ -44,7 +46,7 @@ export async function logStockMovement({ itemId, date, qty, direction, source, s
     // are simply 0 and the report falls back to unitCostNPR for those.
     amountNPR: Number(amountNPR) || 0,
     createdBy: createdBy || "Unknown",
-    createdAt: serverTimestamp(),
+    // created_at defaults to now() in the database — no need to send one.
   });
 }
 

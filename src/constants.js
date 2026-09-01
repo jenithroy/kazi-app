@@ -1,3 +1,5 @@
+import { tsMillis } from "./utils/date";
+
 export const GBP_RATE = 200;
 
 // Was hiding finance_purchases/journal_entries created before a fixed instant (a "soft
@@ -8,11 +10,10 @@ export const HISTORICAL_DATA_CUTOFF_MS = 0;
 
 export function createdAfterCutoff(data, cutoffMs = HISTORICAL_DATA_CUTOFF_MS) {
   const ts = data?.createdAt;
-  // A doc just written with serverTimestamp() reads back as `null` locally until the
-  // server round-trip resolves it — that's "created now", not "no timestamp at all".
+  // A row can read back without a timestamp before the write settles — that's
+  // "created now", not "no timestamp at all".
   if (ts === null) return true;
-  const ms = typeof ts?.toMillis === "function" ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : 0);
-  return ms > cutoffMs;
+  return tsMillis(ts) > cutoffMs;
 }
 
 // ── Geofence ──────────────────────────────────────────────────────────────────

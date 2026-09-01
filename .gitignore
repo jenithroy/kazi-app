@@ -50,3 +50,6 @@ scratch/
 !.env.example
 
 .gitignore
+
+# Mentions
+mentions/

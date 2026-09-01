@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import { Icons, Avatar } from "../components/ui";
-import { collection, query, orderBy, onSnapshot, addDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { fetchAll, insertRow, subscribe } from "../lib/db";
 
 const MESSENGER_API_URL = import.meta.env.VITE_MESSENGER_API_URL;
 const PAGE_ID = import.meta.env.VITE_MESSENGER_PAGE_ID;
@@ -106,13 +105,9 @@ function Messenger() {
       return;
     }
 
-    // Subscribe to messages collection in Firestore
-    const q = query(collection(db, "messages"), orderBy("timestamp", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allMsgs = [];
-      snapshot.forEach((doc) => {
-        allMsgs.push({ id: doc.id, ...doc.data() });
-      });
+    // Reload on any change, so a reply typed elsewhere shows up here too.
+    const loadMessages = async () => {
+      const allMsgs = await fetchAll("messages", { orderBy: "timestamp", orderDir: "asc" });
 
       // Group messages by threadId (which represents the customer's PSID)
       const threadGroups = {};
@@ -161,11 +156,15 @@ function Messenger() {
           return sortedThreads[0].id;
         });
       }
-    }, (err) => {
-      console.error("Firestore onSnapshot error:", err);
-      setErrorMsg("Failed to read messages in real-time from database.");
+    };
+
+    const run = () => loadMessages().catch((err) => {
+      console.error("Failed to load messages:", err);
+      setErrorMsg("Failed to read messages from the database.");
     });
 
+    run();
+    const unsubscribe = subscribe("messages", run);
     return () => unsubscribe();
   }, [useDemo]);
 
@@ -297,11 +296,11 @@ function Messenger() {
         }
 
         // Save the sent message to Firestore messages collection
-        await addDoc(collection(db, "messages"), {
+        await insertRow("messages", {
           threadId: targetPsid,
           senderId: "page",
           text: messageText,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
 
       } catch (err) {

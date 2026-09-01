@@ -1,13 +1,11 @@
 import { useEffect, useState, useRef, Fragment } from "react";
-import {
-  addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, setDoc
-} from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import PageHeader from "../components/PageHeader";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
-import { db, storage } from "../firebase";
+import { storage } from "../firebase";
+import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { roundAmount } from "../utils/format";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
 import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
@@ -786,20 +784,20 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
           const compressed = await compressFabricImage(imageFile);
           payload[imageField] = await uploadSamplePhoto(docId, compressed);
         }
-        await updateDoc(doc(db, tab, docId), { ...payload, updatedAt: serverTimestamp() });
+        await updateRow(tab, docId, { ...payload, updatedAt: new Date().toISOString() });
         onSaved({ id: docId, ...payload });
       } else {
-        const ref = await addDoc(collection(db, tab), { ...payload, createdAt: serverTimestamp() });
+        const ref = await insertRow(tab, payload);
         docId = ref.id;
         if (tab === "patterns" && packFiles.length) {
           const uploaded = await uploadPackPages(docId);
           payload.tech_pack_images = uploaded;
-          await updateDoc(doc(db, tab, docId), { tech_pack_images: uploaded });
+          await updateRow(tab, docId, { tech_pack_images: uploaded });
         }
         if (tab === "samples" && imageFile) {
           const compressed = await compressFabricImage(imageFile);
           const uploadedUrl = await uploadSamplePhoto(docId, compressed);
-          await updateDoc(doc(db, tab, docId), { [imageField]: uploadedUrl });
+          await updateRow(tab, docId, { [imageField]: uploadedUrl });
           payload[imageField] = uploadedUrl;
         }
         onSaved({ id: docId, ...payload });
@@ -1218,7 +1216,7 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
 
       let docId = item?.id;
       if (!isEdit) {
-        const ref = await addDoc(collection(db, "patterns"), { ...payload, frontSketchUrl: "", backSketchUrl: "", tech_pack_images: [], createdAt: serverTimestamp() });
+        const ref = await insertRow("patterns", { ...payload, frontSketchUrl: "", backSketchUrl: "", tech_pack_images: [] });
         docId = ref.id;
       }
 
@@ -1239,7 +1237,7 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
         payload.tech_pack_images = packImages;
       }
 
-      await updateDoc(doc(db, "patterns", docId), { ...payload, updatedAt: serverTimestamp() });
+      await updateRow("patterns", docId, { ...payload, updatedAt: new Date().toISOString() });
       onSaved({ id: docId, ...payload });
     } catch (err) {
       setError(err.message || "Failed to save");
@@ -1653,9 +1651,9 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
       const compressed = await compressFabricImage(file);
       const url = await uploadFabricSwatch(item.id, compressed);
       setSwatchImageUrl(url);
-      await updateDoc(doc(db, "fabrics", item.id), {
+      await updateRow("fabrics", item.id, {
         swatchImageUrl: url,
-        updatedAt: serverTimestamp()
+        updatedAt: new Date().toISOString()
       });
       onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, pricePerKg: pricePerKg === "" ? null : Number(pricePerKg), swatchImageUrl: url }, false);
     } catch (err) {
@@ -1702,9 +1700,9 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
         status,
         pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
         swatchImageUrl,
-        updatedAt: serverTimestamp()
+        updatedAt: new Date().toISOString()
       };
-      await updateDoc(doc(db, "fabrics", item.id), payload);
+      await updateRow("fabrics", item.id, payload);
       onSaved({ id: item.id, ...payload });
     } catch (err) {
       setError("Failed to update fabric: " + err.message);
@@ -1718,7 +1716,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
     setDeleting(true);
     setError("");
     try {
-      await deleteDoc(doc(db, "fabrics", item.id));
+      await deleteRow("fabrics", item.id);
       onDelete(item.id);
     } catch (err) {
       setError("Failed to delete fabric: " + err.message);
@@ -1937,17 +1935,16 @@ function AddFabricModal({ onClose, onSaved }) {
         status,
         pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
         swatchImageUrl: "",
-        createdAt: serverTimestamp()
-      };
+              };
       
-      const docRef = await addDoc(collection(db, "fabrics"), tempPayload);
+      const docRef = await insertRow("fabrics", tempPayload);
       const fabricId = docRef.id;
 
       let finalUrl = "";
       if (imageFile) {
         const compressed = await compressFabricImage(imageFile);
         finalUrl = await uploadFabricSwatch(fabricId, compressed);
-        await updateDoc(doc(db, "fabrics", fabricId), {
+        await updateRow("fabrics", fabricId, {
           swatchImageUrl: finalUrl
         });
       }
@@ -2542,9 +2539,8 @@ function Inventory() {
           composition: item.composition,
           status: item.status,
           swatchImageUrl: "",
-          createdAt: serverTimestamp()
-        };
-        const ref = await addDoc(collection(db, "fabrics"), payload);
+                  };
+        const ref = await insertRow("fabrics", payload);
         seededItems.push({ id: ref.id, ...payload });
       }
 
@@ -2571,23 +2567,23 @@ function Inventory() {
 
       if (showInventory || showLibrary) {
         inventoryIdx = promises.length;
-        promises.push(getDocs(collection(db, "inventory")));
+        promises.push(fetchAll("inventory"));
         unitEconomicsIdx = promises.length;
-        promises.push(getDocs(collection(db, "unit_economics")));
+        promises.push(fetchAll("unit_economics"));
       }
       if (showInventory) {
         movementsIdx = promises.length;
-        promises.push(getDocs(collection(db, STOCK_MOVEMENTS_COLLECTION)));
+        promises.push(fetchAll(STOCK_MOVEMENTS_COLLECTION));
       }
       if (showLibrary) {
         fabricsIdx = promises.length;
-        promises.push(getDocs(collection(db, "fabrics")));
+        promises.push(fetchAll("fabrics"));
         processesIdx = promises.length;
-        promises.push(getDocs(collection(db, "processes")));
+        promises.push(fetchAll("processes"));
         patternsIdx = promises.length;
-        promises.push(getDocs(collection(db, "patterns")));
+        promises.push(fetchAll("patterns"));
         samplesIdx = promises.length;
-        promises.push(getDocs(collection(db, "samples")));
+        promises.push(fetchAll("samples"));
       }
 
       const results = await Promise.allSettled(promises);
@@ -2595,13 +2591,13 @@ function Inventory() {
       if (movementsIdx !== -1) {
         const res = results[movementsIdx];
         if (res.status === "fulfilled") {
-          setMovements(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+          setMovements(res.value);
         }
       }
       if (inventoryIdx !== -1) {
         const res = results[inventoryIdx];
         if (res.status === "fulfilled") {
-          const records = res.value.docs.map(d => ({ id: d.id, ...d.data() }));
+          const records = res.value;
           records.sort((a, b) => (a.item || "").localeCompare(b.item || ""));
           setRows(records);
         }
@@ -2609,34 +2605,35 @@ function Inventory() {
       if (fabricsIdx !== -1) {
         const res = results[fabricsIdx];
         if (res.status === "fulfilled") {
-          setFabrics(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+          setFabrics(res.value);
         }
       }
       if (processesIdx !== -1) {
         const res = results[processesIdx];
         if (res.status === "fulfilled") {
-          setProcesses(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+          setProcesses(res.value);
         }
       }
       if (patternsIdx !== -1) {
         const res = results[patternsIdx];
         if (res.status === "fulfilled") {
-          setPatterns(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+          setPatterns(res.value);
         }
       }
       if (samplesIdx !== -1) {
         const res = results[samplesIdx];
         if (res.status === "fulfilled") {
-          setSamples(res.value.docs.map(d => ({ id: d.id, ...d.data() })));
+          setSamples(res.value);
         }
       }
       if (unitEconomicsIdx !== -1) {
         const res = results[unitEconomicsIdx];
         if (res.status === "fulfilled") {
+          // The costing sheet is stored as one jsonb blob per item, keyed by
+          // that item’s id — so unwrap `data` back into the shape the page
+          // has always worked with.
           const uMap = {};
-          res.value.docs.forEach(d => {
-            uMap[d.id] = d.data();
-          });
+          res.value.forEach(r => { uMap[r.id] = r.data || {}; });
           setUnitEconomics(uMap);
         }
       }
@@ -2765,7 +2762,7 @@ function Inventory() {
   async function deleteRow(rowId) {
     setDeletingRow(rowId);
     try {
-      await deleteDoc(doc(db, "inventory", rowId));
+      await deleteRow("inventory", rowId);
       await loadData();
       setDeleteConfirm(null);
     } catch (err) {
@@ -2779,14 +2776,14 @@ function Inventory() {
     e.preventDefault();
     setAddingItem(true);
     try {
-      await addDoc(collection(db, "inventory"), {
+      await insertRow("inventory", {
         ...itemForm,
         itemId:       nextItemId(rows),
         openingStock: Number(itemForm.openingStock || 0),
         minLevel:     Number(itemForm.minLevel     || 0),
         unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
         createdBy:    profile?.name || "Unknown",
-        createdAt:    serverTimestamp()
+        createdAt:    new Date().toISOString()
       });
       setItemForm(emptyItemForm);
       setShowAddForm(false);
@@ -2809,7 +2806,7 @@ function Inventory() {
       const computed = computeFabricCost(costForm.fabricName, costForm.gramsUsed);
       const fabricCost = costForm.fabric !== "" ? Number(costForm.fabric) : (computed ?? 0);
 
-      const itemRef = await addDoc(collection(db, "inventory"), {
+      const itemRef = await insertRow("inventory", {
         item:         costForm.item,
         itemId:       nextItemId(rows),
         category:     costForm.category,
@@ -2817,7 +2814,7 @@ function Inventory() {
         openingStock: 0, minLevel: 0,
         unitCostNPR:  0,
         createdBy:    profile?.name || "Unknown",
-        createdAt:    serverTimestamp()
+        createdAt:    new Date().toISOString()
       });
 
       const fabricName = costForm.fabricName.trim();
@@ -2830,22 +2827,22 @@ function Inventory() {
         directLabour: Number(costForm.directLabour || 0),
         others:       Number(costForm.others || 0),
         targetPrice:  Number(costForm.targetPrice || 0),
-        updatedAt:    serverTimestamp(),
+        updatedAt:    new Date().toISOString(),
         updatedBy:    profile?.name || "Unknown"
       };
-      await setDoc(doc(db, "unit_economics", itemRef.id), economicsPayload, { merge: true });
+      await upsertRow("unit_economics", { id: itemRef.id, data: economicsPayload }, ["id"]);
 
       const cogsNpr = economicsPayload.fabric + economicsPayload.rib + economicsPayload.trims + economicsPayload.directLabour + economicsPayload.others;
-      await updateDoc(doc(db, "inventory", itemRef.id), {
+      await updateRow("inventory", itemRef.id, {
         unitCostNPR: cogsNpr,
         lastUpdated: new Date().toISOString().slice(0, 10),
         updatedBy: profile?.name || "Unknown"
       });
 
       if (fabricName && !findFabricByName(fabricName)) {
-        await addDoc(collection(db, "fabrics"), {
+        await insertRow("fabrics", {
           name: fabricName, pricePerKg: null, composition: "", gsm: null,
-          weight: "", status: "In Stock", swatchImageUrl: "", createdAt: serverTimestamp()
+          weight: "", status: "In Stock", swatchImageUrl: "",
         });
       }
 
@@ -2908,12 +2905,12 @@ function Inventory() {
       directLabour: Number(draftData.directLabour ?? currentData.directLabour ?? 0),
       others:       Number(draftData.others       ?? currentData.others       ?? 0),
       targetPrice:  Number(draftData.targetPrice  ?? currentData.targetPrice  ?? 0),
-      updatedAt:    serverTimestamp(),
+      updatedAt:    new Date().toISOString(),
       updatedBy:    profile?.name || "Unknown"
     };
 
     try {
-      await setDoc(doc(db, "unit_economics", patternId), payload, { merge: true });
+      await upsertRow("unit_economics", { id: patternId, data: payload }, ["id"]);
       setUnitEconomics(prev => ({
         ...prev,
         [patternId]: payload
@@ -2923,10 +2920,9 @@ function Inventory() {
       // there to pick (and price) next time instead of being a dead free-text value.
       const typedFabricName = payload.fabricName.trim();
       if (typedFabricName && !findFabricByName(typedFabricName)) {
-        const newFabricRef = await addDoc(collection(db, "fabrics"), {
+        const newFabricRef = await insertRow("fabrics", {
           name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
-          weight: "", status: "In Stock", swatchImageUrl: "", createdAt: serverTimestamp()
-        });
+          weight: "", status: "In Stock", swatchImageUrl: "",         });
         setFabrics(prev => [...prev, { id: newFabricRef.id, name: typedFabricName, pricePerKg: null }]);
       }
 
@@ -2942,7 +2938,7 @@ function Inventory() {
       if (draftData.item !== undefined) {
         invUpdates.item = draftData.item;
       }
-      await updateDoc(doc(db, "inventory", patternId), invUpdates);
+      await updateRow("inventory", patternId, invUpdates);
       setRows(prev => prev.map(r => r.id === patternId ? { ...r, ...invUpdates } : r));
 
       setDraftEconomics(prev => {
@@ -2972,7 +2968,7 @@ function Inventory() {
   async function handleDeleteLibraryItem(item) {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
     try {
-      await deleteDoc(doc(db, activeTab, item.id));
+      await deleteRow(activeTab, item.id);
       if (activeTab === "fabrics")   setFabrics(fabrics.filter(x => x.id !== item.id));
       if (activeTab === "processes") setProcesses(processes.filter(x => x.id !== item.id));
       if (activeTab === "patterns")  setPatterns(patterns.filter(x => x.id !== item.id));

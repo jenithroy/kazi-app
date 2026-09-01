@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc, collection, doc, getDocs,
-  serverTimestamp, updateDoc as fsUpdateDoc
-} from "firebase/firestore";
+import { fetchAll, insertRow, updateRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { GBP_RATE } from "../constants";
 import { cn, Avatar, Pill } from "../components/ui";
 import { roundAmount } from "../utils/format";
+import { tsMillis, tsDate } from "../utils/date";
 
 /* ── Constants ─────────────────────────────────────────── */
 const BUDGET_CATEGORIES = ["Equipment", "Materials", "Services", "Training", "Travel", "Other"];
@@ -35,9 +32,8 @@ function nextBrId(rows) {
 }
 
 function formatDate(ts) {
-  if (!ts) return "";
-  const d = ts?.toDate ? ts.toDate() : new Date(ts);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const d = tsDate(ts);
+  return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 }
 
 function fmtNPR(n) {
@@ -224,10 +220,8 @@ function Budget() {
   const [showFilter, setShowFilter] = useState(false);
 
   async function load() {
-    const snap = await getDocs(collection(db, "budget_requests"));
-    const all  = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    const all = (await fetchAll("budget_requests"))
+      .sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
     setBudgetRows(all.filter(r => r.type === "budget" || !r.type));
     setReqRows(all.filter(r => r.type === "requirement"));
   }
@@ -238,7 +232,7 @@ function Budget() {
   async function submitBudget(form) {
     setSubmitting(true);
     const gbp = Number(form.amountGBP) || 0;
-    await addDoc(collection(db, "budget_requests"), {
+    await insertRow("budget_requests", {
       type:             "budget",
       brId:             nextBrId(budgetRows),
       title:            form.title,
@@ -251,7 +245,6 @@ function Budget() {
       status:           "Pending",
       requestedBy:      profile?.name || "Unknown",
       requestedByRole:  profile?.displayRole || profile?.role || "",
-      createdAt:        serverTimestamp()
     });
     setShowNew(false);
     await load();
@@ -262,7 +255,7 @@ function Budget() {
   async function submitReq(e) {
     e.preventDefault();
     setSubmitting(true);
-    await addDoc(collection(db, "budget_requests"), {
+    await insertRow("budget_requests", {
       type:            "requirement",
       title:           reqForm.title,
       category:        reqForm.category,
@@ -274,7 +267,6 @@ function Budget() {
       status:          "Pending",
       requestedBy:     profile?.name || "Unknown",
       requestedByRole: profile?.displayRole || profile?.role || "",
-      createdAt:       serverTimestamp()
     });
     setReqForm(emptyReqForm);
     await load();
@@ -282,10 +274,10 @@ function Budget() {
   }
 
   async function review(id, status) {
-    await fsUpdateDoc(doc(db, "budget_requests", id), {
+    await updateRow("budget_requests", id, {
       status,
       reviewedBy: profile?.name || "Admin",
-      reviewedAt: serverTimestamp()
+      reviewedAt: new Date().toISOString(),
     });
     await load();
   }

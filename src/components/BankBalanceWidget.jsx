@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { fetchAll, subscribe } from "../lib/db";
 import { useCurrency } from "../context/CurrencyContext";
 import { Card, Icons } from "./ui";
 import { useAuth } from "../context/AuthContext";
@@ -20,25 +19,29 @@ export default function BankBalanceWidget() {
       return;
     }
 
-    const q = query(
-      collection(db, "bank_transactions"),
-      orderBy("timestamp", "desc"),
-      limit(1)
-    );
+    let active = true;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        setTxn(snapshot.docs[0].data());
-      } else {
-        setTxn(null);
+    // Most recent transaction wins — its running `balance` is the bank balance.
+    async function load() {
+      try {
+        const rows = await fetchAll("bank_transactions", {
+          orderBy: "timestamp", orderDir: "desc", limit: 1,
+        });
+        if (!active) return;
+        setTxn(rows[0] || null);
+      } catch (error) {
+        console.error("Error fetching bank balance:", error);
+      } finally {
+        if (active) setLoading(false);
       }
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching bank balance:", error);
-      setLoading(false);
-    });
+    }
 
-    return () => unsubscribe();
+    load();
+    // The n8n importer writes these in the background, so keep watching rather
+    // than showing a balance that quietly goes stale.
+    const unsubscribe = subscribe("bank_transactions", load);
+
+    return () => { active = false; unsubscribe(); };
   }, [profile]);
 
   if (!profile) return null;

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc, deleteField } from "firebase/firestore";
+import { fetchAll, insertRow, updateRow } from "../lib/db";
 import DocPreview from "../components/DocPreview";
 import KeyboardSelect from "../components/KeyboardSelect";
 import { Icons, cn } from "../components/ui";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit } from "../utils/permissions";
@@ -177,13 +176,13 @@ function Billing() {
 
   /* ── Load data ── */
   async function loadAll() {
-    const [invSnap, chSnap, qtSnap, invtSnap] = await Promise.all([
-      getDocs(collection(db, "invoices")),
-      getDocs(collection(db, "challans")),
-      getDocs(collection(db, "quotations")),
-      getDocs(collection(db, "inventory")),
+    const [invRows, chRows, qtRows, invtRows] = await Promise.all([
+      fetchAll("invoices"),
+      fetchAll("challans"),
+      fetchAll("quotations"),
+      fetchAll("inventory"),
     ]);
-    setInventoryItems(invtSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setInventoryItems(invtRows);
     // Sort by the immutable sequential number (not the user-editable invoice
     // `date` field) — a backdated/postdated invoice would otherwise scramble
     // the list order even though numbers were assigned strictly in sequence.
@@ -192,9 +191,9 @@ function Billing() {
       return m ? parseInt(m[1], 10) : -1;
     };
     const sort = (a, b) => seqNum(b) - seqNum(a);
-    setInvoices(invSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort(sort));
-    setChallans(chSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort(sort));
-    setQuotations(qtSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort(sort));
+    setInvoices([...invRows].sort(sort));
+    setChallans([...chRows].sort(sort));
+    setQuotations([...qtRows].sort(sort));
   }
 
   useEffect(() => { loadAll().catch(console.error); }, []);
@@ -337,7 +336,7 @@ function Billing() {
           vatAmountNPR:   applyVAT ? vatAmt : 0,
           totalNPR:       total,
           updatedBy:      profile?.name || "Unknown",
-          updatedAt:      serverTimestamp(),
+          updatedAt:      new Date().toISOString(),
         };
         // Manually flipping an invoice to Paid must settle its credit — otherwise
         // the badge says Paid while Credit Due/Record Payment still show an
@@ -347,7 +346,7 @@ function Billing() {
         delete updates.createdAt;
         delete updates.createdBy;
         delete updates.id;
-        await updateDoc(doc(db, meta.coll, editingId), updates);
+        await updateRow(meta.coll, editingId, updates);
         setEditingId(null);
       } else {
         /* ── CREATE new document ── */
@@ -366,13 +365,13 @@ function Billing() {
           totalNPR:       total,
           amountPaid:     0,
           createdBy:      profile?.name || "Unknown",
-          createdAt:      serverTimestamp(),
+
         };
         // Strip fields irrelevant to this doc type
         if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; delete record.paymentType; delete record.bankName; }
         if (tab !== "challan")   { delete record.vehicleNo; delete record.driverName; delete record.routeFrom; delete record.routeTo; }
         if (tab !== "quotation") { delete record.validUntil; delete record.terms; }
-        await addDoc(collection(db, meta.coll), record);
+        await insertRow(meta.coll, record);
         // Deduct stock for any line item explicitly linked to an inventory item —
         // only on invoice creation, never on edits/status changes, so stock is
         // deducted exactly once per sale.
@@ -397,14 +396,14 @@ function Billing() {
 
   /* ── Status update ── */
   async function updateStatus(id, status) {
-    await updateDoc(doc(db, meta.coll, id), { status });
+    await updateRow(meta.coll, id, { status });
     await loadAll();
   }
 
   /* ── Cancel document (preserve record) ── */
   async function cancelDoc(id) {
     if (!window.confirm("Cancel this document? The record will be preserved.")) return;
-    await updateDoc(doc(db, meta.coll, id), { status: "Cancelled" });
+    await updateRow(meta.coll, id, { status: "Cancelled" });
     await loadAll();
   }
 
@@ -423,7 +422,7 @@ function Billing() {
     const totalPaid = Math.min(payModal.currentPaid + newAmt, payModal.totalNPR);
     const creditLeft = payModal.totalNPR - totalPaid;
     const newStatus  = creditLeft <= 0.005 ? "Paid" : "Partial";
-    await updateDoc(doc(db, payModal.coll, payModal.id), { amountPaid: totalPaid, status: newStatus });
+    await updateRow(payModal.coll, payModal.id, { amountPaid: totalPaid, status: newStatus });
     setPayModal(null);
     setPayAmt("");
     await loadAll();
@@ -452,7 +451,7 @@ function Billing() {
       const invNumber = await getNextNumber("invoice");
       const d = new Date(); d.setDate(d.getDate() + 30);
 
-      await addDoc(collection(db, "invoices"), {
+      await insertRow("invoices", {
         invoiceNumber:    invNumber,
         date:             new Date().toISOString().slice(0, 10),
         dueDate:          d.toISOString().slice(0, 10),
@@ -480,7 +479,6 @@ function Billing() {
         amountPaid:       0,
         currency:         "NPR",
         createdBy:        profile?.name || "Unknown",
-        createdAt:        serverTimestamp(),
       });
 
       // No-op unless the quotation's items already carry a stockItemId — quotations
@@ -491,7 +489,7 @@ function Billing() {
         createdBy: profile?.name || "Unknown",
       }).catch(err => console.error("Stock auto-post failed:", err));
 
-      await updateDoc(doc(db, "quotations", qt.id), {
+      await updateRow("quotations", qt.id, {
         relatedInvoice: invNumber,
         status: qt.status === "Sent" ? "Accepted" : qt.status,
       });

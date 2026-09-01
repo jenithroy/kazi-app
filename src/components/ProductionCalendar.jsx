@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { updateRow } from "../lib/db";
 import { todayDate } from "../utils/date";
 import { cn, Pill, Progress, Icons, KPI } from "./ui";
 
@@ -124,11 +123,10 @@ export default function ProductionCalendar({ orders = [], canEdit, onUpdate }) {
     if (!canEdit || !rescheduleOrder) return;
     setSavingReschedule(true);
     try {
-      const orderRef = doc(db, "orders", rescheduleOrder.id);
-      await updateDoc(orderRef, {
+      await updateRow("orders", rescheduleOrder.id, {
         date: editStartDate,
         deliveryDate: editDueDate,
-        updatedAt: serverTimestamp()
+        updatedAt: new Date().toISOString(),
       });
       setRescheduleOrder(null);
       if (onUpdate) await onUpdate();

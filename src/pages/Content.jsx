@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
+import { fetchAll, insertRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
-import { db } from "../firebase";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
 
@@ -22,8 +21,7 @@ function Content() {
   const isUkAdmin = profile?.role === "uk_admin";
 
   async function loadData() {
-    const snap = await getDocs(collection(db, "content"));
-    const records = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    const records = await fetchAll("content");
     records.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     setRows(records);
   }
@@ -46,11 +44,10 @@ function Content() {
 
     const allowedStatus = isUkAdmin ? form.status : form.status === "Posted" ? "Pending Approval" : form.status;
 
-    await addDoc(collection(db, "content"), {
+    await insertRow("content", {
       ...form,
       status: allowedStatus,
       createdBy: profile?.name || "Unknown",
-      createdAt: serverTimestamp()
     });
 
     setForm(initialForm);

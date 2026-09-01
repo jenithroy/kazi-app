@@ -256,6 +256,37 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   border-bottom: 1px solid var(--line); flex: 0 0 auto; position: relative; z-index: 20;
 }
 .ktop-l { flex: 1; min-width: 0; }
+/* Shown in place of a page the person's position does not open. Deliberately
+   plain: it should read as a boundary, not an error they did something wrong. */
+.knoaccess {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 60vh; padding: 32px 24px;
+}
+.knoaccess-card {
+  max-width: 460px; text-align: center;
+  padding: 32px 28px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.knoaccess-title {
+  margin: 0 0 10px; font-size: 18px; font-weight: 600;
+  letter-spacing: -0.01em; color: var(--ink);
+}
+.knoaccess-body {
+  margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-3);
+}
+.knoaccess-btn { margin-top: 18px; display: inline-block; text-decoration: none; }
+
+/* Explanatory note under a form field, for a control whose effect reaches
+   further than the field itself — e.g. Position, which sets what the person
+   can see across the whole app. */
+.kfield-hint {
+  display: block; margin-top: 5px;
+  font-size: 12px; line-height: 1.45; font-weight: 400;
+  color: var(--ink-4);
+}
+
 .ktop-bread { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-4); font-size: 12px; }
 .ktop-bread-c { color: var(--ink-2); font-weight: 500; }
 .ktop-greet h1 { margin: 2px 0 2px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
@@ -1091,6 +1122,19 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   white-space: nowrap;
 }
 .ghost-button:hover { background: var(--bg-2); border-color: var(--ink-5); }
+
+/* A disabled ghost button has to read as unavailable rather than unresponsive —
+   without this it looked identical to an active one and still lit up on hover,
+   so clicking it and getting nothing felt like a fault rather than a boundary. */
+.ghost-button:disabled,
+.ghost-button[disabled] {
+  opacity: .45;
+  cursor: not-allowed;
+  color: var(--ink-4);
+  border-color: var(--line);
+}
+.ghost-button:disabled:hover,
+.ghost-button[disabled]:hover { background: transparent; border-color: var(--line); }
 
 /* Status badges */
 .badge-ok {

@@ -1,5 +1,10 @@
 const { onRequest, onCall } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const {
+  sb, NEXT_STAGE,
+  getWorkerProfile, getWorkerSession, setWorkerSession,
+  addOrderNote, advanceOrder, assignStage, latestAssignment,
+} = require("./supabase");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -94,17 +99,25 @@ exports.messengerApi = onRequest({
 
     const uid = decodedToken.uid;
 
-    // B. Authorize User (Verify role in Firestore)
-    const userSnap = await admin.firestore().collection("users").doc(uid).get();
-    if (!userSnap.exists) {
-      logger.warn("FORBIDDEN_ACCESS_ATTEMPT: User document does not exist in Firestore", { uid });
+    // B. Authorize against the caller's position — the same matrix the
+    // database enforces. This used to read a users/{uid} document that is
+    // no longer maintained, so it had begun refusing everyone.
+    const { data: person } = await sb
+      .from("people").select("id, position_id, status")
+      .or(`legacy_firebase_uid.eq.${uid},auth_uid.eq.${uid}`)
+      .maybeSingle();
+
+    if (!person || person.status === "Inactive") {
+      logger.warn("FORBIDDEN_ACCESS_ATTEMPT: no active staff record", { uid });
       return res.status(403).json({ error: "Forbidden: User profile not found" });
     }
 
-    const profile = userSnap.data();
-    const role = profile?.role;
-    if (role !== "nepal_admin" && role !== "uk_admin" && role !== "super_admin") {
-      logger.warn("FORBIDDEN_ACCESS_ATTEMPT: User does not have admin/director role", { uid, role });
+    const { data: msgPerm } = await sb
+      .from("position_permissions").select("can_edit")
+      .eq("position_id", person.position_id).eq("section_id", "messenger").maybeSingle();
+    const role = person.position_id;
+    if (!msgPerm?.can_edit) {
+      logger.warn("FORBIDDEN_ACCESS_ATTEMPT: position cannot edit messenger", { uid, role });
       return res.status(403).json({ error: "Forbidden: Insufficient privileges" });
     }
 
@@ -191,12 +204,8 @@ exports.messengerApi = onRequest({
 
 /* ── Telegram worker bot ─────────────────────────────────── */
 
-const STAGES = [
-  "Order Received", "Fabric Sourcing", "Cutting", "Stitching",
-  "Finishing & Pressing", "Embellishment", "Quality Check",
-  "Packing", "Shipped", "Delivered"
-];
-const NEXT_STAGE = Object.fromEntries(STAGES.map((s, i) => [s, STAGES[i + 1]]));
+// STAGES / NEXT_STAGE come from ./supabase.js so the pipeline is defined once.
+const STAGES = require("./supabase").STAGE_ORDER;
 const ACTIVE_STATUSES = ["Cutting", "Stitching", "Finishing & Pressing", "Embellishment", "Quality Check"];
 
 async function tgReply(chatId, text) {
@@ -208,21 +217,8 @@ async function tgReply(chatId, text) {
   });
 }
 
-async function getWorkerSession(telegramId) {
-  const snap = await admin.firestore().collection("worker_sessions").doc(String(telegramId)).get();
-  return snap.exists ? snap.data() : null;
-}
-
-async function setWorkerSession(telegramId, data) {
-  await admin.firestore().collection("worker_sessions").doc(String(telegramId)).set(data, { merge: true });
-}
-
-async function getWorkerProfile(telegramId) {
-  const snap = await admin.firestore().collection("users")
-    .where("telegramId", "==", Number(telegramId)).limit(1).get();
-  if (snap.empty) return null;
-  return { id: snap.docs[0].id, ...snap.docs[0].data() };
-}
+// getWorkerProfile / getWorkerSession / setWorkerSession now live in
+// ./supabase.js, alongside the dispatch rules they are used with.
 
 exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
   // Verify secret token
@@ -248,40 +244,45 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
       return;
     }
 
-    const session = await getWorkerSession(fromId) || { state: "idle" };
-    const db = admin.firestore();
+    const session = (await getWorkerSession(fromId)) || { state: "idle" };
+    const currentOrderId = session.current_order_id || null;
+
+    /** Re-assign a stage and tell everyone who needs to know. */
+    const dispatchNext = async (orderId, stage, opts = {}) => {
+      const r = await assignStage(orderId, stage, opts);
+      if (!r.assigned) return null;
+      if (r.worker.telegramId) {
+        await tgReply(
+          r.worker.telegramId,
+          `🧵 New order assigned!\n\nOrder: *${r.order.ref}*\nCustomer: ${r.order.customerName}\nQty: ${r.order.quantity} pcs\nYour stage: *${stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
+        );
+      }
+      return r;
+    };
 
     // Photo → attach to current order
     if (photoArr?.length) {
-      if (!session.currentOrderId) {
+      if (!currentOrderId) {
         await tgReply(chatId, "Set an active order first with /start <ref>.");
         return;
       }
       const fileId = photoArr[photoArr.length - 1].file_id;
-      const orderRef = db.collection("orders").doc(session.currentOrderId);
-      const orderSnap = await orderRef.get();
-      if (orderSnap.exists) {
-        const notesList = orderSnap.data().notesList || [];
-        notesList.push({ id: Date.now().toString(), text: "Photo via bot", date: new Date().toISOString().slice(0,10), by: profile.name, imageUrl: `tg:${fileId}` });
-        await orderRef.update({ notesList });
-      }
+      await addOrderNote(currentOrderId, `Photo via bot (tg:${fileId})`, profile.name);
       await tgReply(chatId, "Photo attached to order ✓");
       return;
     }
 
     // Awaiting issue description
-    if (session.state === "awaiting_issue" && session.currentOrderId && text) {
-      const orderRef = db.collection("orders").doc(session.currentOrderId);
-      const orderSnap = await orderRef.get();
-      const order = orderSnap.data();
-      const notesList = order?.notesList || [];
-      notesList.push({ id: Date.now().toString(), text: `⚠️ Issue: ${text}`, date: new Date().toISOString().slice(0,10), by: profile.name });
-      await orderRef.update({ notesList });
-      await setWorkerSession(fromId, { state: "active" });
+    if (session.state === "awaiting_issue" && currentOrderId && text) {
+      const { data: order } = await sb
+        .from("orders").select("order_no, quantity, customer_name").eq("id", currentOrderId).maybeSingle();
+
+      await addOrderNote(currentOrderId, `⚠️ Issue: ${message.text.trim()}`, profile.name);
+      await setWorkerSession(fromId, profile.id, { state: "active" });
 
       if (TELEGRAM_CHAT_ID) {
-        const ref = order?.orderId || session.currentOrderId.slice(0,8).toUpperCase();
-        await tgReply(TELEGRAM_CHAT_ID, `⚠️ *Issue on ${ref}*\n${order?.quantity} pcs · ${order?.customerName}\nBy ${profile.name}: ${text}`);
+        const ref = order?.order_no || currentOrderId.slice(0, 8).toUpperCase();
+        await tgReply(TELEGRAM_CHAT_ID, `⚠️ *Issue on ${ref}*\n${order?.quantity} pcs · ${order?.customer_name}\nBy ${profile.name}: ${message.text.trim()}`);
       }
       await tgReply(chatId, "Issue logged and management notified. Type /queue to see orders.");
       return;
@@ -289,325 +290,152 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
 
     // ── Dispatch assignment responses ─────────────────────────
     if (text === "yes" || text === "/yes") {
-      // Find most recent pending assignment for this worker
-      const assignSnap = await db.collection("order_assignments")
-        .where("workerId", "==", profile.id)
-        .where("status", "==", "pending")
-        .orderBy("assignedAt", "desc")
-        .limit(1)
-        .get();
-
-      if (assignSnap.empty) {
+      const assignment = await latestAssignment(profile.id, ["pending"]);
+      if (!assignment) {
         await tgReply(chatId, "No pending assignment found.");
         return;
       }
+      await sb.from("order_assignments")
+        .update({ status: "accepted", accepted_at: new Date().toISOString() })
+        .eq("id", assignment.id);
 
-      const assignDoc = assignSnap.docs[0];
-      const assignment = assignDoc.data();
-      await assignDoc.ref.update({
-        status: "accepted",
-        acceptedAt: admin.firestore.Timestamp.now(),
-      });
-
-      await tgReply(chatId, `✅ Order *${assignment.orderRef}* accepted! Reply *DONE* when your ${assignment.stage} stage is complete.`);
+      await tgReply(chatId, `✅ Order *${assignment.order_ref}* accepted! Reply *DONE* when your ${assignment.stage} stage is complete.`);
       return;
     }
 
     if (text === "skip" || text === "/skip") {
-      // Find most recent pending assignment for this worker
-      const assignSnap = await db.collection("order_assignments")
-        .where("workerId", "==", profile.id)
-        .where("status", "==", "pending")
-        .orderBy("assignedAt", "desc")
-        .limit(1)
-        .get();
-
-      if (assignSnap.empty) {
+      const assignment = await latestAssignment(profile.id, ["pending"]);
+      if (!assignment) {
         await tgReply(chatId, "No pending assignment found.");
         return;
       }
+      await sb.from("order_assignments").update({ status: "declined" }).eq("id", assignment.id);
 
-      const assignDoc = assignSnap.docs[0];
-      const assignment = assignDoc.data();
-      await assignDoc.ref.update({ status: "declined" });
+      // Hand it to the next least-loaded worker, excluding whoever just passed.
+      const next = await dispatchNext(assignment.order_id, assignment.stage, {
+        excludePersonId: profile.id,
+      });
 
-      // Find next worker in stage_config with next-lowest backlog
-      const stageConfigSnap = await db.collection("stage_config").doc(assignment.stage).get();
-      if (stageConfigSnap.exists) {
-        const stageConfig = stageConfigSnap.data();
-        const workerUids = (stageConfig.workerUids || []).filter(uid => uid !== profile.id);
-
-        if (workerUids.length > 0) {
-          // Count active backlog for remaining workers
-          const activeSnap = await db.collection("order_assignments")
-            .where("stage", "==", assignment.stage)
-            .where("status", "in", ["pending", "accepted", "in_progress"])
-            .get();
-
-          const backlog = {};
-          for (const uid of workerUids) backlog[uid] = 0;
-          for (const doc of activeSnap.docs) {
-            const wid = doc.data().workerId;
-            if (wid in backlog) backlog[wid]++;
-          }
-
-          let chosenUid = workerUids[0];
-          let minCount = backlog[workerUids[0]];
-          for (let i = 1; i < workerUids.length; i++) {
-            if (backlog[workerUids[i]] < minCount) {
-              minCount = backlog[workerUids[i]];
-              chosenUid = workerUids[i];
-            }
-          }
-
-          const workerIndex = (stageConfig.workerUids || []).indexOf(chosenUid);
-          const workerName = (stageConfig.workerNames || [])[workerIndex] || chosenUid;
-
-          const workerDocSnap = await db.collection("users").doc(chosenUid).get();
-          const workerTelegramId = workerDocSnap.exists ? (workerDocSnap.data().telegramId || null) : null;
-
-          const now = admin.firestore.Timestamp.now();
-          const timeoutHours = stageConfig.timeoutHours || 6;
-          const timeoutAt = admin.firestore.Timestamp.fromMillis(
-            now.toMillis() + timeoutHours * 60 * 60 * 1000
-          );
-
-          await db.collection("order_assignments").add({
-            orderId: assignment.orderId,
-            orderRef: assignment.orderRef,
-            customerName: assignment.customerName,
-            quantity: assignment.quantity,
-            stage: assignment.stage,
-            workerId: chosenUid,
-            workerName,
-            workerTelegramId,
-            status: "pending",
-            assignedAt: now,
-            acceptedAt: null,
-            completedAt: null,
-            timeoutAt,
-            timeoutHours,
-            notifiedManager: false,
-          });
-
-          if (workerTelegramId) {
-            await tgReply(
-              workerTelegramId,
-              `🧵 New order assigned!\n\nOrder: *${assignment.orderRef}*\nCustomer: ${assignment.customerName}\nQty: ${assignment.quantity} pcs\nYour stage: *${assignment.stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
-            );
-          }
-
-          if (TELEGRAM_CHAT_ID) {
-            await tgReply(TELEGRAM_CHAT_ID,
-              `⚠️ Worker ${profile.name} skipped order *${assignment.orderRef}* (${assignment.stage}). Reassigned to ${workerName || "next available"}.`
-            );
-          }
-        }
+      if (TELEGRAM_CHAT_ID) {
+        await tgReply(TELEGRAM_CHAT_ID,
+          `⚠️ Worker ${profile.name} skipped order *${assignment.order_ref}* (${assignment.stage}). ` +
+          (next ? `Reassigned to ${next.worker.name}.` : "No one else is configured for this stage — please reassign manually.")
+        );
       }
-
-      await tgReply(chatId, "Skipped. Order reassigned.");
+      await tgReply(chatId, next ? "Skipped. Order reassigned." : "Skipped. No other worker is configured for this stage.");
       return;
     }
 
     if (text === "done" || text === "/done") {
-      // Check for an accepted or in_progress dispatch assignment first
-      const assignSnap = await db.collection("order_assignments")
-        .where("workerId", "==", profile.id)
-        .where("status", "in", ["accepted", "in_progress"])
-        .orderBy("acceptedAt", "desc")
-        .limit(1)
-        .get();
+      const assignment = await latestAssignment(profile.id, ["accepted", "in_progress"], "accepted_at");
 
-      if (!assignSnap.empty) {
-        const assignDoc = assignSnap.docs[0];
-        const assignment = assignDoc.data();
+      if (assignment) {
+        await sb.from("order_assignments")
+          .update({ status: "done", completed_at: new Date().toISOString() })
+          .eq("id", assignment.id);
 
-        await assignDoc.ref.update({
-          status: "done",
-          completedAt: admin.firestore.Timestamp.now(),
-        });
+        const nextStage = NEXT_STAGE[assignment.stage];
+        if (!nextStage) {
+          await tgReply(chatId, `🎉 Order *${assignment.order_ref}* is complete!`);
+          return;
+        }
 
-        // Also advance the order stage in Firestore
-        const orderDocRef = db.collection("orders").doc(assignment.orderId);
-        const orderDocSnap = await orderDocRef.get();
-        let nextStageForReply = null;
+        await advanceOrder(assignment.order_id, nextStage, profile.name);
+
         let nextWorkerName = null;
+        try {
+          const r = await dispatchNext(assignment.order_id, nextStage);
+          nextWorkerName = r ? r.worker.name : null;
+        } catch (dispatchErr) {
+          logger.error("DISPATCH_NEXT_STAGE_ERROR", { error: dispatchErr.message });
+        }
 
-        if (orderDocSnap.exists) {
-          const orderData = orderDocSnap.data();
-          const nextStage = NEXT_STAGE[assignment.stage];
-          if (nextStage) {
-            const newStatus = nextStage === "Delivered" ? "Completed" : orderData.status;
-            const history = [...(orderData.stageHistory || []), {
-              stage: nextStage,
-              date: new Date().toISOString().slice(0, 10),
-              by: profile.name,
-            }];
-            await orderDocRef.update({ stage: nextStage, status: newStatus, stageHistory: history });
+        if (TELEGRAM_CHAT_ID) {
+          await tgReply(TELEGRAM_CHAT_ID, `📋 *${assignment.order_ref}* → *${nextStage}*\n${assignment.quantity} pcs · ${assignment.customer_name}\nBy ${profile.name}`);
+        }
 
-            // Dispatch the next stage
-            try {
-              const dispatchResult = await (async () => {
-                const stageConfigSnap = await db.collection("stage_config").doc(nextStage).get();
-                if (!stageConfigSnap.exists || !stageConfigSnap.data().enabled) return null;
-                const sc = stageConfigSnap.data();
-                const workerUids = sc.workerUids || [];
-                if (workerUids.length === 0) return null;
-
-                const activeSnap = await db.collection("order_assignments")
-                  .where("stage", "==", nextStage)
-                  .where("status", "in", ["pending", "accepted", "in_progress"])
-                  .get();
-                const backlog = {};
-                for (const uid of workerUids) backlog[uid] = 0;
-                for (const doc of activeSnap.docs) {
-                  const wid = doc.data().workerId;
-                  if (wid in backlog) backlog[wid]++;
-                }
-                let chosenUid = workerUids[0];
-                let minCount = backlog[workerUids[0]];
-                for (let i = 1; i < workerUids.length; i++) {
-                  if (backlog[workerUids[i]] < minCount) {
-                    minCount = backlog[workerUids[i]];
-                    chosenUid = workerUids[i];
-                  }
-                }
-                const wIdx = workerUids.indexOf(chosenUid);
-                const wName = (sc.workerNames || [])[wIdx] || chosenUid;
-                const wDocSnap = await db.collection("users").doc(chosenUid).get();
-                const wTgId = wDocSnap.exists ? (wDocSnap.data().telegramId || null) : null;
-
-                const now = admin.firestore.Timestamp.now();
-                const timeoutHours = sc.timeoutHours || 6;
-                const timeoutAt = admin.firestore.Timestamp.fromMillis(
-                  now.toMillis() + timeoutHours * 60 * 60 * 1000
-                );
-
-                await db.collection("order_assignments").add({
-                  orderId: assignment.orderId,
-                  orderRef: assignment.orderRef,
-                  customerName: assignment.customerName,
-                  quantity: assignment.quantity,
-                  stage: nextStage,
-                  workerId: chosenUid,
-                  workerName: wName,
-                  workerTelegramId: wTgId,
-                  status: "pending",
-                  assignedAt: now,
-                  acceptedAt: null,
-                  completedAt: null,
-                  timeoutAt,
-                  timeoutHours,
-                  notifiedManager: false,
-                });
-
-                if (wTgId) {
-                  await tgReply(
-                    wTgId,
-                    `🧵 New order assigned!\n\nOrder: *${assignment.orderRef}*\nCustomer: ${assignment.customerName}\nQty: ${assignment.quantity} pcs\nYour stage: *${nextStage}*\n\nReply *YES* to accept or *SKIP* to pass.`
-                  );
-                }
-
-                return { workerName: wName };
-              })();
-
-              nextStageForReply = nextStage;
-              nextWorkerName = dispatchResult ? dispatchResult.workerName : null;
-            } catch (dispatchErr) {
-              logger.error("DISPATCH_NEXT_STAGE_ERROR", { error: dispatchErr.message });
-            }
-
-            if (TELEGRAM_CHAT_ID) {
-              await tgReply(TELEGRAM_CHAT_ID, `📋 *${assignment.orderRef}* → *${nextStage}*\n${assignment.quantity} pcs · ${assignment.customerName}\nBy ${profile.name}`);
-            }
-
-            if (nextStage === "Delivered") {
-              await tgReply(chatId, `🎉 Order *${assignment.orderRef}* is complete!`);
-            } else {
-              const assignedTo = nextWorkerName ? ` Assigned to ${nextWorkerName}.` : "";
-              await tgReply(chatId, `✅ Stage complete! *${nextStage}* has been assigned.${assignedTo}`);
-            }
-          } else {
-            await tgReply(chatId, `🎉 Order *${assignment.orderRef}* is complete!`);
-          }
+        if (nextStage === "Delivered") {
+          await tgReply(chatId, `🎉 Order *${assignment.order_ref}* is complete!`);
         } else {
-          await tgReply(chatId, `✅ Stage *${assignment.stage}* marked complete.`);
+          const assignedTo = nextWorkerName ? ` Assigned to ${nextWorkerName}.` : "";
+          await tgReply(chatId, `✅ Stage complete! *${nextStage}* has been assigned.${assignedTo}`);
         }
         return;
       }
-      // No dispatch assignment found — fall through to existing /done logic below
+      // No dispatch assignment — fall through to the manual /done below.
     }
 
     // Commands
     if (text === "/in" || text === "in") {
-      const ordersSnap = await db.collection("orders").where("status", "==", "Active").get();
-      const count = ordersSnap.size;
-      await setWorkerSession(fromId, { state: "active", checkedInAt: new Date().toISOString() });
-      await db.collection("shift_logs").add({ profileId: profile.id, name: profile.name, checkedInAt: admin.firestore.FieldValue.serverTimestamp() });
+      const { count } = await sb
+        .from("orders").select("id", { count: "exact", head: true }).eq("status", "Active");
+      await setWorkerSession(fromId, profile.id, { state: "active", checked_in_at: new Date().toISOString() });
+      await sb.from("shift_logs").insert({ person_id: profile.id, name: profile.name });
       await tgReply(chatId, `Welcome ${profile.name}! ✓\n${count} active order${count !== 1 ? "s" : ""} in production. Type /queue to see them.`);
       return;
     }
 
     if (text === "/out" || text === "out") {
       if (session.state === "idle") { await tgReply(chatId, "You're not checked in."); return; }
-      const logsSnap = await db.collection("shift_logs")
-        .where("profileId", "==", profile.id).where("checkedOutAt", "==", null).limit(1).get();
-      if (!logsSnap.empty) await logsSnap.docs[0].ref.update({ checkedOutAt: admin.firestore.FieldValue.serverTimestamp() });
-      await setWorkerSession(fromId, { state: "idle", currentOrderId: null, checkedInAt: null });
+      const { data: open } = await sb
+        .from("shift_logs").select("id").eq("person_id", profile.id).is("checked_out_at", null)
+        .order("checked_in_at", { ascending: false }).limit(1).maybeSingle();
+      if (open) {
+        await sb.from("shift_logs").update({ checked_out_at: new Date().toISOString() }).eq("id", open.id);
+      }
+      await setWorkerSession(fromId, profile.id, { state: "idle", current_order_id: null, checked_in_at: null });
       await tgReply(chatId, `See you later, ${profile.name}! Good work today.`);
       return;
     }
 
     if (text === "/queue" || text === "queue") {
-      const snap = await db.collection("orders").where("status", "==", "Active").limit(10).get();
-      if (snap.empty) { await tgReply(chatId, "No active orders right now."); return; }
-      const lines = snap.docs.map((d, i) => {
-        const o = d.data();
-        return `${i+1}. *${o.orderId}* — ${o.quantity} pcs · ${o.customerName} [${o.stage}]`;
-      });
+      const { data: rows } = await sb
+        .from("orders").select("order_no, quantity, customer_name, stage").eq("status", "Active").limit(10);
+      if (!rows?.length) { await tgReply(chatId, "No active orders right now."); return; }
+      const lines = rows.map((o, i) => `${i + 1}. *${o.order_no}* — ${o.quantity} pcs · ${o.customer_name} [${o.stage}]`);
       await tgReply(chatId, `Active orders:\n\n${lines.join("\n")}\n\nType /start <order ID> to set your active order.`);
       return;
     }
 
     if (text.startsWith("/start ")) {
       const ref = text.split(" ")[1]?.toUpperCase();
-      const snap = await db.collection("orders").where("orderId", "==", ref).limit(1).get();
-      if (snap.empty) { await tgReply(chatId, `Order ${ref} not found. Type /queue to see active orders.`); return; }
-      const order = snap.docs[0].data();
-      await setWorkerSession(fromId, { state: "active", currentOrderId: snap.docs[0].id });
-      await tgReply(chatId, `Active order: *${order.orderId}* — ${order.quantity} pcs · ${order.customerName} [${order.stage}]\n\nType /done when complete, /issue to flag a problem.`);
+      const { data: order } = await sb
+        .from("orders").select("id, order_no, quantity, customer_name, stage")
+        .eq("order_no", ref).maybeSingle();
+      if (!order) { await tgReply(chatId, `Order ${ref} not found. Type /queue to see active orders.`); return; }
+      await setWorkerSession(fromId, profile.id, { state: "active", current_order_id: order.id });
+      await tgReply(chatId, `Active order: *${order.order_no}* — ${order.quantity} pcs · ${order.customer_name} [${order.stage}]\n\nType /done when complete, /issue to flag a problem.`);
       return;
     }
 
     if (text === "/done" || text === "done") {
-      if (!session.currentOrderId) { await tgReply(chatId, "No active order. Type /queue then /start <id>."); return; }
-      const orderRef = db.collection("orders").doc(session.currentOrderId);
-      const orderSnap = await orderRef.get();
-      const order = orderSnap.data();
-      const nextStage = NEXT_STAGE[order.stage];
-      if (!nextStage) { await tgReply(chatId, `Order is already at final stage: ${order.stage}.`); return; }
-      const newStatus = nextStage === "Delivered" ? "Completed" : order.status;
-      const history = [...(order.stageHistory || []), { stage: nextStage, date: new Date().toISOString().slice(0,10), by: profile.name }];
-      await orderRef.update({ stage: nextStage, status: newStatus, stageHistory: history });
-      await setWorkerSession(fromId, { currentOrderId: null });
+      if (!currentOrderId) { await tgReply(chatId, "No active order. Type /queue then /start <id>."); return; }
+      const { data: order } = await sb
+        .from("orders").select("order_no, quantity, customer_name, stage").eq("id", currentOrderId).maybeSingle();
+      const nextStage = NEXT_STAGE[order?.stage];
+      if (!nextStage) { await tgReply(chatId, `Order is already at final stage: ${order?.stage}.`); return; }
+
+      await advanceOrder(currentOrderId, nextStage, profile.name);
+      await setWorkerSession(fromId, profile.id, { current_order_id: null });
 
       if (TELEGRAM_CHAT_ID) {
-        await tgReply(TELEGRAM_CHAT_ID, `📋 *${order.orderId}* → *${nextStage}*\n${order.quantity} pcs · ${order.customerName}\nBy ${profile.name}`);
+        await tgReply(TELEGRAM_CHAT_ID, `📋 *${order.order_no}* → *${nextStage}*\n${order.quantity} pcs · ${order.customer_name}\nBy ${profile.name}`);
       }
       await tgReply(chatId, `Done! ✓ Order moved to *${nextStage}*. Type /queue for next order.`);
       return;
     }
 
     if (text === "/issue" || text === "issue") {
-      if (!session.currentOrderId) { await tgReply(chatId, "Set an active order first with /start <id>."); return; }
-      await setWorkerSession(fromId, { state: "awaiting_issue" });
+      if (!currentOrderId) { await tgReply(chatId, "Set an active order first with /start <id>."); return; }
+      await setWorkerSession(fromId, profile.id, { state: "awaiting_issue" });
       await tgReply(chatId, "Describe the issue:");
       return;
     }
 
     // ── Admin-only commands ──────────────────────────────────
-    const isAdmin = ["uk_admin", "nepal_admin", "super_admin"].includes(profile.role) ||
-                    ["uk_admin", "nepal_admin", "super_admin"].includes(profile.appRole);
+    // Seniority comes from the position's tier, the same number the app uses.
+    // Tier 2 is manager level and above.
+    const isAdmin = profile.tier >= 2;
 
     if ((text === "/dashboard" || text === "/report" || text === "/d") && isAdmin) {
       await tgReply(chatId, "Fetching dashboard…");
@@ -615,23 +443,22 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
         const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" });
         const thisMonth = today.slice(0, 7);
 
-        const [invoicesSnap, ordersSnap, attSnap, tasksSnap, inventorySnap, usersSnap] = await Promise.all([
-          db.collection("invoices").get(),
-          db.collection("orders").get(),
-          db.collection("attendance").where("date", "==", today).get(),
-          db.collection("tasks").get(),
-          db.collection("inventory").get(),
-          db.collection("users").where("role", "in", ["nepal_admin", "employee", "nepal_staff"]).get(),
+        const [invoicesRes, ordersRes, attRes, tasksRes, inventoryRes, staffRes] = await Promise.all([
+          sb.from("fs_invoices").select("*"),
+          sb.from("fs_orders").select("*"),
+          sb.from("fs_attendance").select("*").eq("date", today),
+          sb.from("fs_tasks").select("*"),
+          sb.from("fs_inventory").select("*"),
+          sb.from("people").select("id", { count: "exact", head: true }).eq("status", "Active"),
         ]);
 
-        const invoices   = invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const orders     = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const attendance = attSnap.docs.map(d => d.data());
-        const tasks      = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const inventory  = inventorySnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const totalStaff = usersSnap.size;
+        const invoices   = invoicesRes.data || [];
+        const orders     = ordersRes.data || [];
+        const attendance = attRes.data || [];
+        const tasks      = tasksRes.data || [];
+        const inventory  = inventoryRes.data || [];
+        const totalStaff = staffRes.count || 0;
 
-        // Invoices
         const overdueInvs = invoices.filter(inv =>
           inv.dueDate && inv.dueDate < today && inv.status !== "Paid" && inv.status !== "Cancelled"
         );
@@ -640,26 +467,21 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
           .filter(i => (i.date || "").slice(0, 7) === thisMonth && i.status !== "Cancelled")
           .reduce((s, i) => s + Number(i.totalNPR || 0), 0);
 
-        // Orders
         const activeOrders = orders.filter(o => o.status !== "Completed" && o.status !== "Cancelled");
-        const overdueOrders = activeOrders.filter(o => o.dueDate && o.dueDate < today);
+        const overdueOrders = activeOrders.filter(o => o.deliveryDate && o.deliveryDate < today);
 
-        // Attendance
         const present = attendance.filter(r => ["Present", "Late", "Half-day"].includes(r.status)).length;
         const late    = attendance.filter(r => r.status === "Late").length;
         const absent  = attendance.filter(r => r.status === "Absent").length;
 
-        // Tasks
         const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
         const blocked = tasks.filter(t => t.status === "Blocked").length;
 
-        // Inventory
         const lowStock = inventory.filter(item => {
           const stock = Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0);
           return stock <= Number(item.minLevel || 0);
         });
 
-        // Format message
         const GBP_RATE = 200;
         const gbp = n => `£${(n / GBP_RATE).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
         const flag = (n, warn = 1) => n >= warn ? "🔴" : "🟢";
@@ -687,7 +509,7 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
           blocked ? `  ⚠️ Blocked: *${blocked}*` : null,
           ``,
           lowStock.length
-            ? `📦 *Low stock: ${lowStock.length} item${lowStock.length > 1 ? "s" : ""}*\n  ${lowStock.slice(0, 3).map(i => i.name || i.itemName || i.id).join(", ")}${lowStock.length > 3 ? ` +${lowStock.length - 3} more` : ""}`
+            ? `📦 *Low stock: ${lowStock.length} item${lowStock.length > 1 ? "s" : ""}*\n  ${lowStock.slice(0, 3).map(i => i.item || i.itemId).join(", ")}${lowStock.length > 3 ? ` +${lowStock.length - 3} more` : ""}`
             : `📦 *Stock:* all OK`,
           ``,
           `_Reply /orders for active order list_`,
@@ -702,18 +524,18 @@ exports.telegramWebhook = onRequest({ cors: false }, async (req, res) => {
     }
 
     if (text === "/orders" && isAdmin) {
-      const activeOrders = (await db.collection("orders").get()).docs
-        .map(d => ({ id: d.id, ...d.data() }))
+      const { data: all } = await sb
+        .from("fs_orders").select("*").order("createdAt", { ascending: false });
+      const activeOrders = (all || [])
         .filter(o => o.status !== "Completed" && o.status !== "Cancelled")
-        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
         .slice(0, 15);
 
       if (!activeOrders.length) { await tgReply(chatId, "No active orders."); return; }
 
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" });
       const lines = activeOrders.map((o, i) => {
-        const overdue = o.dueDate && o.dueDate < today ? " 🔴" : "";
-        return `${i + 1}. *${o.orderId || o.id.slice(0,8)}* — ${o.customerName || "—"} [${o.stage || o.status}]${overdue}`;
+        const overdue = o.deliveryDate && o.deliveryDate < today ? " 🔴" : "";
+        return `${i + 1}. *${o.orderId || o.id.slice(0, 8)}* — ${o.customerName || "—"} [${o.stage || o.status}]${overdue}`;
       });
       await tgReply(chatId, `*Active Orders (${activeOrders.length})*\n\n${lines.join("\n")}`);
       return;
@@ -752,25 +574,25 @@ exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
   }
 
   try {
-    const db = admin.firestore();
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" }); // YYYY-MM-DD in KTM
 
-    // Fetch all collections in parallel
-    const [invoicesSnap, ordersSnap, attSnap, tasksSnap, inventorySnap, usersSnap] = await Promise.all([
-      db.collection("invoices").get(),
-      db.collection("orders").get(),
-      db.collection("attendance").where("date", "==", today).get(),
-      db.collection("tasks").get(),
-      db.collection("inventory").get(),
-      db.collection("users").where("role", "in", ["nepal_admin", "employee", "nepal_staff"]).get(),
+    // The fs_* views return the same field names this endpoint has always
+    // published, so its JSON contract is unchanged.
+    const [invoicesRes, ordersRes, attRes, tasksRes, inventoryRes, staffRes] = await Promise.all([
+      sb.from("fs_invoices").select("*"),
+      sb.from("fs_orders").select("*"),
+      sb.from("fs_attendance").select("*").eq("date", today),
+      sb.from("fs_tasks").select("*"),
+      sb.from("fs_inventory").select("*"),
+      sb.from("people").select("id", { count: "exact", head: true }).eq("status", "Active"),
     ]);
 
-    const invoices  = invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const orders    = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const attendance = attSnap.docs.map(d => d.data());
-    const tasks     = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const inventory = inventorySnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const totalStaff = usersSnap.size;
+    const invoices   = invoicesRes.data || [];
+    const orders     = ordersRes.data || [];
+    const attendance = attRes.data || [];
+    const tasks      = tasksRes.data || [];
+    const inventory  = inventoryRes.data || [];
+    const totalStaff = staffRes.count || 0;
 
     // ── Invoices ──
     const overdueInvoices = invoices.filter(inv =>
@@ -785,15 +607,15 @@ exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
     // ── Orders ──
     const activeOrders = orders
       .filter(o => o.status !== "Completed" && o.status !== "Cancelled")
-      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
       .slice(0, 10)
       .map(o => ({
         id: o.id,
-        ref: o.orderRef || o.id,
-        customer: o.customerName || o.clientName || "—",
+        ref: o.orderId || o.id,
+        customer: o.customerName || "—",
         stage: o.stage || o.status || "—",
-        dueDate: o.dueDate || null,
-        overdue: o.dueDate ? o.dueDate < today : false,
+        dueDate: o.deliveryDate || null,
+        overdue: o.deliveryDate ? o.deliveryDate < today : false,
         quantity: o.quantity || null,
       }));
 
@@ -818,7 +640,7 @@ exports.dashboardApi = onRequest({ cors: true }, async (req, res) => {
         const stock = Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0);
         return stock <= Number(item.minLevel || 0);
       })
-      .map(item => ({ id: item.id, name: item.name || item.itemName, stock: item.closingStock ?? null }));
+      .map(item => ({ id: item.id, name: item.item || item.itemId, stock: item.closingStock ?? null }));
 
     const GBP_RATE = 200;
     res.json({
@@ -879,134 +701,91 @@ exports.dispatchStage = onCall(async (request) => {
   if (!request.auth) {
     throw new Error("unauthenticated");
   }
-  // Only admins can trigger dispatch
-  const callerSnap = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  const callerRole = callerSnap.data()?.role || callerSnap.data()?.appRole;
-  if (!["nepal_admin", "uk_admin", "super_admin"].includes(callerRole)) {
-    throw new Error("permission-denied");
-  }
+
+  // Authorised against the caller's position, the same matrix the database
+  // enforces — not a `role` string on a user document, which no longer exists
+  // and would have rejected everybody. `production` edit is the right test:
+  // dispatching is a production action, so whoever runs the floor can do it
+  // without also needing to be a system administrator.
+  const { data: caller } = await sb
+    .from("people")
+    .select("id, full_name, position_id, position_permissions:position_id(*)")
+    .eq("legacy_firebase_uid", request.auth.uid)
+    .maybeSingle();
+
+  const callerPerson = caller || (await sb
+    .from("people").select("id, full_name, position_id")
+    .eq("auth_uid", request.auth.uid).maybeSingle()).data;
+
+  if (!callerPerson) throw new Error("permission-denied");
+
+  const { data: perm } = await sb
+    .from("position_permissions")
+    .select("can_edit")
+    .eq("position_id", callerPerson.position_id)
+    .eq("section_id", "production")
+    .maybeSingle();
+
+  if (!perm?.can_edit) throw new Error("permission-denied");
 
   const { orderId, stage } = request.data;
   if (!orderId || !stage) {
     throw new Error("Missing orderId or stage");
   }
 
-  const db = admin.firestore();
-
-  // 1. Get order from Firestore
-  const orderSnap = await db.collection("orders").doc(orderId).get();
-  if (!orderSnap.exists) {
-    return { dispatched: false, reason: "Order not found" };
-  }
-  const order = orderSnap.data();
-
-  // 2. Get stage_config for this stage
-  const stageConfigSnap = await db.collection("stage_config").doc(stage).get();
-  if (!stageConfigSnap.exists) {
-    return { dispatched: false, reason: `No stage_config for stage: ${stage}` };
-  }
-  const stageConfig = stageConfigSnap.data();
-
-  // 3. Check enabled and workers
-  if (!stageConfig.enabled) {
-    return { dispatched: false, reason: `Stage "${stage}" is disabled` };
-  }
-  const workerUids = stageConfig.workerUids || [];
-  if (workerUids.length === 0) {
-    return { dispatched: false, reason: `No workers configured for stage "${stage}"` };
+  const result = await assignStage(orderId, stage);
+  if (!result.assigned) {
+    return { dispatched: false, reason: result.reason };
   }
 
-  // 4. Count active assignments per worker
-  const activeSnap = await db.collection("order_assignments")
-    .where("stage", "==", stage)
-    .where("status", "in", ["pending", "accepted", "in_progress"])
-    .get();
-
-  const backlog = {};
-  for (const uid of workerUids) backlog[uid] = 0;
-  for (const doc of activeSnap.docs) {
-    const wid = doc.data().workerId;
-    if (wid in backlog) backlog[wid]++;
-  }
-
-  // 5. Pick worker with minimum count (first on tie)
-  let chosenUid = workerUids[0];
-  let minCount = backlog[workerUids[0]];
-  for (let i = 1; i < workerUids.length; i++) {
-    if (backlog[workerUids[i]] < minCount) {
-      minCount = backlog[workerUids[i]];
-      chosenUid = workerUids[i];
-    }
-  }
-
-  const workerIndex = workerUids.indexOf(chosenUid);
-  const workerName = (stageConfig.workerNames || [])[workerIndex] || chosenUid;
-
-  // Look up the worker's Telegram ID from the users collection
-  const workerSnap = await db.collection("users").doc(chosenUid).get();
-  const workerTelegramId = workerSnap.exists ? (workerSnap.data().telegramId || null) : null;
-
-  // 6. Create order_assignments doc
-  const now = admin.firestore.Timestamp.now();
-  const timeoutHours = stageConfig.timeoutHours || 6;
-  const timeoutAt = admin.firestore.Timestamp.fromMillis(
-    now.toMillis() + timeoutHours * 60 * 60 * 1000
-  );
-
-  const assignmentRef = await db.collection("order_assignments").add({
-    orderId,
-    orderRef: order.orderRef || order.orderId || orderId,
-    customerName: order.customerName || order.clientName || "",
-    quantity: order.quantity || 0,
-    stage,
-    workerId: chosenUid,
-    workerName,
-    workerTelegramId,
-    status: "pending",
-    assignedAt: now,
-    acceptedAt: null,
-    completedAt: null,
-    timeoutAt,
-    timeoutHours,
-    notifiedManager: false,
-  });
-
-  // 7. Send Telegram message to worker
-  if (workerTelegramId) {
-    const orderRef = order.orderRef || order.orderId || orderId;
+  if (result.worker.telegramId) {
     await tgReply(
-      workerTelegramId,
-      `🧵 New order assigned!\n\nOrder: *${orderRef}*\nCustomer: ${order.customerName || order.clientName || ""}\nQty: ${order.quantity || 0} pcs\nYour stage: *${stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
+      result.worker.telegramId,
+      `🧵 New order assigned!\n\nOrder: *${result.order.ref}*\nCustomer: ${result.order.customerName}\nQty: ${result.order.quantity} pcs\nYour stage: *${stage}*\n\nReply *YES* to accept or *SKIP* to pass.`
     );
   }
 
-  logger.info("DISPATCH_STAGE", { orderId, stage, workerId: chosenUid, workerName, assignmentId: assignmentRef.id });
-  return { dispatched: true, workerId: chosenUid, workerName, assignmentId: assignmentRef.id };
+  logger.info("DISPATCH_STAGE", {
+    orderId, stage, workerId: result.worker.id,
+    workerName: result.worker.name, assignmentId: result.assignmentId,
+  });
+  return {
+    dispatched: true,
+    workerId: result.worker.id,
+    workerName: result.worker.name,
+    assignmentId: result.assignmentId,
+  };
 });
 
 /* ── Timeout checker (scheduled every hour) ──────────────────────────────── */
 exports.checkDispatchTimeouts = onSchedule("every 1 hours", async () => {
-  const now = admin.firestore.Timestamp.now();
-  const db = admin.firestore();
+  const nowIso = new Date().toISOString();
 
-  // Find all pending/accepted assignments past their timeoutAt
-  const snap = await db.collection("order_assignments")
-    .where("status", "in", ["pending", "accepted"])
-    .where("timeoutAt", "<=", now)
-    .where("notifiedManager", "==", false)
-    .get();
+  const { data: stale, error } = await sb
+    .from("order_assignments")
+    .select("*")
+    .in("status", ["pending", "accepted"])
+    .lte("timeout_at", nowIso)
+    .eq("notified_manager", false);
 
-  for (const doc of snap.docs) {
-    const a = doc.data();
-    await doc.ref.update({ notifiedManager: true, status: "timed_out" });
+  if (error) {
+    logger.error("CHECK_DISPATCH_TIMEOUTS_ERROR", { error: error.message });
+    return;
+  }
 
-    // Alert manager via Telegram
+  for (const a of stale || []) {
+    // Marked first, so a failure sending the alert cannot cause the same
+    // assignment to be reported hour after hour.
+    await sb.from("order_assignments")
+      .update({ notified_manager: true, status: "timed_out" })
+      .eq("id", a.id);
+
     if (TELEGRAM_CHAT_ID) {
       await tgReply(TELEGRAM_CHAT_ID,
-        `⚠️ *Dispatch timeout*\n\nOrder: *${a.orderRef}*\nStage: ${a.stage}\nAssigned to: ${a.workerName}\nNo response after ${a.timeoutHours || 6} hours.\n\nPlease follow up or reassign manually.`
+        `⚠️ *Dispatch timeout*\n\nOrder: *${a.order_ref}*\nStage: ${a.stage}\nAssigned to: ${a.assigned_to}\nNo response after ${a.timeout_hours || 6} hours.\n\nPlease follow up or reassign manually.`
       );
     }
   }
 
-  logger.info("CHECK_DISPATCH_TIMEOUTS", { timedOut: snap.size });
+  logger.info("CHECK_DISPATCH_TIMEOUTS", { timedOut: (stale || []).length });
 });

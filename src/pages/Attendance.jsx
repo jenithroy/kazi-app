@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
+import { fetchAll, upsertRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
-import { db } from "../firebase";
-import { todayDate, isSaturday } from "../utils/date";
+import { todayDate, isSaturday, tsDate, tsTime } from "../utils/date";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate, setEmployeeScheduleOverrides } from "../constants";
 import { Pill, Icons, cn } from "../components/ui";
@@ -141,18 +140,17 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
   useEffect(() => {
     if (!staffId) { setMonthClockIns([]); return; }
     setLoadingClocks(true);
-    getDocs(query(
-      collection(db, "clock_ins"),
-      where("staffId", "==", staffId),
-      where("date", ">=", monthStart),
-      where("date", "<=", monthEnd)
-    )).then(snap => setMonthClockIns(snap.docs.map(d => d.data())))
+    fetchAll("clock_ins", { filters: [
+      { field: "person_id", value: staffId },
+      { field: "date", op: "gte", value: monthStart },
+      { field: "date", op: "lte", value: monthEnd },
+    ] }).then(setMonthClockIns)
       .catch(err => { console.error("Failed to load clock-ins for report:", err); setMonthClockIns([]); })
       .finally(() => setLoadingClocks(false));
   }, [staffId, monthStart, monthEnd]);
 
   const attByDate = {};
-  monthRecords.filter(r => r.staffId === staffId).forEach(r => { attByDate[r.date] = r; });
+  monthRecords.filter(r => r.person_id === staffId).forEach(r => { attByDate[r.date] = r; });
   const clockByDate = {};
   monthClockIns.forEach(c => { clockByDate[c.date] = c; });
 
@@ -224,8 +222,8 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
                   {days.map(d => {
                     const att = attByDate[d];
                     const clk = clockByDate[d];
-                    const inT  = clk?.clockedInAt?.toDate  ? clk.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})  : null;
-                    const outT = clk?.clockedOutAt?.toDate ? clk.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : null;
+                    const inT  = tsTime(clk?.clockedInAt,  null);
+                    const outT = tsTime(clk?.clockedOutAt, null);
                     const dateLabel = parseLocalDate(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
                     return (
                       <tr key={d}>
@@ -298,34 +296,39 @@ function Attendance() {
     const monthStart = toLocalISOString(new Date(year, month, 1));
     const monthEnd = toLocalISOString(new Date(year, month + 1, 0));
 
-    const [usersSnap, monthAttSnap, selectedAttSnap, clockSnap, empSnap] = await Promise.all([
-      getDocs(query(collection(db, "users"), where("role", "in", ["nepal_admin","employee","nepal_staff"]))),
-      getDocs(query(collection(db, "attendance"), where("date", ">=", monthStart), where("date", "<=", monthEnd))),
-      getDocs(query(collection(db, "attendance"), where("date", "==", selectedDate))),
-      getDocs(query(collection(db, "clock_ins"),  where("date", "==", selectedDate))),
-      getDocs(collection(db, "employees")),
+    // No role filter any more: who appears here follows from the position
+    // matrix, and RLS already limits people to the rows this person may
+    // see — someone without the employees section sees only themselves.
+    const [staffAll, monthAtt, selectedAtt, clockRows, empRows] = await Promise.all([
+      fetchAll("users"),
+      fetchAll("attendance", { filters: [
+        { field: "date", op: "gte", value: monthStart },
+        { field: "date", op: "lte", value: monthEnd },
+      ] }),
+      fetchAll("attendance", { filters: [{ field: "date", value: selectedDate }] }),
+      fetchAll("clock_ins",  { filters: [{ field: "date", value: selectedDate }] }),
+      fetchAll("employees"),
     ]);
 
     // Honour work schedules edited in Employee Directory → Schedule
-    setEmployeeScheduleOverrides(empSnap.docs.map(d => d.data()));
+    setEmployeeScheduleOverrides(empRows);
 
-    const staff = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const staff = staffAll.filter(m => m.status !== "Inactive");
     setStaffList(staff);
 
-    setMonthRecords(monthAttSnap.docs.map(d => d.data()));
-    setClockIns(clockSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setMonthRecords(monthAtt);
+    setClockIns(clockRows);
 
-    const selectedRec = selectedAttSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const attMap = Object.fromEntries(selectedRec.map(r => [r.staffId, r]));
+    const attMap = Object.fromEntries(selectedAtt.map(r => [r.person_id, r]));
     const closedDefault = isSaturday(selectedDate) ? "Closed" : "Absent";
 
     setRows(staff.map(m => {
-      const rec = attMap[m.uid || m.id];
+      const rec = attMap[m.personId];
       return {
         id:             rec?.id             || "",
-        staffId:        m.uid               || m.id,
+        staffId:        m.personId,
         staffName:      m.name,
-        role:           m.jobRole           || m.role,
+        role:           m.jobRole,
         status:         rec?.status         || closedDefault,
         hours:          rec?.hours          ?? 8,
         note:           rec?.note           || "",
@@ -340,33 +343,31 @@ function Attendance() {
     if (!canEdit) return;
     setSaving(true); setMessage("");
     try {
-      const batch = writeBatch(db);
-      rows.forEach(row => {
-        if (row.status === "Closed" && !row.id) return; // Saturday placeholder — nothing to persist
-        const ref = doc(db, "attendance", row.id || `${selectedDate}_${row.staffId}`);
-        batch.set(ref, { 
-          date: selectedDate, 
-          staffId: row.staffId, 
-          staffName: row.staffName, 
-          role: row.role, 
-          status: row.status, 
-          hours: Number(row.hours || 0), 
-          note: row.note, 
-          loggedBy: profile?.name || "Unknown", 
-          createdAt: serverTimestamp(),
+      // One row per person per day, enforced by a unique constraint — so a
+      // re-save updates the day rather than adding a second record.
+      await Promise.all(rows.map(row => {
+        if (row.status === "Closed" && !row.id) return null; // Saturday placeholder
+        return upsertRow("attendance", {
+          date: selectedDate,
+          person_id: row.staffId,
+          staffName: row.staffName,
+          role: row.role,
+          status: row.status,
+          hours: Number(row.hours || 0),
+          note: row.note,
+          loggedBy: profile?.name || "Unknown",
           lateCutApplied: row.status === "Late" ? (row.lateCutApplied ?? false) : false,
           lateMinutes: row.status === "Late" ? (row.lateMinutes ?? 0) : 0,
-        }, { merge: true });
-      });
-      await batch.commit();
+        }, ["person_id", "date"]);
+      }));
       setMessage("Attendance saved.");
       await loadAll();
     } catch (err) { console.error("Failed to save attendance:", err); setMessage("Could not save attendance. Please check your connection and try again."); }
     finally { setSaving(false); }
   }
 
-  const myClockIn  = clockIns.find(c => c.staffId === (profile?.uid || profile?.id));
-  const myRow      = rows.find(r => r.staffId === (profile?.uid || profile?.id));
+  const myClockIn  = clockIns.find(c => c.person_id === profile?.personId);
+  const myRow      = rows.find(r => r.staffId === profile?.personId);
 
   /* ─── Employee view ─────────────────────────────── */
   if (isEmployee) {
@@ -431,8 +432,8 @@ function Attendance() {
                     )}
                     {myClockIn && (
                       <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                        {myClockIn.clockedInAt?.toDate ? myClockIn.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}) : "—"}
-                        {myClockIn.clockedOutAt?.toDate ? ` → ${myClockIn.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}` : ""}
+                        {tsTime(myClockIn.clockedInAt)}
+                        {tsDate(myClockIn.clockedOutAt) ? ` → ${tsTime(myClockIn.clockedOutAt)}` : ""}
                       </span>
                     )}
                   </div>
@@ -543,16 +544,14 @@ function Attendance() {
                   </thead>
                   <tbody>
                     {rows.map((row, i) => {
-                      const clockRec = clockIns.find(c => c.staffId === row.staffId);
+                      const clockRec = clockIns.find(c => c.person_id === row.staffId);
                       const isEditing = editingRow === i;
-                      const clockTime = clockRec?.clockedInAt?.toDate
-                        ? clockRec.clockedInAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
-                        : null;
-                      const clockOutTime = clockRec?.clockedOutAt?.toDate
-                        ? clockRec.clockedOutAt.toDate().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})
-                        : null;
-                      const workedH = clockRec?.clockedInAt?.toDate && clockRec?.clockedOutAt?.toDate
-                        ? Math.max(0, Math.round(((clockRec.clockedOutAt.toDate() - clockRec.clockedInAt.toDate()) / 3600000) * 10) / 10)
+                      const clockedIn  = tsDate(clockRec?.clockedInAt);
+                      const clockedOut = tsDate(clockRec?.clockedOutAt);
+                      const clockTime    = tsTime(clockRec?.clockedInAt,  null);
+                      const clockOutTime = tsTime(clockRec?.clockedOutAt, null);
+                      const workedH = clockedIn && clockedOut
+                        ? Math.max(0, Math.round(((clockedOut - clockedIn) / 3600000) * 10) / 10)
                         : null;
                       const distM = clockRec?.distanceToSiteM;
 
