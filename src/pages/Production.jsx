@@ -46,11 +46,16 @@ const STAGES = [
   "Cutting",
   "Stitching",
   "Finishing & Pressing",
+  "Embellishment",
   "Quality Check",
   "Packing",
   "Shipped",
   "Delivered"
 ];
+
+// An order in the Embellishment stage carries any combination of these — one,
+// two, or all three — rather than moving through them as separate stages.
+const EMBELLISHMENT_TYPES = ["Buttoning", "DTF", "Embroidery"];
 
 const FABRIC_TYPES = [
   "Terry Cotton", "Chinese Terry Fabric", "Rib Fabric", "Fleece", "Jersey",
@@ -236,7 +241,7 @@ function InvoiceModal({ order, fields, setFields, onClose, onSubmit, saving }) {
   );
 }
 
-/* ── Pipeline columns (5-stage view) ─────────────────── */
+/* ── Pipeline columns (6-stage view) ─────────────────── */
 const PIPELINE_COLS = [
   {
     id: "received",
@@ -257,6 +262,13 @@ const PIPELINE_COLS = [
     label: "Stitching",
     stages: ["Stitching", "Finishing & Pressing"],
     accent: "var(--terra)",
+    tone: "terra"
+  },
+  {
+    id: "embellishment",
+    label: "Embellishment",
+    stages: ["Embellishment"],
+    accent: "#db2777",
     tone: "terra"
   },
   {
@@ -300,6 +312,85 @@ function orderStatusBadge(status) {
     Cancelled: "badge-danger"
   };
   return <span className={map[status] || "badge-muted"}>{status}</span>;
+}
+
+/* ── Embellishment picker ─────────────────────────────── */
+function EmbellishmentPicker({ order, canEdit, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const selected = Array.isArray(order.embellishments) ? order.embellishments : [];
+  const all = selected.length === EMBELLISHMENT_TYPES.length;
+
+  async function save(next) {
+    if (!canEdit || saving) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "orders", order.id), { embellishments: next });
+      await onUpdate?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Keep the stored order matching EMBELLISHMENT_TYPES so chips read consistently.
+  function toggle(type) {
+    const next = selected.includes(type)
+      ? selected.filter(t => t !== type)
+      : EMBELLISHMENT_TYPES.filter(t => selected.includes(t) || t === type);
+    save(next);
+  }
+
+  const label = selected.length === 0
+    ? "None selected"
+    : all
+      ? "All three"
+      : selected.join(" · ");
+
+  return (
+    <div style={{ position: "relative", marginTop: 8 }} onClick={e => e.stopPropagation()}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>
+        Embellishment
+      </div>
+      <button
+        type="button"
+        className="ghost-button"
+        style={{ fontSize: 11, padding: "4px 8px", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}
+        disabled={!canEdit}
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+      >
+        <span style={{ color: selected.length ? "var(--ink)" : "var(--ink-4)" }}>{saving ? "Saving…" : label}</span>
+        <span style={{ color: "var(--ink-4)" }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", zIndex: 30, top: "100%", left: 0, right: 0, marginTop: 4,
+          background: "var(--card)", border: "1px solid var(--line-strong)",
+          borderRadius: "var(--r-input)", boxShadow: "var(--shadow-2)", padding: 4
+        }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 6px", fontSize: 11.5, fontWeight: 600, borderBottom: "1px solid var(--line)", cursor: canEdit ? "pointer" : "default" }}>
+            <input
+              type="checkbox"
+              checked={all}
+              disabled={!canEdit || saving}
+              onChange={() => save(all ? [] : [...EMBELLISHMENT_TYPES])}
+            />
+            All three
+          </label>
+          {EMBELLISHMENT_TYPES.map(type => (
+            <label key={type} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 6px", fontSize: 11.5, cursor: canEdit ? "pointer" : "default" }}>
+              <input
+                type="checkbox"
+                checked={selected.includes(type)}
+                disabled={!canEdit || saving}
+                onChange={() => toggle(type)}
+              />
+              {type}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ── Pipeline card ────────────────────────────────────── */
@@ -356,6 +447,16 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, on
       </div>
       <div className="kprod-card-c">{order.customerName}</div>
       <div className="kprod-card-p">{order.styleName}</div>
+      {order.stage === "Embellishment" && (order.embellishments?.length > 0) && (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {order.embellishments.map(t => (
+            <span key={t} style={{
+              fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: "var(--r-pill)",
+              background: "#fdf2f8", color: "#9d174d", border: "1px solid #fbcfe8"
+            }}>{t}</span>
+          ))}
+        </div>
+      )}
       <div className="kprod-card-bar">
         <Progress pct={pct} h={4} color={col.accent} track="rgba(15,46,34,.07)" />
       </div>
@@ -384,6 +485,10 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, on
           </div>
           {order.invoiceRef && (
             <div style={{ color: "var(--ink-4)", marginTop: 2 }}>Ref: {order.invoiceRef}</div>
+          )}
+
+          {order.stage === "Embellishment" && (
+            <EmbellishmentPicker order={order} canEdit={canEdit} onUpdate={onUpdate} />
           )}
 
           {/* Current assignment */}

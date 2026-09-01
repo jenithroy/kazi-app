@@ -53,10 +53,11 @@ const DISPATCH_STAGES = [
   { stage: "Cutting",               order: 2, enabled: true,  timeoutHours: 8  },
   { stage: "Stitching",             order: 3, enabled: true,  timeoutHours: 12 },
   { stage: "Finishing & Pressing",  order: 4, enabled: true,  timeoutHours: 8  },
-  { stage: "Quality Check",         order: 5, enabled: true,  timeoutHours: 6  },
-  { stage: "Packing",               order: 6, enabled: true,  timeoutHours: 4  },
-  { stage: "Shipped",               order: 7, enabled: false, timeoutHours: 2  },
-  { stage: "Delivered",             order: 8, enabled: false, timeoutHours: 2  },
+  { stage: "Embellishment",         order: 5, enabled: true,  timeoutHours: 8  },
+  { stage: "Quality Check",         order: 6, enabled: true,  timeoutHours: 6  },
+  { stage: "Packing",               order: 7, enabled: true,  timeoutHours: 4  },
+  { stage: "Shipped",               order: 8, enabled: false, timeoutHours: 2  },
+  { stage: "Delivered",             order: 9, enabled: false, timeoutHours: 2  },
 ];
 
 const WORKER_ROLES = ["nepal_admin", "employee", "nepal_staff"];

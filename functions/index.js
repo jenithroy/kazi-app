@@ -193,10 +193,11 @@ exports.messengerApi = onRequest({
 
 const STAGES = [
   "Order Received", "Fabric Sourcing", "Cutting", "Stitching",
-  "Finishing & Pressing", "Quality Check", "Packing", "Shipped", "Delivered"
+  "Finishing & Pressing", "Embellishment", "Quality Check",
+  "Packing", "Shipped", "Delivered"
 ];
 const NEXT_STAGE = Object.fromEntries(STAGES.map((s, i) => [s, STAGES[i + 1]]));
-const ACTIVE_STATUSES = ["Cutting", "Stitching", "Finishing & Pressing", "Quality Check"];
+const ACTIVE_STATUSES = ["Cutting", "Stitching", "Finishing & Pressing", "Embellishment", "Quality Check"];
 
 async function tgReply(chatId, text) {
   if (!TELEGRAM_BOT_TOKEN) return;

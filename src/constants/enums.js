@@ -3,13 +3,14 @@
  * Import from here rather than duplicating magic strings across pages.
  */
 
-// Production.jsx pipeline stages (9-stage garment flow)
+// Production.jsx pipeline stages (10-stage garment flow)
 export const ORDER_STAGES = [
   "Order Received",
   "Fabric Sourcing",
   "Cutting",
   "Stitching",
   "Finishing & Pressing",
+  "Embellishment",
   "Quality Check",
   "Packing",
   "Shipped",

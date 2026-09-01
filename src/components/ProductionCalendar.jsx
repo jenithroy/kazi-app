@@ -10,6 +10,7 @@ const STAGES = [
   "Cutting",
   "Stitching",
   "Finishing & Pressing",
+  "Embellishment",
   "Quality Check",
   "Packing",
   "Shipped",
@@ -26,6 +27,8 @@ function getStageColor(stage) {
     case "Stitching":
     case "Finishing & Pressing":
       return { bg: "#fff5f5", text: "#9b1c1c", border: "#feb2b2", accent: "var(--terra)" };
+    case "Embellishment":
+      return { bg: "#fdf2f8", text: "#9d174d", border: "#fbcfe8", accent: "#db2777" };
     case "Quality Check":
       return { bg: "#f0fdf4", text: "#166534", border: "#bbf7d0", accent: "var(--mint-2)" };
     case "Packing":

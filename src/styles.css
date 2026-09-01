@@ -702,7 +702,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kph-a { display: flex; gap: 8px; }
 
 /* Production kanban */
-.kprod-board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.kprod-board { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 .kprod-col { background: var(--bg-2); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 380px; }
 .kprod-col-h { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
 .kprod-col-ico { display: inline-flex; padding: 4px; background: #fff; border-radius: 6px; color: var(--ink-3); }
@@ -796,7 +796,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kbrf-actions { display: flex; gap: 6px; }
 
 /* ── Production kanban board ─────────────────────── */
-.kprod-board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.kprod-board { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 .kprod-col { background: var(--bg-2); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 380px; }
 .kprod-col-h { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
 .kprod-col-ico { display: inline-flex; padding: 4px; background: #fff; border-radius: 6px; color: var(--ink-3); }

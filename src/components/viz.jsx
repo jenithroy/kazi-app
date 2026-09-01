@@ -142,7 +142,7 @@ export function ProductionPipeline({ orders = [] }) {
     ...st,
     orders: orders.filter(o =>
       o.stage === st.id ||
-      (st.id === "Stitching" && ["Fabric Sourcing","Stitching","Finishing & Pressing"].includes(o.stage)) ||
+      (st.id === "Stitching" && ["Fabric Sourcing","Stitching","Finishing & Pressing","Embellishment"].includes(o.stage)) ||
       (st.id === "Shipped" && ["Shipped","Delivered","Packing"].includes(o.stage))
     )
   }));
