@@ -100,10 +100,21 @@ function Login() {
     setError("");
     setLoading(true);
     try {
-      await authClient.auth.resetPasswordForEmail(email, {
+      const { error: err } = await authClient.auth.resetPasswordForEmail(email, {
         redirectTo: authRedirectUrl("/login"),
       });
-      // Shown whether or not the address exists — see the note above.
+      // An unknown address still reports success — see the note above. But a
+      // refusal from Supabase is a different thing entirely, and swallowing it
+      // told people to go and check an inbox nothing had been sent to. The
+      // usual culprit is the hourly cap on the built-in mail service.
+      if (err) {
+        setError(
+          err.status === 429 || /rate limit/i.test(err.message || "")
+            ? "Too many reset emails just now. Wait an hour and try again."
+            : err.message || "Couldn't send the reset email. Try again shortly."
+        );
+        return;
+      }
       setResetSent(true);
     } finally {
       setLoading(false);
