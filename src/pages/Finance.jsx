@@ -19,6 +19,9 @@ import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { postPurchaseStockIn } from "../utils/stockLedger";
 import { tsMillis, tsDate } from "../utils/date";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 
 /* ── Seed data ─────────────────────────────────────── */
 // NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
@@ -93,13 +96,13 @@ const DEFAULT_ACCOUNTS = [
 
 const initialExpense = {
   category: "Utilities", amountNPR: "",
-  date: new Date().toISOString().slice(0, 10), note: "", vatBill: false
+  date: new Date().toISOString().slice(0, 10), note: "", vatBill: false, region: ""
 };
 
 const emptyJournalForm = {
   date: new Date().toISOString().slice(0, 10),
   description: "", debitAccount: "Cash", creditAccount: "Sales Revenue",
-  amountNPR: "", reference: "", partyName: ""
+  amountNPR: "", reference: "", partyName: "", region: ""
 };
 
 // Advance Received/Payable are sub-ledgered by customer/supplier, not just a lump
@@ -142,6 +145,7 @@ function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { fmt: fmtC } = useCurrency();
+  const { region } = useRegion();
   // Restored synchronously (not in an effect) so the page doesn't flash "expenses"
   // before jumping to the tab she was on when she clicked out to Purchases/Billing.
   const [activeTab, setActiveTab] = useState(() => {
@@ -182,18 +186,18 @@ function Finance() {
   }, [pageError]);
 
   /* ── State ── */
-  const [payroll, setPayroll]         = useState([]);
-  const [employees, setEmployees]     = useState([]);
-  const [expenses, setExpenses]       = useState([]);
+  const [allPayroll, setPayroll]      = useState([]);
+  const [allEmployees, setEmployees]  = useState([]);
+  const [allExpenses, setExpenses]    = useState([]);
   const [expenseForm, setExpenseForm] = useState(initialExpense);
-  const [purchases, setPurchases]     = useState([]);
-  const [inventoryItems, setInventoryItems] = useState([]); // for auto-posting stock-in on purchase save
+  const [allPurchases, setPurchases]  = useState([]);
+  const [allInventoryItems, setInventoryItems] = useState([]); // for auto-posting stock-in on purchase save
   const allPurchaseIdsRef = useRef([]); // unfiltered expenseIds (incl. historical, hidden-by-cutoff rows) — nextExpenseId() must never collide with these
   const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
   const [purchaseError, setPurchaseError] = useState("");     // inline error shown at the new-purchase row
   const [purchaseSuccess, setPurchaseSuccess] = useState(""); // "EXP027 saved" confirmation by the table title
   const [submitting, setSubmitting]   = useState(false);
-  const [vatBills, setVatBills]       = useState([]);
+  const [allVatBills, setVatBills]    = useState([]);
   const [vatFile, setVatFile]         = useState(null);
   const [vatExpenseId, setVatExpenseId] = useState("");
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -206,25 +210,25 @@ function Finance() {
   const journalFormRef = useRef(null);
 
   /* ── Accounting state ── */
-  const [entries, setEntries]   = useState([]);
-  const [accounts, setAccounts] = useState([]);
+  const [allEntries, setEntries]   = useState([]);
+  const [allAccounts, setAccounts] = useState([]);
   const [journalForm, setJournalForm] = useState(emptyJournalForm);
   const [journalSubmitting, setJournalSubmitting] = useState(false);
   const [journalEditId, setJournalEditId] = useState(null);
   const [journalDraft, setJournalDraft] = useState({});
   const [journalSaving, setJournalSaving] = useState(false);
-  const [invoices, setInvoices] = useState([]);
+  const [allInvoices, setInvoices] = useState([]);
   // In-place edit for a Cash/Bank ledger row sourced from a bank txn or journal entry —
   // purchase/invoice rows deep-link to their own full editor (Purchases/Billing) instead.
   const [ledgerDraft, setLedgerDraft] = useState(null); // { type: "bank"|"journal", id, particulars, amount }
 
   /* ── Bank transactions state ── */
-  const [bankTxns, setBankTxns]       = useState([]);
+  const [allBankTxns, setBankTxns]    = useState([]);
   const [showBankForm, setShowBankForm] = useState(false);
   const [bankForm, setBankForm]       = useState({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "", accountName: "Nabil Bank" });
 
   /* ── Order P&L state ── */
-  const [orders, setOrders]               = useState([]);
+  const [allOrders, setOrders]            = useState([]);
   const [orderCosts, setOrderCosts]       = useState({});   // keyed by orderId
   const [oplSelectedId, setOplSelectedId] = useState(null); // order open in panel
   const [oplCostForm, setOplCostForm]     = useState({ material: "", labour: "", overhead: "", shipping: "" });
@@ -233,6 +237,31 @@ function Finance() {
   const [labourRatePerUnit, setLabourRatePerUnit] = useState(null); // auto-calculated NPR/unit
   const [oplDateFrom, setOplDateFrom]     = useState("");
   const [oplDateTo, setOplDateTo]         = useState("");
+
+  /* ── One region's books ────────────────────────────────────
+     Finance is eleven tabs over the same eleven lists, so narrowing them in one
+     place is what makes "the UK numbers" and "the Nepal numbers" two answers
+     instead of one blended one. Every KPI, ledger, P&L line and dropdown below
+     reads these names and needs no knowledge of the switch.
+
+     Payroll and employees follow the person's own location rather than a tag of
+     their own — an attendance or salary record can never disagree with the
+     staff member it is about. See migration 0029.
+
+     The `all*` originals stay in scope where a number must span the company:
+     `allPurchaseIdsRef` already held every expense id for exactly this reason,
+     and the untagged counts in the header report on the whole list. */
+  const payroll        = useMemo(() => filterByRegion(allPayroll,        region), [allPayroll,        region]);
+  const employees      = useMemo(() => filterByRegion(allEmployees,      region), [allEmployees,      region]);
+  const expenses       = useMemo(() => filterByRegion(allExpenses,       region), [allExpenses,       region]);
+  const purchases      = useMemo(() => filterByRegion(allPurchases,      region), [allPurchases,      region]);
+  const inventoryItems = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
+  const vatBills       = useMemo(() => filterByRegion(allVatBills,       region), [allVatBills,       region]);
+  const entries        = useMemo(() => filterByRegion(allEntries,        region), [allEntries,        region]);
+  const accounts       = useMemo(() => filterByRegion(allAccounts,       region), [allAccounts,       region]);
+  const invoices       = useMemo(() => filterByRegion(allInvoices,       region), [allInvoices,       region]);
+  const bankTxns       = useMemo(() => filterByRegion(allBankTxns,       region), [allBankTxns,       region]);
+  const orders         = useMemo(() => filterByRegion(allOrders,         region), [allOrders,         region]);
 
   /* ── Load data ── */
   async function loadData() {
@@ -382,9 +411,10 @@ function Finance() {
     const lastMonthYear = lastMonth.getFullYear();
 
     const payrollData = payrollSnap;
-    const allEmployees = employeesSnap;
+    // Deliberately the unfiltered snapshot: the auto labour rate is a
+    // company-wide cost per unit, not a per-region one.
     const productionWorkers = new Set(
-      allEmployees.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase())
+      employeesSnap.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase())
     );
     // Only use production workers' payroll if any are tagged; otherwise fall back to all
     const lastMonthPayroll = payrollData
@@ -458,6 +488,7 @@ function Finance() {
         vatAmountNPR: vatAmount,
         amountNPR: grandTotal,
         date: purchaseForm.date,
+        region: purchaseForm.region || region,
         items: purchaseItemsPayload(purchaseForm.items)
       };
       await insertRow("finance_purchases", purchasePayload);
@@ -503,6 +534,7 @@ function Finance() {
     try {
       const docRef = await insertRow("finance_expenses", {
         ...expenseForm, amountNPR: Number(expenseForm.amountNPR || 0),
+        region: expenseForm.region || region,
         loggedBy: profile?.name || "Unknown",
       });
       if (expenseForm.vatBill && expenseVatFile) {
@@ -518,7 +550,8 @@ function Finance() {
           expenseId: docRef.id, expenseItem: expenseForm.note || expenseForm.category,
           fileName: expenseVatFile.name, fileUrl: url, storagePath: path,
           fileType: expenseVatFile.type, uploadedBy: profile?.name || "Unknown",
-          source: "expense"
+          source: "expense",
+          region: expenseForm.region || region,
         });
       }
       setExpenseForm(initialExpense);
@@ -545,6 +578,7 @@ function Finance() {
         expenseId: vatExpenseId, expenseItem: purchase?.expenseItem || "",
         fileName: vatFile.name, fileUrl: url, storagePath: path, fileType: vatFile.type,
         uploadedBy: profile?.name || "Unknown",
+        region: purchase?.region || region,
       });
       setVatFile(null); setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -567,6 +601,7 @@ function Finance() {
     try {
       await insertRow("journal_entries", {
         ...journalForm, amountNPR: Number(journalForm.amountNPR),
+        region: journalForm.region || region,
         partyName: isAdvanceEntry(journalForm) ? journalForm.partyName.trim() : "",
         createdBy: profile?.name || "Unknown",
       });
@@ -660,6 +695,8 @@ function Finance() {
       const costKey = order?.orderId || order?.id || oplSelectedId;
       await upsertRow("order_costs", {
         orderId:  costKey,
+        // Costs belong wherever the order does, not wherever the switch is.
+        region:   order?.region || null,
         material: Number(oplCostForm.material || 0),
         labour:   Number(oplCostForm.labour   || 0),
         overhead: Number(oplCostForm.overhead  || 0),
@@ -845,6 +882,10 @@ function Finance() {
   return (
       <div className="kfin-wrap">
 
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+          <RegionSwitch untagged={countUntagged([...allExpenses, ...allPurchases, ...allEntries])} />
+        </div>
+
         {/* Fix 3: error banner */}
         {pageError && (
           <div ref={errorBannerRef} style={{
@@ -997,6 +1038,10 @@ function Finance() {
                   <label className="kfin-label">Date
                     <input type="date" className="kfin-input" value={expenseForm.date} disabled={!canEdit}
                       onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))} required />
+                  </label>
+                  <label className="kfin-label">Region
+                    <RegionSelect className="kfin-input" value={expenseForm.region} disabled={!canEdit}
+                      onChange={v => setExpenseForm(f => ({ ...f, region: v }))} />
                   </label>
                   <label className="kfin-label kfin-full">Note
                     <input type="text" className="kfin-input" value={expenseForm.note} disabled={!canEdit}
@@ -1251,6 +1296,10 @@ function Finance() {
                   <label className="kfin-label">Reference (optional)
                     <input type="text" className="kfin-input" value={journalForm.reference} placeholder="Invoice # / PO # etc."
                       onChange={e => setJournalForm(f => ({ ...f, reference: e.target.value }))} />
+                  </label>
+                  <label className="kfin-label">Region
+                    <RegionSelect className="kfin-input" value={journalForm.region}
+                      onChange={v => setJournalForm(f => ({ ...f, region: v }))} />
                   </label>
                   <button type="submit" className="primary-button" disabled={journalSubmitting} style={{ alignSelf: "flex-end" }}>
                     {journalSubmitting ? "Posting…" : "Post Entry"}
@@ -1699,6 +1748,7 @@ function Finance() {
                     e.preventDefault();
                     await insertRow("bank_transactions", {
                       ...bankForm,
+                      region,
                       accountName: bankForm.accountName || "Nabil Bank",
                       amountNPR: Number(bankForm.amountNPR),
                       createdBy: profile?.name || "Unknown",

@@ -7,6 +7,9 @@ import { cn, Avatar, Pill, Btn, Icons } from "../components/ui";
 import { TASK_CATEGORIES } from "../constants";
 import { awardPoints, resolveUidByName } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 
 const CAT_MAP = Object.fromEntries(TASK_CATEGORIES.map(c => [c.label, c.color]));
 
@@ -405,10 +408,19 @@ function Tasks() {
   const role = profile?.appRole || profile?.role;
   const { showPointsToast } = useReward();
 
-  const [tasks,    setTasks]    = useState([]);
+  const { region } = useRegion();
+
+  const [allTasks, setTasks]    = useState([]);
   const [columns,  setColumns]  = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [customers,    setCustomers]   = useState([]);
+  const [allCustomers, setCustomers]   = useState([]);
+
+  /* ── One region's board ────────────────────────────────────
+     Cards and the customer dropdown narrow to the region on screen. The
+     columns themselves deliberately do not: they are the shape of the board,
+     shared by both arms, not work belonging to either. */
+  const tasks     = useMemo(() => filterByRegion(allTasks,     region), [allTasks,     region]);
+  const customers = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
   const [assignees, setAssignees] = useState([]);
   // Fix 4: assignee filter — "all" means no filter, otherwise a name string
   const [filterAssignee, setFilterAssignee] = useState("all");
@@ -419,7 +431,7 @@ function Tasks() {
   const [custFilter,   setCustFilter]  = useState(null);
   const [showFilters,  setShowFilters] = useState(false);
   const [showNew,      setShowNew]     = useState(false);
-  const [newForm,      setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", notes: "", status: "To Do" });
+  const [newForm,      setNewForm]     = useState({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", notes: "", status: "To Do", region: "" });
   const [editTask,     setEditTask]    = useState(null);
   const [editForm,     setEditForm]    = useState({});
   const [editSaving,   setEditSaving]  = useState(false);
@@ -495,7 +507,7 @@ function Tasks() {
 
   async function handleAdd(data) {
     try {
-      await insertRow("tasks", { ...data, createdBy: profile?.name || "Unknown" });
+      await insertRow("tasks", { ...data, region: data.region || region, createdBy: profile?.name || "Unknown" });
       await loadTasks();
     } catch (err) {
       console.error("Error adding task:", err);
@@ -553,6 +565,7 @@ function Tasks() {
       customer:    task.customer    || "",
       status:      task.status      || "To Do",
       notes:       task.notes       || "",
+      region:      task.region      || "",
     });
   }
 
@@ -571,6 +584,7 @@ function Tasks() {
         customer:    editForm.customer,
         status:      editForm.status,
         notes:       editForm.notes || "",
+        region:      editForm.region || null,
       });
       setTasks(cur => cur.map(t => t.id === editTask.id ? { ...t, ...editForm, title: editForm.title.trim() } : t));
       if (editForm.status === "Done" && editTask.status !== "Done" && editForm.assignee) {
@@ -635,6 +649,7 @@ function Tasks() {
                 <p>{ownTasksOnly ? "Your assigned work" : "Team task board"}</p>
               </div>
               <div className="kph-a">
+                <RegionSwitch untagged={countUntagged(allTasks)} size="sm" />
                 <button
                   onClick={() => setShowFilters(f => !f)}
                   style={{
@@ -868,13 +883,16 @@ function Tasks() {
               <label>Due date
                 <input type="date" value={newForm.dueDate} onChange={e => setNewForm(f => ({ ...f, dueDate: e.target.value }))} />
               </label>
+              <label>Region
+                <RegionSelect value={newForm.region} onChange={v => setNewForm(f => ({ ...f, region: v }))} />
+              </label>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="ghost-button" onClick={() => setShowNew(false)}>Cancel</button>
               <button className="primary-button" onClick={async () => {
                 if (!newForm.title.trim()) return;
-                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, customer: newForm.customer, description: newForm.description, notes: newForm.notes, status: newForm.status });
-                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", notes: "", status: "To Do" });
+                await handleAdd({ title: newForm.title, assignee: newForm.assignee, priority: newForm.priority, dueDate: newForm.dueDate, orderRef: newForm.orderRef, category: newForm.category, customer: newForm.customer, description: newForm.description, notes: newForm.notes, status: newForm.status, region: newForm.region });
+                setNewForm({ title: "", assignee: "", priority: "med", dueDate: "", orderRef: "", category: "", customer: "", description: "", notes: "", status: "To Do", region: "" });
                 setShowNew(false);
               }}>Create task</button>
             </div>
@@ -938,6 +956,9 @@ function Tasks() {
               </label>
               <label>Due date
                 <input type="date" value={editForm.dueDate} onChange={e => setEditForm(f => ({ ...f, dueDate: e.target.value }))} />
+              </label>
+              <label>Region
+                <RegionSelect value={editForm.region} onChange={v => setEditForm(f => ({ ...f, region: v }))} />
               </label>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>

@@ -8,8 +8,19 @@ import { useEffect, useRef, useState } from "react";
 // mirroring focusNextOnEnter in PurchaseRowGroup.jsx, which is why the trigger
 // carries [data-kb-select]: that selector is what lets *other* fields' Enter
 // presses land on this control instead of skipping over it.
+
+// What a keystroke is matched against. Type-ahead used to test the raw label,
+// which quietly excluded any option whose label opens with something you cannot
+// type — a flag emoji on "🇳🇵 Nepal", the dash on "— None —". Pressing N did
+// nothing and the option was reachable only with the arrow keys. Skip past
+// anything that is not a letter or digit and match on the word itself.
+const typeAheadKey = (label = "") => String(label).replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
+
 export default function KeyboardSelect({ value, options, onChange, className, style, disabled, placeholder }) {
-  const normalized = options.map(o => (typeof o === "string" ? { value: o, label: o } : o));
+  const normalized = options.map(o => {
+    const opt = typeof o === "string" ? { value: o, label: o } : o;
+    return { ...opt, search: typeAheadKey(opt.search ?? opt.label) };
+  });
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef(null);
@@ -64,7 +75,7 @@ export default function KeyboardSelect({ value, options, onChange, className, st
       const start = selectedIndex >= 0 ? selectedIndex : -1;
       for (let i = 1; i <= n; i++) {
         const idx = (start + i) % n;
-        if (normalized[idx].label.toLowerCase().startsWith(e.key.toLowerCase())) {
+        if (normalized[idx].search.startsWith(e.key.toLowerCase())) {
           e.preventDefault(); e.stopPropagation();
           onChange(normalized[idx].value);
           setHighlight(idx);

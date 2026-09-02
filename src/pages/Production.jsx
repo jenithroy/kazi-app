@@ -14,6 +14,9 @@ import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
 import { notifyStageChange } from "../utils/telegram";
 import { useCurrency } from "../context/CurrencyContext";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionField } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 // eslint-disable-next-line no-unused-vars
 import { ORDER_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
 import { awardPoints, resolveUidByName } from "../utils/rewardService";
@@ -34,7 +37,7 @@ const emptyInvFields = {
 
 /* ── Batch form defaults ──────────────────────────────── */
 const initialBatchForm = {
-  date: todayDate(), cut: "", stitched: "", passed: "", rejected: "", note: ""
+  date: todayDate(), cut: "", stitched: "", passed: "", rejected: "", note: "", region: ""
 };
 
 /* ── Order stages ─────────────────────────────────────── */
@@ -106,7 +109,8 @@ const emptyOrderForm = {
   sampleId: "",
   sampleName: "",
   fabricGramsUsed: "",
-  fabricCostPerPcNPR: ""
+  fabricCostPerPcNPR: "",
+  region: ""
 };
 
 function findFabricByNameProd(fabrics, name) {
@@ -859,6 +863,7 @@ function Production() {
   const canEdit = sectionCanEdit(profile, "production");
   const { fmt: fmtC } = useCurrency();
   const { showPointsToast } = useReward();
+  const { region } = useRegion();
 
   const [activeTab, setActiveTab] = useState("pipeline");
   const [currentMonthOnly, setCurrentMonthOnly] = useState(false);
@@ -869,7 +874,7 @@ function Production() {
   const inCurrentMonth = (date) => (date || "").slice(0, 7) === currentMonthKey;
 
   /* ── Batch state ── */
-  const [batches, setBatches] = useState([]);
+  const [allBatches, setBatches] = useState([]);
   const [batchForm, setBatchForm] = useState(initialBatchForm);
   const [saving, setSaving] = useState(false);
 
@@ -881,7 +886,7 @@ function Production() {
   }
 
   /* ── Order state ── */
-  const [orders, setOrders] = useState([]);
+  const [allOrders, setOrders] = useState([]);
   const [orderForm, setOrderForm] = useState(emptyOrderForm);
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
@@ -890,8 +895,8 @@ function Production() {
   const [employees, setEmployees] = useState([]);
   const [orderCosts, setOrderCosts] = useState({});
   const [labourRatePerUnit, setLabourRatePerUnit] = useState(null);
-  const [fabrics, setFabrics] = useState([]);
-  const [samples, setSamples] = useState([]);
+  const [allFabrics, setFabrics] = useState([]);
+  const [allSamples, setSamples] = useState([]);
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -902,10 +907,25 @@ function Production() {
   /* ── Invoice state ── */
   const [issueInvoice,    setIssueInvoice]    = useState(false);
   const [invFields,       setInvFields]       = useState(emptyInvFields);
-  const [invoices,        setInvoices]        = useState([]);
+  const [allInvoices,     setInvoices]        = useState([]);
   const [invoiceModal,    setInvoiceModal]    = useState(null); // order object
   const [savingInvoice,   setSavingInvoice]   = useState(false);
   const [invModalFields,  setInvModalFields]  = useState(emptyInvFields);
+
+  /* ── Region-scoped views of everything above ────────────
+     The switch in the header is the only thing between the raw rows and the
+     page, so every board, table, stat and dropdown below narrows to one arm of
+     the business without any of them having to know that. Rows with no region
+     set appear on both sides -- see utils/region.js for why.
+
+     The all* originals stay in scope for the two jobs that must span both:
+     issuing the next order/batch/invoice number, which has to be unique across
+     the company, and reporting how much is still untagged. */
+  const orders   = useMemo(() => filterByRegion(allOrders,   region), [allOrders,   region]);
+  const batches  = useMemo(() => filterByRegion(allBatches,  region), [allBatches,  region]);
+  const fabrics  = useMemo(() => filterByRegion(allFabrics,  region), [allFabrics,  region]);
+  const samples  = useMemo(() => filterByRegion(allSamples,  region), [allSamples,  region]);
+  const invoices = useMemo(() => filterByRegion(allInvoices, region), [allInvoices, region]);
 
   /* ── Recommendation state & helpers ── */
   const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
@@ -1011,7 +1031,8 @@ function Production() {
   }
 
   function nextInvoiceNumber(currentInvoices) {
-    const list = currentInvoices ?? invoices;
+    // Company-wide, for the same reason as batch ids.
+    const list = currentInvoices ?? allInvoices;
     const nums = list.map(i => parseInt((i.invoiceNumber || "INV000").replace("INV-", ""), 10)).filter(n => !isNaN(n));
     return `INV-${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
   }
@@ -1055,12 +1076,13 @@ function Production() {
 
   /* ── Batch helpers ── */
   const nextBatchId = useMemo(() => {
-    const max = batches.reduce((m, b) => {
+    // Across both regions: two arms of one company must not both mint B001.
+    const max = allBatches.reduce((m, b) => {
       const n = Number(String(b.batchId || "").replace("B", ""));
       return isNaN(n) ? m : Math.max(m, n);
     }, 0);
     return `B${String(max + 1).padStart(3, "0")}`;
-  }, [batches]);
+  }, [allBatches]);
 
   async function submitBatch(e) {
     e.preventDefault();
@@ -1077,6 +1099,7 @@ function Production() {
         passed,
         rejected,
         note: batchForm.note,
+        region: batchForm.region || null,
         loggedBy: profile?.name || "Unknown",
       });
       setBatchForm(initialBatchForm);
@@ -1158,6 +1181,7 @@ function Production() {
       await insertRow("fabrics", {
         name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
         weight: "", status: "In Stock", swatchImageUrl: "",
+        region: orderForm.region || region,
       });
     }
 
@@ -1182,6 +1206,7 @@ function Production() {
         fabricGramsUsed:     Number(orderForm.fabricGramsUsed || 0),
         fabricCostPerPcNPR:  Number(orderForm.fabricCostPerPcNPR || 0),
         materialCostTotalNPR,
+        region:              orderForm.region || null,
       });
       setEditingOrder(null);
     } else {
@@ -1191,6 +1216,9 @@ function Production() {
       const orderDoc = {
         ...orderForm,
         orderId,
+        // Defaults to the side you are looking at, which is nearly always the
+        // answer; the form field above is there for when it is not.
+        region:        orderForm.region || region,
         quantity:      Number(orderForm.quantity || 0),
         pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
         totalValueNPR: total,
@@ -1212,7 +1240,7 @@ function Production() {
           { ...orderForm, quantity: orderDoc.quantity },
           invFields, invNum, orderRef.id
         );
-        await insertRow("invoices", invDoc);
+        await insertRow("invoices", { ...invDoc, region: orderDoc.region || null });
       }
     }
 
@@ -1249,6 +1277,7 @@ function Production() {
       sampleName:          order.sampleName || "",
       fabricGramsUsed:     order.fabricGramsUsed || "",
       fabricCostPerPcNPR:  order.fabricCostPerPcNPR || "",
+      region:              order.region || "",
     });
     setShowOrderForm(true);
   }
@@ -1364,11 +1393,16 @@ function Production() {
       <PageHeader
         title="Production"
         description="Track the full garment pipeline — from order through dispatch."
-        action={(activeTab === "orders" || activeTab === "pipeline") && canEdit && (
-          <button className="primary-button" onClick={() => setShowOrderForm(true)}>
-            + New Order
-          </button>
-        )}
+        action={
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <RegionSwitch untagged={countUntagged(activeTab === "batches" ? allBatches : allOrders)} />
+            {(activeTab === "orders" || activeTab === "pipeline") && canEdit && (
+              <button className="primary-button" onClick={() => setShowOrderForm(true)}>
+                + New Order
+              </button>
+            )}
+          </div>
+        }
       />
 
       {!canEdit && <p className="banner-warning">UK admin view-only mode enabled.</p>}
@@ -1821,6 +1855,12 @@ function Production() {
                 <input type="number" value={batchForm.rejected} required disabled={!canEdit}
                   onChange={e => setBatchForm(f => ({ ...f, rejected: e.target.value }))} />
               </label>
+              <RegionField
+                value={batchForm.region}
+                disabled={!canEdit}
+                onChange={v => setBatchForm(f => ({ ...f, region: v }))}
+                hint="Which arm of the business ran this batch."
+              />
               <label className="full-width">
                 Note
                 <input type="text" value={batchForm.note} disabled={!canEdit}
@@ -2052,6 +2092,11 @@ function Production() {
                   {STAGES.map(s => <option key={s}>{s}</option>)}
                 </select>
               </label>
+              <RegionField
+                value={orderForm.region}
+                onChange={v => setOrderForm(f => ({ ...f, region: v }))}
+                hint="Which arm of the business this order belongs to."
+              />
               <label style={{ gridColumn: "span 2" }}>
                 Notes
                 <input type="text" value={orderForm.notes} placeholder="Optional notes"

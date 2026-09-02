@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionBadge, RegionSelect } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 import { Icons } from "../components/ui";
 
 const EMPTY = {
   name: "", country: "UK", city: "", address: "",
-  contactPerson: "", email: "", phone: "", notes: "",
+  contactPerson: "", email: "", phone: "", notes: "", region: "",
 };
 
 const inp = {
@@ -15,7 +18,10 @@ const inp = {
 };
 
 function CustomerForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial || EMPTY);
+  const { region } = useRegion();
+  // A new client is filed where you are standing; an existing one keeps
+  // whatever it was saved as, including "not set".
+  const [form, setForm] = useState(initial || { ...EMPTY, region });
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
   return (
@@ -44,6 +50,10 @@ function CustomerForm({ initial, onSave, onCancel }) {
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>
           Phone
           <input style={inp} value={form.phone} onChange={set("phone")} placeholder="+44 20 7946 0958" />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>
+          Region
+          <RegionSelect style={inp} value={form.region} onChange={v => setForm(f => ({ ...f, region: v }))} />
         </label>
       </div>
       <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--ink-3)" }}>
@@ -76,7 +86,7 @@ function CustomerRow({ customer, canEdit, onEdit, onDelete }) {
   return (
     <div className="kcust-row" style={{
       display: "grid",
-      gridTemplateColumns: "40px 1fr 1fr 1fr 1fr auto",
+      gridTemplateColumns: "40px 1fr 1fr 1fr 1fr auto auto",
       alignItems: "center",
       gap: 12,
       padding: "12px 16px",
@@ -105,6 +115,8 @@ function CustomerRow({ customer, canEdit, onEdit, onDelete }) {
 
       <div style={{ color: "var(--ink-3)", fontSize: 12 }}>{customer.phone || <span style={{ color: "var(--ink-5)" }}>—</span>}</div>
 
+      <RegionBadge value={customer.region} />
+
       {canEdit ? (
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={() => onEdit(customer)}
@@ -128,7 +140,9 @@ function Customers() {
   const role = profile?.appRole || profile?.role;
   const canEdit = role === "super_admin" || role === "nepal_admin" || role === "uk_admin";
 
-  const [customers, setCustomers] = useState([]);
+  const { region } = useRegion();
+  const [allCustomers, setCustomers] = useState([]);
+  const customers = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
   const [loading, setLoading]     = useState(true);
   const [showForm, setShowForm]   = useState(false);
   const [editing, setEditing]     = useState(null);
@@ -171,13 +185,14 @@ function Customers() {
             <h2>Customers</h2>
             <p>{customers.length} client{customers.length !== 1 ? "s" : ""}</p>
           </div>
-          {canEdit && (
-            <div className="kph-a">
+          <div className="kph-a" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <RegionSwitch untagged={countUntagged(allCustomers)} />
+            {canEdit && (
               <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={openNew}>
                 <Icons.Plus size={13} sw={2.2} /> Add customer
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Add / edit form */}
@@ -203,7 +218,7 @@ function Customers() {
           {/* Column headers */}
           <div className="kcust-row" style={{
             display: "grid",
-            gridTemplateColumns: "40px 1fr 1fr 1fr 1fr auto",
+            gridTemplateColumns: "40px 1fr 1fr 1fr 1fr auto auto",
             gap: 12, padding: "9px 16px",
             background: "var(--bg-3)",
             borderBottom: "1px solid var(--line-strong)",
@@ -215,6 +230,7 @@ function Customers() {
             <span>Contact</span>
             <span>Email</span>
             <span>Phone</span>
+            <span>Region</span>
             <span />
           </div>
 

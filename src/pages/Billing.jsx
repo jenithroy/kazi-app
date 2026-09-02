@@ -15,6 +15,9 @@ import {
 } from "../utils/billing.jsx";
 import { adToBsParts, BS_MONTHS } from "../utils/fiscalYear";
 import { postSaleStockOut } from "../utils/stockLedger";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 
 function fmtDateBS(iso) {
   const parts = adToBsParts(iso);
@@ -140,6 +143,7 @@ function Billing() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "billing");
   const { fmt: fmtC } = useCurrency();
+  const { region } = useRegion();
 
   // Convert a stored value to NPR for use with fmtC.
   // GBP-denominated documents store amounts in GBP (not NPR), so multiply up.
@@ -149,10 +153,20 @@ function Billing() {
 
   const [tab, setTab]               = useState("invoice");
   const [dateMode, setDateMode]     = useState("ad"); // "ad" | "bs" — toggles the Date column display
-  const [invoices, setInvoices]     = useState([]);
-  const [challans, setChallans]     = useState([]);
-  const [quotations, setQuotations] = useState([]);
-  const [inventoryItems, setInventoryItems] = useState([]); // for the invoice line item "Stock Item" link
+  const [allInvoices, setInvoices]     = useState([]);
+  const [allChallans, setChallans]     = useState([]);
+  const [allQuotations, setQuotations] = useState([]);
+  const [allInventoryItems, setInventoryItems] = useState([]); // for the invoice line item "Stock Item" link
+
+  /* ── One region's book of documents ────────────────────────
+     Tab counts, the tables, the preview list and the stock-item picker all read
+     these, so the switch reaches the whole page. The picker matters as much as
+     the tables: linking a UK invoice line to a Nepal stock item would deduct
+     from the wrong warehouse. */
+  const invoices       = useMemo(() => filterByRegion(allInvoices,   region), [allInvoices,   region]);
+  const challans       = useMemo(() => filterByRegion(allChallans,   region), [allChallans,   region]);
+  const quotations     = useMemo(() => filterByRegion(allQuotations, region), [allQuotations, region]);
+  const inventoryItems = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
   const [showForm, setShowForm]     = useState(false);
   const [form, setForm]             = useState(makeEmptyForm("invoice"));
   const [submitting, setSubmitting] = useState(false);
@@ -364,6 +378,7 @@ function Billing() {
           vatAmountNPR:   applyVAT ? vatAmt : 0,
           totalNPR:       total,
           amountPaid:     0,
+          region:         form.region || region,
           createdBy:      profile?.name || "Unknown",
 
         };
@@ -473,6 +488,7 @@ function Billing() {
         taxableAmtNPR:    taxableAmt,
         relatedQuotation: qt.quotationNumber || "",
         relatedChallan:   "",
+        region:           qt.region || null,
         subtotalNPR:      subtotal,
         vatAmountNPR:     vatAmt,
         totalNPR:         total,
@@ -587,7 +603,10 @@ function Billing() {
             <h1 className="kbil-page-title">Billing &amp; Invoicing</h1>
             <p className="kbil-page-sub">VAT invoices · challan bills · quotations · Nepal IRD compliant</p>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <RegionSwitch untagged={countUntagged(
+              tab === "invoice" ? allInvoices : tab === "challan" ? allChallans : allQuotations
+            )} />
             {canEdit && (
               <button className="kbil-btn-primary" onClick={() => {
                 if (showForm) { setShowForm(false); setEditingId(null); setForm(makeEmptyForm(tab)); }
@@ -694,6 +713,12 @@ function Billing() {
                 <label className="kfin-label">
                   Status
                   <KeyboardSelect className="kfin-select" value={form.status} options={STATUS_BY_TYPE[tab]} onChange={v => setF("status", v)} />
+                </label>
+
+                {/* Region */}
+                <label className="kfin-label">
+                  Region
+                  <RegionSelect className="kfin-select" value={form.region} onChange={v => setF("region", v)} />
                 </label>
 
                 {/* Fiscal Year (invoice + challan) */}

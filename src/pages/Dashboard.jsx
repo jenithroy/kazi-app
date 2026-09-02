@@ -12,6 +12,9 @@ import { AreaChart, AttendanceRing, ProductionPipeline, QCDial, Donut, Bars } fr
 import ClockInCard from "../components/ClockInCard";
 import BankBalanceWidget from "../components/BankBalanceWidget";
 import { PRODUCT_COSTS } from "../constants/productCosts";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { filterCollections } from "../utils/region";
 
 /* ── Helpers ─────────────────────────────────────────── */
 function getLast6Months() {
@@ -597,6 +600,7 @@ function TeamPointsCard() {
 
 function NepalAdminDash() {
   const { profile } = useAuth();
+  const { region } = useRegion();
   const [data, setData]       = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [trigger, setTrigger] = useState(0);
@@ -613,7 +617,7 @@ function NepalAdminDash() {
         tasks, budget_requests: budgetRequests, orders, finance_expenses: expenses, users,
         order_costs: orderCosts, invoices,
         finance_payroll, finance_purchases, employees
-      } = await loadCollections({
+      } = filterCollections(await loadCollections({
         attendance:        "attendance",
         production:        "production",
         qc_logs:           "qc_logs",
@@ -628,7 +632,7 @@ function NepalAdminDash() {
         finance_payroll:   "finance_payroll",
         finance_purchases: "finance_purchases",
         employees:         "employees"
-      });
+      }), region);
 
       const todayAtt = attendance.filter(r => r.date === today);
       const presentToday = todayAtt.filter(r => ["Present", "Late", "Half-day"].includes(r.status)).length;
@@ -757,7 +761,7 @@ function NepalAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
-  }, [trigger]);
+  }, [trigger, region]);
 
   // Live listeners to trigger reload on database changes
   useEffect(() => {
@@ -790,6 +794,10 @@ function NepalAdminDash() {
 
   return (
       <div className="kdash fade-in">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <RegionSwitch hint={false} />
+        </div>
+
         {/* Clock-in hero for admin-role users who still need to clock themselves in/out */}
         {sectionCanEdit(profile, "attendance") && (
           <ClockInCard profile={profile} onClockChange={() => setTrigger(t => t + 1)} />
@@ -1082,6 +1090,7 @@ function NepalAdminDash() {
 ══════════════════════════════════════════════════════ */
 function UKAdminDash() {
   const { profile } = useAuth();
+  const { region } = useRegion();
   const [data, setData] = useState(null);
   const [trigger, setTrigger] = useState(0);
 
@@ -1095,7 +1104,7 @@ function UKAdminDash() {
         invoices, orders, qcLogs, attendance, budgetRequests,
         users, payroll: payrollSnap, orderCosts: costsSnap,
         tasks: tasksSnap, inventory: inventorySnap, employees: employeesSnap,
-      } = await loadCollections({
+      } = filterCollections(await loadCollections({
         invoices: "invoices",
         orders: "orders",
         qcLogs: "qc_logs",
@@ -1107,7 +1116,7 @@ function UKAdminDash() {
         tasks: "tasks",
         inventory: "inventory",
         employees: "employees",
-      });
+      }), region);
 
       // Headcount is now just the active roster — the old filter tested a
       // per-user `role` string that no longer exists, since access comes
@@ -1204,7 +1213,7 @@ function UKAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setData({}); });
-  }, [trigger]);
+  }, [trigger, region]);
 
   // Live listeners to trigger reload on database changes
   useEffect(() => {
@@ -1227,6 +1236,10 @@ function UKAdminDash() {
 
   return (
       <div className="kdash fade-in">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <RegionSwitch hint={false} />
+        </div>
+
         {/* Quick actions */}
         <div className="kdash-qa">
           <span className="kdash-qa-label">Quick actions</span>

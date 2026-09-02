@@ -7,6 +7,9 @@ import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { asCurrency } from "../utils/format";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 
 const DEFAULT_ACCOUNTS = [
   { name: "Cash", type: "Asset" },
@@ -38,7 +41,8 @@ const emptyForm = {
   debitAccount: "Cash",
   creditAccount: "Sales Revenue",
   amountNPR: "",
-  reference: ""
+  reference: "",
+  region: ""
 };
 
 const fmt = v => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v);
@@ -48,16 +52,30 @@ function Accounting() {
   const canEdit = profile?.role === "nepal_admin";
   const [activeTab, setActiveTab] = useState("journal");
 
-  const [entries, setEntries] = useState([]);
-  const [accounts, setAccounts] = useState([]);
+  const { region } = useRegion();
+
+  const [allEntries, setEntries] = useState([]);
+  const [allAccounts, setAccounts] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
 
   // Pull from other collections for P&L
-  const [expenses, setExpenses] = useState([]);
-  const [purchases, setPurchases] = useState([]);
-  const [payroll, setPayroll] = useState([]);
-  const [invoices, setInvoices] = useState([]);
+  const [allExpenses, setExpenses] = useState([]);
+  const [allPurchases, setPurchases] = useState([]);
+  const [allPayroll, setPayroll] = useState([]);
+  const [allInvoices, setInvoices] = useState([]);
+
+  /* ── One set of books at a time ────────────────────────────
+     The ledger, the P&L and the balance sheet are all built out of these five
+     lists, so narrowing them here is what makes "UK profit" and "Nepal profit"
+     two different numbers rather than one blended one. Payroll follows the
+     employee's own location rather than a tag of its own — see migration 0029. */
+  const entries   = useMemo(() => filterByRegion(allEntries,   region), [allEntries,   region]);
+  const accounts  = useMemo(() => filterByRegion(allAccounts,  region), [allAccounts,  region]);
+  const expenses  = useMemo(() => filterByRegion(allExpenses,  region), [allExpenses,  region]);
+  const purchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
+  const payroll   = useMemo(() => filterByRegion(allPayroll,   region), [allPayroll,   region]);
+  const invoices  = useMemo(() => filterByRegion(allInvoices,  region), [allInvoices,  region]);
 
   async function loadData() {
     const [entryRowsAll, accountRows, expRows, purRows, payRows, invRows] = await Promise.all([
@@ -103,6 +121,7 @@ function Accounting() {
     setSubmitting(true);
     await insertRow("journal_entries", {
       ...form,
+      region: form.region || region,
       amountNPR: Number(form.amountNPR),
       createdBy: profile?.name || "Unknown",
     });
@@ -174,7 +193,11 @@ function Accounting() {
   ];
 
   return (
-      <PageHeader title="Accounting" description="Journal entries, ledger, profit & loss statement and balance sheet." />
+      <PageHeader
+        title="Accounting"
+        description="Journal entries, ledger, profit &amp; loss statement and balance sheet."
+        action={<RegionSwitch untagged={countUntagged(allEntries)} />}
+      />
 
       {/* Summary cards */}
       <section className="stats-grid">

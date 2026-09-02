@@ -6,13 +6,16 @@ import { GBP_RATE } from "../constants";
 import { cn, Avatar, Pill } from "../components/ui";
 import { roundAmount } from "../utils/format";
 import { tsMillis, tsDate } from "../utils/date";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionField, RegionBadge } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 
 /* ── Constants ─────────────────────────────────────────── */
 const BUDGET_CATEGORIES = ["Equipment", "Materials", "Services", "Training", "Travel", "Other"];
 const REQ_CATEGORIES    = ["Raw Materials", "Tools", "Machinery", "Office Supplies", "Safety Equipment", "Other"];
 
 const emptyBudgetForm = { title: "", category: "Equipment", amountGBP: "", notes: "", urgency: "Medium" };
-const emptyReqForm    = { title: "", category: "Raw Materials", quantity: "", amountNPR: "", amount: "", urgency: "Medium", notes: "" };
+const emptyReqForm    = { title: "", category: "Raw Materials", quantity: "", amountNPR: "", amount: "", urgency: "Medium", notes: "", region: "" };
 
 /* ── Helpers ───────────────────────────────────────────── */
 function nprToGbp(npr) {
@@ -209,9 +212,15 @@ function Budget() {
   const isUkAdmin  = role === "uk_admin";
   const canReview  = ["uk_admin", "nepal_admin", "super_admin"].includes(role);
 
+  const { region } = useRegion();
+
   const [tab,        setTab]        = useState(0);
-  const [budgetRows, setBudgetRows] = useState([]);
-  const [reqRows,    setReqRows]    = useState([]);
+  const [allBudgetRows, setBudgetRows] = useState([]);
+  const [allReqRows,    setReqRows]    = useState([]);
+
+  // Both tabs read these, so the switch in the header reaches the whole page.
+  const budgetRows = useMemo(() => filterByRegion(allBudgetRows, region), [allBudgetRows, region]);
+  const reqRows    = useMemo(() => filterByRegion(allReqRows,    region), [allReqRows,    region]);
   const [showNew,    setShowNew]    = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reqForm,    setReqForm]    = useState(emptyReqForm);
@@ -234,7 +243,9 @@ function Budget() {
     const gbp = Number(form.amountGBP) || 0;
     await insertRow("budget_requests", {
       type:             "budget",
-      brId:             nextBrId(budgetRows),
+      // Numbered across both regions — BR ids are one company-wide sequence.
+      brId:             nextBrId(allBudgetRows),
+      region:           region,
       title:            form.title,
       category:         form.category,
       amountGBP:        gbp,
@@ -257,6 +268,7 @@ function Budget() {
     setSubmitting(true);
     await insertRow("budget_requests", {
       type:            "requirement",
+      region:          reqForm.region || region,
       title:           reqForm.title,
       category:        reqForm.category,
       quantity:        reqForm.quantity,
@@ -331,9 +343,14 @@ function Budget() {
       <PageHeader
         title="Budget & Requirements"
         description="Submit budget requests and material requirements for UK director sign-off."
-        action={tab === 0 && (
-          <button className="primary-button" onClick={() => setShowNew(true)}>+ New request</button>
-        )}
+        action={
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <RegionSwitch untagged={countUntagged(tab === 0 ? allBudgetRows : allReqRows)} />
+            {tab === 0 && (
+              <button className="primary-button" onClick={() => setShowNew(true)}>+ New request</button>
+            )}
+          </div>
+        }
       />
 
       {/* ── Tabs ── */}
@@ -453,6 +470,11 @@ function Budget() {
                 <input type="text" value={reqForm.notes} placeholder="Additional context"
                   onChange={e => setReqForm(f => ({ ...f, notes: e.target.value }))} />
               </label>
+              <RegionField
+                value={reqForm.region}
+                onChange={v => setReqForm(f => ({ ...f, region: v }))}
+                hint="Which arm of the business needs this."
+              />
               <button className="primary-button" type="submit" disabled={submitting}>
                 {submitting ? "Submitting…" : "Submit Requirement"}
               </button>

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchAll } from "../lib/db";
 import { KPI } from "../components/ui";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 
 const STAGES = [
   "Order Received",
@@ -44,8 +47,13 @@ function isThisWeek(dateStr) {
 }
 
 export default function Sales() {
-  const [orders, setOrders] = useState([]);
+  const { region } = useRegion();
+  const [allOrders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Every KPI, funnel bar and customer count below reads `orders`, so scoping
+  // it here is the whole of the region split on this page.
+  const orders = useMemo(() => filterByRegion(allOrders, region), [allOrders, region]);
 
   useEffect(() => {
     // Reads `orders`, not `production`. This funnel groups by stage and values
@@ -88,9 +96,12 @@ export default function Sales() {
       <div style={{ padding: "28px 32px", maxWidth: 1100 }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--ink-1)", margin: 0 }}>Sales Overview</h1>
-          <p style={{ fontSize: 13, color: "var(--ink-3)", margin: "4px 0 0" }}>Live pipeline from production orders</p>
+        <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--ink-1)", margin: 0 }}>Sales Overview</h1>
+            <p style={{ fontSize: 13, color: "var(--ink-3)", margin: "4px 0 0" }}>Live pipeline from production orders</p>
+          </div>
+          <RegionSwitch untagged={countUntagged(allOrders)} />
         </div>
 
         {/* KPI row */}

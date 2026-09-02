@@ -10,6 +10,9 @@ import {
   slugToFiscalYear, fiscalYearToSlug, fiscalYearDateRangeAD,
   fiscalYearForDate, parseFiscalYearLabel,
 } from "../utils/fiscalYear";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { inRegion } from "../utils/region";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -38,6 +41,7 @@ export default function FiscalYearTransactions() {
   const { fy: fySlug } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const { region } = useRegion();
   const fiscalYear = slugToFiscalYear(fySlug);
   const fyRange = useMemo(() => fiscalYearDateRangeAD(fiscalYear), [fiscalYear]);
 
@@ -81,35 +85,35 @@ export default function FiscalYearTransactions() {
       const push = (fy, row) => { if (fy) out.push({ ...row, fy }); };
 
       expRows.forEach(r => {
-        push(fiscalYearForDate(r.date), { id: `exp-${r.id}`, type: "Expense", date: r.date, description: `${r.category || "Expense"}${r.note ? " — " + r.note : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
+        push(fiscalYearForDate(r.date), { id: `exp-${r.id}`, region: r.region, type: "Expense", date: r.date, description: `${r.category || "Expense"}${r.note ? " — " + r.note : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
       });
 
       purRows.forEach(r => {
-        push(fiscalYearForDate(r.date), { id: `pur-${r.id}`, type: "Purchase", date: r.date, description: `${r.expenseItem || r.expenseId || "Purchase"}${r.category ? " — " + r.category : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
+        push(fiscalYearForDate(r.date), { id: `pur-${r.id}`, region: r.region, type: "Purchase", date: r.date, description: `${r.expenseItem || r.expenseId || "Purchase"}${r.category ? " — " + r.category : ""}`, amountNPR: Number(r.amountNPR || 0), sign: -1 });
       });
 
       payrollRows.forEach(r => {
         const monthIdx = MONTHS.indexOf(r.month);
         const repDate = r.year && monthIdx >= 0 ? `${r.year}-${String(monthIdx + 1).padStart(2, "0")}-01` : null;
-        push(repDate && fiscalYearForDate(repDate), { id: `pay-${r.id}`, type: "Payroll", date: repDate, description: `${r.staffName || "Staff"}${r.role ? " — " + r.role : ""} (${r.month} ${r.year})`, amountNPR: Number(r.grossNPR || r.netNPR || 0), sign: -1 });
+        push(repDate && fiscalYearForDate(repDate), { id: `pay-${r.id}`, region: r.region, type: "Payroll", date: repDate, description: `${r.staffName || "Staff"}${r.role ? " — " + r.role : ""} (${r.month} ${r.year})`, amountNPR: Number(r.grossNPR || r.netNPR || 0), sign: -1 });
       });
 
       journalRows.forEach(r => {
-        push(fiscalYearForDate(r.date), { id: `jnl-${r.id}`, type: "Journal", date: r.date, description: `${r.description || "Journal entry"} (Dr ${r.debitAccount} / Cr ${r.creditAccount})`, amountNPR: Number(r.amountNPR || 0), sign: 0 });
+        push(fiscalYearForDate(r.date), { id: `jnl-${r.id}`, region: r.region, type: "Journal", date: r.date, description: `${r.description || "Journal entry"} (Dr ${r.debitAccount} / Cr ${r.creditAccount})`, amountNPR: Number(r.amountNPR || 0), sign: 0 });
       });
 
       bankRows.forEach(r => {
         // The view calls the column "amount", and the stored type is capitalised
         // ("Credit"/"Debit") — comparing against "credit" made every
         // transaction an outflow of zero.
-        push(fiscalYearForDate(r.date), { id: `bnk-${r.id}`, type: "Bank", date: r.date, description: r.description || "Bank transaction", amountNPR: Number(r.amount ?? 0), sign: String(r.type || "").toLowerCase() === "credit" ? 1 : -1 });
+        push(fiscalYearForDate(r.date), { id: `bnk-${r.id}`, region: r.region, type: "Bank", date: r.date, description: r.description || "Bank transaction", amountNPR: Number(r.amount ?? 0), sign: String(r.type || "").toLowerCase() === "credit" ? 1 : -1 });
       });
 
       invRows.forEach(r => {
         if (r.status !== "Paid") return;
         const val = Number(r.totalNPR || 0);
         const amt = r.currency === "GBP" ? val * GBP_RATE : val;
-        push(fiscalYearForDate(r.date), { id: `inv-${r.id}`, type: "Sales", date: r.date, description: `${r.clientName || ""}${r.invoiceNumber ? " — " + r.invoiceNumber : ""}`, amountNPR: amt, sign: 1 });
+        push(fiscalYearForDate(r.date), { id: `inv-${r.id}`, region: r.region, type: "Sales", date: r.date, description: `${r.clientName || ""}${r.invoiceNumber ? " — " + r.invoiceNumber : ""}`, amountNPR: amt, sign: 1 });
       });
 
       out.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -120,7 +124,12 @@ export default function FiscalYearTransactions() {
     // switching year filters what we already have.
   }, [anyAccess, canExpenses, canPurchases, canPayroll, canJournal, canBank]);
 
-  const rows = useMemo(() => allRows.filter(r => r.fy === fiscalYear), [allRows, fiscalYear]);
+  // Year and region are the two things this page is a slice of. Totals, the
+  // type pills and the table all read `rows`, so both cuts land everywhere.
+  const rows = useMemo(
+    () => allRows.filter(r => r.fy === fiscalYear && inRegion(r, region)),
+    [allRows, fiscalYear, region]
+  );
 
   /**
    * Fiscal years that actually contain something, oldest first.
@@ -176,7 +185,8 @@ export default function FiscalYearTransactions() {
         title={`Transactions — FY ${fiscalYear}`}
         description={`${fyRange.startAD} to ${fyRange.endAD} (B.S. Shrawan 1 – Ashar end)`}
         action={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <RegionSwitch hint={false} size="sm" />
             {/* Disabled, with the reason in the tooltip, rather than hidden —
                 a control that vanishes reads as a bug, and the title explains
                 that there is simply nothing recorded further back or forward. */}

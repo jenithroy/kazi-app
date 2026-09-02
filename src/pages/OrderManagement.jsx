@@ -4,6 +4,9 @@ import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { Icons } from "../components/ui";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 // eslint-disable-next-line no-unused-vars
 import { KANBAN_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES, ORDER_PRIORITIES } from "../constants/enums";
 
@@ -76,7 +79,9 @@ function PriorityBadge({ priority = "Normal", editable, onChange, compact }) {
 function OrderManagement() {
   const { profile }  = useAuth();
   const canEdit      = sectionCanEdit(profile, "production");
-  const [orders, setOrders]       = useState([]);
+  const { region }   = useRegion();
+  const [allOrders, setOrders]    = useState([]);
+  const orders = useMemo(() => filterByRegion(allOrders, region), [allOrders, region]);
   const [loading, setLoading]     = useState(true);
   const [showForm, setShowForm]   = useState(false);
   const [newOrder, setNewOrder]   = useState({ customer: "", item: "", quantity: "", priority: "Normal" });
@@ -116,6 +121,7 @@ function OrderManagement() {
         item:         newOrder.item.trim(),
         quantity:     Number(newOrder.quantity) || 0,
         priority:     newOrder.priority || "Normal",
+        region,
         currentStage: 0,
         status:       "Active",
         createdBy:    profile?.name || "Unknown",
@@ -140,6 +146,7 @@ function OrderManagement() {
         item:         item.trim(),
         quantity:     Number(quantity) || 0,
         priority,
+        region,
         currentStage: stageIdx,
         status:       stageIdx === STAGES.length - 1 ? "Delivered" : "Active",
         createdBy:    profile?.name || "Unknown",
@@ -222,6 +229,7 @@ function OrderManagement() {
       <PageHeader
         title="Order Management"
         description="Track active orders through production stages · cancel or remove orders."
+        action={<RegionSwitch untagged={countUntagged(allOrders)} />}
       />
 
       {/* ── View & Actions Control Row ── */}

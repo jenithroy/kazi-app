@@ -6,6 +6,9 @@ import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/pe
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { Icons } from "../components/ui";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
   itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload,
@@ -17,7 +20,11 @@ function Purchases() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS.purchases);
 
-  const [purchases, setPurchases] = useState([]);
+  const { region } = useRegion();
+  const [allPurchases, setPurchases] = useState([]);
+  // The count, the total and the table all read `purchases`, so scoping it
+  // here is the whole of the region split on this page.
+  const purchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [loading, setLoading] = useState(true);
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
@@ -83,6 +90,7 @@ function Purchases() {
         vatAmountNPR: vatAmount,
         amountNPR: grandTotal,
         date: draft.date,
+        region: draft.region || null,
         items: purchaseItemsPayload(draft.items)
       });
       setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
@@ -190,12 +198,15 @@ function Purchases() {
       </button>
 
       <div className="kbil-page-hd">
-        <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", width: "100%" }}>
+          <div>
           <h1 className="kbil-page-title">Purchases</h1>
           <p className="kbil-page-sub">
             {purchases.length} record{purchases.length !== 1 ? "s" : ""} · NPR {roundAmount(total).toLocaleString()}
             <span style={{ marginLeft: 6 }}>/ {asCurrency(total / GBP_RATE, "GBP")}</span>
           </p>
+          </div>
+          <RegionSwitch untagged={countUntagged(allPurchases)} />
         </div>
       </div>
 

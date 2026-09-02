@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchAll, insertRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionField, RegionBadge } from "../components/RegionSwitch";
+import { countUntagged, filterByRegion } from "../utils/region";
 import { sectionCanEdit } from "../utils/permissions";
 import { todayDate } from "../utils/date";
 
@@ -12,15 +15,23 @@ const initialForm = {
   passed: "",
   rejected: "",
   defectType: "",
-  action: ""
+  action: "",
+  region: ""
 };
 
 function QualityControl() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "qc");
-  const [logs, setLogs] = useState([]);
-  const [batches, setBatches] = useState([]);
+  const { region } = useRegion();
+  const [allLogs, setLogs] = useState([]);
+  const [allBatches, setBatches] = useState([]);
   const [form, setForm] = useState(initialForm);
+
+  // Inspections and the batches they are chosen from both narrow to the region
+  // on screen, so the batch dropdown can only ever offer a batch from the
+  // factory you are looking at.
+  const logs    = useMemo(() => filterByRegion(allLogs,    region), [allLogs,    region]);
+  const batches = useMemo(() => filterByRegion(allBatches, region), [allBatches, region]);
 
   async function loadData() {
     const [qcRows, productionRows] = await Promise.all([
@@ -47,11 +58,13 @@ function QualityControl() {
     event.preventDefault();
     if (!canEdit) return;
 
-    const nextId = `QC${String(logs.length + 1).padStart(3, "0")}`;
+    // Numbered across both regions: QC ids are one company-wide sequence.
+    const nextId = `QC${String(allLogs.length + 1).padStart(3, "0")}`;
 
     await insertRow("qc_logs", {
       qcId: nextId,
       ...form,
+      region: form.region || region,
       inspected: Number(form.inspected || 0),
       passed: Number(form.passed || 0),
       rejected: Number(form.rejected || 0),
@@ -67,6 +80,7 @@ function QualityControl() {
       <PageHeader
         title="Quality Control"
         description="Capture inspection outcomes and defect trends by production batch."
+        action={<RegionSwitch untagged={countUntagged(allLogs)} />}
       />
 
       {!canEdit ? <p className="banner-warning">UK admin view-only mode enabled.</p> : null}
@@ -142,6 +156,12 @@ function QualityControl() {
             />
           </label>
 
+          <RegionField
+            value={form.region}
+            onChange={v => setForm(current => ({ ...current, region: v }))}
+            hint="Which factory carried out this inspection."
+          />
+
           <label className="full-width">
             Action
             <input
@@ -173,6 +193,7 @@ function QualityControl() {
                 <th>Rejection Rate</th>
                 <th>Defect</th>
                 <th>Action</th>
+                <th>Region</th>
               </tr>
             </thead>
             <tbody>
@@ -192,6 +213,7 @@ function QualityControl() {
                     <td>{rate}%</td>
                     <td>{log.defectType}</td>
                     <td>{log.action}</td>
+                    <td><RegionBadge value={log.region} /></td>
                   </tr>
                 );
               })}

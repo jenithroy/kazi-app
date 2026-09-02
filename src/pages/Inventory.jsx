@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, Fragment } from "react";
+import { useEffect, useMemo, useState, useRef, Fragment } from "react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import PageHeader from "../components/PageHeader";
 import useFirestore from "../hooks/useFirestore";
@@ -10,6 +10,9 @@ import { roundAmount } from "../utils/format";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
 import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
 import { COMPANY_NAME, COMPANY_ADDR } from "../utils/billing.jsx";
+import { useRegion } from "../context/RegionContext";
+import { RegionSwitch, RegionField, RegionSelect, RegionBadge } from "../components/RegionSwitch";
+import { countUntagged, countUntaggedBy, filterByRegion, filterByRegionField } from "../utils/region";
 
 /* ── Image compression & upload helpers ───────────────── */
 function compressFabricImage(file, maxWidth = 1200, quality = 0.8) {
@@ -146,7 +149,7 @@ const STOCK_CATEGORIES = [
 const emptyItemForm = {
   item: "", unit: "pcs", category: "Raw Materials", supplier: "",
   openingStock: 0, minLevel: 0,
-  unitCostNPR: "", location: "", owner: "", condition: ""
+  unitCostNPR: "", location: "", owner: "", condition: "", region: ""
 };
 
 const emptyCostForm = {
@@ -173,10 +176,10 @@ const SAMPLE_STATUSES = ["Pending", "Approved", "Rejected", "In Revision"];
 const GARMENT_CATEGORIES = ["Menswear", "Womenswear", "Kidswear"];
 const SEASONS = ["Spring-Summer", "Autumn-Winter", "Winter", "Summer"];
 
-const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", pricePerKg: "", notes: "" };
-const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "" };
-const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", tech_pack_images: [], notes: "" };
-const emptySample   = { name: "", product_type: "", stage: "Proto", status: "Pending", fabric_used: "", size: "", color: "", cost: "", photo_url: "", notes: "" };
+const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", pricePerKg: "", notes: "", region: "" };
+const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "", region: "" };
+const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", tech_pack_images: [], notes: "", market: "" };
+const emptySample   = { name: "", product_type: "", stage: "Proto", status: "Pending", fabric_used: "", size: "", color: "", cost: "", photo_url: "", notes: "", region: "" };
 
 // Garment Specification Sheet — matches the paper/Excel tech pack Anusha builds by
 // hand per style: header block, a variable measurement grid, front/back sketches,
@@ -667,16 +670,19 @@ function SaveIcon({ size = 14 }) {
 /* ── Library Modals & Cards ──────────────────────────── */
 function LibraryModal({ tab, item, onClose, onSaved }) {
   const isEdit = !!item;
+  const { region } = useRegion();
   const fileInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
 
   const [form, setForm] = useState(() => {
     if (!item) {
-      if (tab === "fabrics")   return { ...emptyFabric };
-      if (tab === "processes") return { ...emptyProcess };
-      if (tab === "samples")   return { ...emptySample };
-      return { ...emptyPattern };
+      // A new record defaults to the region on screen. Editing one leaves its
+      // region exactly as saved, including "not set".
+      if (tab === "fabrics")   return { ...emptyFabric,  region };
+      if (tab === "processes") return { ...emptyProcess, region };
+      if (tab === "samples")   return { ...emptySample,  region };
+      return { ...emptyPattern, region };
     }
     return {
       ...item,
@@ -824,6 +830,36 @@ function LibraryModal({ tab, item, onClose, onSaved }) {
             <label className="kfin-label">Name *</label>
             <input className="kfin-input" value={form.name ?? ""} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : tab === "samples" ? "e.g. Oversized Hoodie v2" : "e.g. Oversized Tee"} />
           </div>
+
+          {tab === "patterns" ? (
+            <div>
+              <label className="kfin-label">Market</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["UK", "Nepal"].map(m => (
+                  <button key={m} type="button"
+                    onClick={() => set("market", form.market === m ? "" : m)}
+                    style={{
+                      padding: "6px 14px", borderRadius: 8, fontSize: 13, border: "1.5px solid",
+                      borderColor: form.market === m ? "var(--mint-deep)" : "var(--line)",
+                      background: form.market === m ? "var(--mint-soft)" : "transparent",
+                      color: form.market === m ? "var(--mint-deep)" : "var(--ink-3)",
+                      cursor: "pointer",
+                    }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <span className="kfield-hint">
+                Decides which side of the UK / Nepal switch this tech pack appears under.
+                Leave it unset and it shows under both.
+              </span>
+            </div>
+          ) : (
+            <div>
+              <label className="kfin-label">Region</label>
+              <RegionSelect className="kfin-input" value={form.region} onChange={v => set("region", v)} />
+            </div>
+          )}
 
           {tab === "fabrics" && <>
             <div className="krsp-2" style={{ gap: 12 }}>
@@ -1632,6 +1668,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
   const [composition, setComposition] = useState(item.composition || "");
   const [status, setStatus] = useState(item.status || "In Stock");
   const [pricePerKg, setPricePerKg] = useState(item.pricePerKg !== null && item.pricePerKg !== undefined ? String(item.pricePerKg) : "");
+  const [region, setRegion] = useState(item.region || "");
   const [swatchImageUrl, setSwatchImageUrl] = useState(item.swatchImageUrl || "");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1699,6 +1736,7 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
         composition,
         status,
         pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
+        region: region || null,
         swatchImageUrl,
         updatedAt: new Date().toISOString()
       };
@@ -1796,6 +1834,16 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
             </div>
 
             <div>
+              <label className="kfin-label">Region</label>
+              <RegionSelect
+                className="kfin-input"
+                value={region}
+                onChange={setRegion}
+                disabled={!canEdit || saving || deleting}
+              />
+            </div>
+
+            <div>
               <label className="kfin-label">Composition</label>
               <input
                 className="kfin-input"
@@ -1874,7 +1922,9 @@ function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
 }
 
 function AddFabricModal({ onClose, onSaved }) {
+  const { region: activeRegion } = useRegion();
   const fileInputRef = useRef(null);
+  const [region, setRegion] = useState(activeRegion);
   const [name, setName] = useState("");
   const [gsm, setGsm] = useState("");
   const [weight, setWeight] = useState("");
@@ -1935,7 +1985,8 @@ function AddFabricModal({ onClose, onSaved }) {
         status,
         pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
         swatchImageUrl: "",
-              };
+        region: region || null,
+      };
       
       const docRef = await insertRow("fabrics", tempPayload);
       const fabricId = docRef.id;
@@ -1977,6 +2028,11 @@ function AddFabricModal({ onClose, onSaved }) {
               required
               disabled={saving}
             />
+          </div>
+
+          <div>
+            <label className="kfin-label">Region</label>
+            <RegionSelect value={region} onChange={setRegion} className="kfin-input" disabled={saving} />
           </div>
 
           <div className="krsp-3" style={{ gap: 12 }}>
@@ -2438,6 +2494,7 @@ function SampleCard({ item, canEdit, onEdit, onDelete }) {
 /* ── Main Component ────────────────────────────────────── */
 function Inventory() {
   const { profile } = useAuth();
+  const { region } = useRegion();
   const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
   // Inventory & Library are one merged page in the UI (see Sidebar's combined nav item) —
   // granting either permission unlocks the whole page, so a partial grant (e.g. only
@@ -2475,16 +2532,36 @@ function Inventory() {
     return allowedTabs[0]?.key || "stock";
   });
 
-  const [rows, setRows] = useState([]);
+  const [allRows, setRows] = useState([]);
   const [movements, setMovements] = useState([]); // dated stock_movements — the real ledger
   const [ledgerFrom, setLedgerFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [ledgerTo, setLedgerTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [movementForm, setMovementForm] = useState({}); // rowId -> { date, direction, qty, note }
   const [loggingMovement, setLoggingMovement] = useState(null); // rowId currently saving
-  const [fabrics, setFabrics] = useState([]);
-  const [processes, setProcesses] = useState([]);
-  const [patterns, setPatterns] = useState([]);
-  const [samples, setSamples] = useState([]);
+  const [allFabrics, setFabrics] = useState([]);
+  const [allProcesses, setProcesses] = useState([]);
+  const [allPatterns, setPatterns] = useState([]);
+  const [allSamples, setSamples] = useState([]);
+  /* ── One region at a time ─────────────────────────────────
+     Everything the page draws comes from these, so the switch in the header
+     reaches every tab — stock, ledger, fabrics, processes, tech packs, samples
+     — without any of them being aware of it. Items with no region set show on
+     both sides until somebody files them (see utils/region.js).
+
+     `movements` stays whole on purpose: it is only ever looked up by item id,
+     and the item is what carries the region, so scoping the ledger a second
+     time would be redundant at best and would break closing balances at worst.
+     `allRows` likewise stays in scope, because a stock item's id must be unique
+     across the company and not restart at #kazi1001 per region. */
+  const rows      = useMemo(() => filterByRegion(allRows,      region), [allRows,      region]);
+  const fabrics   = useMemo(() => filterByRegion(allFabrics,   region), [allFabrics,   region]);
+  const processes = useMemo(() => filterByRegion(allProcesses, region), [allProcesses, region]);
+  // Tech packs are the exception: a pattern has always carried a `market`
+  // ("UK" / "Nepal"), set on the spec sheet, and that is the same question the
+  // switch asks. It filters on that rather than on a second field nobody fills.
+  const patterns  = useMemo(() => filterByRegionField(allPatterns, region, "market"), [allPatterns, region]);
+  const samples   = useMemo(() => filterByRegion(allSamples,   region), [allSamples,   region]);
+
   const [unitEconomics, setUnitEconomics] = useState({});
   const [draftEconomics, setDraftEconomics] = useState({});
   const [loading, setLoading] = useState(true);
@@ -2737,6 +2814,23 @@ function Inventory() {
     setExpandedRows(e => ({ ...e, [rowId]: !e[rowId] }));
   }
 
+  async function setItemRegion(row, value) {
+    if (!canEditInventory) return;
+    setSavingRow(row.id);
+    try {
+      await updateInventoryDoc(row.id, {
+        region: value || null,
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        updatedBy: profile?.name || "Unknown",
+      });
+      setRows(prev => prev.map(r => (r.id === row.id ? { ...r, region: value || null } : r)));
+    } catch (err) {
+      alert("Failed to set region: " + err.message);
+    } finally {
+      setSavingRow(null);
+    }
+  }
+
   async function saveRow(row) {
     if (!canEditInventory) return;
     setSavingRow(row.id);
@@ -2778,7 +2872,9 @@ function Inventory() {
     try {
       await insertRow("inventory", {
         ...itemForm,
-        itemId:       nextItemId(rows),
+        // Company-wide numbering: the two arms must not both mint #kazi1001.
+        itemId:       nextItemId(allRows),
+        region:       itemForm.region || region,
         openingStock: Number(itemForm.openingStock || 0),
         minLevel:     Number(itemForm.minLevel     || 0),
         unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
@@ -2969,10 +3065,13 @@ function Inventory() {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
     try {
       await deleteRow(activeTab, item.id);
-      if (activeTab === "fabrics")   setFabrics(fabrics.filter(x => x.id !== item.id));
-      if (activeTab === "processes") setProcesses(processes.filter(x => x.id !== item.id));
-      if (activeTab === "patterns")  setPatterns(patterns.filter(x => x.id !== item.id));
-      if (activeTab === "samples")   setSamples(samples.filter(x => x.id !== item.id));
+      // Functional updates, so these edit the full list rather than the
+      // region-filtered view of it — otherwise saving in one region would
+      // silently drop every row belonging to the other.
+      if (activeTab === "fabrics")   setFabrics(prev => prev.filter(x => x.id !== item.id));
+      if (activeTab === "processes") setProcesses(prev => prev.filter(x => x.id !== item.id));
+      if (activeTab === "patterns")  setPatterns(prev => prev.filter(x => x.id !== item.id));
+      if (activeTab === "samples")   setSamples(prev => prev.filter(x => x.id !== item.id));
     } catch (err) {
       alert("Failed to delete: " + err.message);
     }
@@ -2981,30 +3080,30 @@ function Inventory() {
   function handleSavedLibraryItem(saved) {
     if (activeTab === "fabrics") {
       if (libraryEditItem) {
-        setFabrics(fabrics.map(x => x.id === saved.id ? saved : x));
+        setFabrics(prev => prev.map(x => x.id === saved.id ? saved : x));
       } else {
-        setFabrics([...fabrics, saved]);
+        setFabrics(prev => [...prev, saved]);
       }
     }
     if (activeTab === "processes") {
       if (libraryEditItem) {
-        setProcesses(processes.map(x => x.id === saved.id ? saved : x));
+        setProcesses(prev => prev.map(x => x.id === saved.id ? saved : x));
       } else {
-        setProcesses([...processes, saved]);
+        setProcesses(prev => [...prev, saved]);
       }
     }
     if (activeTab === "patterns") {
       if (libraryEditItem) {
-        setPatterns(patterns.map(x => x.id === saved.id ? saved : x));
+        setPatterns(prev => prev.map(x => x.id === saved.id ? saved : x));
       } else {
-        setPatterns([...patterns, saved]);
+        setPatterns(prev => [...prev, saved]);
       }
     }
     if (activeTab === "samples") {
       if (libraryEditItem) {
-        setSamples(samples.map(x => x.id === saved.id ? saved : x));
+        setSamples(prev => prev.map(x => x.id === saved.id ? saved : x));
       } else {
-        setSamples([...samples, saved]);
+        setSamples(prev => [...prev, saved]);
       }
     }
     setLibraryModalOpen(false);
@@ -3114,12 +3213,26 @@ function Inventory() {
     setShowAddForm(false);
   };
 
+  // Tech packs count a missing `market`; everything else a missing `region`.
+  const untaggedCount =
+    activeTab === "patterns"  ? countUntaggedBy(allPatterns, "market") :
+    countUntagged(
+      activeTab === "fabrics"   ? allFabrics   :
+      activeTab === "processes" ? allProcesses :
+      activeTab === "samples"   ? allSamples   : allRows
+    );
+
   return (
     <>
       <PageHeader
         title={pageTitle}
         description={pageDesc}
-        action={renderAction()}
+        action={
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <RegionSwitch untagged={untaggedCount} />
+            {renderAction()}
+          </div>
+        }
       />
 
       {activeTab === "stock" && !canEditInventory && (
@@ -3271,6 +3384,11 @@ function Inventory() {
               <input type="number" min="0" value={itemForm.unitCostNPR} placeholder="0"
                 onChange={e => setItemForm(f => ({ ...f, unitCostNPR: e.target.value }))} />
             </label>
+            <RegionField
+              value={itemForm.region}
+              onChange={v => setItemForm(f => ({ ...f, region: v }))}
+              hint="Which store this item sits in. Leave unset and it shows on both sides."
+            />
             <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
               <button type="submit" className="primary-button" disabled={addingItem}>
                 {addingItem ? "Adding…" : "Add Item"}
@@ -3513,13 +3631,14 @@ function Inventory() {
                   <th>Closing Stock</th>
                   <th>Stock Value</th>
                   <th>Min Level</th>
+                  <th>Region</th>
                   <th>Last Updated</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found
                     </td>
                   </tr>
@@ -3547,6 +3666,19 @@ function Inventory() {
                         </span>
                       </td>
                       <td><span className="kinv-num">{row.minLevel || 0}</span></td>
+                      <td>
+                        {canEditInventory ? (
+                          <RegionSelect
+                            className="kfin-input"
+                            style={{ padding: "3px 6px", fontSize: 12, minWidth: 130 }}
+                            value={row.region}
+                            disabled={savingRow === row.id}
+                            onChange={v => setItemRegion(row, v)}
+                          />
+                        ) : (
+                          <RegionBadge value={row.region} />
+                        )}
+                      </td>
                       <td style={{ fontSize: 11, color: "var(--ink-4)" }}>{row.lastUpdated || "—"}</td>
                     </tr>
                   );

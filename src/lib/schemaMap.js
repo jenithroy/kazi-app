@@ -21,7 +21,8 @@ export const SCHEMA_MAP = {
       "type": "type",
       "isBank": "is_bank",
       "openingBalanceNPR": "opening_balance_npr",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -30,6 +31,7 @@ export const SCHEMA_MAP = {
       "is_bank",
       "name",
       "opening_balance_npr",
+      "region",
       "type"
     ]
   },
@@ -51,7 +53,8 @@ export const SCHEMA_MAP = {
       "createdAt": "created_at"
     },
     "derived": [
-      "staffId"
+      "staffId",
+      "region"
     ],
     "columns": [
       "created_at",
@@ -80,7 +83,8 @@ export const SCHEMA_MAP = {
       "balance": "balance",
       "description": "description",
       "remarks": "remarks",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [
       "date"
@@ -91,6 +95,7 @@ export const SCHEMA_MAP = {
       "created_at",
       "description",
       "id",
+      "region",
       "remarks",
       "txn_at",
       "txn_date_text",
@@ -118,7 +123,8 @@ export const SCHEMA_MAP = {
       "reviewedBy": "reviewed_by",
       "reviewedAt": "reviewed_at",
       "createdAt": "created_at",
-      "requested_by_id": "requested_by_id"
+      "requested_by_id": "requested_by_id",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -131,6 +137,7 @@ export const SCHEMA_MAP = {
       "id",
       "notes",
       "quantity",
+      "region",
       "requested_by",
       "requested_by_id",
       "requested_by_role",
@@ -173,7 +180,8 @@ export const SCHEMA_MAP = {
       "createdAt": "created_at",
       "updatedAt": "updated_at",
       "discountMode": "discount_mode",
-      "discountFlatAmt": "discount_flat_amt"
+      "discountFlatAmt": "discount_flat_amt",
+      "region": "region"
     },
     "derived": [
       "items"
@@ -197,6 +205,7 @@ export const SCHEMA_MAP = {
       "id",
       "linked_order_id",
       "note",
+      "region",
       "related_invoice",
       "route_from",
       "route_to",
@@ -229,7 +238,8 @@ export const SCHEMA_MAP = {
       "person_id": "person_id"
     },
     "derived": [
-      "staffId"
+      "staffId",
+      "region"
     ],
     "columns": [
       "accuracy_m",
@@ -330,7 +340,8 @@ export const SCHEMA_MAP = {
       "city": "city",
       "country": "country",
       "notes": "notes",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -344,6 +355,7 @@ export const SCHEMA_MAP = {
       "name",
       "notes",
       "phone",
+      "region",
       "updated_at"
     ]
   },
@@ -375,7 +387,8 @@ export const SCHEMA_MAP = {
       "bankAccount": "bank_account",
       "panNumber": "pan_number",
       "joinDate": "join_date",
-      "telegramId": "telegram_id"
+      "telegramId": "telegram_id",
+      "region": "location"
     },
     "derived": [
       "role"
@@ -430,7 +443,8 @@ export const SCHEMA_MAP = {
       "notes": "notes",
       "swatchImageUrl": "swatch_image_url",
       "createdAt": "created_at",
-      "updatedAt": "updated_at"
+      "updatedAt": "updated_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -443,6 +457,7 @@ export const SCHEMA_MAP = {
       "notes",
       "price_per_kg",
       "price_per_meter",
+      "region",
       "status",
       "supplier",
       "swatch_image_url",
@@ -463,7 +478,8 @@ export const SCHEMA_MAP = {
       "status": "status",
       "vatBill": "vat_bill",
       "loggedBy": "logged_by",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -474,6 +490,7 @@ export const SCHEMA_MAP = {
       "id",
       "logged_by",
       "note",
+      "region",
       "status",
       "vat_bill"
     ]
@@ -504,7 +521,9 @@ export const SCHEMA_MAP = {
       "role": "legacy_role",
       "person_id": "person_id"
     },
-    "derived": [],
+    "derived": [
+      "region"
+    ],
     "columns": [
       "basic_npr",
       "bonus_npr",
@@ -547,7 +566,8 @@ export const SCHEMA_MAP = {
       "vatBill": "vat_bill",
       "paymentType": "payment_type",
       "bankName": "bank_name",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [
       "items"
@@ -563,6 +583,7 @@ export const SCHEMA_MAP = {
       "id",
       "payment_type",
       "purchase_date",
+      "region",
       "subtotal_npr",
       "taxable_amt",
       "vat_amount_npr",
@@ -592,7 +613,8 @@ export const SCHEMA_MAP = {
       "lastUpdated": "last_updated",
       "createdBy": "created_by",
       "updatedBy": "updated_by",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -609,6 +631,7 @@ export const SCHEMA_MAP = {
       "min_level",
       "opening_stock",
       "owner",
+      "region",
       "size_rows",
       "stock_in",
       "stock_used",
@@ -654,7 +677,8 @@ export const SCHEMA_MAP = {
       "updatedAt": "updated_at",
       "discountMode": "discount_mode",
       "discountFlatAmt": "discount_flat_amt",
-      "linkedOrderId": "linked_order_id"
+      "linkedOrderId": "linked_order_id",
+      "region": "region"
     },
     "derived": [
       "items"
@@ -684,6 +708,7 @@ export const SCHEMA_MAP = {
       "note",
       "payment_terms",
       "payment_type",
+      "region",
       "related_challan",
       "related_quotation",
       "status",
@@ -707,7 +732,8 @@ export const SCHEMA_MAP = {
       "description": "description",
       "reference": "reference",
       "createdBy": "created_by",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -719,7 +745,8 @@ export const SCHEMA_MAP = {
       "description",
       "entry_date",
       "id",
-      "reference"
+      "reference",
+      "region"
     ]
   },
   "leaderboard": {
@@ -783,7 +810,8 @@ export const SCHEMA_MAP = {
       "timeoutHours": "timeout_hours",
       "notifiedManager": "notified_manager",
       "assignedBy": "assigned_by",
-      "note": "note"
+      "note": "note",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -800,6 +828,7 @@ export const SCHEMA_MAP = {
       "order_ref",
       "person_id",
       "quantity",
+      "region",
       "stage",
       "status",
       "timeout_at",
@@ -823,7 +852,8 @@ export const SCHEMA_MAP = {
       "note": "note",
       "createdBy": "created_by",
       "createdAt": "created_at",
-      "updatedAt": "updated_at"
+      "updatedAt": "updated_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -836,6 +866,7 @@ export const SCHEMA_MAP = {
       "order_id",
       "order_ref",
       "overhead_npr",
+      "region",
       "shipping_npr",
       "total_npr",
       "updated_at"
@@ -870,7 +901,8 @@ export const SCHEMA_MAP = {
       "customer_id": "customer_id",
       "assigned_to": "assigned_to",
       "embellishments": "embellishments",
-      "sampleId": "sample_id"
+      "sampleId": "sample_id",
+      "region": "region"
     },
     "derived": [
       "assignedTo",
@@ -898,6 +930,7 @@ export const SCHEMA_MAP = {
       "order_no",
       "price_per_pc_npr",
       "quantity",
+      "region",
       "sample_id",
       "sample_name",
       "stage",
@@ -934,7 +967,8 @@ export const SCHEMA_MAP = {
       "tech_pack_url": "tech_pack_url",
       "tech_pack_images": "tech_pack_images",
       "createdAt": "created_at",
-      "updatedAt": "updated_at"
+      "updatedAt": "updated_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -951,6 +985,7 @@ export const SCHEMA_MAP = {
       "name",
       "notes",
       "product_type",
+      "region",
       "remarks",
       "season",
       "sizes_available",
@@ -1000,6 +1035,21 @@ export const SCHEMA_MAP = {
       "sort_order"
     ]
   },
+  "finance_tabs": {
+    "view": null,
+    "table": "finance_tabs",
+    "fields": {
+      "id": "id",
+      "label": "label",
+      "sort_order": "sort_order"
+    },
+    "derived": [],
+    "columns": [
+      "id",
+      "label",
+      "sort_order"
+    ]
+  },
   "position_permissions": {
     "view": null,
     "table": "position_permissions",
@@ -1007,8 +1057,7 @@ export const SCHEMA_MAP = {
       "position_id": "position_id",
       "section_id": "section_id",
       "can_view": "can_view",
-      "can_edit": "can_edit",
-      "id": "id"
+      "can_edit": "can_edit"
     },
     "derived": [],
     "columns": [
@@ -1025,8 +1074,7 @@ export const SCHEMA_MAP = {
       "position_id": "position_id",
       "tab_id": "tab_id",
       "can_view": "can_view",
-      "can_edit": "can_edit",
-      "id": "id"
+      "can_edit": "can_edit"
     },
     "derived": [],
     "columns": [
@@ -1072,7 +1120,8 @@ export const SCHEMA_MAP = {
       "lead_time_days": "lead_time_days",
       "min_quantity": "min_quantity",
       "createdAt": "created_at",
-      "updatedAt": "updated_at"
+      "updatedAt": "updated_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1085,6 +1134,7 @@ export const SCHEMA_MAP = {
       "min_quantity",
       "name",
       "notes",
+      "region",
       "updated_at"
     ]
   },
@@ -1101,7 +1151,8 @@ export const SCHEMA_MAP = {
       "trims": "trims",
       "others": "others",
       "total": "total",
-      "updatedAt": "updated_at"
+      "updatedAt": "updated_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1110,6 +1161,7 @@ export const SCHEMA_MAP = {
       "labour",
       "name",
       "others",
+      "region",
       "rib",
       "total",
       "trims",
@@ -1129,7 +1181,8 @@ export const SCHEMA_MAP = {
       "rejected": "rejected",
       "note": "note",
       "loggedBy": "logged_by",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1141,6 +1194,7 @@ export const SCHEMA_MAP = {
       "logged_by",
       "note",
       "passed",
+      "region",
       "rejected",
       "stitched"
     ]
@@ -1159,7 +1213,8 @@ export const SCHEMA_MAP = {
       "defectType": "defect_type",
       "action": "action",
       "checkedBy": "checked_by",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1173,6 +1228,7 @@ export const SCHEMA_MAP = {
       "log_date",
       "passed",
       "qc_ref",
+      "region",
       "rejected"
     ]
   },
@@ -1204,7 +1260,8 @@ export const SCHEMA_MAP = {
       "createdAt": "created_at",
       "updatedAt": "updated_at",
       "discountMode": "discount_mode",
-      "discountFlatAmt": "discount_flat_amt"
+      "discountFlatAmt": "discount_flat_amt",
+      "region": "region"
     },
     "derived": [
       "items"
@@ -1225,6 +1282,7 @@ export const SCHEMA_MAP = {
       "note",
       "quotation_no",
       "quote_date",
+      "region",
       "related_invoice",
       "status",
       "subtotal_npr",
@@ -1253,7 +1311,8 @@ export const SCHEMA_MAP = {
       "photo_url": "photo_url",
       "notes": "notes",
       "createdAt": "created_at",
-      "updatedAt": "updated_at"
+      "updatedAt": "updated_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1266,6 +1325,7 @@ export const SCHEMA_MAP = {
       "notes",
       "photo_url",
       "product_type",
+      "region",
       "size",
       "stage",
       "status",
@@ -1308,7 +1368,8 @@ export const SCHEMA_MAP = {
       "amountNPR": "amount_npr",
       "note": "note",
       "createdBy": "created_by",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1321,6 +1382,7 @@ export const SCHEMA_MAP = {
       "moved_on",
       "note",
       "qty",
+      "region",
       "source",
       "source_id"
     ]
@@ -1359,7 +1421,8 @@ export const SCHEMA_MAP = {
       "dueDate": "due_date",
       "createdBy": "created_by",
       "createdAt": "created_at",
-      "assignee_id": "assignee_id"
+      "assignee_id": "assignee_id",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1375,6 +1438,7 @@ export const SCHEMA_MAP = {
       "notes",
       "order_ref",
       "priority",
+      "region",
       "status",
       "title",
       "updated_at"
@@ -1386,13 +1450,15 @@ export const SCHEMA_MAP = {
     "fields": {
       "id": "id",
       "data": "data",
-      "createdAt": "created_at"
+      "createdAt": "created_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
       "created_at",
       "data",
-      "id"
+      "id",
+      "region"
     ]
   },
   "user_points": {
@@ -1425,7 +1491,8 @@ export const SCHEMA_MAP = {
       "email": "email",
       "location": "location",
       "status": "status",
-      "personId": "id"
+      "personId": "id",
+      "region": "location"
     },
     "derived": [
       "jobRole",
@@ -1476,7 +1543,8 @@ export const SCHEMA_MAP = {
       "fileType": "file_type",
       "source": "source",
       "uploadedBy": "uploaded_by",
-      "uploadedAt": "uploaded_at"
+      "uploadedAt": "uploaded_at",
+      "region": "region"
     },
     "derived": [],
     "columns": [
@@ -1486,6 +1554,7 @@ export const SCHEMA_MAP = {
       "file_type",
       "file_url",
       "id",
+      "region",
       "source",
       "storage_path",
       "uploaded_at",

@@ -44,6 +44,7 @@ export function makeEmptyForm(type) {
     date: new Date().toISOString().slice(0, 10),
     clientName: "", clientPAN: "", clientAddress: "", clientPhone: "",
     status: "Draft", note: "",
+    region: "",          // "uk" | "nepal" | "" — which arm of the business billed this
     discountMode: "pct", // "pct" | "amount"
     discountPct: 0,
     discountFlatAmt: 0,
