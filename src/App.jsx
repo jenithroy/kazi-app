@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Attendance from "./pages/Attendance";
@@ -23,6 +23,7 @@ import Changelog from "./pages/Changelog";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
 import LandingRedirect from "./components/LandingRedirect";
+import { isRecoveryPending } from "./lib/recoveryLink";
 
 /**
  * Every route names the section it belongs to.
@@ -36,6 +37,18 @@ import LandingRedirect from "./components/LandingRedirect";
  * and read release notes, which is how the sidebar has always treated them.
  */
 function App() {
+  const location = useLocation();
+
+  // A reset link lands wherever the Supabase project's redirect list sends it,
+  // which is not always /login — an address that is not on that list falls back
+  // to the project's Site URL, i.e. the app's front door. Wherever they come
+  // ashore, the one thing left to do is choose a new password, so send them to
+  // the screen that asks for it rather than into a dashboard they cannot yet
+  // sign back into.
+  if (isRecoveryPending() && location.pathname !== "/login") {
+    return <Navigate to="/login" replace />;
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

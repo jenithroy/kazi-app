@@ -1,3 +1,6 @@
+// First, deliberately: it reads the password-reset marker out of the URL before
+// the Supabase client (pulled in below via AuthContext) can consume and erase it.
+import "./lib/recoveryLink";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";

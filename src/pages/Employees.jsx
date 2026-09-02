@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
-import { authClient, createSignupClient, supabase } from "../supabase";
+import { authClient, authRedirectUrl, createSignupClient, supabase } from "../supabase";
 import PageHeader from "../components/PageHeader";
 import SalarySlipModal from "../components/SalarySlipModal";
 import { useAuth } from "../context/AuthContext";
@@ -38,7 +38,7 @@ async function createEmployeeLogin(email, personId) {
     await signup.auth.signOut().catch(() => {});
   }
   await authClient.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/login`,
+    redirectTo: authRedirectUrl("/login"),
   });
 }
 

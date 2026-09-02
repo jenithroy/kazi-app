@@ -96,4 +96,25 @@ export function createSignupClient() {
   });
 }
 
+/**
+ * Where an emailed auth link should land people.
+ *
+ * Supabase only honours a `redirectTo` that matches its own redirect allow-list
+ * (Authentication -> URL Configuration); anything else silently falls back to the
+ * project's Site URL, which is how reset emails ended up pointing at
+ * localhost:3000. Every origin this app is served from therefore has to be on
+ * that list — the dev server, and the deployed site.
+ *
+ * `window.location.origin` is right on the web but useless inside the Capacitor
+ * build, where it is the webview's own `https://localhost`. VITE_PUBLIC_SITE_URL
+ * pins the public address for those builds; on the web it is optional.
+ */
+export function authRedirectUrl(path = "/login") {
+  const configured = import.meta.env.VITE_PUBLIC_SITE_URL;
+  const origin =
+    configured?.replace(/\/+$/, "") ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+  return `${origin}${path}`;
+}
+
 export { url as SUPABASE_URL };

@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { useLocation, useNavigate } from "react-router-dom";
 import { auth as firebaseAuth, firebasePersistenceReady } from "../firebase";
-import { authClient } from "../supabase";
+import { authClient, authRedirectUrl } from "../supabase";
 import { useAuth } from "../context/AuthContext";
 import { landingPath } from "../components/RequireSection";
+import { clearRecoveryLink, isRecoveryPending } from "../lib/recoveryLink";
 
 function Login() {
   const [email, setEmail]           = useState("");
@@ -15,8 +16,10 @@ function Login() {
   const [notice, setNotice]         = useState("");
   const [loading, setLoading]       = useState(false);
   const [resetSent, setResetSent]   = useState(false);
-  // "login" | "reset" | "newPassword"
-  const [mode, setMode]             = useState("login");
+  // "login" | "reset" | "newPassword". Someone arriving on a reset link starts
+  // on the new-password form — decided at first render, because waiting for an
+  // effect gives the redirect below a frame in which to send them elsewhere.
+  const [mode, setMode]             = useState(() => (isRecoveryPending() ? "newPassword" : "login"));
   const navigate  = useNavigate();
   const location  = useLocation();
   const { authenticated, profile, error: authError } = useAuth();
@@ -45,7 +48,6 @@ function Login() {
         setError("");
       }
     });
-    if (/type=recovery/.test(window.location.hash)) setMode("newPassword");
     return () => data?.subscription?.unsubscribe();
   }, []);
 
@@ -99,7 +101,7 @@ function Login() {
     setLoading(true);
     try {
       await authClient.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/login`,
+        redirectTo: authRedirectUrl("/login"),
       });
       // Shown whether or not the address exists — see the note above.
       setResetSent(true);
@@ -118,6 +120,8 @@ function Login() {
       const { error: err } = await authClient.auth.updateUser({ password: newPassword });
       if (err) { setError(err.message || "Couldn't set your password. Try the reset link again."); return; }
       setNotice("Password updated. Signing you in…");
+      // The link has done its job; a later visit is an ordinary login again.
+      clearRecoveryLink();
       // Leaving newPassword mode releases the guard in the effect above, which
       // then routes to a page this person can actually open.
       setMode("login");
