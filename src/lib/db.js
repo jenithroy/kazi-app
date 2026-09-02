@@ -83,7 +83,20 @@ const readFrom = (collection) => mapping(collection).view || mapping(collection)
  * means a hardcoded `.eq("id", …)` reads fine through the view but fails
  * against the table — the column simply is not there.
  */
-const keyColumn = (collection) => mapping(collection).fields.id || "id";
+function keyColumn(collection) {
+  const column = mapping(collection).fields.id;
+  if (!column) {
+    // Join tables like position_permissions are keyed by a composite
+    // (position_id, section_id) and have no id at all. Say so, rather than
+    // aiming an update at a column that does not exist and letting PostgREST
+    // report it as a puzzling schema error.
+    throw new Error(
+      `"${collection}" has no single row id — it is keyed by a composite of columns. ` +
+      "Read it with fetchAll() and write it with supabase.from(...).upsert({ onConflict }) directly."
+    );
+  }
+  return column;
+}
 
 /**
  * Translate a document the app wrote into a row the table will accept.

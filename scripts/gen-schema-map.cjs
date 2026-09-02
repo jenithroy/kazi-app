@@ -59,6 +59,7 @@ const COLLECTIONS = {
   // collections that needed a compatibility shape.
   positions:          { view: null,                    table: 'positions' },
   sections:           { view: null,                    table: 'sections' },
+  finance_tabs:       { view: null,                    table: 'finance_tabs' },
   position_permissions:  { view: null, table: 'position_permissions' },
   position_finance_tabs: { view: null, table: 'position_finance_tabs' },
   point_transactions: { view: null,                    table: 'point_transactions' },
@@ -197,8 +198,11 @@ function parseViewDef(sql, tableColumns, table) {
       for (const col of cols) fields[col] = col;
     }
 
-    // `id` is always the row id; the views cast it to text.
-    fields.id = fields.id || 'id';
+    // The views cast the row id to text and call it `id`. Composite-key join
+    // tables (position_permissions, position_finance_tabs) genuinely have no
+    // id column, and inventing one here would send updateRow at a column that
+    // does not exist. Leave it absent so db.js can say so plainly.
+    if (!fields.id && tableColumns.has('id')) fields.id = 'id';
 
     out[collection] = { view, table, fields, derived, columns: cols.sort() };
   }
