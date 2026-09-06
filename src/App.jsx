@@ -45,8 +45,18 @@ function App() {
   // ashore, the one thing left to do is choose a new password, so send them to
   // the screen that asks for it rather than into a dashboard they cannot yet
   // sign back into.
+  //
+  // Carry the hash and query through the redirect: supabase-js reads the
+  // `#access_token=…&type=recovery` fragment off window.location on its own
+  // async schedule, and a bare <Navigate to="/login"> would strip it before
+  // then, leaving the new-password form with no session to write against.
   if (isRecoveryPending() && location.pathname !== "/login") {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to={{ pathname: "/login", search: location.search, hash: location.hash }}
+        replace
+      />
+    );
   }
 
   return (

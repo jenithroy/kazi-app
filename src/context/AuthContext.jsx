@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
 import { auth as firebaseAuth } from "../firebase";
 import { authClient, supabase } from "../supabase";
+import { isRecoveryPending } from "../lib/recoveryLink";
 import { initPushNotifications } from "../utils/native";
 
 const AuthContext = createContext(null);
@@ -107,6 +108,20 @@ export function AuthProvider({ children }) {
       if (gen !== generation.current) return; // superseded
 
       if (!next) {
+        // Mid password-reset, hold the session open. A recovery link signs the
+        // person in *before* the new password is set — and, for a freshly
+        // provisioned account, before `people.auth_uid` has been linked, so
+        // `me()` comes back empty here through no fault of theirs. Signing them
+        // out now would leave the new-password form with no session and
+        // updateUser({ password }) failing with "Auth session missing". Let the
+        // form finish; the resolve that runs once the password is saved (and
+        // the recovery marker cleared) will settle their access for real, and
+        // sign them out then if they still map to nobody.
+        if (isRecoveryPending()) {
+          if (gen === generation.current) setLoading(false);
+          return;
+        }
+
         // A token that resolves to nobody is not a login. It happens when
         // someone has an auth account but no active `people` row — removed
         // from staff, or set Inactive. Every policy denies them anyway, so
