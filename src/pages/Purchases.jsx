@@ -35,7 +35,12 @@ function Purchases() {
     setLoading(true);
     try {
       let rows = await fetchAll("finance_purchases");
-      rows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
+      // Newest purchase on top, oldest at the bottom — dates (ISO YYYY-MM-DD)
+      // increase as you go up. expenseId breaks ties on the same day.
+      rows.sort((a, b) =>
+        (b.date || "").localeCompare(a.date || "") ||
+        (b.expenseId || "").localeCompare(a.expenseId || "")
+      );
       rows = rows.filter(r => createdAfterCutoff(r));
       setPurchases(rows);
     } finally {
