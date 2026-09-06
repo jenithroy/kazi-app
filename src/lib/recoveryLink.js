@@ -1,12 +1,13 @@
 /**
- * Remembers that this page load arrived from a password-reset link.
+ * Remembers that this page load arrived from a set-a-password link.
  *
- * A recovery link comes back as `#access_token=…&type=recovery`, and supabase-js
- * turns that hash into a session and *strips it from the address bar* on its own
+ * Such a link comes back as `#access_token=…&type=recovery` (and `type=invite`
+ * or `type=signup` for an account's very first email), and supabase-js turns
+ * that hash into a session and *strips it from the address bar* on its own
  * timetable — usually before the login screen has mounted and subscribed to
  * PASSWORD_RECOVERY. Read either signal too late and the person is simply signed
- * in and pushed to the dashboard, with the old password still live and no way to
- * change it.
+ * in and pushed to the dashboard, with no password of their own set and no way
+ * to set one.
  *
  * So this module reads the flag once, synchronously, at import time — which is
  * why main.jsx imports it before anything that touches Supabase — and holds it
@@ -19,7 +20,14 @@ function looksLikeRecovery() {
   if (typeof window === "undefined") return false;
   // Supabase puts it in the hash (implicit flow); a few paths use the query
   // string, so check both rather than guessing which one we are on.
-  return /(^|[#&?])type=recovery(&|$)/.test(window.location.hash + window.location.search);
+  //
+  // `recovery` is a "Forgot password?" link. `invite` and `signup` are the
+  // first email a freshly created account gets — the person was signed up with
+  // a random password nobody knows, so the one thing left for them to do is the
+  // same as a recovery: choose a password. All three land on that form.
+  return /(^|[#&?])type=(recovery|invite|signup)(&|$)/.test(
+    window.location.hash + window.location.search
+  );
 }
 
 if (looksLikeRecovery()) {

@@ -20,12 +20,23 @@ const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", 
 // An address that already has an account is not an error — it means they were
 // added before, or still sign in through Firebase — so we just send the
 // set-password email and let them come across.
-async function createEmployeeLogin(email, personId) {
+async function createEmployeeLogin(email, fullName, personId) {
   const signup = createSignupClient();
   try {
     const { data, error } = await signup.auth.signUp({
       email,
       password: crypto.randomUUID(),
+      options: {
+        // Without this the account shows up nameless in the Supabase dashboard
+        // and in any email template that greets by name. `display_name` is the
+        // column the Users list actually reads; `full_name` matches what
+        // provision-auth.cjs writes for everyone migrated ahead of this.
+        data: { full_name: fullName, display_name: fullName },
+        // If the project has "Confirm email" on, signUp also sends its own
+        // confirmation email. Point it at the same place the reset link goes so
+        // clicking whichever one arrives first still lands on the password form.
+        emailRedirectTo: authRedirectUrl("/login"),
+      },
     });
     if (error && !/already/i.test(error.message)) throw error;
 
@@ -352,7 +363,7 @@ function Employees() {
     // saved above is what grants access.
     if (data.email && isNewEmployee) {
       try {
-        await createEmployeeLogin(data.email, personId);
+        await createEmployeeLogin(data.email, data.name, personId);
         alert(`${data.name} was added — a password-setup email was sent to ${data.email}.`);
       } catch (err) {
         console.warn("Failed to auto-create login:", err);
