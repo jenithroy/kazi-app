@@ -13,7 +13,7 @@ import {
   DOC_TYPES, STATUS_BY_TYPE, BANK_NAMES, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
 } from "../utils/billing.jsx";
-import { adToBsParts, BS_MONTHS } from "../utils/fiscalYear";
+import { adToBsParts, BS_MONTHS, fiscalYearForDate, parseFiscalYearLabel, currentFiscalYear } from "../utils/fiscalYear";
 import { postSaleStockOut } from "../utils/stockLedger";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
@@ -197,14 +197,20 @@ function Billing() {
       fetchAll("inventory"),
     ]);
     setInventoryItems(invtRows);
-    // Sort by the immutable sequential number (not the user-editable invoice
-    // `date` field) — a backdated/postdated invoice would otherwise scramble
-    // the list order even though numbers were assigned strictly in sequence.
+    // Sort newest-first by fiscal year, then by the immutable sequential number
+    // within that year (not the user-editable `date` field) — a backdated invoice
+    // would otherwise scramble the order even though numbers ran strictly in
+    // sequence. The number restarts at 1 each fiscal year, so the year has to be
+    // the primary key or last year's INV-045 would sit above this year's INV-001.
     const seqNum = (row) => {
       const m = /(\d+)\s*$/.exec(row.invoiceNumber || row.challanNumber || row.quotationNumber || "");
       return m ? parseInt(m[1], 10) : -1;
     };
-    const sort = (a, b) => seqNum(b) - seqNum(a);
+    const fyStart = (row) => {
+      const label = fiscalYearForDate(row.date);
+      return label ? parseFiscalYearLabel(label).startYear : 0;
+    };
+    const sort = (a, b) => (fyStart(b) - fyStart(a)) || (seqNum(b) - seqNum(a));
     setInvoices([...invRows].sort(sort));
     setChallans([...chRows].sort(sort));
     setQuotations([...qtRows].sort(sort));
@@ -364,9 +370,14 @@ function Billing() {
         setEditingId(null);
       } else {
         /* ── CREATE new document ── */
-        const docNumber = await getNextNumber(tab);
+        // The fiscal year comes from the document's own (Bikram Sambat) date, so
+        // a backdated invoice is numbered into the year it belongs to and the FY
+        // stored on the record can never disagree with its number.
+        const fiscalYear = fiscalYearForDate(form.date) || form.fiscalYear || currentFiscalYear();
+        const docNumber = await getNextNumber(tab, fiscalYear);
         const record = {
           ...form,
+          fiscalYear,
           currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           [meta.numberField]: docNumber,
           subtotalNPR:    subtotal,
@@ -463,14 +474,18 @@ function Billing() {
       });
 
       const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(items, true, qt.discountPct || 0, qt.discountMode, qt.discountFlatAmt || 0);
-      const invNumber = await getNextNumber("invoice");
+      // The invoice is raised today, so its fiscal year — and number series —
+      // follow today's Nepali date, not the quotation's fiscal year.
+      const invDate = new Date().toISOString().slice(0, 10);
+      const invFiscalYear = fiscalYearForDate(invDate) || currentFiscalYear();
+      const invNumber = await getNextNumber("invoice", invFiscalYear);
       const d = new Date(); d.setDate(d.getDate() + 30);
 
       await insertRow("invoices", {
         invoiceNumber:    invNumber,
-        date:             new Date().toISOString().slice(0, 10),
+        date:             invDate,
         dueDate:          d.toISOString().slice(0, 10),
-        fiscalYear:       qt.fiscalYear || "",
+        fiscalYear:       invFiscalYear,
         paymentTerms:     "Net 30",
         clientName:       qt.clientName || "",
         clientPAN:        qt.clientPAN || "",
@@ -500,7 +515,7 @@ function Billing() {
       // No-op unless the quotation's items already carry a stockItemId — quotations
       // don't expose the Stock Item picker, so this only fires if one is added later.
       postSaleStockOut({
-        invoice: { date: new Date().toISOString().slice(0, 10), invoiceNumber: invNumber },
+        invoice: { date: invDate, invoiceNumber: invNumber },
         items,
         createdBy: profile?.name || "Unknown",
       }).catch(err => console.error("Stock auto-post failed:", err));
@@ -680,10 +695,20 @@ function Billing() {
             <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
               <div className="kfin-form" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
 
-                {/* Date */}
+                {/* Date — also drives the fiscal year (and therefore the number
+                    series) off the Nepali date, so the FY field stays in step. */}
                 <label className="kfin-label">
                   Date
-                  <input className="kfin-input" type="date" value={form.date} required onChange={e => setF("date", e.target.value)} />
+                  <input
+                    className="kfin-input"
+                    type="date"
+                    value={form.date}
+                    required
+                    onChange={e => {
+                      const v = e.target.value;
+                      setForm(f => ({ ...f, date: v, fiscalYear: fiscalYearForDate(v) || f.fiscalYear }));
+                    }}
+                  />
                 </label>
 
                 {/* Due Date / Valid Until */}

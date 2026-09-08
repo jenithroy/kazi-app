@@ -1,5 +1,10 @@
 import { supabase } from "../lib/db";
 import { roundAmount } from "./format";
+import { currentFiscalYear, fiscalYearForDate } from "./fiscalYear";
+
+// Re-exported for callers that still import it from here. The real, BS-accurate
+// implementation lives in ./fiscalYear (backed by the exact conversion tables).
+export { currentFiscalYear, fiscalYearForDate };
 
 export const VAT_RATE = 0.13;
 
@@ -26,18 +31,6 @@ export const STATUS_BY_TYPE = {
 };
 
 export const emptyItem = { description: "", qty: 1, unit: "Pcs", rate: "", stockItemId: "" };
-
-/**
- * Returns current Nepal fiscal year string e.g. "2082/83"
- * Nepal FY starts Shrawan 1 (~mid-July); BS ≈ AD + 56 (before July) / +57 (from July onward)
- */
-export function currentFiscalYear() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1; // 1-12
-  const bsBase = y + (m >= 7 ? 57 : 56);
-  return `${bsBase}/${String(bsBase + 1).slice(2)}`;
-}
 
 export function makeEmptyForm(type) {
   const base = {
@@ -169,10 +162,15 @@ export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct
 }
 
 /**
- * Allocate the next sequential document number, e.g. "INV-050".
+ * Allocate the next sequential document number for a fiscal year, e.g. "INV-050".
+ *
+ * Numbering restarts at 1 each Nepali fiscal year (Shrawan 1), so the fiscal
+ * year — decided from the document's Bikram Sambat date, not the Gregorian
+ * month — must be passed in. It is what keeps last year's INV-001 and this
+ * year's INV-001 apart.
  *
  * The whole read-increment-write happens in one statement inside the database
- * (see migration 0014). Doing it from here would mean two people raising an
+ * (see migration 0030). Doing it from here would mean two people raising an
  * invoice at the same moment could read the same counter and both take the same
  * number — not acceptable for IRD-numbered documents, which must run unbroken
  * and unduplicated. The row lock inside the function makes the second caller
@@ -182,9 +180,10 @@ export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct
  * be advanced — leaving a gap in the books — by someone who could not have
  * filed the document anyway.
  */
-export async function getNextNumber(type) {
+export async function getNextNumber(type, fiscalYear) {
   if (!DOC_TYPES[type]) throw new Error("Unknown doc type: " + type);
-  const { data, error } = await supabase.rpc("next_doc_number", { kind: type });
+  const fy = fiscalYear || currentFiscalYear();
+  const { data, error } = await supabase.rpc("next_doc_number", { kind: type, fiscal_year: fy });
   if (error) throw error;
   return data;
 }
