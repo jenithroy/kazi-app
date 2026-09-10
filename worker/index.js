@@ -1,7 +1,7 @@
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
-function buildEmbed({ title, description, reportedBy, severity, pageUrl }) {
+function buildEmbed({ title, description, reportedBy, severity, pageUrl, section }) {
   return {
     embeds: [{
       title: `🐛 New Admin Bug Report: ${title}`,
@@ -10,6 +10,10 @@ function buildEmbed({ title, description, reportedBy, severity, pageUrl }) {
       fields: [
         { name: "Reported By", value: reportedBy || "Unknown", inline: true },
         { name: "Severity", value: severity || "Unspecified", inline: true },
+        // Sent when the report was opened from a section's card on Roles &
+        // Duties. The page URL is always /bug-report, so on its own it never
+        // said which part of the ERP the complaint was about.
+        ...(section ? [{ name: "Section", value: section, inline: true }] : []),
         { name: "Page/URL", value: pageUrl || "Unknown", inline: false },
       ],
       footer: { text: "Admin Dashboard Bug Reporter" },
@@ -35,13 +39,14 @@ async function handleBugReport(request, env) {
   const reportedBy = (form.get("reportedBy") || "").toString().trim();
   const severity = (form.get("severity") || "").toString().trim();
   const pageUrl = (form.get("pageUrl") || "").toString().trim();
+  const section = (form.get("section") || "").toString().trim();
   const attachment = form.get("attachment");
 
   if (!title || !description) {
     return Response.json({ error: "Title and description are required." }, { status: 400 });
   }
 
-  const payload = buildEmbed({ title, description, reportedBy, severity, pageUrl });
+  const payload = buildEmbed({ title, description, reportedBy, severity, pageUrl, section });
 
   const hasFile = attachment && typeof attachment === "object" && "size" in attachment && attachment.size > 0;
 

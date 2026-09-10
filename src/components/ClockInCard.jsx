@@ -323,7 +323,7 @@ export default function ClockInCard({ profile, onClockChange }) {
         </div>
 
         {/* Side Info */}
-        <div className="kem-clock-side">
+        <div className="kem-clock-side" data-tour="clock-in">
           <div className="kem-clock-head">
             <div>
               <div className="kem-clock-name">Hi {profile?.name?.split(" ")[0]},</div>

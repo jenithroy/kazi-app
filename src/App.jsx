@@ -14,7 +14,7 @@ import Billing from "./pages/Billing";
 import Employees from "./pages/Employees";
 import AdminPanel from "./pages/AdminPanel";
 import Usage from "./pages/Usage";
-import Directors from "./pages/Directors";
+import Roles from "./pages/Roles";
 import Customers from "./pages/Customers";
 import Messenger from "./pages/Messenger";
 import Sales from "./pages/Sales";
@@ -34,8 +34,8 @@ import { isRecoveryPending } from "./lib/recoveryLink";
  * matched against the same position matrix the database enforces, so the page
  * a person can reach and the data they can read now agree.
  *
- * Bug Report and Changelog are deliberately ungated: everyone may file a bug
- * and read release notes, which is how the sidebar has always treated them.
+ * Bug Report, Changelog and Roles are deliberately ungated: everyone may file
+ * a bug, read release notes, and read what their own job asks them to log.
  */
 function App() {
   const location = useLocation();
@@ -79,17 +79,22 @@ function App() {
         {/* /content renders Budget — named for the page it shows, not its path. */}
         <Route path="/content"     element={<RequireSection section="budget"><Budget /></RequireSection>} />
         <Route path="/employees"   element={<RequireSection section="employees"><Employees /></RequireSection>} />
-        <Route path="/directors"   element={<RequireSection section="directors"><Directors /></RequireSection>} />
         <Route path="/customers"   element={<RequireSection section="customers"><Customers /></RequireSection>} />
         <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
         <Route path="/admin"       element={<RequireSection section="admin"><AdminPanel /></RequireSection>} />
         <Route path="/usage"       element={<RequireSection section="usage_analytics"><Usage /></RequireSection>} />
 
-        {/* Open to everyone who is signed in. */}
+        {/* Open to everyone who is signed in. Roles is where a person reads
+            what their own position is expected to log — gating it behind a
+            section would hide the instructions from exactly the people who
+            need them. It shows only the duties their permissions already
+            allow, so it discloses nothing the sidebar doesn't. */}
+        <Route path="/roles"       element={<Roles />} />
         <Route path="/bug-report"  element={<BugReport />} />
         <Route path="/changelog"   element={<Changelog />} />
 
+        <Route path="/directors"   element={<Navigate to="/roles" replace />} />
         <Route path="/orders"      element={<Navigate to="/production" replace />} />
         <Route path="/library"     element={<Navigate to="/inventory" replace />} />
         <Route path="/accounting"  element={<Navigate to="/finance" replace />} />

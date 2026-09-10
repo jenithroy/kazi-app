@@ -85,7 +85,7 @@ function QualityControl() {
 
       {!canEdit ? <p className="banner-warning">UK admin view-only mode enabled.</p> : null}
 
-      <section className="panel">
+      <section className="panel" data-tour="qc-form">
         <h3>Add QC Log</h3>
         <form className="grid-form" onSubmit={addQcLog}>
           <label>

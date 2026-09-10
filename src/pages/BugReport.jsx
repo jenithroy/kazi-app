@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Icons } from "../components/ui";
+import { SECTION_LABEL } from "../lib/roles";
 
 const SEVERITIES = ["Low", "Medium", "High", "Critical"];
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -9,6 +11,13 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
 export default function BugReport() {
   const { profile } = useAuth();
   const fileInputRef = useRef(null);
+
+  // Roles links here as /bug-report?section=production. "Which page?" is the
+  // field people always leave out and the one that decides who picks the
+  // report up, so it comes along with the link rather than being asked for.
+  const [params] = useSearchParams();
+  const section = params.get("section") || "";
+  const sectionLabel = SECTION_LABEL[section] || "";
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -62,6 +71,7 @@ export default function BugReport() {
       form.append("severity", severity);
       form.append("reportedBy", reportedBy);
       form.append("pageUrl", window.location.href);
+      if (sectionLabel) form.append("section", sectionLabel);
       if (file) form.append("attachment", file);
 
       const res = await fetch("/api/bug-report", { method: "POST", body: form });
@@ -87,9 +97,21 @@ export default function BugReport() {
           <div className="kbug-header-icon"><Icons.Bug size={20} sw={1.8} /></div>
           <div>
             <div className="kbug-header-title">Bug Report</div>
-            <div className="kbug-header-sub">Found something broken? Let the dev team know — this posts straight to our bug tracker.</div>
+            <div className="kbug-header-sub">
+              Found something broken, confusing, or missing? Let the dev team know — this posts
+              straight to our bug tracker. Feature requests count too: if something about your
+              job would be easier with a change here, say so.
+            </div>
           </div>
         </div>
+
+        {sectionLabel && (
+          <div className="kbug-context">
+            <Icons.Pin size={13} sw={1.9} />
+            <span>Reporting about <strong>{sectionLabel}</strong></span>
+            <Link to="/roles" className="kbug-context-link">Back to Roles &amp; Duties</Link>
+          </div>
+        )}
 
         <form className="kbug-card" onSubmit={handleSubmit}>
           <div className="kbug-field">

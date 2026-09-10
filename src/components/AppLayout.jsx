@@ -6,6 +6,7 @@ import { useCurrency } from "../context/CurrencyContext";
 import { cn, Icons, Avatar } from "./ui";
 import { isNative } from "../utils/native";
 import useActivityLog from "../hooks/useActivityLog";
+import Spotlight from "./Spotlight";
 
 // Bottom nav shown on mobile/native for workers — replaces sidebar hamburger
 function BottomNav({ profile }) {
@@ -58,6 +59,8 @@ const ROUTE_LABEL = {
   messenger:  "Messenger Chat",
   marketing:  "Marketing Calendar",
   "bug-report": "Bug Report",
+  roles:      "Roles & Duties",
+  changelog:  "Changelog",
 };
 
 function useKTMTime() {
@@ -202,6 +205,10 @@ function AppLayout({ children }) {
         </div>
         {isNative && <BottomNav profile={profile} />}
       </main>
+
+      {/* Reads ?tour= off whatever page it lands on. Mounted here so no page
+          has to know it exists beyond putting data-tour on one element. */}
+      <Spotlight />
     </div>
   );
 }

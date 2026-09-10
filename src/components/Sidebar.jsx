@@ -24,7 +24,6 @@ const NAV_ITEMS = [
   { to: "/content",    label: "Budget",         Icon: Icons.Budget,     group: "finance" },
   // ── People ─────────────────────────────────────────────
   { to: "/employees",  label: "Employee & HR",  Icon: Icons.Employees,  group: "people" },
-  { to: "/directors",  label: "Directors",      Icon: Icons.Directors,  group: "people" },
   { to: "/customers",  label: "Customers",      Icon: Icons.Customers,  group: "people" },
   // ── Marketing & Comms ──────────────────────────────────
   { to: "/marketing",  label: "Marketing",      Icon: Icons.Marketing,  group: "marketing" },
@@ -32,6 +31,7 @@ const NAV_ITEMS = [
   // ── System ─────────────────────────────────────────────
   { to: "/admin",      label: "Admin",          Icon: Icons.Admin,      group: "system" },
   { to: "/usage",      label: "Usage & Activity", Icon: Icons.Pulse,    group: "system" },
+  { to: "/roles",      label: "Roles & Duties", Icon: Icons.Directors,  group: "system" },
   { to: "/bug-report", label: "Bug Report",     Icon: Icons.Bug,        group: "system" },
   { to: "/changelog",  label: "Changelog",      Icon: Icons.Changelog,  group: "system" },
 ];
@@ -58,7 +58,9 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
   const items = NAV_ITEMS
     .filter(item => {
-      if (item.to === "/bug-report" || item.to === "/changelog") return true;
+      // Ungated, same as their routes in App.jsx — everyone files bugs, reads
+      // release notes, and reads what their own position is asked to log.
+      if (item.to === "/bug-report" || item.to === "/changelog" || item.to === "/roles") return true;
       if (item.to === "/inventory") {
         return sectionVisible(profile, "inventory") || sectionVisible(profile, "library");
       }

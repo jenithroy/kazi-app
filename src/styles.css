@@ -6482,3 +6482,262 @@ span.kap-personal { cursor: default; }
   .kusg-search { flex: 1 1 100%; }
   .kusg-search input { width: 100%; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Roles  (.krole-*)
+───────────────────────────────────────────────────────────── */
+
+.krole-wrap { max-width: 880px; padding: 4px 0 48px; }
+.krole-ph { padding: 8px 0 18px; }
+
+/* ── Duties asked of everyone ── */
+.krole-shared {
+  background: var(--card); border: 1px dashed var(--line-strong);
+  border-radius: var(--r-card); padding: 15px 18px 12px;
+  margin-bottom: 14px;
+}
+.krole-shared-l,
+.krole-duties-l {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 10px;
+}
+
+/* ── Report-anything banner ── */
+.krole-bug {
+  display: flex; align-items: center; gap: 13px; margin: 30px 0 0;
+  padding: 14px 16px; text-decoration: none;
+  background: var(--terra-soft); border: 1px solid rgba(196, 101, 74, .22);
+  border-radius: var(--r-card); color: var(--ink);
+  transition: border-color .15s ease, transform .15s ease;
+}
+.krole-bug:hover { border-color: rgba(196, 101, 74, .45); transform: translateY(-1px); }
+.krole-bug-ico {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 9px;
+  background: rgba(255, 255, 255, .7); color: var(--terra);
+}
+.krole-bug-txt { flex: 1; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.krole-bug-txt strong { display: block; font-size: 13.5px; color: var(--ink); margin-bottom: 2px; }
+.krole-bug > svg { flex-shrink: 0; color: var(--terra); }
+
+/* ── Role card ── */
+.krole-cards { display: flex; flex-direction: column; gap: 14px; }
+
+.krole-card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: 18px 20px 14px;
+  box-shadow: var(--shadow-1);
+}
+/* The reader's own role, marked quietly — a rail, not a highlight. */
+.krole-card--mine { border-left: 3px solid var(--mint-2); }
+
+.krole-card-head { display: flex; align-items: flex-start; gap: 12px; }
+.krole-card-title { flex: 1; min-width: 0; }
+.krole-loading { font-size: 13px; color: var(--ink-4); padding: 20px 0; }
+.krole-card-title h4 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+
+.krole-count {
+  flex-shrink: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .03em;
+  padding: 3px 10px; border-radius: var(--r-pill); white-space: nowrap;
+  background: var(--bg-2); color: var(--ink-4);
+}
+
+/* Stands in for the duty list on a role that has none. */
+.krole-note {
+  margin: 0; font-size: 12.5px; line-height: 1.55;
+  color: var(--ink-3); max-width: 68ch;
+}
+
+/* ── People holding it ── */
+.krole-members {
+  display: flex; flex-direction: column; gap: 8px; margin: 14px 0 0;
+}
+.krole-member {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-2); border: 1px solid transparent;
+  border-radius: 12px; padding: 10px 14px;
+}
+.krole-member--you { background: var(--mint-soft); border-color: rgba(31, 110, 76, .2); }
+.krole-member-av {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+  color: #fff; font-size: 12.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.krole-member-meta { flex: 1; min-width: 0; }
+.krole-member-name {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 650; color: var(--ink); line-height: 1.3;
+}
+.krole-member-mail { font-size: 11.5px; color: var(--ink-4); overflow-wrap: anywhere; }
+.krole-you-chip {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  background: var(--mint-deep); color: #fff; border-radius: var(--r-pill); padding: 1px 6px;
+}
+.krole-member-hours {
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+  white-space: nowrap; flex-shrink: 0;
+}
+.krole-vacant { font-size: 12.5px; color: var(--ink-4); font-style: italic; }
+
+/* ── Duties ── */
+.krole-duties-wrap { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+.krole-duties { list-style: none; margin: 0; padding: 0; counter-reset: duty; }
+.krole-duty {
+  counter-increment: duty; position: relative;
+  padding: 0 0 13px 27px; margin-bottom: 11px;
+  border-bottom: 1px solid var(--line);
+}
+.krole-duty:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 2px; }
+.krole-duty::before {
+  content: counter(duty); position: absolute; left: 0; top: 1px;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: var(--bg-2); color: var(--ink-3);
+  font-size: 10.5px; font-weight: 700; line-height: 19px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.krole-duty-head {
+  display: flex; align-items: baseline; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 3px;
+}
+.krole-duty-title { font-size: 13px; font-weight: 650; color: var(--ink); }
+.krole-cadence {
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--bg-2); border-radius: var(--r-pill);
+  padding: 2px 8px; white-space: nowrap;
+}
+.krole-duty-detail {
+  margin: 0; font-size: 12.5px; line-height: 1.55;
+  color: var(--ink-3); max-width: 68ch;
+}
+
+.krole-duty-links {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 7px;
+}
+.krole-duty-links > a {
+  font-size: 12px; font-weight: 600; color: var(--mint-deep); text-decoration: none;
+}
+.krole-duty-links > a:hover { text-decoration: underline; }
+
+.krole-show {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 650; text-decoration: none !important;
+  color: var(--mint-deep); background: var(--mint-soft);
+  border: 1px solid rgba(31, 110, 76, .16);
+  border-radius: var(--r-pill); padding: 3px 11px 3px 9px;
+  transition: background .15s ease, border-color .15s ease;
+}
+.krole-show:hover { background: #d9ecdf; border-color: rgba(31, 110, 76, .38); }
+
+/* ── Company context ── */
+.krole-sec { margin-top: 30px; }
+.krole-sec-head { margin-bottom: 13px; }
+.krole-sec-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+.krole-sec-head p  { margin: 3px 0 0; font-size: 12.5px; color: var(--ink-3); max-width: 62ch; }
+
+
+.krole-org {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.krole-org-row { display: flex; gap: 13px; align-items: flex-start; }
+.krole-org-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--mint-deep); margin-top: 6px; flex-shrink: 0;
+}
+.krole-org-tier { font-weight: 650; font-size: 13px; color: var(--ink); }
+.krole-org-desc { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; line-height: 1.5; }
+
+@media (max-width: 720px) {
+    .krole-card-head { flex-wrap: wrap; }
+  .krole-member { flex-wrap: wrap; }
+}
+
+/* ── Bug Report: which section the report came from ── */
+.kbug-context {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 9px 13px;
+  background: var(--mint-soft); border: 1px solid rgba(31, 110, 76, .16);
+  border-radius: 10px; font-size: 12.5px; color: var(--ink-2);
+}
+.kbug-context > svg { color: var(--mint-deep); flex-shrink: 0; }
+.kbug-context-link {
+  margin-left: auto; font-size: 12px; font-weight: 600;
+  color: var(--mint-deep); text-decoration: none;
+}
+.kbug-context-link:hover { text-decoration: underline; }
+
+
+/* ─────────────────────────────────────────────────────────────
+   Spotlight — the "Show me" overlay
+───────────────────────────────────────────────────────────── */
+
+.kspot { position: fixed; inset: 0; z-index: 9000; }
+
+.kspot-scrim {
+  position: absolute; inset: 0;
+  background: rgba(10, 28, 20, .5);
+  animation: kspot-fade .18s ease-out;
+}
+
+/* The ring is the cut-out: everything outside it is dimmed by the shadow,
+   so the highlighted control keeps its real colours. */
+.kspot-ring {
+  position: fixed; border-radius: 12px; pointer-events: none;
+  border: 2px solid var(--mint-2);
+  box-shadow: 0 0 0 9999px rgba(10, 28, 20, .5), 0 0 0 5px rgba(125, 211, 168, .28);
+  animation: kspot-pop .22s cubic-bezier(.2, .9, .3, 1.2);
+  transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
+}
+
+.kspot-tip {
+  position: fixed; z-index: 1; max-width: calc(100vw - 24px);
+  background: var(--card); border: 1px solid var(--line-strong);
+  border-radius: var(--r-card); box-shadow: var(--shadow-pop);
+  padding: 14px 16px 12px;
+  animation: kspot-pop .22s cubic-bezier(.2, .9, .3, 1.2);
+}
+
+.kspot-tip-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 6px;
+}
+.kspot-tip-flow {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--mint-deep);
+}
+.kspot-x {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  font-size: 13px; line-height: 1; color: var(--ink-4);
+}
+.kspot-x:hover { color: var(--ink); }
+
+.kspot-tip-title { font-size: 14px; font-weight: 700; color: var(--ink); }
+.kspot-tip-body {
+  margin: 5px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3);
+}
+
+.kspot-tip-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 13px;
+}
+.kspot-dots { display: flex; gap: 5px; }
+.kspot-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--ink-5);
+  transition: background .15s ease;
+}
+.kspot-dot--on { background: var(--mint-deep); }
+.kspot-btns { display: flex; gap: 8px; }
+.kspot-btn { padding: 5px 14px; font-size: 12.5px; }
+
+@keyframes kspot-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kspot-pop {
+  from { opacity: 0; transform: scale(.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kspot-ring, .kspot-tip, .kspot-scrim { animation: none; transition: none; }
+}

@@ -1417,7 +1417,7 @@ function Production() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <RegionSwitch untagged={countUntagged(activeTab === "batches" ? allBatches : allOrders)} />
             {(activeTab === "orders" || activeTab === "pipeline") && canEdit && (
-              <button className="primary-button" onClick={() => setShowOrderForm(true)}>
+              <button className="primary-button" data-tour="new-order" onClick={() => setShowOrderForm(true)}>
                 + New Order
               </button>
             )}
@@ -1435,7 +1435,7 @@ function Production() {
 
       {/* ── Tabs & Monthly View Toggle ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        <div className="tab-row" style={{ marginBottom: 0 }}>
+        <div className="tab-row" data-tour="production-tabs" style={{ marginBottom: 0 }}>
           <button
             className={cn("tab-button", activeTab === "pipeline" && "active")}
             onClick={() => setActiveTab("pipeline")}
