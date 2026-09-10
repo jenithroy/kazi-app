@@ -9,6 +9,7 @@ import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE } from "../constants";
 import { scrollAppToTop } from "../utils/scroll";
+import { todayDate } from "../utils/date";
 import {
   DOC_TYPES, STATUS_BY_TYPE, BANK_NAMES, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
@@ -184,6 +185,11 @@ function Billing() {
   const [payModal, setPayModal]     = useState(null); // { id, docNum, totalNPR, currentPaid, coll }
   const [payAmt, setPayAmt]         = useState("");
   const [payError, setPayError]     = useState(""); // Fix 6: payment ceiling error
+  const [payDate, setPayDate]       = useState("");
+  const [payMethod, setPayMethod]   = useState("Bank");
+  const [payRef, setPayRef]         = useState("");
+  const [paySaving, setPaySaving]   = useState(false);
+  const [payHistory, setPayHistory] = useState([]);
 
   // Fix 6: PAN validation error
   const [panError, setPanError] = useState("");
@@ -360,13 +366,31 @@ function Billing() {
         };
         // Manually flipping an invoice to Paid must settle its credit — otherwise
         // the badge says Paid while Credit Due/Record Payment still show an
-        // outstanding balance from before the status was changed.
-        if (tab === "invoice" && form.status === "Paid") updates.amountPaid = total;
+        // outstanding balance from before the status was changed. Writing
+        // amountPaid straight in would not survive: it is now derived from the
+        // payments table by trigger, so the next real payment would recompute
+        // it and the settlement would silently vanish. Book the balance as a
+        // payment instead, which is also the honest record of what happened.
+        const settleNPR = tab === "invoice" && form.status === "Paid"
+          ? Math.max(0, total - Number(form.amountPaid || 0)) : 0;
         // Remove read-only fields that shouldn't be overwritten
         delete updates.createdAt;
         delete updates.createdBy;
         delete updates.id;
+        delete updates.amountPaid;   // trigger-owned on invoices
         await updateRow(meta.coll, editingId, updates);
+        if (settleNPR > 0.005) {
+          await insertRow("payments", {
+            invoiceId:  editingId,
+            customerId: form.customerId || null,
+            paidOn:     todayDate(),
+            amount:     settleNPR,
+            method:     form.paymentType || null,
+            note:       "Settled by marking the invoice Paid.",
+            recordedBy: profile?.name || "Unknown",
+            region:     form.region || region,
+          });
+        }
         setEditingId(null);
       } else {
         /* ── CREATE new document ── */
@@ -433,9 +457,15 @@ function Billing() {
     await loadAll();
   }
 
-  /* ── Record payment (partial or full) ── */
+  /* ── Record payment (partial or full) ──
+     Each payment is its own row in `payments`, carrying the date it actually
+     arrived. The invoice's amountPaid is recomputed from those rows by a
+     database trigger, so it stays the cheap running total every dashboard
+     already reads -- but it is now a summary of a history rather than a
+     number that overwrote the last one. Status stays app-side, because the
+     database must not decide that a cancelled invoice is Paid. */
   async function recordPayment() {
-    if (!payModal) return;
+    if (!payModal || paySaving) return;
     const newAmt = Number(payAmt);
     if (isNaN(newAmt) || newAmt <= 0) { setPayError("Enter a valid payment amount."); return; }
     // Fix 6: payment ceiling — cannot exceed outstanding balance
@@ -445,13 +475,56 @@ function Billing() {
       return;
     }
     setPayError("");
-    const totalPaid = Math.min(payModal.currentPaid + newAmt, payModal.totalNPR);
-    const creditLeft = payModal.totalNPR - totalPaid;
-    const newStatus  = creditLeft <= 0.005 ? "Paid" : "Partial";
-    await updateRow(payModal.coll, payModal.id, { amountPaid: totalPaid, status: newStatus });
+    setPaySaving(true);
+    try {
+      const totalPaid = Math.min(payModal.currentPaid + newAmt, payModal.totalNPR);
+      const creditLeft = payModal.totalNPR - totalPaid;
+      const newStatus  = creditLeft <= 0.005 ? "Paid" : "Partial";
+
+      // The modal works in rupees; the row is stored in the invoice's own
+      // currency so the trigger's sum stays comparable with total_npr.
+      await insertRow("payments", {
+        invoiceId:  payModal.id,
+        customerId: payModal.customerId || null,
+        paidOn:     payDate || todayDate(),
+        amount:     payModal.isGBP ? newAmt / GBP_RATE : newAmt,
+        method:     payMethod || null,
+        bankName:   payMethod === "Bank" ? (payModal.bankName || null) : null,
+        reference:  payRef.trim() || null,
+        recordedBy: profile?.name || "Unknown",
+        region:     payModal.region || null,
+      });
+      // The trigger has already written amountPaid; only the workflow status
+      // is ours to set.
+      await updateRow("invoices", payModal.id, { status: newStatus });
+
+      closePayModal();
+      await loadAll();
+    } catch (err) {
+      console.error("Failed to record payment:", err);
+      setPayError("Could not save the payment. Please try again.");
+    } finally {
+      setPaySaving(false);
+    }
+  }
+
+  function closePayModal() {
     setPayModal(null);
-    setPayAmt("");
-    await loadAll();
+    setPayAmt(""); setPayError(""); setPayRef("");
+    setPayDate(""); setPayMethod("Bank"); setPayHistory([]);
+  }
+
+  /* Payments already recorded against the invoice being paid. */
+  async function loadPayHistory(invoiceId) {
+    try {
+      setPayHistory(await fetchAll("payments", {
+        filters: [{ field: "invoiceId", value: invoiceId }],
+        orderBy: "paidOn", orderDir: "desc",
+      }));
+    } catch (err) {
+      console.error("Failed to load payment history:", err);
+      setPayHistory([]);
+    }
   }
 
   /* ── Convert Quotation → Invoice ── */
@@ -623,7 +696,7 @@ function Billing() {
               tab === "invoice" ? allInvoices : tab === "challan" ? allChallans : allQuotations
             )} />
             {canEdit && (
-              <button className="kbil-btn-primary" onClick={() => {
+              <button className="kbil-btn-primary" data-tour="new-doc" onClick={() => {
                 if (showForm) { setShowForm(false); setEditingId(null); setForm(makeEmptyForm(tab)); }
                 else { setEditingId(null); setForm(makeEmptyForm(tab)); setShowForm(true); }
               }}>
@@ -634,7 +707,7 @@ function Billing() {
         </div>
 
         {/* ── Tabs ── */}
-        <div className="tab-row">
+        <div className="tab-row" data-tour="billing-tabs">
           {Object.entries(DOC_TYPES).map(([key, dt]) => {
             const count = key === "invoice" ? invoices.length : key === "challan" ? challans.length : quotations.length;
             return (
@@ -1074,7 +1147,7 @@ function Billing() {
         )}
 
         {/* ══ Document List ══ */}
-        <div className="kfin-block">
+        <div className="kfin-block" data-tour="billing-list">
           <div className="kfin-block-hd">
             <h2 className="kfin-block-title">
               {meta.label}s <span className="kfin-block-sub">({activeDocs.length}{searchQuery ? ` of ${activeList.filter(r => r.status !== "Cancelled").length}` : ""})</span>
@@ -1221,8 +1294,10 @@ function Billing() {
                               <button
                                 className="kbil-tbl-btn kbil-tbl-btn--ok"
                                 onClick={() => {
-                                  setPayModal({ id: row.id, docNum: row.invoiceNumber, totalNPR: row.currency === "GBP" ? (row.totalNPR || 0) * GBP_RATE : (row.totalNPR || 0), currentPaid: row.amountPaid || 0, coll: meta.coll });
-                                  setPayAmt("");
+                                  setPayModal({ id: row.id, docNum: row.invoiceNumber, totalNPR: row.currency === "GBP" ? (row.totalNPR || 0) * GBP_RATE : (row.totalNPR || 0), currentPaid: row.currency === "GBP" ? (row.amountPaid || 0) * GBP_RATE : (row.amountPaid || 0), coll: meta.coll, customerId: row.customerId || null, region: row.region || null, bankName: row.bankName || null, isGBP: row.currency === "GBP" });
+                                  setPayAmt(""); setPayError(""); setPayRef("");
+                                  setPayDate(todayDate()); setPayMethod(row.paymentType || "Bank");
+                                  loadPayHistory(row.id);
                                 }}
                               >
                                 {(row.amountPaid || 0) > 0 ? "Add Payment" : "Record Payment"}
@@ -1385,6 +1460,33 @@ function Billing() {
                 style={{ marginTop: 4 }}
               />
             </label>
+            {/* The date is the whole point of recording payments separately —
+                without it there is no way to tell how long anyone takes to pay. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+              <label className="kfin-label">
+                Date Received
+                <input className="kfin-input" type="date" value={payDate}
+                  max={todayDate()}
+                  onChange={e => setPayDate(e.target.value)} style={{ marginTop: 4 }} />
+              </label>
+              <label className="kfin-label">
+                Method
+                <select className="kfin-input" value={payMethod}
+                  onChange={e => setPayMethod(e.target.value)} style={{ marginTop: 4 }}>
+                  <option>Bank</option>
+                  <option>Cash</option>
+                  <option>Cheque</option>
+                  <option>Online</option>
+                  <option>Other</option>
+                </select>
+              </label>
+            </div>
+            <label className="kfin-label" style={{ display: "block", marginTop: 10 }}>
+              Reference <span style={{ fontWeight: 400, color: "var(--ink-4)" }}>(optional)</span>
+              <input className="kfin-input" type="text" value={payRef}
+                placeholder="Cheque no., transaction id…"
+                onChange={e => setPayRef(e.target.value)} style={{ marginTop: 4 }} />
+            </label>
             {payAmt && Number(payAmt) > 0 && (
               <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8, lineHeight: 1.6 }}>
                 Total paid after: <strong>{fmtNPR(Math.min(payModal.currentPaid + Number(payAmt), payModal.totalNPR))}</strong><br />
@@ -1399,9 +1501,29 @@ function Billing() {
                 {payError}
               </div>
             )}
+            {payHistory.length > 0 && (
+              <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
+                  Payments so far
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 132, overflowY: "auto" }}>
+                  {payHistory.map(p => (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
+                      <span style={{ color: "var(--ink-3)" }}>
+                        {p.isOpening ? "Date unknown" : fmtDate(p.paidOn)}
+                        {p.method && !p.isOpening ? ` · ${p.method}` : ""}
+                      </span>
+                      <strong>{fmtNPR(Number(p.amountNPR || 0))}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-              <button className="kbil-btn-primary" onClick={recordPayment}>Save Payment</button>
-              <button className="kbil-btn-ghost" onClick={() => { setPayModal(null); setPayAmt(""); setPayError(""); }}>Cancel</button>
+              <button className="kbil-btn-primary" onClick={recordPayment} disabled={paySaving}>
+                {paySaving ? "Saving…" : "Save Payment"}
+              </button>
+              <button className="kbil-btn-ghost" onClick={closePayModal}>Cancel</button>
             </div>
           </div>
         </div>

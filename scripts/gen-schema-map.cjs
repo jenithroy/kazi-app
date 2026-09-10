@@ -55,6 +55,7 @@ const COLLECTIONS = {
   order_costs:        { view: 'fs_order_costs',        table: 'order_costs' },
   orders:             { view: 'fs_orders',             table: 'orders' },
   patterns:           { view: 'fs_patterns',           table: 'patterns' },
+  payments:           { view: 'fs_payments',           table: 'payments' },
   // Read directly — these are the permission matrix itself, not Firestore
   // collections that needed a compatibility shape.
   positions:          { view: null,                    table: 'positions' },

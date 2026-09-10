@@ -12,6 +12,7 @@ import { todayDate, tsMillis } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
+import CustomerPicker from "../components/CustomerPicker";
 import { notifyStageChange } from "../utils/telegram";
 import { useCurrency } from "../context/CurrencyContext";
 import { useRegion } from "../context/RegionContext";
@@ -96,6 +97,7 @@ const emptyOrderForm = {
   date: todayDate(),
   deliveryDate: "",
   customerName: "",
+  customerId: "",
   styleName: "",
   fabricType: "Terry Cotton",
   colorway: "",
@@ -897,6 +899,7 @@ function Production() {
   const [labourRatePerUnit, setLabourRatePerUnit] = useState(null);
   const [allFabrics, setFabrics] = useState([]);
   const [allSamples, setSamples] = useState([]);
+  const [allCustomers, setCustomers] = useState([]);
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -926,6 +929,7 @@ function Production() {
   const fabrics  = useMemo(() => filterByRegion(allFabrics,  region), [allFabrics,  region]);
   const samples  = useMemo(() => filterByRegion(allSamples,  region), [allSamples,  region]);
   const invoices = useMemo(() => filterByRegion(allInvoices, region), [allInvoices, region]);
+  const customers = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
 
   /* ── Recommendation state & helpers ── */
   const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
@@ -978,7 +982,7 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows] = await Promise.all([
+    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows] = await Promise.all([
       fetchAll("production"),
       fetchAll("orders"),
       fetchAll("employees"),
@@ -987,9 +991,11 @@ function Production() {
       fetchAll("finance_payroll"),
       fetchAll("fabrics"),
       fetchAll("samples"),
+      fetchAll("customers"),
     ]);
     setFabrics(fabricRows);
     setSamples(sampleRows);
+    setCustomers(customerRows);
     const batchRows = [...batchRowsRaw];
     batchRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setBatches(batchRows);
@@ -1168,6 +1174,13 @@ function Production() {
 
   async function submitOrder(e) {
     e.preventDefault();
+    // The picker's `required` select is unmounted while its inline "add new
+    // customer" panel is open, so the browser cannot enforce this for us at
+    // exactly the moment a half-finished customer is on screen.
+    if (!(orderForm.customerName || "").trim()) {
+      showError("Pick a customer, or finish adding the new one, before saving the order.");
+      return;
+    }
     setSavingOrder(true);
     const total = Number(orderForm.quantity || 0) * Number(orderForm.pricePerPcNPR || 0);
     const materialCostTotalNPR = Number(orderForm.quantity || 0) * Number(orderForm.fabricCostPerPcNPR || 0);
@@ -1189,6 +1202,7 @@ function Production() {
       // Edit existing order
       await updateRow("orders", editingOrder.id, {
         customerName:  orderForm.customerName,
+        customer_id:   orderForm.customerId || null,
         styleName:     orderForm.styleName,
         fabricType:    orderForm.fabricType,
         colorway:      orderForm.colorway,
@@ -1234,6 +1248,11 @@ function Production() {
       delete orderDoc.assignedTo;
       orderDoc.assigned_to = orderForm.assignedTo || null;
       orderDoc.sampleId = orderForm.sampleId || null;
+      // customerId is the form's own key; the column is customer_id, and
+      // toRow() drops anything it cannot map rather than erroring, so the
+      // link has to be spelled out here or it silently never persists.
+      delete orderDoc.customerId;
+      orderDoc.customer_id = orderForm.customerId || null;
       const orderRef = await insertRow("orders", orderDoc);
       if (issueInvoice && invNum) {
         const invDoc = buildInvoiceDoc(
@@ -1263,6 +1282,7 @@ function Production() {
       date:          order.date || todayDate(),
       deliveryDate:  order.deliveryDate || "",
       customerName:  order.customerName || "",
+      customerId:    order.customer_id || "",
       styleName:     order.styleName || "",
       fabricType:    order.fabricType || "Terry Cotton",
       colorway:      order.colorway || "",
@@ -2024,9 +2044,15 @@ function Production() {
                   onChange={e => setOrderForm(f => ({ ...f, deliveryDate: e.target.value }))} />
               </label>
               <label style={{ gridColumn: "span 2" }}>
-                Customer Name
-                <input type="text" value={orderForm.customerName} required placeholder="e.g. RetailCorp UK"
-                  onChange={e => setOrderForm(f => ({ ...f, customerName: e.target.value }))} />
+                Customer
+                <CustomerPicker
+                  customers={customers}
+                  valueId={orderForm.customerId}
+                  valueName={orderForm.customerName}
+                  onChange={({ id, name }) => setOrderForm(f => ({ ...f, customerId: id, customerName: name }))}
+                  onCustomerCreated={c => setCustomers(list => [...list, c])}
+                  canCreate={sectionCanEdit(profile, "customers")}
+                />
               </label>
               <label>
                 Style / Item Name
