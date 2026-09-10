@@ -154,7 +154,12 @@ function AppLayout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { profile } = useAuth();
-  const noPadding = location.pathname.startsWith("/marketing");
+
+  // Full-bleed surfaces: these pages manage their own scrolling and need to
+  // reach the bottom of the window, so the shell must not pad or scroll them.
+  // Messenger in particular pins a composer to the bottom edge.
+  const noPadding =
+    location.pathname.startsWith("/marketing") || location.pathname.startsWith("/messenger");
 
   // Close mobile sidebar on route change
   useEffect(() => {

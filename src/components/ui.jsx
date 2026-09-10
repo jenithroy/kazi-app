@@ -226,4 +226,21 @@ export const Icons = {
   Message:    (p) => <Ico {...p} s={<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>}/>,
   Marketing:  (p) => <Ico {...p} s={<><path d="M22 4L12 14.01l-4-4"/><path d="M22 4L15 22l-3-7-7-3 17-8z"/></>}/>,
   Changelog:  (p) => <Ico {...p} s={<><path d="M3 12a9 9 0 109-9 9 9 0 00-8 5"/><path d="M3 4v4h4"/><path d="M12 7v5l3.5 2"/></>}/>,
+
+  /* ── Chat ─────────────────────────────────────────────── */
+  Reply:      (p) => <Ico {...p} s={<><path d="M9 14L4 9l5-5"/><path d="M4 9h9a7 7 0 017 7v4"/></>}/>,
+  Smile:      (p) => <Ico {...p} s={<><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 007 0"/><circle cx="9" cy="9.5" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="9.5" r="1" fill="currentColor" stroke="none"/></>}/>,
+  Paperclip:  (p) => <Ico {...p} d="M21 11.5l-8.8 8.8a5 5 0 01-7.1-7.1l9-9a3.4 3.4 0 014.8 4.8l-9 9a1.8 1.8 0 01-2.5-2.5l8.3-8.3"/>,
+  Trash:      (p) => <Ico {...p} s={<><path d="M4 7h16M10 7V5a1 1 0 011-1h2a1 1 0 011 1v2"/><path d="M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13"/><path d="M10 11v6M14 11v6"/></>}/>,
+  Copy:       (p) => <Ico {...p} s={<><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></>}/>,
+  More:       (p) => <Ico {...p} s={<><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></>}/>,
+  Users:      (p) => <Ico {...p} s={<><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.4 3.1-5.5 6.5-5.5s5.9 2.1 6.5 5.5"/><circle cx="18" cy="9" r="2.5"/><path d="M17 14.2c2.4.5 3.9 2.2 4.5 5.3"/></>}/>,
+  BellOff:    (p) => <Ico {...p} s={<><path d="M9 4.5A6 6 0 0118 9v4l1.5 3H8"/><path d="M6 9v4l-1.5 3h9"/><path d="M10 19a2 2 0 004 0"/><path d="M3 3l18 18"/></>}/>,
+  Download:   (p) => <Ico {...p} s={<><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 19h16"/></>}/>,
+  Play:       (p) => <Ico {...p} d="M8 5l11 7-11 7V5z" fill="currentColor"/>,
+  File:       (p) => <Ico {...p} s={<><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></>}/>,
+  Image:      (p) => <Ico {...p} s={<><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-4.5 4.5L9 13l-6 6"/></>}/>,
+  Edit:       (p) => <Ico {...p} s={<><path d="M4 20h4l10-10a2.8 2.8 0 10-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></>}/>,
+  CheckAll:   (p) => <Ico {...p} s={<><path d="M2 12.5l4 4L14 8"/><path d="M11 15.5l1.5 1.5L22 8"/></>}/>,
+  Bot:        (p) => <Ico {...p} s={<><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4"/><circle cx="12" cy="3" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1.3" fill="currentColor" stroke="none"/><path d="M1.5 13v3M22.5 13v3"/></>}/>,
 };
