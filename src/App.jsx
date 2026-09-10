@@ -13,6 +13,7 @@ import Budget from "./pages/Budget";
 import Billing from "./pages/Billing";
 import Employees from "./pages/Employees";
 import AdminPanel from "./pages/AdminPanel";
+import Usage from "./pages/Usage";
 import Directors from "./pages/Directors";
 import Customers from "./pages/Customers";
 import Messenger from "./pages/Messenger";
@@ -83,6 +84,7 @@ function App() {
         <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
         <Route path="/admin"       element={<RequireSection section="admin"><AdminPanel /></RequireSection>} />
+        <Route path="/usage"       element={<RequireSection section="usage_analytics"><Usage /></RequireSection>} />
 
         {/* Open to everyone who is signed in. */}
         <Route path="/bug-report"  element={<BugReport />} />

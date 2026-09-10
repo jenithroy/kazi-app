@@ -31,6 +31,7 @@ const NAV_ITEMS = [
   { to: "/messenger",  label: "Messenger",      Icon: Icons.Message,    group: "marketing" },
   // ── System ─────────────────────────────────────────────
   { to: "/admin",      label: "Admin",          Icon: Icons.Admin,      group: "system" },
+  { to: "/usage",      label: "Usage & Activity", Icon: Icons.Pulse,    group: "system" },
   { to: "/bug-report", label: "Bug Report",     Icon: Icons.Bug,        group: "system" },
   { to: "/changelog",  label: "Changelog",      Icon: Icons.Changelog,  group: "system" },
 ];

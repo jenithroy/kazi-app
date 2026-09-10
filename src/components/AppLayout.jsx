@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { cn, Icons, Avatar } from "./ui";
 import { isNative } from "../utils/native";
+import useActivityLog from "../hooks/useActivityLog";
 
 // Bottom nav shown on mobile/native for workers — replaces sidebar hamburger
 function BottomNav({ profile }) {
@@ -53,6 +54,7 @@ const ROUTE_LABEL = {
   content:    "Budget Requests",
   employees:  "Employee and HR",
   admin:      "Admin Panel",
+  usage:      "Usage & Activity",
   messenger:  "Messenger Chat",
   marketing:  "Marketing Calendar",
   "bug-report": "Bug Report",
@@ -154,6 +156,10 @@ function AppLayout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { profile } = useAuth();
+
+  // Records the page somebody is on and how long they stay. Here rather than
+  // in each page, so nothing has to be remembered when a page is added.
+  useActivityLog();
 
   // Full-bleed surfaces: these pages manage their own scrolling and need to
   // reach the bottom of the window, so the shell must not pad or scroll them.

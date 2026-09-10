@@ -226,6 +226,7 @@ export const Icons = {
   Message:    (p) => <Ico {...p} s={<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>}/>,
   Marketing:  (p) => <Ico {...p} s={<><path d="M22 4L12 14.01l-4-4"/><path d="M22 4L15 22l-3-7-7-3 17-8z"/></>}/>,
   Changelog:  (p) => <Ico {...p} s={<><path d="M3 12a9 9 0 109-9 9 9 0 00-8 5"/><path d="M3 4v4h4"/><path d="M12 7v5l3.5 2"/></>}/>,
+  Pulse:      (p) => <Ico {...p} d="M2.5 12.5h4l2.5-6 4 12 2.5-6h6"/>,
 
   /* ── Chat ─────────────────────────────────────────────── */
   Reply:      (p) => <Ico {...p} s={<><path d="M9 14L4 9l5-5"/><path d="M4 9h9a7 7 0 017 7v4"/></>}/>,

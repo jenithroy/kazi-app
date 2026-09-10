@@ -35,6 +35,7 @@ const SECTION_ROUTES = {
   marketing: "/marketing",
   messenger: "/messenger",
   admin: "/admin",
+  usage_analytics: "/usage",
 };
 
 function NoAccess({ profile }) {
