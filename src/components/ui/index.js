@@ -5,7 +5,7 @@
  */
 export { cn, fmt } from "./utils";
 export { Card } from "./Card";
-export { Btn } from "./Btn";
+export { Btn, IconBtn, Spinner } from "./Btn";
 export { Pill } from "./Pill";
 export { Avatar } from "./Avatar";
 export { KPI } from "./KPI";

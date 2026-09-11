@@ -7,23 +7,35 @@
  *   npm run shots -- --label kit --kit --widths 390,1440
  *
  * Phase 1 of REDESIGN.md grows this page as each kit component lands. The
- * figures below are specimens for showing the components, not business data.
+ * figures and names below are specimens for showing the components, not
+ * business data.
  */
-import { Avatar, Btn, Card, Divider, Icons, KPI, Pill, Progress, SegBar, Spark } from "../components/ui";
+import { useState } from "react";
+import { Avatar, Btn, Card, Divider, IconBtn, Icons, KPI, Pill, Progress, SegBar, Spark } from "../components/ui";
 import "./KitPreview.css";
 
-const BTN_KINDS = ["primary", "mint", "ghost", "soft", "outline", "danger"];
+const BTN_KINDS = ["primary", "secondary", "ghost", "danger", "soft", "mint"];
 const BTN_SIZES = ["xs", "sm", "md", "lg"];
 const PILL_TONES = ["neutral", "mint", "amber", "terra", "blue", "dark", "ghost"];
+const SPECIMEN_STATUSES = ["Draft", "Sent", "Partial", "Paid", "Overdue", "Cancelled", "Present", "Late", "Leave", "Absent", "Pending", "Approved", "Rejected"];
 
-function Section({ title, note, children }) {
+function Section({ id, title, note, children }) {
   return (
-    <section className="kkit-section">
+    <section className="kkit-section" id={id}>
       <h2 className="kkit-h">{title}</h2>
       {note && <p className="kkit-note">{note}</p>}
       {children}
     </section>
   );
+}
+
+function LoadingDemo() {
+  const [busy, setBusy] = useState(false);
+  const run = () => {
+    setBusy(true);
+    setTimeout(() => setBusy(false), 1500);
+  };
+  return <Btn kind="primary" loading={busy} onClick={run}>{busy ? "Saving" : "Save (click me)"}</Btn>;
 }
 
 export default function KitPreview() {
@@ -36,7 +48,7 @@ export default function KitPreview() {
         </p>
       </header>
 
-      <Section title="Buttons" note="Btn: kind × size, with icon, disabled">
+      <Section title="Buttons" note="Btn: kind × size, with an icon, loading, disabled">
         <div className="kkit-stack">
           {BTN_KINDS.map((kind) => (
             <div key={kind} className="kkit-row">
@@ -45,13 +57,36 @@ export default function KitPreview() {
                 <Btn key={size} kind={kind} size={size}>{size}</Btn>
               ))}
               <Btn kind={kind} icon={<Icons.Plus size={14} />}>With icon</Btn>
+              <Btn kind={kind} loading>Loading</Btn>
               <Btn kind={kind} disabled>Disabled</Btn>
             </div>
           ))}
+          <div className="kkit-row">
+            <span className="kkit-label">live</span>
+            <LoadingDemo />
+            <Btn kind="secondary" iconRight={<Icons.ArrowRight size={14} />}>Icon on the right</Btn>
+          </div>
         </div>
       </Section>
 
-      <Section title="Pills" note="Pill: tone, with dot">
+      <Section title="Icon buttons" note="IconBtn: label is required and becomes the accessible name and tooltip">
+        <div className="kkit-row">
+          <span className="kkit-label">ghost</span>
+          <IconBtn size="sm" icon={<Icons.Edit size={14} />} label="Edit (small)" />
+          <IconBtn icon={<Icons.More size={16} />} label="More actions" />
+          <IconBtn size="lg" icon={<Icons.Print size={18} />} label="Print (large)" />
+          <IconBtn icon={<Icons.X size={16} />} label="Disabled" disabled />
+        </div>
+        <div className="kkit-row">
+          <span className="kkit-label">secondary</span>
+          <IconBtn kind="secondary" icon={<Icons.Filter size={15} />} label="Filters" />
+          <IconBtn kind="secondary" icon={<Icons.Download size={15} />} label="Download" />
+          <span className="kkit-label">danger</span>
+          <IconBtn kind="danger" icon={<Icons.Trash size={15} />} label="Delete" />
+        </div>
+      </Section>
+
+      <Section title="Pills" note="Pill: tone, with a dot, or a status looked up in lib/status.js">
         <div className="kkit-row">
           {PILL_TONES.map((tone) => (
             <Pill key={tone} tone={tone}>{tone}</Pill>
@@ -62,18 +97,45 @@ export default function KitPreview() {
             <Pill key={tone} tone={tone} dot>{tone}</Pill>
           ))}
         </div>
+        <div className="kkit-row">
+          <span className="kkit-label">status</span>
+          {SPECIMEN_STATUSES.map((s) => (
+            <Pill key={s} status={s} />
+          ))}
+        </div>
       </Section>
 
-      <Section title="Cards and KPIs">
+      <Section title="Cards">
         <div className="kkit-grid">
-          <Card title="Card title" sub="Sub line" action={<Btn size="sm">Action</Btn>}>
-            <p className="kkit-body">Body content sits here.</p>
+          <Card title="Card title" sub="One line under the title" actions={<Btn kind="secondary" size="sm">Action</Btn>}>
+            <p className="kkit-body">Body content sits here, with the header on a hairline above it.</p>
           </Card>
-          <Card title="Flush card" pad={false} hint="Footer hint">
-            <p className="kkit-body kkit-body--pad">Flush body, footer hint below.</p>
+          <Card
+            title="A card with a long title that wraps"
+            sub="Actions drop under the title when the card is narrow"
+            actions={<><Btn kind="ghost" size="sm">Export</Btn><Btn kind="primary" size="sm" icon={<Icons.Plus size={13} />}>New</Btn></>}
+          >
+            <p className="kkit-body">Resize the window to see the header wrap.</p>
           </Card>
-          <KPI label="Specimen KPI" value="1,240" unit="pcs" deltaLabel="label under the value" />
-          <KPI label="With spark" value="86" unit="%" spark={<Spark data={[3, 5, 4, 7, 6, 9]} />} />
+          <Card title="Flush card" flush hint="Footer hint line">
+            <ul className="kkit-list">
+              <li><span>First row</span><Pill status="Paid" /></li>
+              <li><span>Second row</span><Pill status="Sent" /></li>
+              <li><span>Third row</span><Pill status="Overdue" /></li>
+            </ul>
+          </Card>
+          <Card title="With an accent" accent="var(--amber)">
+            <p className="kkit-body">A small colour tab before the title.</p>
+          </Card>
+        </div>
+      </Section>
+
+      <Section title="KPIs" note="KPI: plain, with an icon and unit, linked (to / href / onClick), with a real comparison">
+        <div className="kkit-grid">
+          <KPI label="Specimen count" value="1,240" unit="pcs" />
+          <KPI label="With an icon" value="86" unit="%" icon={<Icons.QC size={16} />} />
+          <KPI label="Linked" value="12" unit="/ 20" href="#kit-icons" deltaLabel="Opens the icon list below" />
+          <KPI label="With a comparison" value="4,380" delta={-3.2} deltaLabel="vs last month" spark={<Spark data={[3, 5, 4, 7, 6, 5]} />} />
         </div>
       </Section>
 
@@ -82,10 +144,11 @@ export default function KitPreview() {
           <Avatar name="Asha Rai" hue={145} />
           <Avatar name="Ben Clarke" hue={30} size={36} />
           <Avatar name="Chandra Gurung" hue={250} size={44} ring="var(--mint-2)" />
+          <Avatar name="" size={28} />
           <Divider vertical />
-          <div className="kkit-meter"><Progress pct={0} /></div>
-          <div className="kkit-meter"><Progress pct={45} /></div>
-          <div className="kkit-meter"><Progress pct={100} color="var(--terra)" /></div>
+          <div className="kkit-meter"><Progress pct={0} label="Empty" /></div>
+          <div className="kkit-meter"><Progress pct={45} label="Part way" /></div>
+          <div className="kkit-meter"><Progress pct={100} color="var(--terra)" label="Full" /></div>
         </div>
         <div className="kkit-meter kkit-meter--wide">
           <SegBar
@@ -98,7 +161,7 @@ export default function KitPreview() {
         </div>
       </Section>
 
-      <Section title="Icons" note={`${Object.keys(Icons).length} icons in Icons`}>
+      <Section id="kit-icons" title="Icons" note={`${Object.keys(Icons).length} icons in Icons`}>
         <div className="kkit-icons">
           {Object.entries(Icons).map(([name, Icon]) => (
             <div key={name} className="kkit-icon">

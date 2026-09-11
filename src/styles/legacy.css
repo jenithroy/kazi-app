@@ -2304,10 +2304,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .kgrid--2, .kgrid--3, .kgrid--4,
   .kgrid--3-2, .kgrid--2-3 { grid-template-columns: 1fr; }
 
-  /* ── KPI cards ── */
-  .kkpi { min-height: auto; padding: 14px; }
-  .kkpi-val .num-xl { font-size: 24px !important; }
-
   /* ── Page headers ── */
   .kph { flex-direction: column; align-items: flex-start; gap: 10px; }
   .kph h2 { font-size: 19px; }
@@ -2367,10 +2363,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .grid-form { grid-template-columns: 1fr; }
   .grid-form .full-width { grid-column: span 1; }
 
-  /* ── Cards ── */
-  .kazi-card-h { flex-wrap: wrap; gap: 8px; }
-  .kazi-card-body { padding: 8px 12px 14px; }
-
   /* ── Billing ── */
   .kbil-totals { align-items: stretch; flex-direction: column; }
   .kbil-totals-card { min-width: auto; width: 100%; }
@@ -2404,8 +2396,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .kcust-row2 { min-width: 760px; }
 
   /* ── Touch targets ── */
-  .kbtn--sm { padding: 8px 12px; }
-  .kbtn--md { padding: 10px 16px; }
   .kside-item { padding: 10px 12px; }
   .tab-button { padding: 8px 14px; }
   .tab-row { flex-wrap: wrap; }
@@ -2510,11 +2500,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* Hide search button on very small screens */
   .ktop-iconbtn[title="Search (⌘K)"] { display: none; }
 
-  /* KPI even more compact */
-  .kkpi { padding: 12px; }
-  .kkpi-val .num-xl { font-size: 20px !important; }
-  .kkpi-label { font-size: 10px; }
-
   /* Stats */
   .stats-grid { grid-template-columns: 1fr; }
   .nna-task-stats { grid-template-columns: 1fr 1fr; }
@@ -2536,9 +2521,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 
   /* Pipeline */
   .kpipe-rail { grid-template-columns: 1fr; }
-
-  /* Card padding */
-  .kazi-card-h { padding: 10px 12px 4px; }
 
   /* Tabs */
   .tab-button { padding: 6px 10px; font-size: 12px; }

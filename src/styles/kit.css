@@ -1,111 +1,201 @@
-/* The shared component kit (src/components/ui). */
+/* The shared component kit (src/components/ui).
+   Built from the Admin Panel, Usage, Messenger and Roles pages (REDESIGN.md §4.5).
+   Breakpoints follow §5.1: phone < 640, then 640–899, 900–1199, ≥ 1200. */
 
 /* ══════════════════════════════════════════════════════
-   UI PRIMITIVES — Card
+   Card
 ══════════════════════════════════════════════════════ */
 .kazi-card {
   background: var(--card); border: 1px solid var(--line);
   border-radius: var(--r-card); box-shadow: var(--shadow-1); overflow: hidden;
 }
 .kazi-card-h {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; padding: 14px 16px 4px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px 12px;
+  padding: 11px 16px; border-bottom: 1px solid var(--line);
 }
-.kazi-card-h-l { display: flex; gap: 10px; align-items: flex-start; min-width: 0; flex: 1; }
-.kazi-card-tab { width: 3px; height: 18px; border-radius: 2px; margin-top: 4px; flex: 0 0 auto; }
-.kazi-card-title {
-  margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-3);
-  letter-spacing: .04em; text-transform: uppercase;
-}
+/* Natural width: the actions only drop under the title when the two no longer fit side by side. */
+.kazi-card-h-l { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.kazi-card-tab { width: 3px; height: 16px; border-radius: var(--r-pill); flex: 0 0 auto; }
+.kazi-card-id { min-width: 0; }
+.kazi-card-title { margin: 0; font-size: 13.5px; font-weight: 650; letter-spacing: -.005em; color: var(--ink); }
 .kazi-card-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-4); }
-.kazi-card-action { display: flex; gap: 6px; align-items: center; }
-.kazi-card-body { padding: 8px 16px 16px; }
+.kazi-card-action { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kazi-card-body { padding: 14px 16px 16px; }
 .kazi-card-body--flush { padding: 0; }
 .kazi-card-foot {
-  padding: 10px 16px; border-top: 1px solid var(--line); font-size: 12px;
-  color: var(--ink-4); display: flex; gap: 8px; align-items: center;
-  background: rgba(15,46,34,.015);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid var(--line);
+  background: var(--bg); font-size: 12px; color: var(--ink-4);
 }
 
-/* ── Button ── */
+/* ══════════════════════════════════════════════════════
+   Button
+══════════════════════════════════════════════════════ */
 .kbtn {
-  display: inline-flex; align-items: center; gap: 6px; border-radius: var(--r-input);
-  font-family: var(--font); font-weight: 500; cursor: pointer; border: 1px solid transparent;
-  transition: all .15s ease; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid transparent; border-radius: var(--r-control);
+  font-family: var(--font); font-weight: 600; text-decoration: none;
+  cursor: pointer; white-space: nowrap;
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease,
+              color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
-.kbtn--xs { padding: 4px 8px; font-size: 12px; gap: 4px; }
-.kbtn--sm { padding: 6px 10px; font-size: 13px; }
-.kbtn--md { padding: 8px 14px; font-size: 13px; }
-.kbtn--lg { padding: 12px 20px; font-size: 14px; }
+.kbtn--xs { padding: 3px 8px;   font-size: 11.5px; gap: 4px; border-radius: var(--r-sm); }
+.kbtn--sm { padding: 5px 11px;  font-size: 12px;   border-radius: var(--r-sm); }
+.kbtn--md { padding: 7px 13px;  font-size: 12.5px; }
+.kbtn--lg { padding: 10px 18px; font-size: 13.5px; }
+
+.kbtn--primary { background: var(--mint-deep); border-color: var(--mint-deep); color: #fff; }
+.kbtn--primary:hover:not(:disabled) { background: var(--mint-deep-hover); border-color: var(--mint-deep-hover); }
+
+.kbtn--secondary,
+.kbtn--outline { background: var(--card); border-color: var(--line-strong); color: var(--ink-2); }
+.kbtn--secondary:hover:not(:disabled),
+.kbtn--outline:hover:not(:disabled) { background: var(--bg-2); border-color: var(--ink-5); color: var(--ink); }
+
 .kbtn--ghost { background: transparent; color: var(--ink-2); }
-.kbtn--ghost:hover { background: rgba(15,46,34,.06); }
-.kbtn--soft { background: rgba(15,46,34,.05); color: var(--ink); border-color: rgba(15,46,34,.04); }
-.kbtn--soft:hover { background: rgba(15,46,34,.08); }
-.kbtn--outline { background: #fff; color: var(--ink); border-color: var(--line-strong); }
-.kbtn--outline:hover { background: var(--bg-2); border-color: rgba(15,46,34,.22); }
-.kbtn--primary { background: var(--dark); color: #fff; border-color: var(--dark); }
-.kbtn--primary:hover { background: #0a2218; }
-.kbtn--mint { background: var(--mint); color: var(--dark); border-color: var(--mint-2); font-weight: 600; }
-.kbtn--mint:hover { background: var(--mint-2); }
-.kbtn--danger { background: var(--terra-soft); color: #6a2e1c; }
-.kbtn--danger:hover { background: #efc8b6; }
-.kbtn:disabled { opacity: .45; pointer-events: none; }
+.kbtn--ghost:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
+
+.kbtn--soft { background: var(--bg); color: var(--ink); }
+.kbtn--soft:hover:not(:disabled) { background: var(--bg-2); }
+
+.kbtn--mint { background: var(--mint); border-color: var(--mint-2); color: var(--dark); }
+.kbtn--mint:hover:not(:disabled) { background: var(--mint-2); }
+
+.kbtn--danger { background: var(--terra-soft); color: var(--terra-ink); }
+.kbtn--danger:hover:not(:disabled) { background: var(--terra-soft-hover); }
+
+.kbtn:disabled { opacity: .45; cursor: not-allowed; }
+.kbtn.is-loading:disabled { opacity: .8; cursor: progress; }
 .kbtn-ico { display: inline-flex; }
 
-/* ── Pill / Badge ── */
+.kbtn:focus-visible {
+  outline: none; border-color: var(--mint-2);
+  box-shadow: var(--focus-ring); border-radius: var(--r-control);
+}
+.kbtn--xs:focus-visible,
+.kbtn--sm:focus-visible { border-radius: var(--r-sm); }
+
+/* ── Icon-only button ── */
+.kiconbtn {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  padding: 0; border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--ink-3); cursor: pointer;
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.kiconbtn--sm { width: 26px; height: 26px; }
+.kiconbtn--md { width: 32px; height: 32px; }
+.kiconbtn--lg { width: 38px; height: 38px; border-radius: var(--r-control); }
+.kiconbtn--ghost:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
+.kiconbtn--secondary { background: var(--card); border-color: var(--line-strong); color: var(--ink-2); }
+.kiconbtn--secondary:hover:not(:disabled) { background: var(--bg-2); border-color: var(--ink-5); color: var(--ink); }
+.kiconbtn--danger:hover:not(:disabled) { background: var(--terra-soft); color: var(--terra-ink); }
+.kiconbtn:disabled { opacity: .45; cursor: not-allowed; }
+.kiconbtn:focus-visible {
+  outline: none; border-color: var(--mint-2);
+  box-shadow: var(--focus-ring); border-radius: var(--r-sm);
+}
+
+/* ── Spinner ── */
+.kspin { flex: 0 0 auto; animation: spin .8s linear infinite; }
+
+/* A finger needs a bigger target than a cursor. Only on touch, so desktop keeps its density. */
+@media (pointer: coarse) {
+  .kbtn { min-height: var(--tap); }
+  .kiconbtn { min-width: var(--tap); min-height: var(--tap); }
+}
+
+/* ══════════════════════════════════════════════════════
+   Pill
+══════════════════════════════════════════════════════ */
 .kpill {
   display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px;
-  border-radius: var(--r-pill); font-size: 11.5px; font-weight: 500;
+  border-radius: var(--r-pill); font-size: 11.5px; font-weight: 600;
   letter-spacing: .01em; line-height: 1.4; white-space: nowrap;
 }
 .kpill-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .kpill-ico { display: inline-flex; }
-.kpill--neutral   { background: rgba(15,46,34,.06); color: var(--ink-2); }
-.kpill--mint      { background: var(--mint-soft); color: var(--mint-deep); }
-.kpill--mint-solid{ background: var(--mint); color: var(--dark); }
-.kpill--amber     { background: var(--amber-soft); color: #7a5418; }
-.kpill--terra     { background: var(--terra-soft); color: #6a2e1c; }
-.kpill--blue      { background: var(--blue-soft); color: #2a4f6f; }
-.kpill--dark      { background: var(--dark); color: var(--mint); }
-.kpill--ghost     { background: transparent; color: var(--ink-3); border: 1px solid var(--line-strong); }
+.kpill--neutral    { background: var(--bg-2); color: var(--ink-2); }
+.kpill--mint       { background: var(--mint-soft); color: var(--mint-deep); }
+.kpill--mint-solid { background: var(--mint); color: var(--dark); }
+.kpill--amber      { background: var(--amber-soft); color: var(--amber-ink); }
+.kpill--terra      { background: var(--terra-soft); color: var(--terra-ink); }
+.kpill--blue       { background: var(--blue-soft); color: var(--blue-ink); }
+.kpill--dark       { background: var(--dark); color: var(--mint); }
+.kpill--ghost      { background: transparent; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
-/* ── Avatar ── */
+/* ══════════════════════════════════════════════════════
+   Avatar
+══════════════════════════════════════════════════════ */
 .kavatar {
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%; font-weight: 600; letter-spacing: -.01em;
-  font-family: var(--font); flex: 0 0 auto; flex-shrink: 0;
+  font-family: var(--font); flex: 0 0 auto;
 }
 .kstack { display: inline-flex; }
 .kstack-more {
   display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
-  background: rgba(15,46,34,.08); color: var(--ink-2); font-weight: 600;
-  box-shadow: 0 0 0 2px #fff;
+  background: var(--bg-2); color: var(--ink-2); font-weight: 600;
+  box-shadow: 0 0 0 2px var(--card);
 }
 
-/* ── KPI Card ── */
+/* ══════════════════════════════════════════════════════
+   KPI
+══════════════════════════════════════════════════════ */
 .kkpi {
-  display: flex; flex-direction: column; gap: 8px; padding: 16px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: var(--shadow-1); min-height: 116px; transition: border-color .2s; position: relative;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 104px;
+  padding: 16px; position: relative;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-1);
+  font: inherit; color: inherit; text-align: left; text-decoration: none;
+  transition: border-color var(--dur) ease, box-shadow var(--dur) ease;
 }
-.kkpi:hover { border-color: var(--line-strong); }
-.kkpi-h { display: flex; justify-content: space-between; align-items: flex-start; }
-.kkpi-label { font-size: 11px; font-weight: 600; color: var(--ink-4); letter-spacing: .08em; text-transform: uppercase; }
-.kkpi-ico { display: inline-flex; padding: 4px; background: var(--mint-soft); border-radius: 8px; }
-.kkpi-val { display: flex; align-items: baseline; gap: 4px; margin: 2px 0 0; }
-.kkpi-unit { font-size: 13px; color: var(--ink-4); font-weight: 500; }
+.kkpi-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.kkpi-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); }
+.kkpi-ico { display: inline-flex; padding: 4px; background: var(--mint-soft); border-radius: var(--r-sm); }
+.kkpi-val { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.kkpi-num { font-size: 28px; line-height: 1; color: var(--ink); }
+.kkpi-unit { font-size: 13px; font-weight: 500; color: var(--ink-4); }
 .kkpi-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; }
 .kkpi-deltal { font-size: 11.5px; color: var(--ink-4); }
 .kkpi-spark { margin-left: auto; opacity: .9; }
 
-/* ── SegBar ── */
-.ksegbar { display: flex; width: 100%; border-radius: 999px; overflow: hidden; background: rgba(15,46,34,.04); }
-.ksegbar span:not(:last-child) { border-right: 1.5px solid #fff; }
+.kkpi--link { cursor: pointer; }
+.kkpi--link:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.kkpi--link:focus-visible {
+  outline: none; border-color: var(--mint-2);
+  box-shadow: var(--focus-ring); border-radius: var(--r-card);
+}
 
-/* ── Divider ── */
+/* ══════════════════════════════════════════════════════
+   SegBar · Divider · Progress
+══════════════════════════════════════════════════════ */
+.ksegbar { display: flex; width: 100%; border-radius: var(--r-pill); overflow: hidden; background: var(--bg-2); }
+.ksegbar span:not(:last-child) { border-right: 1.5px solid var(--card); }
+
 .kdiv { display: block; height: 1px; background: var(--line); width: 100%; }
 .kdiv--v { width: 1px; height: 100%; background: var(--line); display: inline-block; }
 
-/* ── Progress bar ── */
-.kprog { width: 100%; border-radius: 999px; overflow: hidden; }
-.kprog > span { display: block; height: 100%; border-radius: 999px; transition: width .4s ease; }
+.kprog { width: 100%; border-radius: var(--r-pill); overflow: hidden; }
+.kprog > span { display: block; height: 100%; border-radius: var(--r-pill); transition: width var(--dur-slow) var(--ease-out); }
+
+/* ══════════════════════════════════════════════════════
+   Narrow screens
+══════════════════════════════════════════════════════ */
+@media (max-width: 639px) {
+  .kazi-card-h { padding: 10px 14px; }
+  .kazi-card-body { padding: 12px 14px 14px; }
+  .kazi-card-foot { padding: 10px 14px; }
+  .kkpi { padding: 14px; min-height: 0; }
+  .kkpi-num { font-size: 24px; }
+}
+@media (max-width: 399px) {
+  .kkpi { padding: 12px; }
+  .kkpi-num { font-size: 20px; }
+  .kkpi-label { font-size: 10.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kbtn, .kiconbtn, .kkpi, .kprog > span { transition: none; }
+  .kspin { animation-duration: 2.4s; }
+}

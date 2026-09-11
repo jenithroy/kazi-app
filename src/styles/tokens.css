@@ -56,8 +56,9 @@
   /* ── Semantic tokens (REDESIGN.md §4.2) ──────────────────────
      Values that were repeated as raw literals across the pages. */
 
-  /* hover on a mint-deep fill */
-  --mint-deep-hover: #185a3d;
+  /* hover on a mint-deep fill, and on a terra-soft (danger) fill */
+  --mint-deep-hover:  #185a3d;
+  --terra-soft-hover: #efc8b6;
 
   /* text on a soft status fill: legible on --*-soft, still reads as the tone */
   --terra-ink: #6a2e1c;

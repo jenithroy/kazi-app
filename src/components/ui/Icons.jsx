@@ -74,4 +74,19 @@ export const Icons = {
   Edit:       (p) => <Ico {...p} s={<><path d="M4 20h4l10-10a2.8 2.8 0 10-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></>}/>,
   CheckAll:   (p) => <Ico {...p} s={<><path d="M2 12.5l4 4L14 8"/><path d="M11 15.5l1.5 1.5L22 8"/></>}/>,
   Bot:        (p) => <Ico {...p} s={<><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4"/><circle cx="12" cy="3" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1.3" fill="currentColor" stroke="none"/><path d="M1.5 13v3M22.5 13v3"/></>}/>,
+
+  /* ── Kit ──────────────────────────────────────────────── */
+  ArrowUp:    (p) => <Ico {...p} d="M12 19V5M6 11l6-6 6 6"/>,
+  ArrowDown:  (p) => <Ico {...p} d="M12 5v14M6 13l6 6 6-6"/>,
+  ArrowLeft:  (p) => <Ico {...p} d="M19 12H5M11 6l-6 6 6 6"/>,
+  ChevronUp:  (p) => <Ico {...p} d="M6 15l6-6 6 6"/>,
+  Minus:      (p) => <Ico {...p} d="M5 12h14"/>,
+  Print:      (p) => <Ico {...p} s={<><path d="M6 9V3h12v6"/><rect x="6" y="14" width="12" height="7" rx="1"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/></>}/>,
+  Upload:     (p) => <Ico {...p} s={<><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M4 19h16"/></>}/>,
+  Sort:       (p) => <Ico {...p} s={<><path d="M8 20V4M4 8l4-4 4 4"/><path d="M16 4v16M12 16l4 4 4-4"/></>}/>,
+  Undo:       (p) => <Ico {...p} s={<><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></>}/>,
+  Grip:       (p) => <Ico {...p} s={<><circle cx="9" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.3" fill="currentColor" stroke="none"/></>}/>,
+  Info:       (p) => <Ico {...p} s={<><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.8v.1"/></>}/>,
+  CheckCircle:(p) => <Ico {...p} s={<><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></>}/>,
+  Lock:       (p) => <Ico {...p} s={<><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></>}/>,
 };
