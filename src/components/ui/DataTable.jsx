@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Btn, IconBtn } from "./Btn";
+import { EmptyState, ErrorState } from "./Feedback";
 import { Icons } from "./Icons";
 import { cn } from "./utils";
 
@@ -136,15 +137,9 @@ export function DataTable({
   /* ── states ── */
   let state = null;
   if (error) {
-    state = (
-      <div className="k-dt-state is-error" role="alert">
-        <Icons.Alert size={18} />
-        <span>{error}</span>
-        {onRetry && <Btn kind="secondary" size="sm" onClick={onRetry}>Try again</Btn>}
-      </div>
-    );
+    state = <ErrorState size="sm" title={error} onRetry={onRetry} />;
   } else if (!loading && rows.length === 0) {
-    state = <div className="k-dt-state">{typeof empty === "string" ? <span>{empty}</span> : empty}</div>;
+    state = typeof empty === "string" ? <EmptyState size="sm">{empty}</EmptyState> : empty;
   }
 
   /* ── cards ── */

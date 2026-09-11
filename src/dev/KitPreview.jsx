@@ -17,6 +17,7 @@ import {
   Field, FormGrid, FormSection, FormActions, Input, Textarea, Select, Checkbox, Switch,
   DataTable, Menu, MenuDivider, MenuItem, MenuLabel, Money, RowActions,
   Dialog, Sheet, FilterBar, notify, useConfirm,
+  Banner, EmptyState, ErrorState, Skeleton, SkeletonGroup, StatStrip,
 } from "../components/ui";
 import { useCurrency } from "../context/CurrencyContext";
 import "./KitPreview.css";
@@ -282,6 +283,80 @@ function MenuMoneyDemo() {
   );
 }
 
+function BannersDemo() {
+  const [dismissed, setDismissed] = useState(false);
+  return (
+    <div className="kkit-stack">
+      <Banner tone="viewonly" title="View only">Your role can see this page but not change it. Ask an admin if you need to log expenses.</Banner>
+      <Banner tone="info">Showing Nepal records. Records with no region show under both UK and Nepal.</Banner>
+      {dismissed
+        ? <Btn kind="ghost" size="sm" onClick={() => setDismissed(false)}>Bring the dismissed banner back</Btn>
+        : <Banner tone="success" onDismiss={() => setDismissed(true)}>Payroll for this month is saved.</Banner>}
+      <Banner tone="warn" title="3 unsaved changes" action={<Btn kind="secondary" size="sm">Review changes</Btn>}>
+        Leaving this page throws them away.
+      </Banner>
+      <Banner tone="error" action={<Btn kind="secondary" size="sm">Try again</Btn>}>
+        Bank balances could not load, so the figures below may be out of date.
+      </Banner>
+    </div>
+  );
+}
+
+function StatesDemo() {
+  return (
+    <div className="kkit-grid kkit-grid--wide">
+      <Card title="Empty">
+        <EmptyState
+          icon={<Icons.File size={22} />}
+          title="No expenses logged this month"
+          action={<Btn kind="primary" size="sm" icon={<Icons.Plus size={13} />}>Add expense</Btn>}
+        >
+          Expenses you log appear here, newest first.
+        </EmptyState>
+      </Card>
+      <Card title="Small, restricted">
+        <EmptyState size="sm" tone="restricted" icon={<Icons.Lock size={18} />} title="Payroll is hidden for your role">
+          Ask an admin if your job needs it.
+        </EmptyState>
+      </Card>
+      <Card title="Error">
+        <ErrorState title="Expenses could not load" onRetry={() => notify("Retrying (specimen)")}>
+          Check the connection, then try again.
+        </ErrorState>
+      </Card>
+      <Card title="Skeleton">
+        <SkeletonGroup label="Loading specimen list">
+          <Skeleton variant="title" />
+          <Skeleton lines={3} />
+          <div className="kkit-row kkit-row--tight">
+            <Skeleton variant="circle" />
+            <Skeleton width="55%" />
+          </div>
+          <Skeleton variant="block" height="72px" />
+        </SkeletonGroup>
+      </Card>
+    </div>
+  );
+}
+
+function StatStripDemo() {
+  const four = [
+    <KPI key="rev" label="Revenue" value={<Money amount={252400} secondary={false} />} deltaLabel="This month" />,
+    <KPI key="exp" label="Expenses" value={<Money amount={118650} secondary={false} />} deltaLabel="This month" />,
+    <KPI key="due" label="Owed to us" value={<Money amount={113750} secondary={false} tone="owed" />} deltaLabel="Across 3 invoices" />,
+    <KPI key="ord" label="Active orders" value="26" unit="/ 47" deltaLabel="20 completed" />,
+  ];
+  return (
+    <div className="kkit-stack">
+      <StatStrip label="Four KPIs">{four}</StatStrip>
+      <StatStrip label="Three KPIs">{four.slice(0, 3)}</StatStrip>
+      <div className="kkit-w320">
+        <StatStrip label="Four KPIs in a 320 px box">{four}</StatStrip>
+      </div>
+    </div>
+  );
+}
+
 function OverlaysDemo() {
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -533,6 +608,18 @@ export default function KitPreview() {
         <div className="kkit-frame">
           <FilterBarDemo />
         </div>
+      </Section>
+
+      <Section title="Banners" note="Banner: a message that stays while its condition holds. Info, success, warn, error, view only; with a title, an action, a dismiss.">
+        <BannersDemo />
+      </Section>
+
+      <Section title="Empty, error and loading" note="EmptyState says why an area is empty and what fills it; ErrorState offers another try; Skeleton stands in while data loads.">
+        <StatesDemo />
+      </Section>
+
+      <Section title="Stat strip" note="StatStrip reads its own width: all KPIs in a row, then two across, then one. Three KPIs get three columns, not a gap.">
+        <StatStripDemo />
       </Section>
 
       <Section title="Data table" note="DataTable with RowActions and Money: sort by a header, click a row, open the More menu. The narrow copy turns rows into cards.">

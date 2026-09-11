@@ -607,9 +607,9 @@ Each phase ends with a **review stop.** You check the branch in your browser bef
    - ✅ Tabs / Segmented (`42711f5`). Arrow-key, Home and End navigation checked by script; more than five tabs become a grouped select on phones.
    - ✅ Field / FormGrid / FormSection / FormActions / Input / Select / Textarea / Checkbox / Switch (`2ddd9e6`). Controls stay native elements so Enter-to-advance still finds them; FormGrid collapses by the form's own width (container queries). Label, hint and error wiring checked by script.
    - ✅ DataTable / RowActions / Menu / Money (`a1ffb4f`). DataTable switches to cards by its own width, with column phone roles, sorting, totals, row tints, expandable rows, a sticky first column and loading / empty / error states. Menu is portalled with keyboard support; Money follows the NPR / GBP toggle. Sorting, row clicks, the menu and the currency switch checked by script.
-   - ✅ Dialog / Sheet / ConfirmDialog (`useConfirm`) / `notify` toasts / FilterBar. One overlay layer: portalled, focus trapped and returned, Escape and backdrop (switchable off while saving), nested stacking, scroll lock, sticky footer. Dialog is a bottom sheet on phones; Sheet is a right drawer from 900 px. `ConfirmProvider` is mounted in `main.jsx`. Focus, dismissal, confirms and the phone variants checked by script.
-   - 🔄 Banner / EmptyState / Skeleton / StatStrip
-   - ⬜ Stepper / Kanban / MonthGrid / Agenda
+   - ✅ Dialog / Sheet / ConfirmDialog (`useConfirm`) / `notify` toasts / FilterBar (`6b04130`). One overlay layer: portalled, focus trapped and returned, Escape and backdrop (switchable off while saving), nested stacking, scroll lock, sticky footer. Dialog is a bottom sheet on phones; Sheet is a right drawer from 900 px. `ConfirmProvider` is mounted in `main.jsx`. Focus, dismissal, confirms and the phone variants checked by script.
+   - ✅ Banner / EmptyState / ErrorState / Skeleton / SkeletonGroup / StatStrip. DataTable now uses the shared empty and error states. StatStrip reads its own width (4 → 2 → 1, two across down to a 360 px phone) and shrinks KPI figures inside narrow strips.
+   - 🔄 Stepper / Kanban / MonthGrid / Agenda
    - ⬜ FileDrop / Popover / Statement / BarList / ChartFrame
 5. 🔄 `/__kit` page showing every component in every state, screenshotted at 390 and 1440. (Grows with each group above.)
 
