@@ -111,6 +111,14 @@ try {
     const blockedFrom = blocked.length;
     const errorsFrom = errors.length;
     await goto(page, route);
+    // The app treats any failed profile load, a network blip included, as signed
+    // out and shows the login screen. Sign back in once rather than capture that.
+    if (!args.kit && route !== "/login" && new URL(page.url()).pathname === "/login") {
+      console.log(`  ${route}@${width} landed on /login; signing in again`);
+      await signIn(page);
+      await page.setViewport(viewport);
+      await goto(page, route);
+    }
 
     const { contentHeight, ...m } = await page.evaluate(measure);
     // The app scrolls inside its own main area, so a full-page capture would stop at
