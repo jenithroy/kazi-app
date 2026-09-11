@@ -2852,7 +2852,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .ghost-button { padding: 9px 14px; min-height: 44px; }
 
   /* ── Overflow & text ── */
-  .kscroll { overflow-wrap: anywhere; }
   .kprod-card-c { word-break: break-word; white-space: normal; }
   .ktasks-card-t { word-break: break-word; }
 
