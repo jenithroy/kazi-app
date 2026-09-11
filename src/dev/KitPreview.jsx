@@ -15,7 +15,9 @@ import {
   Avatar, Btn, Card, Divider, IconBtn, Icons, KPI, PageHeader, Pill, Progress,
   SearchInput, SegBar, Segmented, Spark, Tabs, Toolbar, ToolbarSpacer,
   Field, FormGrid, FormSection, FormActions, Input, Textarea, Select, Checkbox, Switch,
+  DataTable, Menu, MenuDivider, MenuItem, MenuLabel, Money, RowActions,
 } from "../components/ui";
+import { useCurrency } from "../context/CurrencyContext";
 import "./KitPreview.css";
 
 const BTN_KINDS = ["primary", "secondary", "ghost", "danger", "soft", "mint"];
@@ -130,6 +132,150 @@ function SegmentedDemo() {
       </div>
       <div className="kkit-meter kkit-meter--wide">
         <Segmented block label="View (block)" value={view} onChange={setView} options={[{ value: "daily", label: "Daily log" }, { value: "report", label: "Employee report" }]} />
+      </div>
+    </div>
+  );
+}
+
+const SPECIMEN_DOCS = [
+  { id: 1, number: "INV-101", client: "Specimen client A", date: "2026-08-02", due: "2026-09-01", total: 118650, paid: 118650, status: "Paid", note: "Delivered with challan CH-40." },
+  { id: 2, number: "INV-102", client: "Specimen client B", date: "2026-08-14", due: "2026-09-13", total: 45200, paid: 20000, status: "Partial", note: "Balance promised by mid-September." },
+  { id: 3, number: "INV-103", client: "Specimen client C", date: "2026-08-20", due: "2026-08-30", total: 9800, paid: 0, status: "Overdue", note: "" },
+  { id: 4, number: "INV-104", client: "Specimen client A", date: "2026-09-03", due: "2026-10-03", total: 76400, paid: 0, status: "Sent", note: "" },
+  { id: 5, number: "INV-105", client: "Specimen client D", date: "2026-09-09", due: null, total: 2350, paid: 0, status: "Draft", note: "Waiting on the client's PAN number." },
+];
+
+const fmtDay = (iso) => iso && new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const owed = (r) => r.total - r.paid;
+
+function useDocColumns() {
+  return [
+    { key: "number", header: "Invoice", phone: "title", mono: true, sortable: true },
+    { key: "client", header: "Client", phone: "subtitle", sortable: true },
+    { key: "date", header: "Date", sortable: true, nowrap: true, render: (r) => fmtDay(r.date) },
+    { key: "due", header: "Due", nowrap: true, render: (r) => fmtDay(r.due) },
+    {
+      key: "total", header: "Total", align: "right", phone: "amount", sortable: true,
+      render: (r) => <Money amount={r.total} stacked />,
+      footer: (rows) => <Money amount={rows.reduce((s, r) => s + r.total, 0)} stacked />,
+    },
+    {
+      key: "owed", header: "Credit due", align: "right", sortable: true, sortValue: owed,
+      render: (r) => (owed(r) > 0 ? <Money amount={owed(r)} tone="owed" stacked /> : null),
+      footer: (rows) => <Money amount={rows.reduce((s, r) => s + owed(r), 0)} tone="owed" stacked />,
+    },
+    { key: "status", header: "Status", phone: "status", render: (r) => <Pill status={r.status} /> },
+    { key: "note", header: "Note", phone: "detail" },
+  ];
+}
+
+function DataTableDemo() {
+  const [picked, setPicked] = useState("Click a row, or use a row's actions.");
+  const columns = useDocColumns();
+  const actions = (row) => (
+    <RowActions
+      label={`More actions for ${row.number}`}
+      actions={[
+        { key: "view", label: "View", icon: <Icons.File size={14} />, onSelect: () => setPicked(`View ${row.number}`) },
+        { key: "pay", label: "Record payment", icon: <Icons.Plus size={14} />, hidden: row.status === "Paid" || row.status === "Draft", onSelect: () => setPicked(`Record payment on ${row.number}`) },
+        { key: "edit", label: "Edit", icon: <Icons.Edit size={14} />, onSelect: () => setPicked(`Edit ${row.number}`) },
+        { key: "cancel", label: "Cancel invoice", icon: <Icons.X size={14} />, danger: true, hidden: row.status === "Paid", onSelect: () => setPicked(`Cancel ${row.number}`) },
+      ]}
+    />
+  );
+  const table = (
+    <DataTable
+      caption="Specimen invoices"
+      columns={columns}
+      rows={SPECIMEN_DOCS}
+      actions={actions}
+      onRowClick={(r) => setPicked(`Opened ${r.number}`)}
+      rowTone={(r) => (r.status === "Overdue" ? "danger" : undefined)}
+      defaultSort={{ key: "date", dir: "desc" }}
+    />
+  );
+  return (
+    <>
+      <p className="kkit-note" aria-live="polite">{picked}</p>
+      <div className="kkit-forms">
+        <Card title="Invoices" sub="A table while there is room" flush>{table}</Card>
+        <div className="kkit-narrow">
+          <Card title="Same table, narrow box" flush>{table}</Card>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TableStatesDemo() {
+  const columns = useDocColumns().slice(0, 4);
+  return (
+    <div className="kkit-grid kkit-grid--wide">
+      <Card title="Loading" flush><DataTable columns={columns} rows={[]} loading loadingRows={3} cardsBelow={0} /></Card>
+      <Card title="Empty" flush>
+        <DataTable columns={columns} rows={[]} cardsBelow={0} empty="No invoices on this tab yet. New ones appear here as soon as they are saved." />
+      </Card>
+      <Card title="Error" flush>
+        <DataTable columns={columns} rows={[]} cardsBelow={0} error="Invoices could not load. Check the connection." onRetry={() => {}} />
+      </Card>
+      <Card title="Sticky first column, expandable rows" flush>
+        <DataTable
+          columns={[
+            { key: "number", header: "Invoice", mono: true, width: "110px" },
+            { key: "client", header: "Client" },
+            { key: "date", header: "Date", nowrap: true, render: (r) => fmtDay(r.date) },
+            { key: "due", header: "Due", nowrap: true, render: (r) => fmtDay(r.due) },
+            { key: "total", header: "Total", align: "right", render: (r) => <Money amount={r.total} secondary={false} /> },
+            { key: "status", header: "Status", render: (r) => <Pill status={r.status} /> },
+          ]}
+          rows={SPECIMEN_DOCS.slice(0, 3)}
+          stickyFirst
+          cardsBelow={0}
+          expandable={(r) => <p className="kkit-body">{r.note || "No note on this invoice."}</p>}
+        />
+      </Card>
+    </div>
+  );
+}
+
+function MenuMoneyDemo() {
+  const currencyCtx = useCurrency();
+  const [last, setLast] = useState("Nothing chosen yet.");
+  return (
+    <div className="kkit-stack">
+      <div className="kkit-row">
+        <span className="kkit-label">menu</span>
+        <Menu
+          label="Specimen document actions"
+          align="start"
+          trigger={(props) => <Btn {...props} kind="secondary" iconRight={<Icons.ChevronDown size={14} />}>Open menu</Btn>}
+        >
+          <MenuLabel>Document</MenuLabel>
+          <MenuItem icon={<Icons.Edit size={14} />} onSelect={() => setLast("Edit")}>Edit</MenuItem>
+          <MenuItem icon={<Icons.Copy size={14} />} onSelect={() => setLast("Duplicate")}>Duplicate</MenuItem>
+          <MenuItem icon={<Icons.Print size={14} />} disabled>Print (disabled)</MenuItem>
+          <MenuDivider />
+          <MenuItem icon={<Icons.Trash size={14} />} danger onSelect={() => setLast("Delete")}>Delete</MenuItem>
+        </Menu>
+        <span className="kkit-note kkit-note--inline" aria-live="polite">Last choice: {last}</span>
+      </div>
+      <div className="kkit-row">
+        <span className="kkit-label">money</span>
+        <Segmented
+          size="sm"
+          label="Currency"
+          value={currencyCtx?.currency || "NPR"}
+          onChange={(v) => v !== currencyCtx?.currency && currencyCtx?.toggle()}
+          options={[{ value: "NPR", label: "NPR" }, { value: "GBP", label: "GBP" }]}
+        />
+        <Money amount={118650} />
+        <Money amount={45200} tone="owed" />
+        <Money amount={9800} tone="settled" />
+        <Money amount={2350} signed />
+        <Money amount={-9800} />
+        <Money amount={1234.5} exact secondary={false} />
+        <Money amount={null} />
+        <Money amount={76400} stacked />
       </div>
     </div>
   );
@@ -258,6 +404,18 @@ export default function KitPreview() {
 
       <Section title="Segmented" note="Segmented: a radiogroup of a few exclusive choices. Counts, icon-only with a label, a disabled option, full width.">
         <SegmentedDemo />
+      </Section>
+
+      <Section title="Data table" note="DataTable with RowActions and Money: sort by a header, click a row, open the More menu. The narrow copy turns rows into cards.">
+        <DataTableDemo />
+      </Section>
+
+      <Section title="Table states" note="Loading, empty and error; a sticky first column with expandable rows.">
+        <TableStatesDemo />
+      </Section>
+
+      <Section title="Menu and money" note="Menu renders at the end of the page so nothing clips it. Money follows the top bar's NPR / GBP choice.">
+        <MenuMoneyDemo />
       </Section>
 
       <Section title="Forms" note="Field, FormGrid, FormSection, FormActions and the inputs. The grid follows the form's own width: the second copy sits in a 320 px box.">

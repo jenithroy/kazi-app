@@ -605,9 +605,9 @@ Each phase ends with a **review stop.** You check the branch in your browser bef
 4. `feat(ui)`, one commit per group:
    - ✅ PageHeader / Toolbar / SearchInput (`4b75deb`). New kit components use the `k-` class prefix. The old `components/PageHeader.jsx` stays until the pages using it are redesigned.
    - ✅ Tabs / Segmented (`42711f5`). Arrow-key, Home and End navigation checked by script; more than five tabs become a grouped select on phones.
-   - ✅ Field / FormGrid / FormSection / FormActions / Input / Select / Textarea / Checkbox / Switch. Controls stay native elements so Enter-to-advance still finds them; FormGrid collapses by the form's own width (container queries). Label, hint and error wiring checked by script.
-   - 🔄 DataTable / RowActions / Menu / Money
-   - ⬜ Dialog / Sheet / ConfirmDialog / toasts (FilterBar's phone sheet lands here too)
+   - ✅ Field / FormGrid / FormSection / FormActions / Input / Select / Textarea / Checkbox / Switch (`2ddd9e6`). Controls stay native elements so Enter-to-advance still finds them; FormGrid collapses by the form's own width (container queries). Label, hint and error wiring checked by script.
+   - ✅ DataTable / RowActions / Menu / Money. DataTable switches to cards by its own width, with column phone roles, sorting, totals, row tints, expandable rows, a sticky first column and loading / empty / error states. Menu is portalled with keyboard support; Money follows the NPR / GBP toggle. Sorting, row clicks, the menu and the currency switch checked by script.
+   - 🔄 Dialog / Sheet / ConfirmDialog / toasts (FilterBar's phone sheet lands here too)
    - ⬜ Banner / EmptyState / Skeleton / StatStrip
    - ⬜ Stepper / Kanban / MonthGrid / Agenda
    - ⬜ FileDrop / Popover / Statement / BarList / ChartFrame

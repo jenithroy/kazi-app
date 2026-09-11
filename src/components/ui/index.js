@@ -22,3 +22,7 @@ export { Segmented } from "./Segmented";
 export { useMediaQuery, PHONE_QUERY } from "./useMediaQuery";
 export { Field, FormGrid, FormSection, FormActions, useField } from "./Field";
 export { Input, Textarea, Select, Checkbox, Switch } from "./inputs";
+export { Menu, MenuItem, MenuDivider, MenuLabel } from "./Menu";
+export { RowActions } from "./RowActions";
+export { Money } from "./Money";
+export { DataTable } from "./DataTable";

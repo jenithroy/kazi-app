@@ -33,6 +33,7 @@
 .kkit-forms { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; }
 .kkit-forms > .kazi-card { flex: 1 1 560px; min-width: 0; }
 .kkit-narrow { flex: 0 1 320px; min-width: 0; }
+.kkit-grid--wide { grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
 
 /* A dashed frame marks where a specimen's own box ends, so wrapping is visible. */
 .kkit-frame {

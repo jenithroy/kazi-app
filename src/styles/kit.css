@@ -542,6 +542,170 @@ input.k-input[type="number"], input.k-input[type="date"], input.k-input[type="ti
 }
 
 /* ══════════════════════════════════════════════════════
+   Menu · Row actions
+══════════════════════════════════════════════════════ */
+.k-menu-anchor { display: inline-flex; }
+.k-menu {
+  position: fixed; z-index: var(--z-popover);
+  min-width: 200px; max-width: min(320px, calc(100vw - 16px)); max-height: min(360px, calc(100vh - 16px));
+  overflow-y: auto; padding: 5px;
+  background: var(--card); border: 1px solid var(--line-strong);
+  border-radius: var(--r-input); box-shadow: var(--shadow-pop);
+  animation: k-pop var(--dur-fast) var(--ease-out);
+}
+.k-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px;
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  font: inherit; font-size: 12.5px; color: var(--ink-2); text-align: left; cursor: pointer;
+}
+.k-menu-item:hover:not(:disabled),
+.k-menu-item:focus-visible { outline: none; box-shadow: none; background: var(--bg-2); color: var(--ink); }
+.k-menu-item.is-danger { color: var(--terra-ink); }
+.k-menu-item.is-danger:hover:not(:disabled),
+.k-menu-item.is-danger:focus-visible { background: var(--terra-soft); color: var(--terra-ink); }
+.k-menu-item:disabled { opacity: .45; cursor: not-allowed; }
+.k-menu-ico { display: inline-flex; flex: 0 0 auto; color: var(--ink-3); }
+.k-menu-item.is-danger .k-menu-ico { color: var(--terra); }
+.k-menu-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+.k-menu-label {
+  padding: 6px 9px 4px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3);
+}
+@keyframes k-pop { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+
+.k-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+@media (pointer: coarse) {
+  .k-menu-item { min-height: var(--tap); }
+}
+
+/* ══════════════════════════════════════════════════════
+   Money
+══════════════════════════════════════════════════════ */
+.k-money {
+  display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.k-money-main { font-weight: 600; color: var(--ink); }
+.k-money-alt { font-size: .86em; font-weight: 500; color: var(--ink-3); }
+.k-money--stacked { flex-direction: column; align-items: flex-end; gap: 1px; }
+.k-money--stacked.k-money--start { align-items: flex-start; }
+.k-money--owed .k-money-main { color: var(--terra-ink); }
+.k-money--settled .k-money-main { color: var(--mint-deep); }
+.k-money--muted .k-money-main { font-weight: 500; color: var(--ink-3); }
+.k-money--empty { color: var(--ink-4); }
+
+/* ══════════════════════════════════════════════════════
+   Data table
+══════════════════════════════════════════════════════ */
+.k-dt { min-width: 0; }
+.k-dt-scroll { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.k-dt-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.k-dt-table th {
+  padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--bg);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-3); text-align: left; white-space: nowrap; vertical-align: bottom;
+}
+.k-dt-table td {
+  padding: 10px 12px; border-bottom: 1px solid var(--line);
+  color: var(--ink-2); vertical-align: middle;
+}
+.k-dt-table tbody tr:last-child > td { border-bottom: 0; }
+.k-dt-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.k-dt-table .is-mono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.k-dt-table .is-nowrap { white-space: nowrap; }
+@media (hover: hover) {
+  .k-dt-table tbody tr:not(.k-dt-staterow):not(.k-dt-detail):hover > td { background: var(--bg); }
+}
+.k-dt-table tr.is-clickable { cursor: pointer; }
+.k-dt-table tr.is-clickable:focus-visible { outline: 2px solid var(--mint-2); outline-offset: -2px; }
+.k-dt-table tr.is-warn > td { background: color-mix(in oklab, var(--amber-soft) 60%, var(--card)); }
+.k-dt-table tr.is-danger > td { background: color-mix(in oklab, var(--terra-soft) 55%, var(--card)); }
+.k-dt-table tr.is-muted > td { color: var(--ink-4); }
+.k-dt-table tr.is-expanded > td { border-bottom-color: transparent; }
+.k-dt-detail > td { padding: 2px 16px 16px; background: var(--bg); }
+.k-dt-table tfoot td {
+  padding: 10px 12px; border-top: 1px solid var(--line-strong);
+  background: var(--bg); font-weight: 650; color: var(--ink);
+}
+.k-dt-table .is-sticky { position: sticky; left: 0; z-index: 1; background: var(--card); box-shadow: inset -1px 0 0 var(--line); }
+.k-dt-table th.is-sticky, .k-dt-table tfoot .is-sticky { z-index: 2; background: var(--bg); }
+.k-dt-table td.k-dt-expand-cell, .k-dt-table th.k-dt-expand-cell { width: 1%; padding-right: 0; }
+.k-dt-table .k-dt-actions-cell { width: 1%; white-space: nowrap; text-align: right; }
+.k-dt-dash { color: var(--ink-4); }
+
+.k-dt-sort {
+  display: inline-flex; align-items: center; gap: 4px; margin: -4px -6px; padding: 4px 6px;
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer;
+}
+.k-dt-sort:hover { background: var(--bg-2); color: var(--ink); }
+.k-dt-sort:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--mint-2); border-radius: var(--r-sm); }
+.k-dt-sort > svg { flex: 0 0 auto; color: var(--ink-4); }
+th[aria-sort="ascending"] .k-dt-sort, th[aria-sort="descending"] .k-dt-sort { color: var(--ink); }
+th[aria-sort="ascending"] .k-dt-sort > svg, th[aria-sort="descending"] .k-dt-sort > svg { color: var(--mint-deep); }
+.is-num .k-dt-sort { flex-direction: row-reverse; }
+
+/* Loading, empty, error */
+.k-dt-staterow > td { padding: 0; }
+.k-dt-state {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 36px 20px; text-align: center; font-size: 13px; line-height: 1.5; color: var(--ink-3);
+}
+.k-dt-state.is-error { color: var(--terra-ink); }
+.k-dt-state.is-error > svg { color: var(--terra); }
+.k-shimmer {
+  display: block; border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--bg) 37%, var(--bg-2) 63%);
+  background-size: 400% 100%;
+  animation: k-shimmer 1.3s ease infinite;
+}
+@keyframes k-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.k-dt-skel { width: 72%; height: 12px; }
+.k-dt-skel--title { width: 45%; height: 14px; }
+
+/* Cards, when the table's own box is narrow */
+.k-dt-cardbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 10px 14px 4px; }
+.k-dt-cardbar-l { flex: 0 1 220px; min-width: 0; }
+.k-dt-cards { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.k-dt-card { display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.k-dt-card:last-child { border-bottom: 0; }
+.k-dt-card.is-clickable { cursor: pointer; }
+.k-dt-card.is-warn { background: color-mix(in oklab, var(--amber-soft) 60%, var(--card)); }
+.k-dt-card.is-danger { background: color-mix(in oklab, var(--terra-soft) 55%, var(--card)); }
+.k-dt-card.is-muted { color: var(--ink-4); }
+.k-dt-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.k-dt-card-id { min-width: 0; }
+.k-dt-card-title { font-size: 13.5px; font-weight: 650; color: var(--ink); overflow-wrap: break-word; }
+.k-dt-card-title.is-mono { font-family: var(--mono); font-size: 12.5px; }
+.k-dt-card-link {
+  padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.k-dt-card-link:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+.k-dt-card-sub { margin-top: 1px; font-size: 12px; color: var(--ink-3); overflow-wrap: break-word; }
+.k-dt-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: 0 0 auto; text-align: right; }
+.k-dt-card-amount { font-size: 13.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink); }
+.k-dt-card-meta {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr));
+  gap: 7px 14px; margin: 0;
+}
+.k-dt-card-meta dt { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.k-dt-card-meta dd { margin: 1px 0 0; font-size: 12.5px; color: var(--ink-2); overflow-wrap: break-word; }
+.k-dt-card-meta dd.is-mono { font-family: var(--mono); font-size: 12px; }
+/* In a card the label sits above the value, so stacked money lines up on the left with it. */
+.k-dt-card-meta .k-money--stacked { align-items: flex-start; }
+.k-dt-card-detail { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border-radius: var(--r-input); background: var(--bg); }
+.k-dt-card-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 0 -4px -4px; }
+.k-dt-card-actions { margin-left: auto; }
+.k-dt-totals {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 24px; margin: 0; padding: 12px 14px;
+  border-top: 1px solid var(--line-strong); background: var(--bg);
+}
+.k-dt-totals > div { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.k-dt-totals dt { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.k-dt-totals dd { margin: 0; }
+
+/* ══════════════════════════════════════════════════════
    Utilities
 ══════════════════════════════════════════════════════ */
 /* Read by screen readers, not shown. */
@@ -570,5 +734,6 @@ input.k-input[type="number"], input.k-input[type="date"], input.k-input[type="ti
   .kbtn, .kiconbtn, .kkpi, .kprog > span,
   .k-page-back, .k-search, .k-search-clear, .k-tab, .k-seg-btn,
   .k-input, .k-input-group, .k-check-box, .k-switch, .k-switch-knob { transition: none; }
+  .k-menu, .k-shimmer { animation: none; }
   .kspin { animation-duration: 2.4s; }
 }
