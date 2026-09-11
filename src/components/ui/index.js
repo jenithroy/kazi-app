@@ -26,3 +26,7 @@ export { Menu, MenuItem, MenuDivider, MenuLabel } from "./Menu";
 export { RowActions } from "./RowActions";
 export { Money } from "./Money";
 export { DataTable } from "./DataTable";
+export { Dialog, Sheet } from "./Dialog";
+export { ConfirmProvider, useConfirm } from "./ConfirmDialog";
+export { FilterBar } from "./FilterBar";
+export { notify } from "./notify";

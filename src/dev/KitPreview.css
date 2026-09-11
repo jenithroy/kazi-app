@@ -33,6 +33,15 @@
 .kkit-forms { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; }
 .kkit-forms > .kazi-card { flex: 1 1 560px; min-width: 0; }
 .kkit-narrow { flex: 0 1 320px; min-width: 0; }
+.kkit-facts { display: flex; flex-direction: column; margin: 0; }
+.kkit-facts > div {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.kkit-facts > div:last-child { border-bottom: 0; }
+.kkit-facts dt { font-size: 12px; color: var(--ink-3); }
+.kkit-facts dd { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); text-align: right; }
+
 .kkit-grid--wide { grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
 
 /* A dashed frame marks where a specimen's own box ends, so wrapping is visible. */

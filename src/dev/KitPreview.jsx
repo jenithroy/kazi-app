@@ -16,6 +16,7 @@ import {
   SearchInput, SegBar, Segmented, Spark, Tabs, Toolbar, ToolbarSpacer,
   Field, FormGrid, FormSection, FormActions, Input, Textarea, Select, Checkbox, Switch,
   DataTable, Menu, MenuDivider, MenuItem, MenuLabel, Money, RowActions,
+  Dialog, Sheet, FilterBar, notify, useConfirm,
 } from "../components/ui";
 import { useCurrency } from "../context/CurrencyContext";
 import "./KitPreview.css";
@@ -281,6 +282,124 @@ function MenuMoneyDemo() {
   );
 }
 
+function OverlaysDemo() {
+  const confirm = useConfirm();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [answer, setAnswer] = useState("Nothing asked yet.");
+  const [amount, setAmount] = useState("20000");
+
+  const save = () => {
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      setDialogOpen(false);
+      notify.success("Payment recorded (specimen, nothing saved)");
+    }, 1200);
+  };
+
+  return (
+    <>
+      <div className="kkit-row">
+        <Btn kind="primary" onClick={() => setDialogOpen(true)}>Open dialog</Btn>
+        <Btn kind="secondary" onClick={() => setSheetOpen(true)}>Open sheet</Btn>
+        <Btn
+          kind="danger"
+          onClick={async () => {
+            const yes = await confirm({ title: "Delete this expense?", message: "It is removed from the ledger too.", confirmLabel: "Delete expense", danger: true });
+            setAnswer(yes ? "Delete confirmed" : "Kept it");
+          }}
+        >
+          Confirm a delete
+        </Btn>
+        <Btn kind="secondary" onClick={async () => setAnswer((await confirm("Mark this invoice as paid?")) ? "Marked paid" : "Left as it was")}>
+          Plain confirm
+        </Btn>
+        <Btn kind="ghost" onClick={() => notify.success("Expense saved")}>Success toast</Btn>
+        <Btn kind="ghost" onClick={() => notify.error("Could not save the expense. Check the connection and try again.")}>Error toast</Btn>
+        <span className="kkit-note kkit-note--inline" aria-live="polite">Last answer: {answer}</span>
+      </div>
+
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        title="Record a payment"
+        description="INV-102 · Specimen client B · ₨ 25,200 due"
+        dismissible={!saving}
+        footer={
+          <>
+            <Btn kind="secondary" disabled={saving} onClick={() => setDialogOpen(false)}>Cancel</Btn>
+            <Btn kind="primary" loading={saving} onClick={save}>Record payment</Btn>
+          </>
+        }
+      >
+        <FormGrid columns={2}>
+          <Field label="Amount" required hint="While it saves, Escape and the backdrop cannot close this.">
+            <Input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} prefix="NPR" data-autofocus="" />
+          </Field>
+          <Field label="Date">
+            <Input type="date" defaultValue="2026-09-11" />
+          </Field>
+          <Field label="Reference" optional span="full">
+            <Textarea placeholder="Cheque number or bank reference" />
+          </Field>
+        </FormGrid>
+      </Dialog>
+
+      <Sheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title="Specimen employee"
+        description="A drawer on wide screens, a bottom sheet under 900 px"
+        footer={<Btn kind="primary" onClick={() => setSheetOpen(false)}>Done</Btn>}
+      >
+        <dl className="kkit-facts">
+          {[
+            ["Role", "Pattern cutter"], ["Department", "Production"], ["Location", "Kathmandu"],
+            ["Joined", "4 Mar 2025"], ["Schedule", "Sun–Fri, 9:00–17:30"], ["Reports to", "Specimen manager"],
+            ["Phone", "—"], ["PAN", "—"], ["Bank", "—"], ["Production worker", "Yes"],
+            ["Notes", "The body scrolls while the header and the Done button stay in place."],
+          ].map(([k, v]) => (
+            <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+          ))}
+        </dl>
+      </Sheet>
+    </>
+  );
+}
+
+function FilterBarDemo() {
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const [urgency, setUrgency] = useState("");
+  const active = (status !== "all" ? 1 : 0) + (urgency ? 1 : 0);
+  return (
+    <FilterBar
+      label="Filter requests"
+      search={<SearchInput value={q} onChange={setQ} label="Search requests" />}
+      filters={
+        <>
+          <Segmented
+            label="Request status"
+            value={status}
+            onChange={setStatus}
+            options={[{ value: "all", label: "All" }, { value: "pending", label: "Pending" }, { value: "approved", label: "Approved" }, { value: "rejected", label: "Rejected" }]}
+          />
+          <Select compact value={urgency} onChange={(e) => setUrgency(e.target.value)} placeholder="Any urgency" aria-label="Urgency">
+            <option value="high">High urgency</option>
+            <option value="medium">Medium urgency</option>
+            <option value="low">Low urgency</option>
+          </Select>
+        </>
+      }
+      active={active}
+      onClear={() => { setStatus("all"); setUrgency(""); }}
+      end={<Btn kind="secondary" icon={<Icons.Download size={14} />}>Export</Btn>}
+    />
+  );
+}
+
 function SpecimenForm({ columns = 3 }) {
   const [form, setForm] = useState({
     customer: "", style: "KZ-TEE-01", region: "", qty: "0", rate: "850", due: "2026-09-30",
@@ -404,6 +523,16 @@ export default function KitPreview() {
 
       <Section title="Segmented" note="Segmented: a radiogroup of a few exclusive choices. Counts, icon-only with a label, a disabled option, full width.">
         <SegmentedDemo />
+      </Section>
+
+      <Section title="Dialogs, sheets, confirms and toasts" note="Dialog is a bottom sheet on a phone; Sheet is a right drawer from 900 px. Focus stays inside and returns to the button that opened it.">
+        <OverlaysDemo />
+      </Section>
+
+      <Section title="Filter bar" note="FilterBar: filters inline on wide screens; on a phone they move into a sheet behind a Filters button with the active count.">
+        <div className="kkit-frame">
+          <FilterBarDemo />
+        </div>
       </Section>
 
       <Section title="Data table" note="DataTable with RowActions and Money: sort by a header, click a row, open the More menu. The narrow copy turns rows into cards.">

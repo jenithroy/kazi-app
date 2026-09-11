@@ -706,6 +706,87 @@ th[aria-sort="ascending"] .k-dt-sort > svg, th[aria-sort="descending"] .k-dt-sor
 .k-dt-totals dd { margin: 0; }
 
 /* ══════════════════════════════════════════════════════
+   Dialog · Sheet
+══════════════════════════════════════════════════════ */
+.k-overlay { position: fixed; inset: 0; z-index: var(--z-dialog); display: flex; }
+.k-overlay.is-closing { pointer-events: none; }
+.k-scrim { position: absolute; inset: 0; background: var(--scrim); animation: k-fade var(--dur-slow) ease-out; }
+
+.k-panel {
+  position: relative; display: flex; flex-direction: column; min-height: 0; max-height: 100%;
+  background: var(--card); box-shadow: var(--shadow-pop); outline: none;
+}
+.k-panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex: 0 0 auto;
+  padding: 16px 18px 13px; border-bottom: 1px solid var(--line);
+}
+.k-panel-id { min-width: 0; }
+.k-panel-title { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; color: var(--ink); text-wrap: balance; }
+.k-panel-desc { margin: 3px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.k-panel-close { margin: -5px -7px 0 0; }
+.k-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 18px 18px; }
+.k-panel-foot {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; flex: 0 0 auto;
+  padding: 12px 18px; border-top: 1px solid var(--line); background: var(--bg);
+}
+
+/* A confirm has no body: one divider between the question and its buttons. */
+.k-panel-head + .k-panel-foot { border-top: 0; }
+
+/* Centred dialog */
+.k-overlay--dialog { align-items: center; justify-content: center; padding: 24px; }
+.k-panel--dialog { width: 100%; max-height: min(88vh, 100%); border-radius: var(--r-card); overflow: hidden; animation: k-rise var(--dur-slow) var(--ease-out); }
+.k-panel--sm { max-width: 420px; }
+.k-panel--md { max-width: 560px; }
+.k-panel--lg { max-width: 760px; }
+
+/* Drawer from the right (Sheet at 900px and up) */
+.k-overlay--drawer { justify-content: flex-end; }
+.k-panel--drawer { height: 100%; max-width: 100%; border-left: 1px solid var(--line); animation: k-slide-in var(--dur-slow) var(--ease-out); }
+
+/* Bottom sheet (Sheet under 900px, Dialog on a phone) */
+.k-overlay--sheet { align-items: flex-end; }
+.k-panel--sheet { width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: var(--r-card) var(--r-card) 0 0; overflow: hidden; animation: k-slide-up var(--dur-slow) var(--ease-out); }
+.k-panel--sheet .k-panel-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+.k-panel--sheet .k-panel-body:last-child { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+
+@media (max-width: 639px) {
+  .k-overlay--dialog { align-items: flex-end; padding: 0; }
+  .k-panel--dialog {
+    max-width: none; max-height: 92vh; max-height: 92dvh;
+    border-radius: var(--r-card) var(--r-card) 0 0; animation-name: k-slide-up;
+  }
+  .k-panel--dialog .k-panel-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .k-panel--dialog .k-panel-foot > .kbtn,
+  .k-panel--sheet .k-panel-foot > .kbtn { flex: 1 1 0; }
+}
+
+.k-overlay.is-closing .k-scrim { animation: k-fade-out var(--dur-fast) ease-in forwards; }
+.k-overlay.is-closing .k-panel--dialog { animation: k-fall var(--dur-fast) ease-in forwards; }
+.k-overlay.is-closing .k-panel--drawer { animation: k-slide-out var(--dur-fast) ease-in forwards; }
+.k-overlay.is-closing .k-panel--sheet { animation: k-slide-down var(--dur-fast) ease-in forwards; }
+@media (max-width: 639px) {
+  .k-overlay.is-closing .k-panel--dialog { animation-name: k-slide-down; }
+}
+
+@keyframes k-fade { from { opacity: 0; } }
+@keyframes k-fade-out { to { opacity: 0; } }
+@keyframes k-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+@keyframes k-fall { to { opacity: 0; transform: translateY(6px) scale(.985); } }
+@keyframes k-slide-in { from { transform: translateX(100%); } }
+@keyframes k-slide-out { to { transform: translateX(100%); } }
+@keyframes k-slide-up { from { transform: translateY(100%); } }
+@keyframes k-slide-down { to { transform: translateY(100%); } }
+
+/* ── Filter bar ── */
+.k-toolbar > .k-select { flex: 0 1 190px; width: auto; }
+.k-filterbar--phone { flex-direction: column; align-items: stretch; }
+.k-filterbar-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.k-filterbar-sheet { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.k-filterbar-sheet > * { max-width: 100%; }
+.k-filterbar-sheet > .k-select { width: 100%; }
+
+/* ══════════════════════════════════════════════════════
    Utilities
 ══════════════════════════════════════════════════════ */
 /* Read by screen readers, not shown. */
@@ -734,6 +815,7 @@ th[aria-sort="ascending"] .k-dt-sort > svg, th[aria-sort="descending"] .k-dt-sor
   .kbtn, .kiconbtn, .kkpi, .kprog > span,
   .k-page-back, .k-search, .k-search-clear, .k-tab, .k-seg-btn,
   .k-input, .k-input-group, .k-check-box, .k-switch, .k-switch-knob { transition: none; }
-  .k-menu, .k-shimmer { animation: none; }
+  .k-menu, .k-shimmer, .k-scrim, .k-panel,
+  .k-overlay.is-closing .k-scrim, .k-overlay.is-closing .k-panel { animation: none; }
   .kspin { animation-duration: 2.4s; }
 }
