@@ -9,7 +9,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { RewardProvider } from "./context/RewardContext";
 import { RegionProvider } from "./context/RegionContext";
-import "./styles.css";
+import "./styles/index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
