@@ -52,4 +52,65 @@
   /* typography */
   --font: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  /* ── Semantic tokens (REDESIGN.md §4.2) ──────────────────────
+     Values that were repeated as raw literals across the pages. */
+
+  /* hover on a mint-deep fill */
+  --mint-deep-hover: #185a3d;
+
+  /* text on a soft status fill: legible on --*-soft, still reads as the tone */
+  --terra-ink: #6a2e1c;
+  --amber-ink: #7a5418;
+  --blue-ink:  #2a4f6f;
+
+  /* radii: buttons and inputs, then small chips and icon buttons */
+  --r-control: 9px;
+  --r-sm:      7px;
+
+  /* behind dialogs, sheets and the mobile drawer */
+  --scrim: rgba(10, 28, 20, .4);
+
+  /* every focusable control: a mint-2 border plus this ring */
+  --focus-ring: 0 0 0 3px var(--mint-soft);
+
+  /* motion: short, and only to show a change of state */
+  --dur-fast: 120ms;
+  --dur:      160ms;
+  --dur-slow: 200ms;
+  --ease-out: cubic-bezier(.2, .8, .3, 1);
+
+  /* smallest tap target on a coarse pointer */
+  --tap: 40px;
+
+  /* stacking, lowest to highest; the Show-me spotlight stays above all at 9000 */
+  --z-sticky:  20;
+  --z-drawer:  800;
+  --z-dialog:  900;
+  --z-popover: 1000;
+  --z-toast:   1100;
+
+  /* charts: one palette for every chart, in this order */
+  --chart-1:  #1f6e4c;
+  --chart-2:  #5ab98a;
+  --chart-3:  #5688b0;
+  --chart-4:  #d4a04a;
+  --chart-5:  #c4654a;
+  --chart-6:  #7c6bb0;
+  --chart-7:  #3f9e8f;
+  --chart-8:  #8aa74e;
+  --chart-9:  #a0567e;
+  --chart-10: #8a978f;
+
+  /* production stages, in pipeline order (lib/status.js maps names to these) */
+  --stage-received:      var(--chart-10);
+  --stage-sourcing:      var(--chart-3);
+  --stage-cutting:       var(--chart-4);
+  --stage-stitching:     var(--chart-5);
+  --stage-finishing:     var(--chart-6);
+  --stage-embellishment: var(--chart-9);
+  --stage-qc:            var(--chart-2);
+  --stage-packing:       var(--chart-7);
+  --stage-shipped:       var(--chart-8);
+  --stage-delivered:     var(--chart-1);
 }
