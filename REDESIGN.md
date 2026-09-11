@@ -3,6 +3,21 @@
 > Status: **approved 2026-09-11, building on `feat/responsive-redesign`.** The §12 decisions are answered; phases run in order with a review stop after each.
 > Written 2026-09-11 from a full read of every page and shared component (~28,900 lines of JSX plus the 6,743-line `styles.css`).
 
+## Progress
+
+✅ done · 🔄 in progress · ⬜ not started. Step-by-step detail and commit hashes are in [§9](#9-phases).
+
+| Phase | Status |
+|---|---|
+| 0 — Prep | ✅ Done |
+| 1 — Foundations | 🔄 In progress: steps 1–3 done, component groups under way |
+| 2 — Shell | ⬜ |
+| 3 — Workspace | ⬜ |
+| 4 — Operations | ⬜ |
+| 5 — Money | ⬜ |
+| 6 — People & comms | ⬜ |
+| 7 — System & finish | ⬜ |
+
 ---
 
 ## 1. Goal
@@ -552,7 +567,7 @@ Each entry lists the key problems, the target layout on desktop and phone, and w
 - Shared `PageHeader` (these two currently duplicate the icon/title/sub pattern under two prefixes), kit `Field`s, `FileDrop`, `Banner`, `EmptyState` and `Skeleton`.
 - **Preserve:** the multipart field names posted to `/api/bug-report`; Changelog cache key, `fetchingRef` guard and sentinel.
 
-### 8.18 Dead code to delete (Phase 0)
+### 8.18 Dead code to delete (Phase 0) ✅ Done (`a17c3eb`)
 
 Nothing imports any of these. Three of them don't even compile.
 
@@ -571,27 +586,32 @@ Their CSS goes with them: `kacc-2col` and the `[style*="repeat(7"]` hack. (`stat
 
 Each phase ends with a **review stop.** You check the branch in your browser before the next phase starts. All work happens on `feat/responsive-redesign`, one commit per page or component, using the repo's conventional commit style (`feat(scope): …`, `fix(scope): …`, `refactor(scope): …`).
 
-### Phase 0 — Prep
-1. Create branch `feat/responsive-redesign`. Commit `PRODUCT.md` and `REDESIGN.md`.
-2. `fix(layout)`: remove `overflow-wrap: anywhere` from `.kscroll` (the letter-splitting bug).
-3. `chore`: delete the dead files in §8.18 and their CSS.
-4. Set up verification (§10): `/__kit` route skeleton and the screenshot script.
-5. Capture **before** screenshots and **baseline document output**: one of each document type (invoice, challan, quotation PDF and print), salary slip, spec sheet print, stock ledger print.
+### Phase 0 — Prep ✅ Done
+1. ✅ Create branch `feat/responsive-redesign`. Commit `PRODUCT.md` and `REDESIGN.md`. (`be8bfd4`)
+2. ✅ `fix(layout)`: remove `overflow-wrap: anywhere` from `.kscroll` (the letter-splitting bug). (`ef1f715`)
+3. ✅ `chore`: delete the dead files in §8.18 and their CSS. (`a17c3eb`)
+4. ✅ Set up verification (§10): `/__kit` route skeleton and the screenshot script. (`f0e5c41`, fixes `2ecbcd3`, `8276828`)
+5. ✅ Capture **before** screenshots and **baseline document output**: one of each document type (invoice, challan, quotation PDF and print), salary slip, spec sheet print, stock ledger print.
+   - Before screenshots: every route at 390 / 768 / 1440 in `scratch/shots/before/` (local, git-ignored). At 390, Dashboard, Finance, Billing, Content (Budget) and Bug Report overflow sideways inside the main area.
+   - Document baseline: `scratch/docs/phase0-baseline/` (INV-050, CH-001, QT-027, salary slip with fixed figures, "Baby tee" spec sheet, stock ledger for August 2026). Two separate captures matched on all 15 files.
 
-### Phase 1 — Foundations
-1. `refactor(styles)`: split `styles.css` into `tokens / base / shell / kit / legacy` with zero visual change. Add `base.css` so nothing depends on Tailwind Preflight.
-2. `feat(tokens)`: §4.2 semantic tokens, `lib/status.js`, `lib/people.js`.
-3. `feat(ui)`: move `ui.jsx` into `ui/` with a re-exporting index and fix `Btn`, `Pill`, `KPI`, `Card`.
+### Phase 1 — Foundations 🔄 In progress
+1. ✅ `refactor(styles)`: split `styles.css` into `tokens / base / shell / kit / legacy` with zero visual change. Add `base.css` so nothing depends on Tailwind Preflight. (`37701ef`)
+   - Verified byte-identical on `/login` and `/__kit`. The split is by consecutive line ranges, so the login, mobile drawer and bottom nav rules stay in `legacy.css` in their original cascade position until Phase 2 rewrites the shell.
+2. ✅ `feat(tokens)`: §4.2 semantic tokens, `lib/status.js`, `lib/people.js`. (`a12873c`)
+   - Also added motion durations, `--tap`, a z-index scale and `--terra-soft-hover`.
+3. ✅ `feat(ui)`: move `ui.jsx` into `ui/` with a re-exporting index (`59d2a34`) and fix `Btn`, `Pill`, `KPI`, `Card` (`910eb06`).
+   - Dashboard and Usage already use these, so they picked up the new card headers and buttons.
 4. `feat(ui)`, one commit per group:
-   - PageHeader / Toolbar / SearchInput
-   - Tabs / Segmented
-   - Field / FormGrid / inputs / Switch
-   - DataTable / RowActions / Menu / Money
-   - Dialog / Sheet / ConfirmDialog / toasts
-   - Banner / EmptyState / Skeleton / StatStrip
-   - Stepper / Kanban / MonthGrid / Agenda
-   - FileDrop / Popover / Statement / BarList / ChartFrame
-5. `/__kit` page showing every component in every state, screenshotted at 390 and 1440.
+   - 🔄 PageHeader / Toolbar / SearchInput (built, being verified)
+   - ⬜ Tabs / Segmented
+   - ⬜ Field / FormGrid / inputs / Switch
+   - ⬜ DataTable / RowActions / Menu / Money
+   - ⬜ Dialog / Sheet / ConfirmDialog / toasts (FilterBar's phone sheet lands here too)
+   - ⬜ Banner / EmptyState / Skeleton / StatStrip
+   - ⬜ Stepper / Kanban / MonthGrid / Agenda
+   - ⬜ FileDrop / Popover / Statement / BarList / ChartFrame
+5. 🔄 `/__kit` page showing every component in every state, screenshotted at 390 and 1440. (Grows with each group above.)
 
 ### Phase 2 — Shell
 `AppLayout` topbar and user menu, `Sidebar` and mobile drawer, native `BottomNav` check, `Login`, `RequireSection` / `LandingRedirect`.
@@ -639,7 +659,10 @@ Employees + SalarySlipModal, Customers + CustomerPicker, MarketingCalendar (Tail
 
 **Documents:** after Billing, Employees and Inventory, re-generate the Phase 0 baseline documents and compare them. Any difference is a regression.
 
-**Tooling:** headless Microsoft Edge is installed. The dev-only `/__kit` route can be screenshotted without logging in. Real pages sit behind Supabase auth, so page screenshots need a decision (§12, #1).
+**Tooling:** headless Microsoft Edge is installed. The dev-only `/__kit` route can be screenshotted without logging in. Real pages are signed in with the account in `.env.local` (§12, #1). ✅ Set up in Phase 0:
+- `npm run shots -- --label <name> [--routes login,tasks] [--widths 390,1440] [--kit]` writes PNGs and a `report.json` (sideways overflow and what causes it, redirects, blocked writes) to `scratch/shots/<name>/`.
+- `npm run shots:docs -- --label <name> --manifest scratch/docs/phase0-baseline/manifest.json` recaptures the baseline documents; `--compare <dir> --with <dir>` diffs two captures.
+- Both block every database write in the browser and dismiss dialogs. Needs the dev server on port 5199 (`npm run dev -- --port 5199`).
 
 ---
 
