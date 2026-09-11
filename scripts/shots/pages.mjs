@@ -30,7 +30,16 @@ const MAX_SHOT_HEIGHT = 16000;
 
 const args = parseArgs(process.argv.slice(2));
 const label = args.label || new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-const routes = args.kit ? ["/__kit"] : args.routes ? String(args.routes).split(",").map((r) => r.trim()).filter(Boolean) : ALL_ROUTES;
+// Git Bash rewrites an argument that starts with "/" into a Windows path
+// ("/login" arrives as "C:/Program Files/Git/login"), so routes may be given
+// without the slash: --routes login,tasks
+function toRoute(r) {
+  if (/^[A-Za-z]:[\\/]/.test(r)) {
+    throw new Error(`"${r}" looks like a path the shell rewrote. Pass routes without the leading slash (login,tasks) or set MSYS_NO_PATHCONV=1.`);
+  }
+  return "/" + r.replace(/^\/+/, "");
+}
+const routes = args.kit ? ["/__kit"] : args.routes ? String(args.routes).split(",").map((r) => r.trim()).filter(Boolean).map(toRoute) : ALL_ROUTES;
 const widths = String(args.widths || "390,1440").split(",").map(Number);
 const outDir = resolve(ROOT, "scratch/shots", label);
 mkdirSync(outDir, { recursive: true });
