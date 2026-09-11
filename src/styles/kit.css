@@ -180,6 +180,96 @@
 .kprog > span { display: block; height: 100%; border-radius: var(--r-pill); transition: width var(--dur-slow) var(--ease-out); }
 
 /* ══════════════════════════════════════════════════════
+   Page header
+══════════════════════════════════════════════════════ */
+.k-page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px 20px; min-width: 0;
+}
+.k-page-main { flex: 1 1 320px; min-width: 0; }
+.k-page-back {
+  display: inline-flex; align-items: center; gap: 3px; margin: 0 0 6px -3px; padding: 2px 4px 2px 1px;
+  border-radius: var(--r-sm); font-size: 12px; font-weight: 600; color: var(--ink-4); text-decoration: none;
+  transition: color var(--dur-fast) ease;
+}
+.k-page-back:hover { color: var(--mint-deep); }
+.k-page-back:focus-visible { outline: none; box-shadow: var(--focus-ring); color: var(--mint-deep); border-radius: var(--r-sm); }
+.k-page-title {
+  margin: 0; font-size: 20px; font-weight: 650; line-height: 1.25;
+  letter-spacing: -.02em; color: var(--ink); text-wrap: balance;
+}
+.k-page-desc { margin: 4px 0 0; max-width: 64ch; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.k-page-side { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
+.k-page-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+.k-page-stats {
+  display: flex; margin: 0;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-input); box-shadow: var(--shadow-1);
+}
+.k-page-stat {
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 1px;
+  padding: 7px 16px; border-left: 1px solid var(--line);
+}
+.k-page-stat:first-child { border-left: 0; }
+.k-page-stat-n { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.k-page-stat-l { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); }
+
+@media (max-width: 639px) {
+  .k-page-main { flex-basis: 100%; }
+  .k-page-side { width: 100%; }
+  .k-page-stats { flex: 1 1 100%; justify-content: space-around; }
+  .k-page-actions { flex: 1 1 auto; }
+}
+
+/* ══════════════════════════════════════════════════════
+   Toolbar · Search
+══════════════════════════════════════════════════════ */
+.k-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.k-toolbar-spacer { flex: 1 1 0; min-width: 0; }
+
+.k-search {
+  display: inline-flex; align-items: center; gap: 7px;
+  width: min(260px, 100%); min-width: 0; height: 34px; padding: 0 5px 0 10px;
+  background: var(--card); border: 1.5px solid var(--line-strong); border-radius: var(--r-control);
+  color: var(--ink-4); cursor: text;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.k-search:focus-within { border-color: var(--mint-2); box-shadow: var(--focus-ring); }
+.k-search > svg { flex: 0 0 auto; }
+.k-search input {
+  flex: 1 1 auto; width: 100%; min-width: 0; padding: 0;
+  border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 13px; color: var(--ink); caret-color: var(--mint-deep);
+}
+.k-search input::placeholder { color: var(--ink-3); }
+.k-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.k-search-clear {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--ink-4); cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.k-search-clear:hover { background: var(--bg-2); color: var(--ink); }
+.k-search-clear:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+.k-search--sm { height: 30px; }
+.k-search--sm input { font-size: 12.5px; }
+.k-search--block { width: 100%; }
+.k-toolbar > .k-search { flex: 0 1 260px; }
+.k-toolbar > .k-search--block { flex: 1 1 260px; }
+
+/* iOS zooms into any input under 16px, so phones and touch screens get 16px. */
+@media (pointer: coarse), (max-width: 768px) {
+  .k-search { height: var(--tap); }
+  .k-search input { font-size: 16px; }
+  .k-search-clear { width: 32px; height: 32px; }
+}
+@media (max-width: 639px) {
+  .k-toolbar-spacer { display: none; }
+  .k-toolbar > .k-search { flex: 1 1 100%; width: 100%; }
+}
+
+/* ══════════════════════════════════════════════════════
    Narrow screens
 ══════════════════════════════════════════════════════ */
 @media (max-width: 639px) {

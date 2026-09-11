@@ -14,3 +14,6 @@ export { Progress } from "./Progress";
 export { SegBar } from "./SegBar";
 export { Divider } from "./Divider";
 export { Ico, Icons } from "./Icons";
+export { PageHeader } from "./PageHeader";
+export { Toolbar, ToolbarSpacer } from "./Toolbar";
+export { SearchInput } from "./SearchInput";

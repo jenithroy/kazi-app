@@ -603,8 +603,8 @@ Each phase ends with a **review stop.** You check the branch in your browser bef
 3. ✅ `feat(ui)`: move `ui.jsx` into `ui/` with a re-exporting index (`59d2a34`) and fix `Btn`, `Pill`, `KPI`, `Card` (`910eb06`).
    - Dashboard and Usage already use these, so they picked up the new card headers and buttons.
 4. `feat(ui)`, one commit per group:
-   - 🔄 PageHeader / Toolbar / SearchInput (built, being verified)
-   - ⬜ Tabs / Segmented
+   - ✅ PageHeader / Toolbar / SearchInput. New kit components use the `k-` class prefix. The old `components/PageHeader.jsx` stays until the pages using it are redesigned.
+   - 🔄 Tabs / Segmented
    - ⬜ Field / FormGrid / inputs / Switch
    - ⬜ DataTable / RowActions / Menu / Money
    - ⬜ Dialog / Sheet / ConfirmDialog / toasts (FilterBar's phone sheet lands here too)

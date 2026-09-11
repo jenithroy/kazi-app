@@ -11,7 +11,10 @@
  * business data.
  */
 import { useState } from "react";
-import { Avatar, Btn, Card, Divider, IconBtn, Icons, KPI, Pill, Progress, SegBar, Spark } from "../components/ui";
+import {
+  Avatar, Btn, Card, Divider, IconBtn, Icons, KPI, PageHeader, Pill, Progress,
+  SearchInput, SegBar, Spark, Toolbar, ToolbarSpacer,
+} from "../components/ui";
 import "./KitPreview.css";
 
 const BTN_KINDS = ["primary", "secondary", "ghost", "danger", "soft", "mint"];
@@ -38,15 +41,55 @@ function LoadingDemo() {
   return <Btn kind="primary" loading={busy} onClick={run}>{busy ? "Saving" : "Save (click me)"}</Btn>;
 }
 
+function SearchDemo() {
+  const [q, setQ] = useState("");
+  return (
+    <Toolbar label="Specimen filters">
+      <SearchInput value={q} onChange={setQ} label="Search specimens" />
+      <Btn kind="secondary" size="md" icon={<Icons.Filter size={14} />}>Filters</Btn>
+      <ToolbarSpacer />
+      <span className="kkit-note kkit-note--inline">{q ? `Searching for “${q}”` : "Type, then press Escape to clear"}</span>
+      <Btn kind="ghost" icon={<Icons.Download size={14} />}>Export</Btn>
+    </Toolbar>
+  );
+}
+
 export default function KitPreview() {
   return (
     <main className="kkit">
-      <header className="kkit-head">
-        <h1 className="kkit-title">Kazi component kit</h1>
-        <p className="kkit-sub">
-          Every shared component in every state. Dev builds only. Check it at 390 px and 1440 px after any change to the kit.
-        </p>
-      </header>
+      <div className="kkit-head">
+        <PageHeader
+          title="Kazi component kit"
+          description="Every shared component in every state. Dev builds only. Check it at 390 px and 1440 px after any change to the kit."
+        />
+      </div>
+
+      <Section title="Page header" note="PageHeader: title and description, a back link, stats, actions. Stacks on a phone.">
+        <div className="kkit-frame">
+          <PageHeader
+            back={{ to: "/__kit", label: "Finance" }}
+            title="Fiscal year 2082/83"
+            description="Every transaction recorded in this fiscal year, newest first."
+            stats={[{ label: "Entries", value: "312" }, { label: "Types", value: "6" }]}
+            actions={<><Btn kind="secondary" icon={<Icons.Download size={14} />}>Export</Btn><Btn kind="primary" icon={<Icons.Plus size={14} />}>New entry</Btn></>}
+          />
+        </div>
+        <div className="kkit-frame">
+          <PageHeader title="Quality control" description="Log a batch inspection, then review past results below." />
+        </div>
+      </Section>
+
+      <Section title="Toolbar and search" note="Toolbar wraps instead of scrolling; ToolbarSpacer pushes the rest right on wide screens.">
+        <div className="kkit-frame">
+          <SearchDemo />
+        </div>
+        <div className="kkit-frame">
+          <Toolbar>
+            <SearchInput value="" onChange={() => {}} label="Small search" size="sm" />
+            <SearchInput value="Stretches to fill" onChange={() => {}} label="Block search" block />
+          </Toolbar>
+        </div>
+      </Section>
 
       <Section title="Buttons" note="Btn: kind × size, with an icon, loading, disabled">
         <div className="kkit-stack">
