@@ -12,7 +12,9 @@
     "cap:sync": "vite build && npx cap sync",
     "cap:ios": "vite build && npx cap sync && npx cap open ios",
     "cap:android": "vite build && npx cap sync && npx cap open android",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "shots": "node scripts/shots/pages.mjs",
+    "shots:docs": "node scripts/shots/docs.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
@@ -43,6 +45,7 @@
     "@cloudflare/vite-plugin": "^1.45.1",
     "@vitejs/plugin-react": "^4.3.1",
     "firebase-admin": "^12.7.0",
+    "puppeteer-core": "^25.10.0",
     "typescript": "^6.0.3",
     "vite": "^7.3.3",
     "wrangler": "^4.112.0"

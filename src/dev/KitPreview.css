@@ -1,0 +1,61 @@
+/* /__kit preview page (dev only). Loaded with the lazy KitPreview chunk. */
+
+/* Its own scroller: outside the app shell nothing else scrolls, and the root clips overflow. */
+.kkit {
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--ink);
+  padding-block: 32px 64px;
+  padding-inline: max(16px, 4vw);
+}
+
+.kkit-head,
+.kkit-section { max-width: 1200px; margin: 0 auto 28px; }
+
+.kkit-title { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.02em; }
+.kkit-sub { margin: 4px 0 0; max-width: 64ch; font-size: 13px; color: var(--ink-3); }
+
+.kkit-h {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.kkit-note { margin: 0 0 12px; font-size: 12px; color: var(--ink-4); }
+
+.kkit-stack { display: grid; gap: 10px; }
+.kkit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+.kkit-label { min-width: 64px; font-family: var(--mono, monospace); font-size: 11.5px; color: var(--ink-3); }
+
+.kkit-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+}
+.kkit-body { margin: 0; font-size: 13px; color: var(--ink-2); }
+.kkit-body--pad { padding: 12px 16px; }
+
+.kkit-meter { width: 120px; }
+.kkit-meter--wide { width: min(360px, 100%); }
+
+.kkit-icons {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+.kkit-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 11px;
+}

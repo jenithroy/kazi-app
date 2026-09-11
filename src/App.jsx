@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -25,6 +26,10 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
 import LandingRedirect from "./components/LandingRedirect";
 import { isRecoveryPending } from "./lib/recoveryLink";
+
+// The component kit preview (REDESIGN.md §6). Vite replaces import.meta.env.DEV
+// with false in production builds, so this page and its chunk never ship.
+const KitPreview = import.meta.env.DEV ? lazy(() => import("./dev/KitPreview")) : null;
 
 /**
  * Every route names the section it belongs to.
@@ -63,6 +68,10 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Outside the sign-in gate so the kit can be screenshotted without an account. */}
+      {KitPreview && (
+        <Route path="/__kit" element={<Suspense fallback={null}><KitPreview /></Suspense>} />
+      )}
       <Route element={<ProtectedRoute />}>
         <Route path="/dashboard"   element={<RequireSection section="dashboard"><Dashboard /></RequireSection>} />
         <Route path="/tasks"       element={<RequireSection section="tasks"><Tasks /></RequireSection>} />
