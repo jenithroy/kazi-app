@@ -14,6 +14,7 @@ import { useState } from "react";
 import {
   Avatar, Btn, Card, Divider, IconBtn, Icons, KPI, PageHeader, Pill, Progress,
   SearchInput, SegBar, Segmented, Spark, Tabs, Toolbar, ToolbarSpacer,
+  Field, FormGrid, FormSection, FormActions, Input, Textarea, Select, Checkbox, Switch,
 } from "../components/ui";
 import "./KitPreview.css";
 
@@ -134,6 +135,86 @@ function SegmentedDemo() {
   );
 }
 
+function SpecimenForm({ columns = 3 }) {
+  const [form, setForm] = useState({
+    customer: "", style: "KZ-TEE-01", region: "", qty: "0", rate: "850", due: "2026-09-30",
+    notes: "", vat: true, notify: false,
+  });
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const qtyError = Number(form.qty) > 0 ? null : "Enter a quantity above zero.";
+
+  return (
+    <>
+      <FormSection title="Customer and style" description="Who the order is for and what is being made.">
+        <FormGrid columns={columns}>
+          <Field label="Customer" required>
+            <Input value={form.customer} onChange={set("customer")} placeholder="Start typing a name" />
+          </Field>
+          <Field label="Style code" hint="Printed on the tech pack.">
+            <Input value={form.style} onChange={set("style")} />
+          </Field>
+          <Field label="Region">
+            <Select value={form.region} onChange={set("region")} placeholder="Not set">
+              <option value="nepal">Nepal</option>
+              <option value="uk">UK</option>
+            </Select>
+          </Field>
+        </FormGrid>
+      </FormSection>
+
+      <FormSection title="Quantities and pricing">
+        <FormGrid columns={columns}>
+          <Field label="Quantity" error={qtyError} required>
+            <Input type="number" min="0" value={form.qty} onChange={set("qty")} suffix="pcs" />
+          </Field>
+          <Field label="Rate" hint="Per piece, before VAT.">
+            <Input type="number" min="0" value={form.rate} onChange={set("rate")} prefix="NPR" />
+          </Field>
+          <Field label="Due date">
+            <Input type="date" value={form.due} onChange={set("due")} />
+          </Field>
+          <Field label="Notes" optional span="full">
+            <Textarea value={form.notes} onChange={set("notes")} placeholder="Anything the floor should know" />
+          </Field>
+          <Field label="Locked" hint="Disabled, the way a view-only role sees it.">
+            <Input value="Read only for this role" disabled />
+          </Field>
+          <Field label="Compact">
+            <Input compact defaultValue="Denser, for tables" />
+          </Field>
+        </FormGrid>
+      </FormSection>
+
+      <FormSection title="Options">
+        <div className="kkit-stack">
+          <Checkbox
+            label="Apply 13% VAT"
+            description="Adds VAT on top of the order value."
+            checked={form.vat}
+            onChange={(e) => setForm((f) => ({ ...f, vat: e.target.checked }))}
+          />
+          <Checkbox label="A disabled checkbox" disabled />
+          <Switch
+            label="Notify the floor on Telegram"
+            description="A switch applies as soon as it flips."
+            checked={form.notify}
+            onChange={(v) => setForm((f) => ({ ...f, notify: v }))}
+          />
+          <div className="kkit-row">
+            <Switch size="sm" ariaLabel="Small switch" checked={form.notify} onChange={(v) => setForm((f) => ({ ...f, notify: v }))} />
+            <Switch ariaLabel="Disabled switch" checked disabled onChange={() => {}} />
+          </div>
+        </div>
+      </FormSection>
+
+      <FormActions note="Nothing is saved here: this is the kit page.">
+        <Btn kind="secondary">Cancel</Btn>
+        <Btn kind="primary">Create order</Btn>
+      </FormActions>
+    </>
+  );
+}
+
 export default function KitPreview() {
   return (
     <main className="kkit">
@@ -177,6 +258,19 @@ export default function KitPreview() {
 
       <Section title="Segmented" note="Segmented: a radiogroup of a few exclusive choices. Counts, icon-only with a label, a disabled option, full width.">
         <SegmentedDemo />
+      </Section>
+
+      <Section title="Forms" note="Field, FormGrid, FormSection, FormActions and the inputs. The grid follows the form's own width: the second copy sits in a 320 px box.">
+        <div className="kkit-forms">
+          <Card title="New order" sub="Specimen form, three columns when there is room">
+            <SpecimenForm columns={3} />
+          </Card>
+          <div className="kkit-narrow">
+            <Card title="Same form, narrow box">
+              <SpecimenForm columns={3} />
+            </Card>
+          </div>
+        </div>
       </Section>
 
       <Section title="Buttons" note="Btn: kind × size, with an icon, loading, disabled">

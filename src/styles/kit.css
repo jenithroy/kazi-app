@@ -383,6 +383,165 @@
 }
 
 /* ══════════════════════════════════════════════════════
+   Fields and forms
+══════════════════════════════════════════════════════ */
+.k-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.k-field-label {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3);
+}
+.k-field-req { color: var(--terra-ink); letter-spacing: 0; }
+.k-field-opt { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-3); }
+.k-field-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
+.k-field-error {
+  display: flex; align-items: flex-start; gap: 5px; margin: 0;
+  font-size: 12px; font-weight: 600; line-height: 1.45; color: var(--terra-ink);
+}
+.k-field-error > svg { flex: 0 0 auto; margin-top: 2px; color: var(--terra); }
+
+/* The grid reads the form's own width (container queries), not the screen's. */
+.k-form-wrap { container-type: inline-size; min-width: 0; }
+.k-form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px 16px; align-items: start; }
+.k-form-grid > .k-span-full { grid-column: 1 / -1; }
+@container (min-width: 480px) {
+  .k-form-grid--2, .k-form-grid--3, .k-form-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .k-form-grid--2 > .k-span-2, .k-form-grid--2 > .k-span-3, .k-form-grid--2 > .k-span-4,
+  .k-form-grid--3 > .k-span-2, .k-form-grid--3 > .k-span-3,
+  .k-form-grid--4 > .k-span-2, .k-form-grid--4 > .k-span-3, .k-form-grid--4 > .k-span-4 { grid-column: span 2; }
+}
+@container (min-width: 720px) {
+  .k-form-grid--3, .k-form-grid--4 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .k-form-grid--3 > .k-span-3,
+  .k-form-grid--4 > .k-span-3, .k-form-grid--4 > .k-span-4 { grid-column: span 3; }
+}
+@container (min-width: 960px) {
+  .k-form-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .k-form-grid--4 > .k-span-4 { grid-column: span 4; }
+}
+
+.k-form-section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.k-form-section + .k-form-section { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+.k-form-section-title { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--ink); }
+.k-form-section-desc { margin: 3px 0 0; max-width: 64ch; font-size: 12px; line-height: 1.5; color: var(--ink-3); }
+
+.k-form-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px 16px; }
+* + .k-form-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.k-form-actions-note { flex: 1 1 240px; margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
+.k-form-actions-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+@media (max-width: 639px) {
+  .k-form-actions-btns { width: 100%; }
+  .k-form-actions-btns > * { flex: 1 1 0; }
+}
+
+/* ── Inputs ── */
+.k-input {
+  display: block; width: 100%; min-width: 0; height: 36px; margin: 0; padding: 0 11px;
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--card); color: var(--ink);
+  font: inherit; font-size: 13.5px; line-height: 1.3; caret-color: var(--mint-deep);
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+.k-input::placeholder { color: var(--ink-3); opacity: 1; }
+.k-input:hover:not(:disabled):not(:focus) { border-color: var(--ink-5); }
+.k-input:focus { outline: none; border-color: var(--mint-2); box-shadow: var(--focus-ring); border-radius: var(--r-control); }
+.k-input[aria-invalid="true"] { border-color: var(--terra); }
+.k-input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px var(--terra-soft); }
+.k-input:disabled { background: var(--bg); border-color: var(--line); color: var(--ink-3); cursor: not-allowed; }
+.k-input[readonly] { background: var(--bg); }
+.k-input--sm { height: 30px; padding: 0 9px; font-size: 12.5px; }
+.k-textarea { height: auto; min-height: 80px; padding: 8px 11px; line-height: 1.5; resize: vertical; }
+input.k-input[type="number"], input.k-input[type="date"], input.k-input[type="time"] { font-variant-numeric: tabular-nums; }
+
+/* A unit or currency beside the value. */
+.k-input-group {
+  display: flex; align-items: stretch; width: 100%; min-width: 0; height: 36px; overflow: hidden;
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-control); background: var(--card);
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.k-input-group:hover:not(.is-disabled):not(:focus-within) { border-color: var(--ink-5); }
+.k-input-group:focus-within { border-color: var(--mint-2); box-shadow: var(--focus-ring); }
+.k-input-group:has([aria-invalid="true"]) { border-color: var(--terra); }
+.k-input-group.is-disabled { background: var(--bg); border-color: var(--line); }
+.k-input-group > .k-input.k-input--bare,
+.k-input-group > .k-input.k-input--bare:focus {
+  height: 100%; border: 0; border-radius: 0; box-shadow: none; background: transparent;
+}
+.k-input-affix {
+  display: flex; align-items: center; flex: 0 0 auto; padding: 0 10px;
+  background: var(--bg); color: var(--ink-3); font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.k-input-affix:first-child { border-right: 1px solid var(--line); }
+.k-input-affix:last-child { border-left: 1px solid var(--line); }
+.k-input-group--sm { height: 30px; }
+
+/* ── Select ── */
+.k-select { position: relative; display: block; width: 100%; min-width: 0; }
+.k-select-el { padding-right: 32px; -webkit-appearance: none; appearance: none; cursor: pointer; text-overflow: ellipsis; }
+.k-select > svg { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); color: var(--ink-3); pointer-events: none; }
+.k-select.is-disabled > svg { opacity: .5; }
+.k-select--sm .k-select-el { height: 30px; padding: 0 28px 0 9px; font-size: 12.5px; }
+.k-select--sm > svg { right: 8px; }
+
+/* iOS zooms into any input under 16px; touch screens and narrow windows get 16px and a full tap height. */
+@media (pointer: coarse), (max-width: 768px) {
+  .k-input, .k-input-group { height: var(--tap); }
+  .k-input, .k-select-el { font-size: 16px; }
+  .k-textarea { height: auto; }
+  .k-input--sm, .k-input-group--sm, .k-select--sm .k-select-el { height: 36px; }
+}
+
+/* ── Checkbox ── */
+.k-check {
+  position: relative; display: inline-flex; align-items: flex-start; gap: 9px; max-width: 100%;
+  font-size: 13px; line-height: 1.45; color: var(--ink-2); cursor: pointer;
+}
+.k-check.is-disabled { opacity: .55; cursor: not-allowed; }
+.k-check-input { position: absolute; top: 0; left: 0; width: 18px; height: 18px; margin: 0; opacity: 0; cursor: inherit; }
+.k-check-box {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 18px; height: 18px; margin-top: 1px;
+  border: 1.5px solid var(--ink-4); border-radius: calc(var(--r-sm) - 2px);
+  background: var(--card); color: transparent;
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.k-check:hover .k-check-input:not(:disabled):not(:checked) + .k-check-box { border-color: var(--ink-3); }
+.k-check-input:checked + .k-check-box { background: var(--mint-deep); border-color: var(--mint-deep); color: #fff; }
+.k-check-input:focus-visible + .k-check-box { border-color: var(--mint-2); box-shadow: var(--focus-ring); }
+.k-check-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.k-check-label { font-weight: 500; color: var(--ink-2); }
+.k-check-desc { font-size: 12px; color: var(--ink-3); }
+
+/* ── Switch ── */
+.k-switch {
+  position: relative; flex: 0 0 auto; width: 38px; height: 22px; padding: 0;
+  border: 0; border-radius: var(--r-pill); background: var(--ink-4); cursor: pointer;
+  transition: background var(--dur) ease, box-shadow var(--dur-fast) ease;
+}
+.k-switch.is-on { background: var(--mint-deep); }
+.k-switch:disabled { opacity: .45; cursor: not-allowed; }
+.k-switch:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--mint-2); border-radius: var(--r-pill); }
+.k-switch-knob {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; box-shadow: var(--shadow-2);
+  transition: transform var(--dur) var(--ease-out);
+}
+.k-switch.is-on .k-switch-knob { transform: translateX(16px); }
+.k-switch--sm { width: 30px; height: 18px; }
+.k-switch--sm .k-switch-knob { width: 12px; height: 12px; }
+.k-switch--sm.is-on .k-switch-knob { transform: translateX(12px); }
+.k-switch-row { display: inline-flex; align-items: flex-start; gap: 10px; max-width: 100%; font-size: 13px; line-height: 1.45; }
+.k-switch-row > .k-switch { margin-top: -1px; }
+.k-switch-row > label { cursor: pointer; }
+.k-switch-row.is-disabled > label { opacity: .55; cursor: not-allowed; }
+
+@media (pointer: coarse) {
+  .k-check, .k-switch-row { min-height: var(--tap); align-items: center; }
+  .k-check-input { inset: 0; width: 100%; height: 100%; }
+  .k-check-box, .k-switch-row > .k-switch { margin-top: 0; }
+  .k-switch::after { content: ""; position: absolute; inset: -9px; }
+}
+
+/* ══════════════════════════════════════════════════════
    Utilities
 ══════════════════════════════════════════════════════ */
 /* Read by screen readers, not shown. */
@@ -409,6 +568,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .kbtn, .kiconbtn, .kkpi, .kprog > span,
-  .k-page-back, .k-search, .k-search-clear, .k-tab, .k-seg-btn { transition: none; }
+  .k-page-back, .k-search, .k-search-clear, .k-tab, .k-seg-btn,
+  .k-input, .k-input-group, .k-check-box, .k-switch, .k-switch-knob { transition: none; }
   .kspin { animation-duration: 2.4s; }
 }

@@ -604,9 +604,9 @@ Each phase ends with a **review stop.** You check the branch in your browser bef
    - Dashboard and Usage already use these, so they picked up the new card headers and buttons.
 4. `feat(ui)`, one commit per group:
    - ✅ PageHeader / Toolbar / SearchInput (`4b75deb`). New kit components use the `k-` class prefix. The old `components/PageHeader.jsx` stays until the pages using it are redesigned.
-   - ✅ Tabs / Segmented. Arrow-key, Home and End navigation checked by script; more than five tabs become a grouped select on phones.
-   - 🔄 Field / FormGrid / inputs / Switch
-   - ⬜ DataTable / RowActions / Menu / Money
+   - ✅ Tabs / Segmented (`42711f5`). Arrow-key, Home and End navigation checked by script; more than five tabs become a grouped select on phones.
+   - ✅ Field / FormGrid / FormSection / FormActions / Input / Select / Textarea / Checkbox / Switch. Controls stay native elements so Enter-to-advance still finds them; FormGrid collapses by the form's own width (container queries). Label, hint and error wiring checked by script.
+   - 🔄 DataTable / RowActions / Menu / Money
    - ⬜ Dialog / Sheet / ConfirmDialog / toasts (FilterBar's phone sheet lands here too)
    - ⬜ Banner / EmptyState / Skeleton / StatStrip
    - ⬜ Stepper / Kanban / MonthGrid / Agenda
