@@ -17,3 +17,6 @@ export { Ico, Icons } from "./Icons";
 export { PageHeader } from "./PageHeader";
 export { Toolbar, ToolbarSpacer } from "./Toolbar";
 export { SearchInput } from "./SearchInput";
+export { Tabs } from "./Tabs";
+export { Segmented } from "./Segmented";
+export { useMediaQuery, PHONE_QUERY } from "./useMediaQuery";

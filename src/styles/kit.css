@@ -270,6 +270,128 @@
 }
 
 /* ══════════════════════════════════════════════════════
+   Tabs
+══════════════════════════════════════════════════════ */
+.k-tabs { position: relative; min-width: 0; }
+.k-tabs-scroll {
+  position: relative; display: flex; align-items: stretch; gap: 2px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+  /* The base line is drawn inside the scroller, so the selected tab's underline sits on it without being clipped. */
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.k-tabs-scroll::-webkit-scrollbar { display: none; }
+.k-tabs.is-fade-r .k-tabs-scroll {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+          mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+.k-tabs.is-fade-l .k-tabs-scroll {
+  -webkit-mask-image: linear-gradient(to left, black calc(100% - 40px), transparent);
+          mask-image: linear-gradient(to left, black calc(100% - 40px), transparent);
+}
+.k-tabs.is-fade-l.is-fade-r .k-tabs-scroll {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
+          mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
+}
+
+.k-tab {
+  display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto;
+  padding: 9px 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-3);
+  white-space: nowrap; cursor: pointer;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.k-tab:hover:not(:disabled) { color: var(--ink); }
+.k-tab[aria-selected="true"] { color: var(--mint-deep); border-bottom-color: var(--mint-deep); }
+.k-tab:disabled { opacity: .45; cursor: not-allowed; }
+.k-tab:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--mint-2); border-radius: var(--r-sm) var(--r-sm) 0 0; }
+.k-tab-ico { display: inline-flex; }
+.k-tab-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--bg-2); color: var(--ink-3);
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.k-tab[aria-selected="true"] .k-tab-count { background: var(--mint-soft); color: var(--mint-deep); }
+.k-tab-kbd {
+  display: none; padding: 1px 5px; border-radius: var(--r-sm);
+  background: var(--bg-2); font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--ink-4);
+}
+/* A shortcut is only worth advertising to someone with a keyboard in front of them. */
+@media (hover: hover) and (pointer: fine) {
+  .k-tab-kbd { display: inline-block; }
+}
+.k-tabs-sep { flex: 0 0 auto; align-self: center; width: 1px; height: 18px; margin: 0 6px; background: var(--line-strong); }
+.k-tabs-group {
+  display: none; align-self: center; flex: 0 0 auto; padding: 0 2px 0 4px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-4); white-space: nowrap;
+}
+@media (min-width: 1200px) {
+  .k-tabs-group { display: inline; }
+}
+.k-tabs--sm .k-tab { padding: 7px 10px; font-size: 12.5px; gap: 6px; }
+
+/* On a phone, a long tab bar becomes a select. */
+.k-tabs-select { position: relative; display: block; }
+.k-tabs-select select {
+  width: 100%; height: var(--tap); padding: 0 38px 0 12px;
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--card); color: var(--ink);
+  font: inherit; font-size: 16px; font-weight: 600;
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+}
+.k-tabs-select select:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: var(--focus-ring); }
+.k-tabs-select > svg {
+  position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+  color: var(--ink-3); pointer-events: none;
+}
+
+@media (pointer: coarse) {
+  .k-tab { min-height: var(--tap); }
+}
+
+/* ══════════════════════════════════════════════════════
+   Segmented
+══════════════════════════════════════════════════════ */
+.k-seg {
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%; padding: 3px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-pill);
+  overflow-x: auto; scrollbar-width: none;
+}
+.k-seg::-webkit-scrollbar { display: none; }
+.k-seg-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto;
+  padding: 5px 12px; border: 0; border-radius: var(--r-pill); background: transparent;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  white-space: nowrap; cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.k-seg-btn:hover:not(:disabled):not([aria-checked="true"]) { color: var(--ink); }
+.k-seg-btn[aria-checked="true"] { background: var(--card); color: var(--mint-deep); box-shadow: var(--shadow-1); }
+.k-seg-btn:disabled { opacity: .45; cursor: not-allowed; }
+.k-seg-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--mint-2); border-radius: var(--r-pill); }
+.k-seg-ico { display: inline-flex; }
+.k-seg-count { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink-4); }
+.k-seg-btn[aria-checked="true"] .k-seg-count { color: var(--mint-deep); }
+.k-seg--sm .k-seg-btn { padding: 4px 10px; font-size: 11.5px; }
+.k-seg--block { display: flex; width: 100%; }
+.k-seg--block .k-seg-btn { flex: 1 1 0; min-width: 0; }
+
+@media (pointer: coarse) {
+  .k-seg { padding: 2px; }
+  .k-seg-btn { min-height: var(--tap); }
+}
+
+/* ══════════════════════════════════════════════════════
+   Utilities
+══════════════════════════════════════════════════════ */
+/* Read by screen readers, not shown. */
+.k-sr {
+  position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* ══════════════════════════════════════════════════════
    Narrow screens
 ══════════════════════════════════════════════════════ */
 @media (max-width: 639px) {
@@ -286,6 +408,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kbtn, .kiconbtn, .kkpi, .kprog > span { transition: none; }
+  .kbtn, .kiconbtn, .kkpi, .kprog > span,
+  .k-page-back, .k-search, .k-search-clear, .k-tab, .k-seg-btn { transition: none; }
   .kspin { animation-duration: 2.4s; }
 }

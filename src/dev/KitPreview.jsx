@@ -13,7 +13,7 @@
 import { useState } from "react";
 import {
   Avatar, Btn, Card, Divider, IconBtn, Icons, KPI, PageHeader, Pill, Progress,
-  SearchInput, SegBar, Spark, Toolbar, ToolbarSpacer,
+  SearchInput, SegBar, Segmented, Spark, Tabs, Toolbar, ToolbarSpacer,
 } from "../components/ui";
 import "./KitPreview.css";
 
@@ -54,6 +54,86 @@ function SearchDemo() {
   );
 }
 
+const SPECIMEN_TABS = [
+  { value: "expenses",  label: "Expenses",      count: 24, group: "Money in & out", shortcut: "E" },
+  { value: "purchases", label: "Purchases",     count: 12, group: "Money in & out", shortcut: "P" },
+  { value: "vat",       label: "VAT bills",     count: 3,  group: "Money in & out", shortcut: "V" },
+  { value: "bank",      label: "Bank",                     group: "Money in & out", shortcut: "K" },
+  { value: "journal",   label: "Journal",                  group: "Books",          shortcut: "J" },
+  { value: "ledger",    label: "Ledger",                   group: "Books",          shortcut: "L" },
+  { value: "pl",        label: "P&L",                      group: "Books" },
+  { value: "bs",        label: "Balance sheet",            group: "Books" },
+  { value: "orders",    label: "Order P&L",                group: "Orders",         shortcut: "O" },
+];
+
+function TabsDemo() {
+  const [tab, setTab] = useState("expenses");
+  const [chat, setChat] = useState("team");
+  return (
+    <>
+      <div className="kkit-frame">
+        <Tabs label="Specimen sections" items={SPECIMEN_TABS} value={tab} onChange={setTab} showShortcuts />
+        <p className="kkit-note kkit-note--after">Selected: <strong>{tab}</strong>. Arrow keys move between tabs; on a phone these nine become a select.</p>
+      </div>
+      <div className="kkit-frame">
+        <Tabs
+          label="Specimen inbox"
+          size="sm"
+          value={chat}
+          onChange={setChat}
+          items={[
+            { value: "team", label: "Team", icon: <Icons.Message size={14} />, count: 3 },
+            { value: "leads", label: "Leads", icon: <Icons.Bot size={14} /> },
+            { value: "archived", label: "Archived", disabled: true },
+          ]}
+        />
+      </div>
+    </>
+  );
+}
+
+function SegmentedDemo() {
+  const [view, setView] = useState("daily");
+  const [currency, setCurrency] = useState("NPR");
+  const [dates, setDates] = useState("AD");
+  const [status, setStatus] = useState("pending");
+  const [layout, setLayout] = useState("list");
+  const [amount, setAmount] = useState("pct");
+  return (
+    <div className="kkit-stack">
+      <div className="kkit-row">
+        <span className="kkit-label">md</span>
+        <Segmented label="View" value={view} onChange={setView} options={[{ value: "daily", label: "Daily log" }, { value: "report", label: "Employee report" }]} />
+        <Segmented
+          label="Status"
+          value={status}
+          onChange={setStatus}
+          options={[{ value: "pending", label: "Pending", count: 4 }, { value: "approved", label: "Approved", count: 12 }, { value: "rejected", label: "Rejected", count: 1 }, { value: "all", label: "All" }]}
+        />
+      </div>
+      <div className="kkit-row">
+        <span className="kkit-label">sm</span>
+        <Segmented size="sm" label="Currency" value={currency} onChange={setCurrency} options={[{ value: "NPR", label: "NPR" }, { value: "GBP", label: "GBP" }]} />
+        <Segmented size="sm" label="Date system" value={dates} onChange={setDates} options={[{ value: "AD", label: "AD" }, { value: "BS", label: "BS" }]} />
+        <Segmented size="sm" label="Discount as" value={amount} onChange={setAmount} options={[{ value: "pct", label: "%" }, { value: "amt", label: "Amount" }, { value: "none", label: "None", disabled: true }]} />
+        <Segmented
+          size="sm"
+          label="Layout"
+          value={layout}
+          onChange={setLayout}
+          options={[
+            { value: "list", icon: <Icons.Menu size={14} />, ariaLabel: "List" },
+            { value: "grid", icon: <Icons.Dashboard size={14} />, ariaLabel: "Grid" },
+          ]}
+        />
+      </div>
+      <div className="kkit-meter kkit-meter--wide">
+        <Segmented block label="View (block)" value={view} onChange={setView} options={[{ value: "daily", label: "Daily log" }, { value: "report", label: "Employee report" }]} />
+      </div>
+    </div>
+  );
+}
+
 export default function KitPreview() {
   return (
     <main className="kkit">
@@ -89,6 +169,14 @@ export default function KitPreview() {
             <SearchInput value="Stretches to fill" onChange={() => {}} label="Block search" block />
           </Toolbar>
         </div>
+      </Section>
+
+      <Section title="Tabs" note="Tabs: counts, group separators (group names from 1200 px), shortcut hints on mouse-and-keyboard screens, a select on phones">
+        <TabsDemo />
+      </Section>
+
+      <Section title="Segmented" note="Segmented: a radiogroup of a few exclusive choices. Counts, icon-only with a label, a disabled option, full width.">
+        <SegmentedDemo />
       </Section>
 
       <Section title="Buttons" note="Btn: kind × size, with an icon, loading, disabled">

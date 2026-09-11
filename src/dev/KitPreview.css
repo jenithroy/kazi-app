@@ -28,6 +28,7 @@
 .kkit-note { margin: 0 0 12px; font-size: 12px; color: var(--ink-4); }
 
 .kkit-note--inline { margin: 0; }
+.kkit-note--after { margin: 10px 0 0; }
 
 /* A dashed frame marks where a specimen's own box ends, so wrapping is visible. */
 .kkit-frame {
