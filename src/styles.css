@@ -2778,11 +2778,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .ktasks-col { min-height: auto; }
   .kpipe-rail { grid-template-columns: 1fr 1fr; }
 
-  /* ── OrderManagement inline 7-col kanban override ── */
-  .ktasks-board[style*="repeat(7"] {
-    grid-template-columns: 1fr !important;
-  }
-
   /* ── Tables: horizontal scroll ── */
   .table-wrap { -webkit-overflow-scrolling: touch; }
   .table-wrap table { min-width: 560px; }
@@ -2835,12 +2830,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
     -webkit-overflow-scrolling: touch;
   }
   .kcust-row2 { min-width: 760px; }
-
-  /* ── Directors & Accounting 2-col grids → single column ── */
-  .kdir-about-grid,
-  .kacc-2col {
-    grid-template-columns: 1fr !important;
-  }
 
   /* ── Touch targets ── */
   .kbtn--sm { padding: 8px 12px; }
