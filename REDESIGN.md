@@ -10,7 +10,7 @@
 | Phase | Status |
 |---|---|
 | 0 — Prep | ✅ Done |
-| 1 — Foundations | 🔄 In progress: steps 1–3 done, component groups under way |
+| 1 — Foundations | ✅ Done — awaiting your review |
 | 2 — Shell | ⬜ |
 | 3 — Workspace | ⬜ |
 | 4 — Operations | ⬜ |
@@ -610,8 +610,8 @@ Each phase ends with a **review stop.** You check the branch in your browser bef
    - ✅ Dialog / Sheet / ConfirmDialog (`useConfirm`) / `notify` toasts / FilterBar (`6b04130`). One overlay layer: portalled, focus trapped and returned, Escape and backdrop (switchable off while saving), nested stacking, scroll lock, sticky footer. Dialog is a bottom sheet on phones; Sheet is a right drawer from 900 px. `ConfirmProvider` is mounted in `main.jsx`. Focus, dismissal, confirms and the phone variants checked by script.
    - ✅ Banner / EmptyState / ErrorState / Skeleton / SkeletonGroup / StatStrip (`b801c1f`). DataTable now uses the shared empty and error states. StatStrip reads its own width (4 → 2 → 1, two across down to a 360 px phone) and shrinks KPI figures inside narrow strips.
    - ✅ Stepper / Kanban / MonthGrid / Agenda. Kanban gives every card a "Move to" menu beside the desktop drag, so touch and keyboard can move cards, and shows one column at a time with a counted switcher below 640 px of its own width. MonthGrid takes the week start as a prop (Monday for Attendance / Production / dashboard, Sunday for Marketing) and builds local days, so §11 #8's day-early bug cannot come back. Stepper is the full run when wide and "Stage 4 of 10 · Stitching" with a bar when narrow.
-   - 🔄 FileDrop / Popover / Statement / BarList / ChartFrame
-5. 🔄 `/__kit` page showing every component in every state, screenshotted at 390 and 1440. (Grows with each group above.)
+   - ✅ FileDrop / Popover / Statement / BarList / ChartFrame. FileDrop owns choosing, dragging, the type and size check, what was chosen and progress; each page keeps its own compressing and uploading. Popover is portalled and closes on Escape, an outside click or its own contents — the FX converter and embellishment picker close on none of those today. Statement values are nodes, so pages can pass `Money` and follow the currency toggle (Finance's statements use a constant rate today). `ui/charts.js` holds one palette and one tooltip, grid and axis style.
+5. ✅ `/__kit` page showing every component in every state, screenshotted at 390 and 1440 after each group.
 
 ### Phase 2 — Shell
 `AppLayout` topbar and user menu, `Sidebar` and mobile drawer, native `BottomNav` check, `Login`, `RequireSection` / `LandingRedirect`.

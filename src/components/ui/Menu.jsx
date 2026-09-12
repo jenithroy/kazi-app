@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { placeFloating } from "./floating";
 import { cn } from "./utils";
 
 /* ── Menu ─────────────────────────────────────────────── */
@@ -41,18 +42,9 @@ export function Menu({ trigger, children, align = "end", label, className }) {
   }, []);
 
   const place = useCallback(() => {
-    const anchor = anchorRef.current;
-    const menu = menuRef.current;
-    if (!anchor || !menu) return;
-    const a = anchor.getBoundingClientRect();
-    const { offsetWidth: w, offsetHeight: h } = menu;
-    const gap = 4;
-    const margin = 8;
-    let top = a.bottom + gap;
-    if (top + h > window.innerHeight - margin && a.top - gap - h > margin) top = a.top - gap - h;
-    let left = align === "end" ? a.right - w : a.left;
-    left = Math.min(Math.max(margin, left), window.innerWidth - w - margin);
-    setPos({ top: Math.round(top), left: Math.round(left) });
+    if (anchorRef.current && menuRef.current) {
+      setPos(placeFloating(anchorRef.current, menuRef.current, { align }));
+    }
   }, [align]);
 
   useLayoutEffect(() => {

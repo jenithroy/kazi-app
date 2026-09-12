@@ -51,8 +51,6 @@
 .kkit-agenda-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .kkit-row--tight { margin-bottom: 0; }
 
-.kkit-grid--wide { grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
-
 /* A dashed frame marks where a specimen's own box ends, so wrapping is visible. */
 .kkit-frame {
   margin-bottom: 12px; padding: 14px;
@@ -68,6 +66,8 @@
   gap: 14px;
   grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
 }
+/* After .kkit-grid, so it wins: wider cards for tables, charts and states. */
+.kkit-grid--wide { grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
 .kkit-body { margin: 0; font-size: 13px; color: var(--ink-2); }
 .kkit-body--pad { padding: 12px 16px; }
 

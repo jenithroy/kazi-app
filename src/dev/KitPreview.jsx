@@ -19,7 +19,10 @@ import {
   Dialog, Sheet, FilterBar, notify, useConfirm,
   Banner, EmptyState, ErrorState, Skeleton, SkeletonGroup, StatStrip,
   Stepper, Kanban, MonthGrid, Agenda, toISODate,
+  Popover, FileDrop, Statement, BarList, ChartFrame,
+  chartColor, tooltipProps, gridProps, axisProps, shortNumber,
 } from "../components/ui";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useCurrency } from "../context/CurrencyContext";
 import "./KitPreview.css";
 
@@ -280,6 +283,193 @@ function MenuMoneyDemo() {
         <Money amount={null} />
         <Money amount={76400} stacked />
       </div>
+    </div>
+  );
+}
+
+function FileDropDemo() {
+  const [picked, setPicked] = useState([]);
+  const [progress, setProgress] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  // Stands in for a page's own compress-then-upload chain.
+  const take = (files) => {
+    setBusy(true);
+    setTimeout(() => {
+      setBusy(false);
+      setProgress(0);
+      let pct = 0;
+      const tick = setInterval(() => {
+        pct += 20;
+        setProgress(pct);
+        if (pct >= 100) {
+          clearInterval(tick);
+          setTimeout(() => {
+            setProgress(null);
+            setPicked((old) => [...old, ...files.map((f) => ({ name: f.name, size: f.size, url: "/letterhead.jpg" }))]);
+            notify.success(`${files.length} file${files.length === 1 ? "" : "s"} taken (specimen, nothing uploaded)`);
+          }, 250);
+        }
+      }, 180);
+    }, 600);
+  };
+
+  return (
+    <div className="kkit-grid kkit-grid--wide">
+      <Card title="Pick or drop" sub="The page keeps its own compressing and uploading">
+        <FileDrop
+          onFiles={take}
+          accept="image/*,.pdf"
+          multiple
+          maxSize={2 * 1024 * 1024}
+          title="Drop a bill here, or choose one"
+          hint="Images or PDF, up to 2 MB each."
+          files={picked}
+          onRemove={(_, i) => setPicked((old) => old.filter((__, j) => j !== i))}
+          progress={progress}
+          busy={busy}
+          busyLabel="Compressing…"
+        />
+      </Card>
+      <Card title="Refused and view only" sub="A file that is too big, and the zone a view-only role sees">
+        <div className="kkit-stack">
+          <FileDrop onFiles={() => {}} accept=".pdf" maxSize={1024} title="Only PDFs, up to 1 KB" hint="Try dropping an image to see it refused." />
+          <FileDrop onFiles={() => {}} disabled title="Uploading is off for your role" hint="Ask an admin if your job needs it." />
+          <FileDrop onFiles={() => {}} title="After a failure" error="That upload did not finish. Check the connection and try again." />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PopoverDemo() {
+  const [rate, setRate] = useState("206");
+  const [amount, setAmount] = useState("120");
+  const [applied, setApplied] = useState("Nothing applied yet.");
+  const npr = (Number(amount) || 0) * (Number(rate) || 0);
+  return (
+    <div className="kkit-row">
+      <span className="kkit-label">popover</span>
+      <Popover
+        title="Convert to NPR"
+        align="start"
+        width={280}
+        trigger={(props) => <Btn {...props} kind="secondary" size="sm" icon={<Icons.Finance size={14} />}>Convert a rate</Btn>}
+      >
+        {({ close }) => (
+          <div className="kkit-stack">
+            <FormGrid columns={2}>
+              <Field label="Amount (GBP)"><Input compact type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+              <Field label="Rate"><Input compact type="number" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+            </FormGrid>
+            <p className="kkit-note kkit-note--inline">= <Money amount={npr} secondary={false} /></p>
+            <div className="kkit-row kkit-row--tight">
+              <Btn kind="ghost" size="sm" onClick={() => close()}>Cancel</Btn>
+              <Btn kind="primary" size="sm" onClick={() => { setApplied(`Applied ₨ ${Math.round(npr).toLocaleString("en-IN")}`); close(); }}>Apply</Btn>
+            </div>
+          </div>
+        )}
+      </Popover>
+      <span className="kkit-note kkit-note--inline" aria-live="polite">{applied}</span>
+    </div>
+  );
+}
+
+const PL_ROWS = {
+  income: [
+    { key: "sales", label: "Sales revenue", value: 252400 },
+    { key: "other", label: "Other income", value: 8600 },
+  ],
+  expenses: [
+    { key: "exp", label: "Expenses", value: 118650 },
+    { key: "purch", label: "Purchases", value: 46200 },
+    { key: "pay", label: "Payroll", value: 61000 },
+  ],
+};
+
+function StatementDemo() {
+  const income = PL_ROWS.income.reduce((s, r) => s + r.value, 0);
+  const spend = PL_ROWS.expenses.reduce((s, r) => s + r.value, 0);
+  const net = income - spend;
+  const money = (n, tone) => <Money amount={n} tone={tone} secondary={false} />;
+  return (
+    <Card title="Profit and loss" sub="Specimen figures for this month">
+      <Statement
+        label="Specimen profit and loss"
+        columns={2}
+        sections={[
+          {
+            title: "Income", tone: "mint",
+            rows: PL_ROWS.income.map((r) => ({ ...r, value: money(r.value) })),
+            total: { label: "Total income", value: money(income) },
+          },
+          {
+            title: "Expenses", tone: "terra",
+            rows: PL_ROWS.expenses.map((r) => ({ ...r, value: money(r.value) })),
+            total: { label: "Total expenses", value: money(spend) },
+          },
+        ]}
+        net={{ label: net >= 0 ? "Net profit" : "Net loss", value: money(Math.abs(net)), tone: net >= 0 ? "mint" : "terra" }}
+      />
+    </Card>
+  );
+}
+
+const STAGE_ROWS = [
+  { key: "cutting", label: "Cutting", value: 9 },
+  { key: "stitching", label: "Stitching", value: 6 },
+  { key: "qc", label: "Quality check", value: 4 },
+  { key: "packing", label: "Packing", value: 3 },
+  { key: "delivered", label: "Delivered", value: 1 },
+];
+
+const MONTHS = [
+  { month: "Apr", spend: 88000 }, { month: "May", spend: 122500 }, { month: "Jun", spend: 96400 },
+  { month: "Jul", spend: 134900 }, { month: "Aug", spend: 118650 }, { month: "Sept", spend: 46200 },
+];
+
+function BarsAndChartDemo() {
+  return (
+    <div className="kkit-grid kkit-grid--wide">
+      <Card title="Orders by stage" sub="BarList, ranked">
+        <BarList label="Orders by stage" rank rows={STAGE_ROWS} />
+      </Card>
+      <Card title="Biggest customers" sub="BarList with money and a click">
+        <BarList
+          label="Biggest customers"
+          rows={[
+            { key: "a", label: "Specimen client A", value: 195050, display: <Money amount={195050} secondary={false} />, meta: "2 invoices", onClick: () => notify("Open client A (specimen)") },
+            { key: "b", label: "Specimen client B", value: 45200, display: <Money amount={45200} secondary={false} />, meta: "1 invoice", onClick: () => notify("Open client B (specimen)") },
+            { key: "c", label: "Specimen client C", value: 9800, display: <Money amount={9800} secondary={false} />, meta: "1 invoice, overdue" },
+          ]}
+        />
+      </Card>
+      <Card title="Spend by month" sub="ChartFrame around a Recharts bar chart">
+        <ChartFrame
+          title="Last six months"
+          height={220}
+          narrowHeight={170}
+          label="Spend by month, in rupees"
+          legend={<span className="k-chart-key"><span className="k-chart-swatch" style={{ background: chartColor(0) }} />Spend</span>}
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={MONTHS} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="month" {...axisProps} />
+              <YAxis tickFormatter={shortNumber} width={44} {...axisProps} />
+              <Tooltip {...tooltipProps} formatter={(v) => `₨ ${Number(v).toLocaleString("en-IN")}`} />
+              <Bar dataKey="spend" fill={chartColor(0)} radius={[4, 4, 0, 0]} maxBarSize={34} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartFrame>
+      </Card>
+      <Card title="Chart states" sub="Loading, empty, failed">
+        <div className="kkit-stack">
+          <ChartFrame title="Loading" height={90} loading />
+          <ChartFrame title="Empty" height={90} empty="No expenses in this range yet." />
+          <ChartFrame title="Failed" height={90} error="Expenses could not load." onRetry={() => notify("Retrying (specimen)")} />
+        </div>
+      </Card>
     </div>
   );
 }
@@ -762,6 +952,22 @@ export default function KitPreview() {
         <div className="kkit-frame">
           <FilterBarDemo />
         </div>
+      </Section>
+
+      <Section title="File drop" note="FileDrop handles choosing, dragging, the type and size check, what was chosen and the progress. Uploading stays with the page.">
+        <FileDropDemo />
+      </Section>
+
+      <Section title="Popover" note="Popover renders at the end of the page, flips when there is no room, and closes on Escape, an outside click, or whatever the contents decide.">
+        <PopoverDemo />
+      </Section>
+
+      <Section title="Statement" note="Statement: sections, subtotals and one net line. Values are nodes, so the figures follow the currency toggle.">
+        <StatementDemo />
+      </Section>
+
+      <Section title="Bar lists and charts" note="BarList ranks by share; ChartFrame gives a chart its title, height, legend and its loading, empty and failed states. One palette and one tooltip style across the app.">
+        <BarsAndChartDemo />
       </Section>
 
       <Section title="Stepper" note="Stepper: the run of stages, or one line and a bar when the space is narrow. The page keeps its own Previous and Advance buttons.">
