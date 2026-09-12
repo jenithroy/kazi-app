@@ -18,6 +18,7 @@ import {
   DataTable, Menu, MenuDivider, MenuItem, MenuLabel, Money, RowActions,
   Dialog, Sheet, FilterBar, notify, useConfirm,
   Banner, EmptyState, ErrorState, Skeleton, SkeletonGroup, StatStrip,
+  Stepper, Kanban, MonthGrid, Agenda, toISODate,
 } from "../components/ui";
 import { useCurrency } from "../context/CurrencyContext";
 import "./KitPreview.css";
@@ -278,6 +279,159 @@ function MenuMoneyDemo() {
         <Money amount={1234.5} exact secondary={false} />
         <Money amount={null} />
         <Money amount={76400} stacked />
+      </div>
+    </div>
+  );
+}
+
+const SPECIMEN_STAGES = [
+  "Order Received", "Fabric Sourcing", "Cutting", "Stitching", "Finishing & Pressing",
+  "Embellishment", "Quality Check", "Packing", "Shipped", "Delivered",
+];
+
+function StepperDemo() {
+  const [at, setAt] = useState(3);
+  return (
+    <div className="kkit-stack">
+      <div className="kkit-frame">
+        <Stepper steps={SPECIMEN_STAGES} current={at} label="Order stage" />
+        <div className="kkit-row kkit-note--after">
+          <Btn kind="secondary" size="sm" disabled={at === 0} onClick={() => setAt((n) => n - 1)}>Previous stage</Btn>
+          <Btn kind="primary" size="sm" disabled={at === SPECIMEN_STAGES.length - 1} onClick={() => setAt((n) => n + 1)}>Advance stage</Btn>
+          <span className="kkit-note kkit-note--inline">The page keeps the buttons, so its own rules decide what a move means.</span>
+        </div>
+      </div>
+      <div className="kkit-w320">
+        <div className="kkit-frame">
+          <Stepper steps={SPECIMEN_STAGES} current={at} label="Order stage, narrow" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const KB_COLUMNS = [
+  { id: "todo", label: "To do", tone: "neutral" },
+  { id: "doing", label: "In progress", tone: "mint" },
+  { id: "blocked", label: "Blocked", tone: "terra" },
+  { id: "done", label: "Done", tone: "ghost" },
+];
+
+const KB_CARDS = [
+  { id: "t1", title: "Cut linen for INV-104", column: "todo", who: "Specimen A", due: "12 Sept" },
+  { id: "t2", title: "Chase PAN number for INV-105", column: "todo", who: "Specimen B", due: "12 Sept" },
+  { id: "t3", title: "Sample stitching, baby tee", column: "doing", who: "Specimen C", due: "13 Sept" },
+  { id: "t4", title: "Waiting on embellishment thread", column: "blocked", who: "Specimen A", due: "15 Sept" },
+  { id: "t5", title: "Pack and label CH-001", column: "done", who: "Specimen D", due: "9 Sept" },
+];
+
+function KanbanDemo() {
+  const [columns, setColumns] = useState(KB_COLUMNS);
+  const [cards, setCards] = useState(KB_CARDS);
+  const move = (item, columnId) => setCards((cs) => cs.map((c) => (c.id === item.id ? { ...c, column: columnId } : c)));
+  const reorder = (draggedId, targetId) =>
+    setColumns((cols) => {
+      const next = [...cols];
+      const from = next.findIndex((c) => c.id === draggedId);
+      const to = next.findIndex((c) => c.id === targetId);
+      if (from === -1 || to === -1) return cols;
+      next.splice(to, 0, next.splice(from, 1)[0]);
+      return next;
+    });
+
+  return (
+    <Kanban
+      label="Specimen board"
+      columns={columns}
+      items={cards}
+      columnOf={(c) => c.column}
+      onMove={move}
+      onReorderColumns={reorder}
+      columnFooter={(col) => (
+        <Btn kind="ghost" size="sm" icon={<Icons.Plus size={13} />} onClick={() => notify(`Add a card to ${col.label} (specimen)`)}>
+          Add card
+        </Btn>
+      )}
+      addColumn={
+        <Btn kind="secondary" size="sm" icon={<Icons.Plus size={13} />} onClick={() => notify("Add a section (specimen)")}>
+          Add section
+        </Btn>
+      }
+      renderCard={(card) => (
+        <>
+          <p className="kkit-card-title">{card.title}</p>
+          <p className="kkit-card-meta">{card.who} · due {card.due}</p>
+        </>
+      )}
+    />
+  );
+}
+
+const TODAY = new Date();
+const dayIn = (n) => toISODate(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() + n));
+const SPECIMEN_EVENTS = [
+  { id: "e1", date: dayIn(0), title: "INV-104 due", tone: "amber" },
+  { id: "e2", date: dayIn(0), title: "QC on baby tee batch", tone: "blue" },
+  { id: "e3", date: dayIn(1), title: "Cutting starts, linen order", tone: "mint" },
+  { id: "e4", date: dayIn(4), title: "Dispatch CH-002", tone: "mint" },
+  { id: "e5", date: dayIn(-3), title: "INV-103 overdue", tone: "terra" },
+];
+
+function CalendarDemo() {
+  const [selected, setSelected] = useState(dayIn(0));
+  const byDay = SPECIMEN_EVENTS.reduce((acc, e) => ({ ...acc, [e.date]: [...(acc[e.date] || []), e] }), {});
+  const chosen = byDay[selected] || [];
+
+  return (
+    <div className="kkit-stack">
+      <div className="kkit-forms">
+        <Card title="Month grid" sub="Monday first, days that can be picked, events in the cell">
+          <MonthGrid
+            month={TODAY}
+            selected={selected}
+            onSelectDay={setSelected}
+            label="Specimen month"
+            renderDay={(cell) => (
+              <span className="kkit-cal-events">
+                {(byDay[cell.iso] || []).slice(0, 2).map((e) => (
+                  <span key={e.id} className="kkit-cal-event"><Pill tone={e.tone} dot>{e.title}</Pill></span>
+                ))}
+              </span>
+            )}
+          />
+          <p className="kkit-note kkit-note--after">
+            {chosen.length > 0 ? `${selected}: ${chosen.map((e) => e.title).join(", ")}` : `${selected}: nothing scheduled.`}
+          </p>
+        </Card>
+        <div className="kkit-narrow">
+          <Card title="Agenda" sub="The same days on a phone">
+            <Agenda
+              items={SPECIMEN_EVENTS}
+              dateOf={(e) => e.date}
+              label="Specimen agenda"
+              renderItem={(e) => (
+                <div className="kkit-agenda-row">
+                  <Pill tone={e.tone} dot>{e.title}</Pill>
+                </div>
+              )}
+            />
+          </Card>
+        </div>
+      </div>
+      <div className="kkit-forms">
+        <Card title="Sunday first, adjacent months" sub="What the marketing calendar assumes">
+          <MonthGrid month={TODAY} weekStart="sun" fill="adjacent" weeks={6} label="Specimen month, Sunday first" />
+        </Card>
+        <div className="kkit-w320">
+          <Card title="Small, read only" sub="The dashboard's attendance calendar">
+            <MonthGrid
+              month={TODAY}
+              size="sm"
+              dayLabels={["M", "T", "W", "T", "F", "S", "S"]}
+              label="Specimen small month"
+            />
+          </Card>
+        </div>
       </div>
     </div>
   );
@@ -608,6 +762,18 @@ export default function KitPreview() {
         <div className="kkit-frame">
           <FilterBarDemo />
         </div>
+      </Section>
+
+      <Section title="Stepper" note="Stepper: the run of stages, or one line and a bar when the space is narrow. The page keeps its own Previous and Advance buttons.">
+        <StepperDemo />
+      </Section>
+
+      <Section title="Kanban" note="Kanban: drag a card between columns, or use its move menu — the only way on a touch screen. Drag a column's grip to reorder. Below 640 px of its own width it shows one column at a time.">
+        <KanbanDemo />
+      </Section>
+
+      <Section title="Month grid and agenda" note="MonthGrid takes the week start as a prop (Monday here, Sunday for marketing) and builds local days, so a day is never off by one. Agenda is the phone form.">
+        <CalendarDemo />
       </Section>
 
       <Section title="Banners" note="Banner: a message that stays while its condition holds. Info, success, warn, error, view only; with a title, an action, a dismiss.">

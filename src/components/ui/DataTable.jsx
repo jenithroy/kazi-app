@@ -1,25 +1,13 @@
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { Btn, IconBtn } from "./Btn";
 import { EmptyState, ErrorState } from "./Feedback";
 import { Icons } from "./Icons";
+import { useElementWidth } from "./useElementWidth";
 import { cn } from "./utils";
 
 /* ── Data table ───────────────────────────────────────── */
 
 const INTERACTIVE = "button, a, input, select, textarea, label, [role='menuitem']";
-
-function useElementWidth(ref) {
-  const [width, setWidth] = useState(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    setWidth(el.getBoundingClientRect().width);
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref]);
-  return width;
-}
 
 function compare(a, b) {
   if (typeof a === "number" && typeof b === "number") return a - b;

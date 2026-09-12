@@ -31,3 +31,8 @@ export { ConfirmProvider, useConfirm } from "./ConfirmDialog";
 export { FilterBar } from "./FilterBar";
 export { notify } from "./notify";
 export { Banner, EmptyState, ErrorState, Skeleton, SkeletonGroup, StatStrip } from "./Feedback";
+export { Stepper } from "./Stepper";
+export { Kanban } from "./Kanban";
+export { MonthGrid, Agenda } from "./Calendar";
+export { toISODate, fromISODate, isSameDay, monthCells, weekdayLabels, dayHeading } from "./dates";
+export { useElementWidth } from "./useElementWidth";

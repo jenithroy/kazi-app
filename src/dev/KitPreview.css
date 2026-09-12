@@ -43,6 +43,12 @@
 .kkit-facts dd { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); text-align: right; }
 
 .kkit-w320 { max-width: 320px; }
+.kkit-card-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.kkit-card-meta { margin: 3px 0 0; font-size: 11.5px; color: var(--ink-3); }
+.kkit-cal-events { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kkit-cal-event { display: block; min-width: 0; overflow: hidden; }
+.kkit-cal-event .kpill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.kkit-agenda-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .kkit-row--tight { margin-bottom: 0; }
 
 .kkit-grid--wide { grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
