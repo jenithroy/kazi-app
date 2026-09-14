@@ -118,3 +118,10 @@ export function authRedirectUrl(path = "/login") {
 }
 
 export { url as SUPABASE_URL };
+
+/**
+ * The same session token `supabase` sends on every query, for callers
+ * outside this client — e.g. the Leads tab's calls to the DM bot's own API,
+ * which needs to prove who's asking without a second login.
+ */
+export { currentAccessToken as getSupabaseAccessToken };

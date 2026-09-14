@@ -53,3 +53,6 @@ scratch/
 
 # Mentions
 mentions/
+
+# Instagram DM bot (separate running service, not part of this app's build)
+meta-dm-bot/

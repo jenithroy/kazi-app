@@ -6222,6 +6222,31 @@ span.kap-personal { cursor: default; }
 .kchat-lightbox-file p { margin: 0; font-size: 13px; }
 .kchat-lightbox-file .primary-button { width: auto; }
 
+/* ═══ Leads tab ═══ */
+.kchat-lead-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em;
+  color: var(--ink-4); background: var(--bg-2); padding: 2px 7px; border-radius: var(--r-pill);
+}
+.kchat-lead-chip--bot { color: var(--mint-deep); background: var(--mint-soft); }
+.kchat-takeover-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--line-strong); background: var(--card);
+  color: var(--ink-2); border-radius: var(--r-pill);
+  font-family: var(--font); font-size: 11.5px; font-weight: 600;
+  padding: 5px 12px; cursor: pointer; white-space: nowrap;
+}
+.kchat-takeover-btn:hover { border-color: var(--mint-2); color: var(--mint-deep); }
+.kchat-takeover-btn--active { background: var(--mint-soft); border-color: var(--mint-2); color: var(--mint-deep); }
+.kchat-lead-referral {
+  font-size: 11px; color: var(--ink-4); padding: 8px 16px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 6px;
+}
+.kchat-lead-hint {
+  margin: 0; padding: 8px 16px 0; font-size: 10.5px; line-height: 1.5; color: var(--ink-4);
+  background: var(--card);
+}
+
 /* ═══ Messenger — phone layout ═══ */
 @media (max-width: 860px) {
   /* One pane at a time: the list, then the thread, with a back button. */

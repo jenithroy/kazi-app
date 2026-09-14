@@ -10,10 +10,12 @@
  *   typed here arrives on the phone. Everything below is a client for that
  *   schema; none of it is web-only state.
  *
- *   **Leads** -- people arriving from Meta ads, answered by a bot with a human
- *   able to take over. That half needs a backend and tables that do not exist
- *   yet, so the tab is present and honest about being unbuilt rather than
- *   hidden until it works.
+ *   **Leads** -- people DMing the Instagram account, answered automatically by
+ *   `meta-dm-bot` (a separate Python service, not part of this build) with a
+ *   human able to take over. This half is a client for that service's own API
+ *   (`app/dashboard.py`, `lib/leadsBot.js`), not Supabase -- the bot's tables
+ *   live in the same Supabase project but are reached only through its API,
+ *   since replying needs the Instagram access token that only the bot holds.
  *
  * The page it replaces read `fs_messages`, the abandoned Firestore-era table
  * that migration 0105 describes as holding one test row. Nothing was migrated
@@ -23,10 +25,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icons } from "../components/ui";
 import { useTeamChat } from "../hooks/useTeamChat";
+import { useLeadsChat } from "../hooks/useLeadsChat";
 import { uploadAttachment } from "../lib/chat";
 import { threadTitle } from "../lib/chatFormat";
 import ThreadList from "../components/chat/ThreadList";
 import ThreadView from "../components/chat/ThreadView";
+import LeadsList from "../components/leads/LeadsList";
+import LeadsThread from "../components/leads/LeadsThread";
 import {
   ConfirmDialog,
   ContactDialog,
@@ -34,28 +39,6 @@ import {
   MediaViewer,
   NewChatDialog,
 } from "../components/chat/ChatDialogs";
-
-/* ── the leads tab, until it has a backend ────────────── */
-
-function LeadsPlaceholder() {
-  return (
-    <div className="kchat-placeholder">
-      <span className="kchat-placeholder-ico">
-        <Icons.Bot size={26} sw={1.4} />
-      </span>
-      <h3>Lead inbox</h3>
-      <p>
-        Conversations from Instagram and Messenger land here, answered by the assistant and ranked by how much
-        the lead looks worth. Nothing is connected yet -- the bot service and its tables come next.
-      </p>
-      <ul className="kchat-placeholder-list">
-        <li>A Meta webhook writing every inbound message straight to Supabase</li>
-        <li>Replies drafted by the assistant, with a one-click human takeover that mutes it</li>
-        <li>A score per lead, with the evidence behind it shown rather than asserted</li>
-      </ul>
-    </div>
-  );
-}
 
 /* ── page ─────────────────────────────────────────────── */
 
@@ -65,6 +48,19 @@ export default function Messenger() {
   const [tab, setTab] = useState("team");
   const [activeId, setActiveId] = useState(null);
   const [showThreadOnMobile, setShowThreadOnMobile] = useState(false);
+
+  const leadsChat = useLeadsChat(tab === "leads");
+  const activeLead = useMemo(
+    () => leadsChat.leads.find((l) => l.convo === leadsChat.activeConvo) || null,
+    [leadsChat.leads, leadsChat.activeConvo]
+  );
+  const openLead = useCallback(
+    (convo) => {
+      leadsChat.openLead(convo);
+      setShowThreadOnMobile(true);
+    },
+    [leadsChat]
+  );
 
   const [composing, setComposing] = useState(false);
   const [editingGroup, setEditingGroup] = useState(false);
@@ -146,22 +142,69 @@ export default function Messenger() {
         <button type="button" className={tab === "leads" ? "is-on" : ""} onClick={() => setTab("leads")}>
           <Icons.Bot size={14} />
           Leads
-          <span className="kchat-soon">Soon</span>
         </button>
       </div>
 
-      {error && (
-        <div className="kchat-error">
-          <Icons.Alert size={14} />
-          <span>{error}</span>
-          <button type="button" onClick={chat.dismissError} aria-label="Dismiss">
-            <Icons.X size={12} />
-          </button>
-        </div>
+      {tab === "leads" ? (
+        leadsChat.error && (
+          <div className="kchat-error">
+            <Icons.Alert size={14} />
+            <span>{leadsChat.error}</span>
+            <button type="button" onClick={leadsChat.dismissError} aria-label="Dismiss">
+              <Icons.X size={12} />
+            </button>
+          </div>
+        )
+      ) : (
+        error && (
+          <div className="kchat-error">
+            <Icons.Alert size={14} />
+            <span>{error}</span>
+            <button type="button" onClick={chat.dismissError} aria-label="Dismiss">
+              <Icons.X size={12} />
+            </button>
+          </div>
+        )
       )}
 
       {tab === "leads" ? (
-        <LeadsPlaceholder />
+        <div className={`kchat-panes${showThreadOnMobile ? " kchat-panes--thread" : ""}`}>
+          <LeadsList
+            leads={leadsChat.leads}
+            activeConvo={leadsChat.activeConvo}
+            loading={leadsChat.loading}
+            onOpen={openLead}
+          />
+
+          {activeLead ? (
+            <LeadsThread
+              lead={activeLead}
+              messages={leadsChat.messages}
+              loading={leadsChat.threadLoading}
+              sending={leadsChat.sending}
+              onBack={() => setShowThreadOnMobile(false)}
+              onSend={(text) => leadsChat.reply(activeLead.convo, text)}
+              onTakeover={(muted) => leadsChat.takeover(activeLead.convo, muted)}
+              onOpenMedia={setMedia}
+            />
+          ) : (
+            <div className="kchat-thread kchat-thread--empty">
+              <div className="kchat-empty">
+                <span className="kchat-placeholder-ico">
+                  <Icons.Bot size={26} sw={1.4} />
+                </span>
+                <h4>{leadsChat.loading ? "Loading the lead inbox" : "No conversation open"}</h4>
+                <p>
+                  {leadsChat.loading
+                    ? "One moment."
+                    : leadsChat.leads.length
+                    ? "Pick a conversation on the left."
+                    : "Conversations will appear here as customers DM your Instagram account."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div className={`kchat-panes${showThreadOnMobile ? " kchat-panes--thread" : ""}`}>
           <ThreadList
