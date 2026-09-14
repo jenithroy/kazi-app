@@ -161,7 +161,7 @@ function useVoiceRecorder(onDone, onError) {
   return { recording, seconds, start, stop };
 }
 
-export default function LeadsThread({ lead, messages, loading, sending, onBack, onSend, onSendAttachment, onTakeover, onOpenMedia }) {
+export default function LeadsThread({ lead, messages, loading, sending, canPost, onBack, onSend, onSendAttachment, onTakeover, onOpenMedia }) {
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState(null);
   const [notice, setNotice] = useState("");
@@ -286,7 +286,14 @@ export default function LeadsThread({ lead, messages, loading, sending, onBack, 
             type="button"
             className={`kchat-takeover-btn${lead.isMuted ? " kchat-takeover-btn--active" : ""}`}
             onClick={() => onTakeover(!lead.isMuted)}
-            title={lead.isMuted ? "Let the bot answer this conversation again" : "Stop the bot from replying here"}
+            disabled={!canPost}
+            title={
+              !canPost
+                ? "Your role can read this conversation but not act on it."
+                : lead.isMuted
+                ? "Let the bot answer this conversation again"
+                : "Stop the bot from replying here"
+            }
           >
             {lead.isMuted ? <Icons.Bell size={13} /> : <Icons.BellOff size={13} />}
             {lead.isMuted ? "Hand back to bot" : "Take over"}
@@ -327,6 +334,12 @@ export default function LeadsThread({ lead, messages, loading, sending, onBack, 
         )}
       </div>
 
+      {!canPost ? (
+        <div className="kchat-composer kchat-composer--locked">
+          <Icons.Alert size={14} />
+          <span>Your role can read this conversation but not post to it.</span>
+        </div>
+      ) : (
       <form className="kchat-composer" onSubmit={submit}>
         {attachment && <AttachPreview attachment={attachment} onRemove={removeAttachment} />}
 
@@ -392,6 +405,7 @@ export default function LeadsThread({ lead, messages, loading, sending, onBack, 
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

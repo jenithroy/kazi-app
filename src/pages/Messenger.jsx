@@ -24,10 +24,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icons } from "../components/ui";
+import { useAuth } from "../context/AuthContext";
 import { useTeamChat } from "../hooks/useTeamChat";
 import { useLeadsChat } from "../hooks/useLeadsChat";
 import { uploadAttachment } from "../lib/chat";
 import { threadTitle } from "../lib/chatFormat";
+import { messengerTabAllowed, messengerTabCanEdit } from "../utils/permissions";
 import ThreadList from "../components/chat/ThreadList";
 import ThreadView from "../components/chat/ThreadView";
 import LeadsList from "../components/leads/LeadsList";
@@ -43,13 +45,24 @@ import {
 /* ── page ─────────────────────────────────────────────── */
 
 export default function Messenger() {
+  const { profile } = useAuth();
   const chat = useTeamChat();
+
+  const canViewLeads = messengerTabAllowed(profile, "leads");
+  const canEditLeads = messengerTabCanEdit(profile, "leads");
 
   const [tab, setTab] = useState("team");
   const [activeId, setActiveId] = useState(null);
   const [showThreadOnMobile, setShowThreadOnMobile] = useState(false);
 
-  const leadsChat = useLeadsChat(tab === "leads");
+  // Permission can change under someone mid-session (role edited elsewhere,
+  // or this is the first render before the profile has resolved) — bounce
+  // back to Team rather than leaving a tab open that's no longer allowed.
+  useEffect(() => {
+    if (tab === "leads" && !canViewLeads) setTab("team");
+  }, [tab, canViewLeads]);
+
+  const leadsChat = useLeadsChat(tab === "leads" && canViewLeads);
   const activeLead = useMemo(
     () => leadsChat.leads.find((l) => l.convo === leadsChat.activeConvo) || null,
     [leadsChat.leads, leadsChat.activeConvo]
@@ -139,10 +152,12 @@ export default function Messenger() {
           Team
           {totalUnread > 0 && <span className="kchat-badge kchat-badge--tab">{totalUnread > 99 ? "99+" : totalUnread}</span>}
         </button>
-        <button type="button" className={tab === "leads" ? "is-on" : ""} onClick={() => setTab("leads")}>
-          <Icons.Bot size={14} />
-          Leads
-        </button>
+        {canViewLeads && (
+          <button type="button" className={tab === "leads" ? "is-on" : ""} onClick={() => setTab("leads")}>
+            <Icons.Bot size={14} />
+            Leads
+          </button>
+        )}
       </div>
 
       {tab === "leads" ? (
@@ -182,6 +197,7 @@ export default function Messenger() {
               messages={leadsChat.messages}
               loading={leadsChat.threadLoading}
               sending={leadsChat.sending}
+              canPost={canEditLeads}
               onBack={() => setShowThreadOnMobile(false)}
               onSend={(text) => leadsChat.reply(activeLead.convo, text)}
               onSendAttachment={(file) => leadsChat.sendAttachment(activeLead.convo, file)}

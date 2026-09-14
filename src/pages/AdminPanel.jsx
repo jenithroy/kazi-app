@@ -275,7 +275,7 @@ function RoleEditor({ mode, initial, existingIds = [], busy, onSubmit, onCancel,
 
 /* An untouched draft. Only entries that differ from what is saved live here,
    so putting a switch back where it was makes the page clean again. */
-const EMPTY_DRAFT = { levels: {}, tabs: {}, personal: {}, superAdmin: null };
+const EMPTY_DRAFT = { levels: {}, tabs: {}, msgTabs: {}, personal: {}, superAdmin: null };
 
 /* ── Main component ──────────────────────────────────────── */
 export default function AdminPanel() {
@@ -286,6 +286,8 @@ export default function AdminPanel() {
   const [financeTabs, setFinTabs] = useState([]);
   const [perms, setPerms] = useState({});       // positionId -> sectionId -> {can_view, can_edit}
   const [tabPerms, setTabPerms] = useState({}); // positionId -> tabId -> {can_view, can_edit}
+  const [msgTabs, setMsgTabs] = useState([]);
+  const [msgTabPerms, setMsgTabPerms] = useState({}); // positionId -> tabId -> {can_view, can_edit}
   const [people, setPeople] = useState([]);
   const [selected, setSelected] = useState(null);
   const [draft, setDraft] = useState(EMPTY_DRAFT);
@@ -298,30 +300,37 @@ export default function AdminPanel() {
   const [roleQuery, setRoleQuery] = useState("");
   const [pageQuery, setPageQuery] = useState("");
   const [finOpen, setFinOpen] = useState(false);
+  const [msgOpen, setMsgOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [personQuery, setPersonQuery] = useState("");
   const [personBusy, setPersonBusy] = useState("");
 
   const load = useCallback(async () => {
-    const [pos, secs, tabs, pp, pft, staff] = await Promise.all([
+    const [pos, secs, tabs, pp, pft, staff, mTabs, pmt] = await Promise.all([
       fetchAll("positions"),
       fetchAll("sections"),
       fetchAll("finance_tabs"),
       fetchAll("position_permissions"),
       fetchAll("position_finance_tabs"),
       fetchAll("employees"),
+      fetchAll("messenger_tabs"),
+      fetchAll("position_messenger_tabs"),
     ]);
 
     const byPos = {};
     for (const r of pp) (byPos[r.position_id] ||= {})[r.section_id] = { can_view: !!r.can_view, can_edit: !!r.can_edit };
     const byTab = {};
     for (const r of pft) (byTab[r.position_id] ||= {})[r.tab_id] = { can_view: !!r.can_view, can_edit: !!r.can_edit };
+    const byMsgTab = {};
+    for (const r of pmt) (byMsgTab[r.position_id] ||= {})[r.tab_id] = { can_view: !!r.can_view, can_edit: !!r.can_edit };
 
     setPositions([...pos].sort((a, b) => a.label.localeCompare(b.label)));
     setSections([...secs].sort((a, b) => (a.sort_order ?? 99) - (b.sort_order ?? 99)));
     setFinTabs([...tabs].sort((a, b) => (a.sort_order ?? 99) - (b.sort_order ?? 99)));
+    setMsgTabs([...mTabs].sort((a, b) => (a.sort_order ?? 99) - (b.sort_order ?? 99)));
     setPerms(byPos);
     setTabPerms(byTab);
+    setMsgTabPerms(byMsgTab);
     setPeople(staff);
     setSelected((cur) => cur || pos.find((p) => p.tier < SUPER_ADMIN_TIER)?.id || pos[0]?.id || null);
     setLoading(false);
@@ -338,6 +347,7 @@ export default function AdminPanel() {
   const changeCount =
     Object.keys(draft.levels).length +
     Object.keys(draft.tabs).length +
+    Object.keys(draft.msgTabs).length +
     Object.keys(draft.personal).length +
     (draft.superAdmin !== null ? 1 : 0);
   const dirty = changeCount > 0;
@@ -383,6 +393,13 @@ export default function AdminPanel() {
   );
   const tabLevelFor = (tabId) =>
     (isSuperAdmin ? "edit" : draft.tabs[tabId] ?? savedTabLevel(tabId));
+
+  const savedMsgTabLevel = useCallback(
+    (tabId) => levelOf(msgTabPerms[selected]?.[tabId]),
+    [msgTabPerms, selected]
+  );
+  const msgTabLevelFor = (tabId) =>
+    (isSuperAdmin ? "edit" : draft.msgTabs[tabId] ?? savedMsgTabLevel(tabId));
 
   const personalFor = (section) => draft.personal[section.id] ?? !!section.is_personal;
 
@@ -488,6 +505,11 @@ export default function AdminPanel() {
     stage("tabs", tabId, level, savedTabLevel(tabId));
   }
 
+  function setMsgTabLevel(tabId, level) {
+    if (locked) return;
+    stage("msgTabs", tabId, level, savedMsgTabLevel(tabId));
+  }
+
   function setPersonal(section, value) {
     if (!canAdminister) return;
     stage("personal", section.id, value, !!section.is_personal);
@@ -522,7 +544,7 @@ export default function AdminPanel() {
       // so staged page edits are moot — and the database would refuse them
       // outright if the role is already tier 4. Drop them rather than carry a
       // pending change that cannot land.
-      if (on) { next.levels = {}; next.tabs = {}; }
+      if (on) { next.levels = {}; next.tabs = {}; next.msgTabs = {}; }
       return next;
     });
   }
@@ -563,6 +585,14 @@ export default function AdminPanel() {
       if (tabRows.length) {
         const { error: err } = await supabase
           .from("position_finance_tabs").upsert(tabRows, { onConflict: "position_id,tab_id" });
+        if (err) throw err;
+      }
+
+      const msgTabRows = Object.entries(draft.msgTabs)
+        .map(([tabId, level]) => ({ position_id: selected, tab_id: tabId, ...flagsFor(level) }));
+      if (msgTabRows.length) {
+        const { error: err } = await supabase
+          .from("position_messenger_tabs").upsert(msgTabRows, { onConflict: "position_id,tab_id" });
         if (err) throw err;
       }
 
@@ -1082,6 +1112,34 @@ export default function AdminPanel() {
                         level={tabLevelFor(t.id)}
                         changed={draft.tabs[t.id] !== undefined}
                         onChange={(lvl) => setTabLevel(t.id, lvl)}
+                        disabled={locked}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Messenger tabs — Leads is split out from Team chat here so a
+                  role can read customer DMs (or not) independently of the
+                  wider Messenger permission. */}
+              <div className="kap-card kap-card--fin">
+                <button className="kap-card-hd kap-card-hd--btn" onClick={() => setMsgOpen((v) => !v)}>
+                  <span className="kap-card-title">Messenger tabs</span>
+                  <span className="kap-card-note">
+                    Inside the Messenger page — {msgTabs.length} {msgTabs.length === 1 ? "tab" : "tabs"}
+                    <span className={cn("kap-chev", msgOpen && "is-open")}><Icons.ChevronDown size={15} /></span>
+                  </span>
+                </button>
+                {msgOpen && (
+                  <div className="kap-rows">
+                    {msgTabs.map((t) => (
+                      <AccessRow
+                        key={t.id}
+                        id="messenger"
+                        label={t.label}
+                        level={msgTabLevelFor(t.id)}
+                        changed={draft.msgTabs[t.id] !== undefined}
+                        onChange={(lvl) => setMsgTabLevel(t.id, lvl)}
                         disabled={locked}
                       />
                     ))}

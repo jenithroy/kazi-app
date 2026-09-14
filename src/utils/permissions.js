@@ -80,6 +80,21 @@ export function financeTabCanEdit(profile, key) {
   return sectionCanEdit(profile, "finance") && financeTabAllowed(profile, key);
 }
 
+/**
+ * Leads is split out from the rest of Messenger the same way (see migration
+ * 0033) — but unlike finance tabs, both view and edit are real here: reading
+ * a customer's DMs and sending a message as the business to a real customer
+ * are different levels of trust, so a role can be given one without the
+ * other.
+ */
+export function messengerTabAllowed(profile, key) {
+  return profile?.messengerTabs?.[key]?.canView === true;
+}
+
+export function messengerTabCanEdit(profile, key) {
+  return sectionCanEdit(profile, "messenger") && profile?.messengerTabs?.[key]?.canEdit === true;
+}
+
 /** Tab label as shown in Finance.jsx → tab id in the database. */
 export const FINANCE_TAB_KEYS = {
   expenses: "expenses",

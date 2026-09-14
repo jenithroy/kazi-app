@@ -29,17 +29,21 @@ function legacyRole(tier, location) {
 /**
  * Load everything about the signed-in person in one round trip each.
  *
- * All three of these are answered by the database for whoever holds the token:
+ * All four of these are answered by the database for whoever holds the token:
  * me() resolves the person, my_permissions runs app_can_view/app_can_edit over
- * every section, my_finance_tabs does the same for the finance sub-tabs. If the
- * token maps to nobody (removed from people, or set Inactive) me() comes back
- * empty and we return null — which the app treats as signed out.
+ * every section, my_finance_tabs does the same for the finance sub-tabs, and
+ * my_messenger_tabs does the same for Leads (see migration 0033 — unlike
+ * finance tabs, both can_view and can_edit are real there, since reading a
+ * customer's DMs and sending as the business are different levels of trust).
+ * If the token maps to nobody (removed from people, or set Inactive) me()
+ * comes back empty and we return null — which the app treats as signed out.
  */
 async function loadProfile() {
-  const [meRes, permRes, tabRes] = await Promise.all([
+  const [meRes, permRes, tabRes, msgTabRes] = await Promise.all([
     supabase.rpc("me"),
     supabase.from("my_permissions").select("section_id, aliases, can_view, can_edit"),
     supabase.from("my_finance_tabs").select("tab_id, can_view"),
+    supabase.from("my_messenger_tabs").select("tab_id, can_view, can_edit"),
   ]);
 
   if (meRes.error) throw meRes.error;
@@ -57,6 +61,11 @@ async function loadProfile() {
   const financeTabs = {};
   for (const row of tabRes.data || []) financeTabs[row.tab_id] = !!row.can_view;
 
+  const messengerTabs = {};
+  for (const row of msgTabRes.data || []) {
+    messengerTabs[row.tab_id] = { canView: !!row.can_view, canEdit: !!row.can_edit };
+  }
+
   const tier = Number.isFinite(me.tier) ? me.tier : -1;
   const role = legacyRole(tier, me.location);
 
@@ -73,6 +82,7 @@ async function loadProfile() {
     location: me.location,
     permissions,
     financeTabs,
+    messengerTabs,
     aliases,
     // Compatibility with pages that still branch on role strings.
     role,
