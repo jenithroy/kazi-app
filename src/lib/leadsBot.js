@@ -18,10 +18,13 @@ async function call(path, options = {}) {
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error("Sign in to use the lead inbox.");
 
+  // FormData sets its own Content-Type (with the multipart boundary) — the
+  // browser can only do that correctly if we don't set one ourselves.
+  const isFormData = options.body instanceof FormData;
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       Authorization: `Bearer ${token}`,
       ...(options.headers || {}),
     },
@@ -60,3 +63,13 @@ export const setLeadTakeover = (convo, muted) =>
     method: "POST",
     body: JSON.stringify({ muted }),
   });
+
+/** Send an image or a recorded voice note via Instagram — mutes the bot, same as a text reply. */
+export const sendLeadAttachment = (convo, file) => {
+  const form = new FormData();
+  form.append("file", file, file.name || "attachment");
+  return call(`/dashboard/leads/${encodeURIComponent(convo)}/attachment`, {
+    method: "POST",
+    body: form,
+  });
+};

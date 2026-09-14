@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchLeadMessages, fetchLeads, sendLeadReply, setLeadTakeover } from "../lib/leadsBot";
+import { fetchLeadMessages, fetchLeads, sendLeadAttachment, sendLeadReply, setLeadTakeover } from "../lib/leadsBot";
 
 const LIST_POLL_MS = 8000;
 const THREAD_POLL_MS = 4000;
@@ -106,6 +106,19 @@ export function useLeadsChat(active) {
     [loadMessages, loadLeads]
   );
 
+  const sendAttachment = useCallback(
+    async (convo, file) => {
+      setSending(true);
+      try {
+        await sendLeadAttachment(convo, file);
+        await Promise.all([loadMessages(convo), loadLeads()]);
+      } finally {
+        if (mounted.current) setSending(false);
+      }
+    },
+    [loadMessages, loadLeads]
+  );
+
   const takeover = useCallback(
     async (convo, muted) => {
       await setLeadTakeover(convo, muted);
@@ -126,6 +139,7 @@ export function useLeadsChat(active) {
     threadLoading,
     sending,
     reply,
+    sendAttachment,
     takeover,
   };
 }

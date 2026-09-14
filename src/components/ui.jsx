@@ -239,6 +239,8 @@ export const Icons = {
   BellOff:    (p) => <Ico {...p} s={<><path d="M9 4.5A6 6 0 0118 9v4l1.5 3H8"/><path d="M6 9v4l-1.5 3h9"/><path d="M10 19a2 2 0 004 0"/><path d="M3 3l18 18"/></>}/>,
   Download:   (p) => <Ico {...p} s={<><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 19h16"/></>}/>,
   Play:       (p) => <Ico {...p} d="M8 5l11 7-11 7V5z" fill="currentColor"/>,
+  Pause:      (p) => <Ico {...p} s={<><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/></>}/>,
+  Mic:        (p) => <Ico {...p} s={<><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0014 0"/><path d="M12 17v4M8 21h8"/></>}/>,
   File:       (p) => <Ico {...p} s={<><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></>}/>,
   Image:      (p) => <Ico {...p} s={<><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-4.5 4.5L9 13l-6 6"/></>}/>,
   Edit:       (p) => <Ico {...p} s={<><path d="M4 20h4l10-10a2.8 2.8 0 10-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></>}/>,

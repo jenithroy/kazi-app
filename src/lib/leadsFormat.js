@@ -57,3 +57,18 @@ export function leadPreview(lead) {
   const body = last.content || (last.mediaType ? "Sent an attachment" : "");
   return last.role === "assistant" ? `You: ${body}` : body;
 }
+
+/** Tier → rank for sorting (higher chases first) and the chip's label/icon. */
+export const VALUE_TIER_RANK = { high: 2, medium: 1, low: 0 };
+
+export function valueRank(lead) {
+  return VALUE_TIER_RANK[lead?.value?.tier] ?? -1;
+}
+
+export const VALUE_TIER_LABEL = { high: "High value", medium: "Medium value", low: "Low value" };
+
+/** `m:ss`, for the voice recorder and player. */
+export function clipTime(seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}

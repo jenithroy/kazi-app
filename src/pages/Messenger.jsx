@@ -184,6 +184,7 @@ export default function Messenger() {
               sending={leadsChat.sending}
               onBack={() => setShowThreadOnMobile(false)}
               onSend={(text) => leadsChat.reply(activeLead.convo, text)}
+              onSendAttachment={(file) => leadsChat.sendAttachment(activeLead.convo, file)}
               onTakeover={(muted) => leadsChat.takeover(activeLead.convo, muted)}
               onOpenMedia={setMedia}
             />
