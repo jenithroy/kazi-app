@@ -6242,11 +6242,6 @@ span.kap-personal { cursor: default; }
   font-size: 11px; color: var(--ink-4); padding: 8px 16px; border-bottom: 1px solid var(--line);
   display: flex; align-items: center; gap: 6px;
 }
-.kchat-lead-hint {
-  margin: 0; padding: 8px 16px 0; font-size: 10.5px; line-height: 1.5; color: var(--ink-4);
-  background: var(--card);
-}
-
 /* Voice message bubble — the bubble itself is the pill (Instagram's own
    look), so this has no background of its own. */
 .kchat-voice { display: flex; align-items: center; gap: 8px; min-width: 190px; max-width: 240px; padding: 2px 2px 2px 0; }

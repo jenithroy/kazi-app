@@ -327,11 +327,6 @@ export default function LeadsThread({ lead, messages, loading, sending, onBack, 
         )}
       </div>
 
-      <p className="kchat-lead-hint">
-        One real gap: Instagram's own API won't let us reply-to-a-specific-message from here (though a customer's
-        own quote-reply still shows above their bubble) — and no message reactions either. Everything else works.
-      </p>
-
       <form className="kchat-composer" onSubmit={submit}>
         {attachment && <AttachPreview attachment={attachment} onRemove={removeAttachment} />}
 
