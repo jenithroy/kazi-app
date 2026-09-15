@@ -182,7 +182,12 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
             style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 13, fontFamily: "var(--font)" }}
           >
             <option value="">Select employee…</option>
-            {staff.map(s => <option key={s.uid || s.id} value={s.uid || s.id}>{s.name}</option>)}
+            {/* person_id is the key attendance and clock_ins are recorded against.
+                `uid`/`id` on this view are the Firebase-era id, which is null for
+                anyone added since the migration — selecting by it matches nothing. */}
+            {staff.filter(s => s.personId)
+                  .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                  .map(s => <option key={s.personId} value={s.personId}>{s.name}</option>)}
           </select>
           <span style={{ fontSize: 13, fontWeight: 600 }}>{currentMonthDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</span>
         </div>

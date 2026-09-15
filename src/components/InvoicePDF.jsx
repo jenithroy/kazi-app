@@ -260,7 +260,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
       <Page size="A4" style={S.page}>
 
         {/* Letterhead background */}
-        {letterheadUrl && <Image src={letterheadUrl} style={S.letterhead} />}
+        {letterheadUrl && <Image fixed src={letterheadUrl} style={S.letterhead} />}
 
         {/* Content area */}
         <View style={S.body}>
