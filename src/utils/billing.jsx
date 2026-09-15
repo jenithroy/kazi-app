@@ -173,12 +173,13 @@ export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct
 }
 
 /**
- * Allocate the next sequential document number for a fiscal year, e.g. "INV-050".
+ * Allocate the next sequential document number for a fiscal year, e.g. "INV-50".
  *
  * Numbering restarts at 1 each Nepali fiscal year (Shrawan 1), so the fiscal
  * year — decided from the document's Bikram Sambat date, not the Gregorian
- * month — must be passed in. It is what keeps last year's INV-001 and this
- * year's INV-001 apart.
+ * month — must be passed in. It is what keeps last year's INV-01 and this
+ * year's INV-01 apart. The number is padded to two digits (migration 0034) and
+ * grows past it naturally, so a busy year runs INV-99, INV-100.
  *
  * The whole read-increment-write happens in one statement inside the database
  * (see migration 0030). Doing it from here would mean two people raising an

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
  * One-off: renumber invoices, challans and quotations so each Nepali fiscal
- * year runs a clean 1..N sequence (INV-001, INV-002, …) ordered by document
+ * year runs a clean 1..N sequence (INV-01, INV-02, …) ordered by document
  * date. From migration 0030 on, new documents are numbered this way already;
  * this rewrites the history that was raised under the old all-time counter.
  *
  * The fiscal year of each document is computed from its own Bikram Sambat date
  * (Shrawan 1 → next Asar end), NOT from the Gregorian month, so a document
  * dated early-to-mid July lands in the correct year.
+ *
+ * Run this AFTER migration 0034, so the numbers it writes and the numbers
+ * next_doc_number hands out from then on are padded the same way.
  *
  * Connection: mentions/supabase.txt (gitignored) — the session-pooler URI,
  * same as scripts/migrate.cjs.
@@ -61,7 +64,9 @@ function fiscalYearForDate(adIso) {
 }
 
 const isoDate = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : (v ? String(v).slice(0, 10) : ""));
-const pad3 = (n) => String(n).padStart(3, "0");
+// Two digits, matching next_doc_number since migration 0034. padStart only
+// pads, so a year that runs past 99 continues INV-100 rather than truncating.
+const pad2 = (n) => String(n).padStart(2, "0");
 const col = (s, n) => String(s ?? "").padEnd(n);
 
 async function main() {
@@ -97,7 +102,7 @@ async function main() {
       });
 
       list.forEach((r, i) => {
-        const to = `${doc.prefix}-${pad3(i + 1)}`;
+        const to = `${doc.prefix}-${pad2(i + 1)}`;
         if ((r.num || "") !== to) {
           changes.push({ table: doc.table, numCol: doc.numCol, id: r.id, from: r.num || "(blank)", to, fy, when: isoDate(r.dt), who: r.client_name || "" });
         }

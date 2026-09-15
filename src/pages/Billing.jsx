@@ -231,7 +231,7 @@ function Billing() {
     // within that year (not the user-editable `date` field) — a backdated invoice
     // would otherwise scramble the order even though numbers ran strictly in
     // sequence. The number restarts at 1 each fiscal year, so the year has to be
-    // the primary key or last year's INV-045 would sit above this year's INV-001.
+    // the primary key or last year's INV-45 would sit above this year's INV-01.
     const seqNum = (row) => {
       const m = /(\d+)\s*$/.exec(row.invoiceNumber || row.challanNumber || row.quotationNumber || "");
       return m ? parseInt(m[1], 10) : -1;
@@ -795,7 +795,7 @@ function Billing() {
               <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
                 {editingId
                   ? `Editing ${form[meta.numberField] || editingId} · FY ${form.fiscalYear || "—"}`
-                  : `Number auto-assigned (${meta.prefix}-###) · FY ${form.fiscalYear || "—"}`}
+                  : `Number auto-assigned (${meta.prefix}-01 onwards) · FY ${form.fiscalYear || "—"}`}
               </span>
             </div>
             <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
