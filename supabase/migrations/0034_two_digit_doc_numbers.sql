@@ -25,6 +25,16 @@
 --     node scripts/renumberDocsByFiscalYear.mjs --commit   apply
 -- ============================================================================
 
+-- 0030 added this column and this function together. Repeated here because a
+-- database that has had 0034 applied without 0030 gets a function whose every
+-- call fails on a column that is not there — which is exactly what happened,
+-- and it takes down every invoice, challan and quotation at once. Harmless
+-- when 0030 did run.
+alter table counters add column if not exists next_val integer not null default 1;
+
+-- The all-time sequence 0014 installed, superseded by the per-year one.
+drop function if exists public.next_doc_number(text);
+
 create or replace function public.next_doc_number(kind text, fiscal_year text)
 returns text
 language plpgsql
