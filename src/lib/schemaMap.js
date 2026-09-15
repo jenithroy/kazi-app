@@ -769,6 +769,21 @@ export const SCHEMA_MAP = {
       "weekly"
     ]
   },
+  "messenger_tabs": {
+    "view": null,
+    "table": "messenger_tabs",
+    "fields": {
+      "id": "id",
+      "label": "label",
+      "sort_order": "sort_order"
+    },
+    "derived": [],
+    "columns": [
+      "id",
+      "label",
+      "sort_order"
+    ]
+  },
   "messages": {
     "view": "fs_messages",
     "table": "messages",
@@ -1114,6 +1129,23 @@ export const SCHEMA_MAP = {
   "position_finance_tabs": {
     "view": null,
     "table": "position_finance_tabs",
+    "fields": {
+      "position_id": "position_id",
+      "tab_id": "tab_id",
+      "can_view": "can_view",
+      "can_edit": "can_edit"
+    },
+    "derived": [],
+    "columns": [
+      "can_edit",
+      "can_view",
+      "position_id",
+      "tab_id"
+    ]
+  },
+  "position_messenger_tabs": {
+    "view": null,
+    "table": "position_messenger_tabs",
     "fields": {
       "position_id": "position_id",
       "tab_id": "tab_id",
