@@ -21,6 +21,7 @@ import DualDateInput from "./DualDateInput";
 import KeyboardSelect from "./KeyboardSelect";
 import { RegionSelect } from "./RegionSwitch";
 import { roundAmount } from "../utils/format";
+import { todayDate } from "../utils/date";
 import { BANK_NAMES, calcTotals, emptyItem } from "../utils/billing.jsx";
 import {
   PURCHASE_CATEGORIES, PURCHASE_UNITS, PAYMENT_TYPES, initialGroupData,
@@ -244,10 +245,10 @@ export function rowUpdates(type, d) {
         subtotalNPR: t.subtotal, discountAmtNPR: t.discountAmt,
         taxableAmtNPR: t.taxableAmt, vatAmountNPR: d.applyVAT ? t.vatAmt : 0,
         totalNPR: t.total,
-        // Billing settles the credit when an invoice is marked Paid; the same
-        // has to happen here or the badge would say Paid while Credit Due still
-        // showed the balance from before the total changed.
-        ...(d.status === "Paid" ? { amountPaid: t.total } : {}),
+        // amountPaid is deliberately absent: it is a cached sum the payments
+        // trigger maintains, so writing it here would last only until the next
+        // real payment recomputed it. Marking an invoice Paid books the balance
+        // as a payment instead — see salesSettlement below.
         region: d.region || null,
         items: (d.items || [])
           .filter(it => String(it.description || "").trim() !== "")
@@ -260,6 +261,30 @@ export function rowUpdates(type, d) {
     default:
       return {};
   }
+}
+
+/**
+ * The payment to book when an invoice is being marked Paid, or null.
+ *
+ * `invoices.amount_paid` is a cached sum kept up to date by a trigger on
+ * `payments`, so settling a credit means adding the missing payment, not
+ * writing the total onto the invoice — that would be undone by the next real
+ * payment. This mirrors what Billing does when the same flip happens there.
+ */
+export function salesSettlement(type, d, src, { recordedBy } = {}) {
+  if (type !== "Sales" || d.status !== "Paid") return null;
+  const outstanding = invoiceTotals(d).total - n(src.amountPaid);
+  if (outstanding <= 0.005) return null;
+  return {
+    invoiceId:  src.id,
+    customerId: src.customerId || null,
+    paidOn:     todayDate(),
+    amount:     outstanding,
+    method:     src.paymentType || null,
+    note:       "Settled by marking the invoice Paid.",
+    recordedBy: recordedBy || "Unknown",
+    region:     d.region || src.region || null,
+  };
 }
 
 /* ── Small shared pieces ─────────────────────────────────────────────────── */

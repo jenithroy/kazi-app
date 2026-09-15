@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { fetchAll, updateRow } from "../lib/db";
+import { fetchAll, insertRow, updateRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { financeTabAllowed, financeTabCanEdit, sectionCanEdit } from "../utils/permissions";
@@ -15,7 +15,7 @@ import { RegionSwitch } from "../components/RegionSwitch";
 import { inRegion } from "../utils/region";
 import {
   FiscalYearRowGroup, MONTHS, COLL_BY_TYPE, TAB_BY_TYPE,
-  initialRowData, rowDate, rowError, rowUpdates,
+  initialRowData, rowDate, rowError, rowUpdates, salesSettlement,
 } from "../components/FiscalYearRowGroup";
 import { applyItemChange, addLineItem, removeLineItem } from "../components/PurchaseRowGroup";
 import { deleteTransaction, removalPrompt } from "../utils/financeRows";
@@ -248,6 +248,11 @@ export default function FiscalYearTransactions() {
     setSaving(entry.key);
     try {
       await updateRow(COLL_BY_TYPE[entry.type], entry.src.id, rowUpdates(entry.type, draft));
+      // Marking an invoice Paid has to settle its credit as a payment row —
+      // amountPaid on the invoice is a trigger-maintained sum of those rows,
+      // so writing it directly would be recomputed away by the next payment.
+      const settlement = salesSettlement(entry.type, draft, entry.src, { recordedBy: profile?.name });
+      if (settlement) await insertRow("payments", settlement);
       clearDraft(entry.key);
       setErrors(e => { const ne = { ...e }; delete ne[entry.key]; return ne; });
       await load({ quiet: true });
