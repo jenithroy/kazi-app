@@ -672,7 +672,7 @@ function Tasks() {
                   )}
                 </button>
                 {canEdit && (
-                  <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => setShowNew(true)}>
+                  <button className="primary-button" data-tour="new-task" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => setShowNew(true)}>
                     <Icons.Plus size={13} sw={2.2} /> New task
                   </button>
                 )}
@@ -803,7 +803,7 @@ function Tasks() {
         {loading ? (
           <p style={{ color: "var(--ink-4)", padding: "32px 0" }}>Loading board…</p>
         ) : (
-          <div className="ktasks-board" style={{ overflowX: "auto", alignItems: "flex-start", minHeight: 480 }}>
+          <div className="ktasks-board" data-tour="task-board" style={{ overflowX: "auto", alignItems: "flex-start", minHeight: 480 }}>
             {columns.map(col => (
               <KanbanColumn
                 key={col.id} col={col}

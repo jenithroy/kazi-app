@@ -5,6 +5,8 @@ import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { cn, Icons, Avatar } from "./ui";
 import { isNative } from "../utils/native";
+import useActivityLog from "../hooks/useActivityLog";
+import Spotlight from "./Spotlight";
 
 // Bottom nav shown on mobile/native for workers — replaces sidebar hamburger
 function BottomNav({ profile }) {
@@ -53,9 +55,12 @@ const ROUTE_LABEL = {
   content:    "Budget Requests",
   employees:  "Employee and HR",
   admin:      "Admin Panel",
+  usage:      "Usage & Activity",
   messenger:  "Messenger Chat",
   marketing:  "Marketing Calendar",
   "bug-report": "Bug Report",
+  roles:      "Roles & Duties",
+  changelog:  "Changelog",
 };
 
 function useKTMTime() {
@@ -154,7 +159,16 @@ function AppLayout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { profile } = useAuth();
-  const noPadding = location.pathname.startsWith("/marketing");
+
+  // Records the page somebody is on and how long they stay. Here rather than
+  // in each page, so nothing has to be remembered when a page is added.
+  useActivityLog();
+
+  // Full-bleed surfaces: these pages manage their own scrolling and need to
+  // reach the bottom of the window, so the shell must not pad or scroll them.
+  // Messenger in particular pins a composer to the bottom edge.
+  const noPadding =
+    location.pathname.startsWith("/marketing") || location.pathname.startsWith("/messenger");
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -191,6 +205,10 @@ function AppLayout({ children }) {
         </div>
         {isNative && <BottomNav profile={profile} />}
       </main>
+
+      {/* Reads ?tour= off whatever page it lands on. Mounted here so no page
+          has to know it exists beyond putting data-tour on one element. */}
+      <Spotlight />
     </div>
   );
 }

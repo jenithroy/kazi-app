@@ -370,6 +370,7 @@ export const SCHEMA_MAP = {
       "status": "status",
       "location": "location",
       "department": "department",
+      "reportsTo": "reports_to",
       "isProductionWorker": "is_production_worker",
       "scheduleStart": "schedule_start",
       "scheduleEnd": "schedule_end",
@@ -678,7 +679,8 @@ export const SCHEMA_MAP = {
       "discountMode": "discount_mode",
       "discountFlatAmt": "discount_flat_amt",
       "linkedOrderId": "linked_order_id",
-      "region": "region"
+      "region": "region",
+      "customerId": "customer_id"
     },
     "derived": [
       "items"
@@ -695,6 +697,7 @@ export const SCHEMA_MAP = {
       "created_at",
       "created_by",
       "currency",
+      "customer_id",
       "discount_amt_npr",
       "discount_flat_amt",
       "discount_mode",
@@ -997,6 +1000,47 @@ export const SCHEMA_MAP = {
       "trims",
       "updated_at",
       "wash_care"
+    ]
+  },
+  "payments": {
+    "view": "fs_payments",
+    "table": "payments",
+    "fields": {
+      "id": "id",
+      "invoiceId": "invoice_id",
+      "customerId": "customer_id",
+      "paidOn": "paid_on",
+      "amount": "amount",
+      "method": "method",
+      "bankName": "bank_name",
+      "reference": "reference",
+      "note": "note",
+      "isOpening": "is_opening",
+      "recordedBy": "recorded_by",
+      "createdAt": "created_at",
+      "region": "region"
+    },
+    "derived": [
+      "invoiceNumber",
+      "invoiceCurrency",
+      "amountNPR",
+      "invoiceTotalNPR",
+      "customerName"
+    ],
+    "columns": [
+      "amount",
+      "bank_name",
+      "created_at",
+      "customer_id",
+      "id",
+      "invoice_id",
+      "is_opening",
+      "method",
+      "note",
+      "paid_on",
+      "recorded_by",
+      "reference",
+      "region"
     ]
   },
   "positions": {

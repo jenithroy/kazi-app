@@ -1048,7 +1048,7 @@ function Finance() {
         </div>
 
         {/* ── Tabs ── */}
-        <div className="kfin-tabs">
+        <div className="kfin-tabs" data-tour="finance-tabs">
           {visibleTabs.map(t => (
             <button
               key={t}
@@ -1066,7 +1066,7 @@ function Finance() {
         {activeTab === "expenses" && (
           <>
             {canEdit && (
-              <div className="kfin-block">
+              <div className="kfin-block" data-tour="add-expense">
                 <div className="kfin-block-hd">
                   <p className="kfin-block-title">Add Expense</p>
                 </div>

@@ -347,7 +347,7 @@ function Budget() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <RegionSwitch untagged={countUntagged(tab === 0 ? allBudgetRows : allReqRows)} />
             {tab === 0 && (
-              <button className="primary-button" onClick={() => setShowNew(true)}>+ New request</button>
+              <button className="primary-button" data-tour="new-budget-request" onClick={() => setShowNew(true)}>+ New request</button>
             )}
           </div>
         }

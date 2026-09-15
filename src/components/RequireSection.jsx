@@ -30,11 +30,12 @@ const SECTION_ROUTES = {
   purchases: "/purchases",
   budget: "/content",
   employees: "/employees",
-  directors: "/directors",
+  directors: "/roles",
   customers: "/customers",
   marketing: "/marketing",
   messenger: "/messenger",
   admin: "/admin",
+  usage_analytics: "/usage",
 };
 
 function NoAccess({ profile }) {

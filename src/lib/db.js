@@ -1,5 +1,6 @@
 import { supabase } from "../supabase";
 import { SCHEMA_MAP } from "./schemaMap";
+import { logWrite } from "./activity";
 
 /**
  * The data layer.
@@ -17,6 +18,13 @@ import { SCHEMA_MAP } from "./schemaMap";
  * policies that re-derive the caller's access from their position, so a request
  * for data they may not see returns an empty list, and a forbidden write fails.
  * The UI hiding a button is a courtesy; this is the enforcement.
+ *
+ * Every successful write also drops a line in the activity log. Instrumenting
+ * this one file rather than three hundred call sites is the whole reason the
+ * Usage & Activity page can say what people actually do with the ERP, and it
+ * means a feature added tomorrow is measured without anyone remembering to.
+ * logWrite() is fire-and-forget and swallows its own failures -- a save is
+ * never held up, nor failed, by its own bookkeeping.
  */
 
 /**
@@ -202,6 +210,7 @@ export async function insertRow(collection, data) {
 
   const id = inserted[key];
   await writeChildren(collection, id, nested);
+  logWrite(collection, "create", id);
   return fetchOne(collection, id);
 }
 
@@ -216,6 +225,7 @@ export async function updateRow(collection, id, data) {
     if (error) throw error;
   }
   await writeChildren(collection, id, nested);
+  logWrite(collection, "update", id);
   return fetchOne(collection, id);
 }
 
@@ -254,6 +264,9 @@ export async function upsertRow(collection, data, conflictKeys) {
 
   const id = saved[keyColumn(collection)];
   await writeChildren(collection, id, nested);
+  // "save", not "create" or "update": an upsert genuinely does not know which
+  // of the two it just did, and guessing would put fiction in the log.
+  logWrite(collection, "save", id);
   return fetchOne(collection, id);
 }
 
@@ -262,6 +275,7 @@ export async function deleteRow(collection, id) {
   const { error } = await supabase
     .from(mapping(collection).table).delete().eq(keyColumn(collection), id);
   if (error) throw error;
+  logWrite(collection, "delete", id);
 }
 
 /**

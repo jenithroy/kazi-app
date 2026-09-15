@@ -3183,7 +3183,7 @@ function Inventory() {
     if (activeTab === "stock" || activeTab === "details" || activeTab === "unit_economics") {
       if (!canEditInventory) return null;
       return (
-        <button className="primary-button" onClick={() => setShowAddForm(v => !v)}>
+        <button className="primary-button" data-tour="add-stock" onClick={() => setShowAddForm(v => !v)}>
           {showAddForm ? "Cancel" : "+ Add Item"}
         </button>
       );
@@ -3404,7 +3404,7 @@ function Inventory() {
 
         {/* Panel header */}
         <div className="kinv-panel-hd">
-          <div className="kinv-tabs">
+          <div className="kinv-tabs" data-tour="inventory-tabs">
             {allowedTabs.map(t => (
               <button
                 key={t.key}
