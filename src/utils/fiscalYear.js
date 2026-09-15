@@ -18,7 +18,11 @@ export function daysInBsMonth(year, monthIdx) {
 
 export function adToBsParts(adIso) {
   if (!adIso) return null;
-  const [y, m, d] = adIso.split("-").map(Number);
+  // Tolerate a full timestamp ("2026-09-15 14:32", "2026-09-15T14:32:00Z") as
+  // well as a plain date. Bank transactions reach us as the former, and
+  // splitting that on "-" used to leave "15 14:32" as the day — NaN, so the
+  // date read as unusable and the row was dropped from year-based views.
+  const [y, m, d] = String(adIso).slice(0, 10).split("-").map(Number);
   if (!y || !m || !d) return null;
   try {
     const nd = new NepaliDate(new Date(y, m - 1, d));
@@ -109,4 +113,18 @@ export function fiscalYearToSlug(label) {
 export function slugToFiscalYear(slug) {
   const parts = String(slug).split("-");
   return parts.length === 2 ? `${parts[0]}/${parts[1]}` : slug;
+}
+
+// An AD-ISO date rendered in Bikram Sambat, e.g. "2025-07-17" -> "1 Shrawan 2082".
+export function fmtDateBS(adIso) {
+  const parts = adToBsParts(adIso);
+  if (!parts) return "—";
+  return `${parts.day} ${BS_MONTHS[parts.month]} ${parts.year}`;
+}
+
+// The same date in numeric BS form ("2082-04-01"), for compact secondary labels.
+export function fmtDateBSNumeric(adIso) {
+  const parts = adToBsParts(adIso);
+  if (!parts) return null;
+  return `${parts.year}-${String(parts.month + 1).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }

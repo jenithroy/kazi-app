@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { InvoicePDFDoc } from "./InvoicePDF";
-import { fmtCurrency, fmtCurrencyExact, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
+import { fmtCurrency, fmtCurrencyExact, fmtDate, fmtDateBSLabel, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
 import { roundAmount } from "../utils/format";
 
 const TITLES = {
@@ -92,14 +92,14 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   if (docType === "invoice") {
     if (data.relatedChallan)   metaRows.push(["Challan Ref",   data.relatedChallan]);
     if (data.relatedQuotation) metaRows.push(["Quotation Ref", data.relatedQuotation]);
-    metaRows.push(["Invoice Date",   fmtDate(data.date)]);
-    metaRows.push(["Due Date",       fmtDate(data.dueDate)]);
+    metaRows.push(["Invoice Date",   fmtDate(data.date), fmtDateBSLabel(data.date)]);
+    metaRows.push(["Due Date",       fmtDate(data.dueDate), fmtDateBSLabel(data.dueDate)]);
     metaRows.push(["Payment Terms",  data.paymentTerms || "Net 30"]);
     metaRows.push(["Supplier PAN",   COMPANY_PAN]);          // IRD requirement
   } else if (docType === "challan") {
     if (data.relatedInvoice)   metaRows.push(["Invoice Ref",   data.relatedInvoice]);
     if (data.relatedQuotation) metaRows.push(["Quotation Ref", data.relatedQuotation]);
-    metaRows.push(["Date", fmtDate(data.date)]);
+    metaRows.push(["Date", fmtDate(data.date), fmtDateBSLabel(data.date)]);
     // New structured transport fields (fall back to legacy transportDetails)
     if (data.vehicleNo)   metaRows.push(["Vehicle No.",  data.vehicleNo]);
     if (data.driverName)  metaRows.push(["Driver",       data.driverName]);
@@ -108,8 +108,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
     if (!data.vehicleNo && data.transportDetails) metaRows.push(["Transport", data.transportDetails]);
   } else {
     if (data.relatedInvoice) metaRows.push(["Invoice Ref", data.relatedInvoice]);
-    metaRows.push(["Date",        fmtDate(data.date)]);
-    metaRows.push(["Valid Until", fmtDate(data.validUntil)]);
+    metaRows.push(["Date",        fmtDate(data.date), fmtDateBSLabel(data.date)]);
+    metaRows.push(["Valid Until", fmtDate(data.validUntil), fmtDateBSLabel(data.validUntil)]);
   }
 
   const g  = "#1a5c1a";
@@ -175,10 +175,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
                 {data.clientPhone  && <div style={{ fontSize: 11, color: "#555" }}>Tel: {data.clientPhone}</div>}
               </div>
               <div style={{ textAlign: "right", minWidth: 200 }}>
-                {metaRows.map(([label, value]) => (
+                {metaRows.map(([label, value, sub]) => (
                   <div key={label} style={{ marginBottom: 4 }}>
                     <div style={{ fontSize: 9, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
                     <div style={{ fontSize: 12, color: "#222", fontWeight: 500 }}>{value || "—"}</div>
+                    {!!sub && <div style={{ fontSize: 9.5, color: "#777" }}>{sub}</div>}
                   </div>
                 ))}
               </div>

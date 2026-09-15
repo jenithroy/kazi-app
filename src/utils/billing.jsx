@@ -1,6 +1,6 @@
 import { supabase } from "../lib/db";
 import { roundAmount } from "./format";
-import { currentFiscalYear, fiscalYearForDate } from "./fiscalYear";
+import { currentFiscalYear, fiscalYearForDate, fmtDateBS } from "./fiscalYear";
 
 // Re-exported for callers that still import it from here. The real, BS-accurate
 // implementation lives in ./fiscalYear (backed by the exact conversion tables).
@@ -105,6 +105,17 @@ export function fmtDate(s) {
   const [y, m, d] = s.split("-");
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${parseInt(d, 10)} ${months[parseInt(m, 10) - 1]} ${y}`;
+}
+
+// "30 Bhadra 2083 B.S." — the second line under a date on a filed document.
+// The Bikram Sambat date is the one that decides the fiscal year and the number
+// series, so a printed invoice should show it rather than leave the reader to
+// convert the Gregorian date themselves. Null when there is nothing to convert,
+// so the caller can drop the line instead of printing a dash under the date.
+export function fmtDateBSLabel(s) {
+  if (!s) return null;
+  const bs = fmtDateBS(s);
+  return bs === "—" ? null : `${bs} B.S.`;
 }
 
 export function numWords(num, currency = "NPR") {

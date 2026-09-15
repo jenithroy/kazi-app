@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { deleteRow, fetchAll, updateRow } from "../lib/db";
+import { fetchAll, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
@@ -9,6 +9,7 @@ import { Icons } from "../components/ui";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
+import { deletePurchaseWithLinks } from "../utils/financeRows";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
   itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload,
@@ -118,56 +119,10 @@ function Purchases() {
       setPurchaseDrafts(d => { const nd = { ...d }; delete nd[id]; return nd; });
       setPurchases(prev => prev.filter(p => p.id !== id));
 
-      // 1. Delete main purchase document
-      await deleteRow("finance_purchases", id);
-
-      // 2. Delete linked vat_bills, stock_movements, journal_entries
-      const matchIds = Array.from(new Set([expenseId, id].filter(Boolean)));
-
-      for (const expId of matchIds) {
-        // vat_bills
-        try {
-          const vatRows = await fetchAll("vat_bills", { filters: [{ field: "expenseId", value: expId }] });
-          for (const vData of vatRows) {
-            if (vData.storagePath) {
-              try {
-                const { ref: storageRef, deleteObject } = await import("firebase/storage");
-                const { storage } = await import("../firebase");
-                await deleteObject(storageRef(storage, vData.storagePath));
-              } catch (_) {}
-            }
-            await deleteRow("vat_bills", vData.id);
-          }
-        } catch (e) {
-          console.error("Failed to delete linked vat_bills:", e);
-        }
-
-        // stock_movements
-        try {
-          const stockRows = await fetchAll("stock_movements", { filters: [
-            { field: "source", value: "purchase" },
-            { field: "sourceId", value: expId },
-          ] });
-          for (const sRow of stockRows) {
-            await deleteRow("stock_movements", sRow.id);
-          }
-        } catch (e) {
-          console.error("Failed to delete linked stock_movements:", e);
-        }
-
-        // journal_entries
-        try {
-          // Journal entries link back through `reference`, not an expenseId
-          // field — that key never existed as a column, so the old query
-          // matched nothing and these entries were quietly orphaned.
-          const jRows = await fetchAll("journal_entries", { filters: [{ field: "reference", value: expId }] });
-          for (const jRow of jRows) {
-            await deleteRow("journal_entries", jRow.id);
-          }
-        } catch (e) {
-          console.error("Failed to delete linked journal_entries:", e);
-        }
-      }
+      // Deleting the purchase alone would strand its VAT bills, stock movements
+      // and journal entries; the cascade lives in utils/financeRows so the
+      // fiscal-year page removes a purchase exactly the same way.
+      await deletePurchaseWithLinks(id, expenseId);
 
       await loadPurchases();
     } catch (err) {

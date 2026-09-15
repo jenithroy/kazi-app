@@ -179,7 +179,7 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
             <>
               <td rowSpan={items.length} style={{ color: "var(--mint-deep)", fontWeight: 700, fontSize: 12, fontFamily: "var(--mono)", verticalAlign: "top", paddingTop: 10 }}>{expenseId}</td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 180 }}>
-                <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" />
+                <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" dataRole="purchase-date" />
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
                 <input className="kfin-input"

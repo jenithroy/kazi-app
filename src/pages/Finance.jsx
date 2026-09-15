@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import {
   Cell, Legend, Pie, PieChart,
@@ -220,7 +220,8 @@ function Finance() {
   const [allInvoices, setInvoices] = useState([]);
   // In-place edit for a Cash/Bank ledger row sourced from a bank txn or journal entry —
   // purchase/invoice rows deep-link to their own full editor (Purchases/Billing) instead.
-  const [ledgerDraft, setLedgerDraft] = useState(null); // { type: "bank"|"journal", id, particulars, amount }
+  const [ledgerDraft, setLedgerDraft] = useState(null); // { type: "bank"|"journal"|"opening", id, account, particulars, amount }
+  const [ledgerSaving, setLedgerSaving] = useState(false);
 
   /* ── Bank transactions state ── */
   const [allBankTxns, setBankTxns]    = useState([]);
@@ -653,22 +654,67 @@ function Finance() {
     }
   }
 
+  function cancelLedgerDraft() {
+    setLedgerDraft(null);
+  }
+
   async function commitLedgerDraft() {
-    if (!ledgerDraft) return;
+    if (!ledgerDraft || ledgerSaving) return;
     const { type, id, particulars, amount } = ledgerDraft;
+    setLedgerSaving(true);
     try {
       if (type === "opening") {
         await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) });
+      } else if (type === "bank") {
+        // bank_transactions keeps the figure in `amount`. Sending `amountNPR`
+        // named no column the table has, and the write layer drops keys it
+        // cannot map — so the amount looked saved and never was, while the
+        // description beside it went through.
+        await updateRow("bank_transactions", id, { description: particulars, amount: Number(amount || 0) });
       } else {
-        const coll = type === "bank" ? "bank_transactions" : "journal_entries";
-        await updateRow(coll, id, { description: particulars, amountNPR: Number(amount || 0) });
+        await updateRow("journal_entries", id, { description: particulars, amountNPR: Number(amount || 0) });
       }
       setLedgerDraft(null);
       await loadData();
     } catch (err) {
       console.error("Failed to update ledger entry:", err);
       showError("Failed to update ledger entry. Please try again.");
+    } finally {
+      setLedgerSaving(false);
     }
+  }
+
+  // Enter saves, Escape abandons the edit — the same keys the Journal tab's
+  // editor answers to, so the two behave alike.
+  function ledgerEditKeys(e) {
+    if (e.key === "Enter") { e.preventDefault(); commitLedgerDraft(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancelLedgerDraft(); }
+  }
+
+  /**
+   * The Save / Cancel bar under the ledger row being edited.
+   *
+   * A plain call rather than a component so React keeps the same elements
+   * across the parent's re-renders and a tabbed-to button does not lose focus.
+   */
+  function ledgerEditBar() {
+    return (
+      <tr style={{ background: "var(--mint-soft)" }}>
+        <td colSpan={5} style={{ padding: "6px 8px" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="primary-button" style={{ padding: "3px 12px", fontSize: 11.5 }}
+              disabled={ledgerSaving} onClick={commitLedgerDraft}>
+              {ledgerSaving ? "Saving…" : "Save"}
+            </button>
+            <button type="button" className="ghost-button" style={{ padding: "3px 12px", fontSize: 11.5 }}
+              disabled={ledgerSaving} onClick={cancelLedgerDraft}>
+              Cancel
+            </button>
+            <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Enter saves · Esc cancels</span>
+          </div>
+        </td>
+      </tr>
+    );
   }
 
   /* ── Order P&L handlers ── */
@@ -1417,14 +1463,15 @@ function Finance() {
                       {(() => {
                         const editingOpening = ledgerDraft && ledgerDraft.type === "opening" && ledgerDraft.id === data.accountId;
                         return (
+                          <>
                           <tr
-                            style={{ background: "var(--bg-2)", cursor: canEdit ? "pointer" : "default" }}
-                            title={canEdit ? "Click to edit opening balance" : undefined}
+                            style={{ background: editingOpening ? "var(--mint-soft)" : "var(--bg-2)", cursor: canEdit && !editingOpening ? "pointer" : "default" }}
+                            title={canEdit && !editingOpening ? "Click to edit opening balance" : undefined}
                             onClick={() => {
                               if (!canEdit || editingOpening) return;
                               setLedgerDraft({ type: "opening", id: data.accountId, particulars: "Opening Balance", amount: data.openingBalanceNPR });
                             }}
-                            onBlur={e => { if (editingOpening && !e.currentTarget.contains(e.relatedTarget)) commitLedgerDraft(); }}
+                            onKeyDown={editingOpening ? ledgerEditKeys : undefined}
                           >
                             <td style={{ color: "var(--ink-4)", fontSize: 12 }}>—</td>
                             <td style={{ fontWeight: 600 }}>Opening Balance</td>
@@ -1433,55 +1480,60 @@ function Finance() {
                               {editingOpening
                                 ? <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "3px 6px", fontSize: 12, width: "100%" }}
                                     value={ledgerDraft.amount} autoFocus
-                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))}
-                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))} />
                                 : roundAmount(data.openingBalanceNPR).toLocaleString()}
                             </td>
                           </tr>
+                          {editingOpening && ledgerEditBar()}
+                          </>
                         );
                       })()}
                       {data.rows.length === 0 ? (
                         <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>No transactions yet.</td></tr>
                       ) : data.rows.map((r, i) => {
-                        const editing = ledgerDraft && ledgerDraft.type === r.sourceType && ledgerDraft.id === r.sourceId;
+                        // Scoped to this account's table as well as the row: a journal entry
+                        // shows up twice, once under its debit account and once under its
+                        // credit account, so matching on the entry alone would open both
+                        // for editing at the same time — two rows, two Save bars, one record.
+                        const editing = ledgerDraft && ledgerDraft.type === r.sourceType
+                          && ledgerDraft.id === r.sourceId && ledgerDraft.account === name;
                         const inputStyle = { padding: "3px 6px", fontSize: 12, width: "100%" };
                         return (
+                          <Fragment key={i}>
                           <tr
-                            key={i}
-                            title={canEdit ? (r.sourceType === "purchase" ? "Click to edit in Purchases" : r.sourceType === "invoice" ? "Click to edit in Billing" : "Click to edit") : undefined}
-                            style={{ cursor: canEdit ? "pointer" : "default" }}
+                            title={canEdit && !editing ? (r.sourceType === "purchase" ? "Click to edit in Purchases" : r.sourceType === "invoice" ? "Click to edit in Billing" : "Click to edit") : undefined}
+                            style={{ cursor: canEdit && !editing ? "pointer" : "default", background: editing ? "var(--mint-soft)" : undefined }}
                             onClick={() => {
                               if (!canEdit || editing) return;
                               if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
                               else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
-                              else setLedgerDraft({ type: r.sourceType, id: r.sourceId, particulars: r.particulars, amount: r.dr || r.cr });
+                              else setLedgerDraft({ type: r.sourceType, id: r.sourceId, account: name, particulars: r.particulars, amount: r.dr || r.cr });
                             }}
-                            onBlur={e => { if (editing && !e.currentTarget.contains(e.relatedTarget)) commitLedgerDraft(); }}
+                            onKeyDown={editing ? ledgerEditKeys : undefined}
                           >
                             <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>{r.date || "—"}</td>
                             <td>
                               {editing
                                 ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars} autoFocus
-                                    onChange={e => setLedgerDraft(d => ({ ...d, particulars: e.target.value }))}
-                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                    onChange={e => setLedgerDraft(d => ({ ...d, particulars: e.target.value }))} />
                                 : r.particulars}
                             </td>
                             <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>
                               {editing && r.dr
                                 ? <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={ledgerDraft.amount}
-                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))}
-                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))} />
                                 : (r.dr ? roundAmount(r.dr).toLocaleString() : "—")}
                             </td>
                             <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>
                               {editing && r.cr
                                 ? <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={ledgerDraft.amount}
-                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))}
-                                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }} />
+                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))} />
                                 : (r.cr ? roundAmount(r.cr).toLocaleString() : "—")}
                             </td>
                             <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{roundAmount(r.balance).toLocaleString()}</td>
                           </tr>
+                          {editing && ledgerEditBar()}
+                          </Fragment>
                         );
                       })}
                     </tbody>

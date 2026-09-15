@@ -13,16 +13,40 @@ import {
   DOC_TYPES, STATUS_BY_TYPE, BANK_NAMES, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
 } from "../utils/billing.jsx";
-import { adToBsParts, BS_MONTHS, fiscalYearForDate, parseFiscalYearLabel, currentFiscalYear } from "../utils/fiscalYear";
+import {
+  fiscalYearForDate, parseFiscalYearLabel, currentFiscalYear,
+  fiscalYearDateRangeAD, isDateInFiscalYear, fmtDateBS,
+} from "../utils/fiscalYear";
+import DualDateInput from "../components/DualDateInput";
 import { postSaleStockOut } from "../utils/stockLedger";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 
-function fmtDateBS(iso) {
-  const parts = adToBsParts(iso);
-  if (!parts) return "—";
-  return `${parts.day} ${BS_MONTHS[parts.month]} ${parts.year}`;
+/* ── English (A.D.) / Nepali (B.S.) date display ──────────────────────────
+   Stored dates are always AD ISO strings; the calendar is a display choice.
+   Every date column on the page reads the same `dateMode`, so flipping one
+   header flips the whole table rather than leaving mixed calendars in a row. */
+function fmtDateIn(mode, iso) {
+  return mode === "bs" ? fmtDateBS(iso) : fmtDate(iso);
+}
+
+function DateModeToggle({ mode, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title="Switch between English (A.D.) and Nepali (B.S.) dates"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        fontSize: 10.5, fontWeight: 600, color: "var(--mint-deep)", cursor: "pointer",
+        background: "var(--mint-wash)", border: "1px solid rgba(45,155,111,.25)",
+        borderRadius: 20, padding: "2px 7px 2px 6px", lineHeight: 1.4, textTransform: "none",
+      }}
+    >
+      <span style={{ fontSize: 11 }}>⇄</span>{mode === "ad" ? "B.S." : "A.D."}
+    </button>
+  );
 }
 
 /* ── FX rates vs NPR (fallback — overwritten by live fetch) ── */
@@ -152,7 +176,7 @@ function Billing() {
   }
 
   const [tab, setTab]               = useState("invoice");
-  const [dateMode, setDateMode]     = useState("ad"); // "ad" | "bs" — toggles the Date column display
+  const [dateMode, setDateMode]     = useState("ad"); // "ad" | "bs" — one switch for every date on the page, shown and entered
   const [allInvoices, setInvoices]     = useState([]);
   const [allChallans, setChallans]     = useState([]);
   const [allQuotations, setQuotations] = useState([]);
@@ -267,7 +291,12 @@ function Billing() {
       }
       return { ...it, description: desc };
     });
-    setForm({ ...makeEmptyForm(tab), ...rest, items });
+    // makeEmptyForm defaults the fiscal year to the *current* one, which is wrong
+    // for a document filed in an earlier year. Rows written before fiscal-year
+    // numbering carry no fiscal year at all, so derive it from the document's own
+    // Bikram Sambat date instead of today's.
+    const fiscalYear = rest.fiscalYear || fiscalYearForDate(rest.date) || currentFiscalYear();
+    setForm({ ...makeEmptyForm(tab), ...rest, fiscalYear, items });
     setEditingId(id);
     setShowForm(true);
     scrollAppToTop();
@@ -346,6 +375,10 @@ function Billing() {
         /* ── UPDATE existing document ── */
         const updates = {
           ...form,
+          // The number on this document was drawn from its fiscal year's 1..N
+          // series, so the year is fixed for the life of the document — editing
+          // the date must not move it into a year where that number is taken.
+          fiscalYear:     form.fiscalYear,
           currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           subtotalNPR:    subtotal,
           discountMode:    form.discountMode || "pct",
@@ -695,19 +728,22 @@ function Billing() {
             <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
               <div className="kfin-form" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
 
-                {/* Date — also drives the fiscal year (and therefore the number
-                    series) off the Nepali date, so the FY field stays in step. */}
+                {/* Date — enterable in either calendar. On a new document it also
+                    drives the fiscal year (and therefore the number series) off the
+                    Nepali date, so the FY field stays in step. On an edit the year is
+                    left alone: the number was already drawn from that year's series. */}
                 <label className="kfin-label">
                   Date
-                  <input
-                    className="kfin-input"
-                    type="date"
+                  <DualDateInput
                     value={form.date}
                     required
-                    onChange={e => {
-                      const v = e.target.value;
-                      setForm(f => ({ ...f, date: v, fiscalYear: fiscalYearForDate(v) || f.fiscalYear }));
-                    }}
+                    mode={dateMode}
+                    onModeChange={setDateMode}
+                    onChange={v => setForm(f => ({
+                      ...f,
+                      date: v,
+                      fiscalYear: editingId ? f.fiscalYear : (fiscalYearForDate(v) || f.fiscalYear),
+                    }))}
                   />
                 </label>
 
@@ -715,13 +751,13 @@ function Billing() {
                 {tab === "invoice" && (
                   <label className="kfin-label">
                     Due Date
-                    <input className="kfin-input" type="date" value={form.dueDate} onChange={e => setF("dueDate", e.target.value)} />
+                    <DualDateInput value={form.dueDate} mode={dateMode} onModeChange={setDateMode} onChange={v => setF("dueDate", v)} />
                   </label>
                 )}
                 {tab === "quotation" && (
                   <label className="kfin-label">
                     Valid Until
-                    <input className="kfin-input" type="date" value={form.validUntil} onChange={e => setF("validUntil", e.target.value)} />
+                    <DualDateInput value={form.validUntil} mode={dateMode} onModeChange={setDateMode} onChange={v => setF("validUntil", v)} />
                   </label>
                 )}
                 {tab === "quotation" && (
@@ -746,13 +782,29 @@ function Billing() {
                   <RegionSelect className="kfin-select" value={form.region} onChange={v => setF("region", v)} />
                 </label>
 
-                {/* Fiscal Year (invoice + challan) */}
-                {(tab === "invoice" || tab === "challan") && (
-                  <label className="kfin-label">
-                    Fiscal Year (B.S.)
-                    <input className="kfin-input" type="text" value={form.fiscalYear || ""} placeholder="e.g. 2082/83" onChange={e => setF("fiscalYear", e.target.value)} />
-                  </label>
-                )}
+                {/* Fiscal Year (invoice + challan) — derived from the date, never typed.
+                    It decides which 1..N series the number is drawn from, so a year that
+                    disagreed with the date would put the document in the wrong series
+                    (and could collide with a number already filed in that year). */}
+                {(tab === "invoice" || tab === "challan") && (() => {
+                  const fy = form.fiscalYear || "—";
+                  const range = form.fiscalYear ? fiscalYearDateRangeAD(form.fiscalYear) : null;
+                  const outOfYear = editingId && form.fiscalYear && !isDateInFiscalYear(form.date, form.fiscalYear);
+                  return (
+                    <label className="kfin-label">
+                      Fiscal Year (B.S.)
+                      <input className="kfin-input" type="text" value={fy} readOnly tabIndex={-1}
+                        style={{ background: "var(--bg-2)", color: "var(--ink-3)", cursor: "default" }} />
+                      <span style={{ fontSize: 11, color: outOfYear ? "var(--terra)" : "var(--ink-4)", marginTop: 3, lineHeight: 1.4 }}>
+                        {outOfYear
+                          ? `This date falls outside FY ${form.fiscalYear}, but ${form[meta.numberField] || "the document"} was already numbered in that year's series — the year is kept so the number stays valid.`
+                          : range
+                            ? `Shrawan 1 – Asar end · ${range.startAD} to ${range.endAD} A.D.`
+                            : "Set automatically from the date above."}
+                      </span>
+                    </label>
+                  );
+                })()}
 
                 {/* Payment Terms (invoice) */}
                 {tab === "invoice" && (
@@ -1124,19 +1176,7 @@ function Billing() {
                     <th>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         Date
-                        <button
-                          type="button"
-                          onClick={() => setDateMode(m => m === "ad" ? "bs" : "ad")}
-                          title="Switch between English (A.D.) and Nepali (B.S.) dates"
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 3,
-                            fontSize: 10.5, fontWeight: 600, color: "var(--mint-deep)", cursor: "pointer",
-                            background: "var(--mint-wash)", border: "1px solid rgba(45,155,111,.25)",
-                            borderRadius: 20, padding: "2px 7px 2px 6px", lineHeight: 1.4, textTransform: "none",
-                          }}
-                        >
-                          <span style={{ fontSize: 11 }}>⇄</span>{dateMode === "ad" ? "B.S." : "A.D."}
-                        </button>
+                        <DateModeToggle mode={dateMode} onToggle={() => setDateMode(m => m === "ad" ? "bs" : "ad")} />
                       </div>
                     </th>
                     <th>Client</th>
@@ -1161,7 +1201,7 @@ function Billing() {
                     return (
                       <tr key={row.id}>
                         <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--mint-deep)" }}>{row[numField]}</td>
-                        <td>{dateMode === "ad" ? fmtDate(row.date) : fmtDateBS(row.date)}</td>
+                        <td>{fmtDateIn(dateMode, row.date)}</td>
                         <td style={{ fontWeight: 500 }}>{row.clientName}</td>
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{row.clientPAN || "—"}</td>
 
@@ -1178,7 +1218,7 @@ function Billing() {
                           </td>
                         )}
                         {tab === "quotation" && (
-                          <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDate(row.validUntil)}</td>
+                          <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDateIn(dateMode, row.validUntil)}</td>
                         )}
 
                         <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.subtotalNPR, row.currency))}</td>
@@ -1282,19 +1322,7 @@ function Billing() {
                       <th>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         Date
-                        <button
-                          type="button"
-                          onClick={() => setDateMode(m => m === "ad" ? "bs" : "ad")}
-                          title="Switch between English (A.D.) and Nepali (B.S.) dates"
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 3,
-                            fontSize: 10.5, fontWeight: 600, color: "var(--mint-deep)", cursor: "pointer",
-                            background: "var(--mint-wash)", border: "1px solid rgba(45,155,111,.25)",
-                            borderRadius: 20, padding: "2px 7px 2px 6px", lineHeight: 1.4, textTransform: "none",
-                          }}
-                        >
-                          <span style={{ fontSize: 11 }}>⇄</span>{dateMode === "ad" ? "B.S." : "A.D."}
-                        </button>
+                        <DateModeToggle mode={dateMode} onToggle={() => setDateMode(m => m === "ad" ? "bs" : "ad")} />
                       </div>
                     </th>
                       <th>Client</th>
@@ -1314,7 +1342,7 @@ function Billing() {
                     {cancelledDocs.map(row => (
                       <tr key={row.id}>
                         <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: "var(--ink-3)" }}>{row[numField]}</td>
-                        <td>{dateMode === "ad" ? fmtDate(row.date) : fmtDateBS(row.date)}</td>
+                        <td>{fmtDateIn(dateMode, row.date)}</td>
                         <td style={{ fontWeight: 500 }}>{row.clientName}</td>
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{row.clientPAN || "—"}</td>
 
@@ -1331,7 +1359,7 @@ function Billing() {
                           </td>
                         )}
                         {tab === "quotation" && (
-                          <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDate(row.validUntil)}</td>
+                          <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{fmtDateIn(dateMode, row.validUntil)}</td>
                         )}
 
                         <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtC(toNPR(row.subtotalNPR, row.currency))}</td>

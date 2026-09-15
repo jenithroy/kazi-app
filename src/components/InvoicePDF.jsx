@@ -4,7 +4,7 @@
  * Used by DocPreview's "Download PDF" button.
  */
 import { Document, Page, View, Text, Image, StyleSheet } from "@react-pdf/renderer";
-import { fmtCurrency, fmtCurrencyExact, fmtDate, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
+import { fmtCurrency, fmtCurrencyExact, fmtDate, fmtDateBSLabel, numWords, COMPANY_PAN, COMPANY_NAME } from "../utils/billing.jsx";
 import { roundAmount } from "../utils/format";
 
 /* ── Colours ─────────────────────────────────────── */
@@ -38,6 +38,7 @@ const S = StyleSheet.create({
   metaRow:  { marginBottom: 4 },
   metaLbl:  { fontSize: 7, fontFamily: "Helvetica-Bold", color: "#999", textTransform: "uppercase" },
   metaVal:  { fontSize: 9.5, color: "#222" },
+  metaSub:  { fontSize: 7.5, color: "#777" },   // Bikram Sambat line under a date
 
   /* Divider */
   hr: { borderTopWidth: 1, borderTopColor: GB, marginBottom: 8 },
@@ -98,11 +99,12 @@ const S = StyleSheet.create({
 });
 
 /* ── Helpers ─────────────────────────────────────── */
-function MetaRow({ label, value }) {
+function MetaRow({ label, value, sub }) {
   return (
     <View style={S.metaRow}>
       <Text style={S.metaLbl}>{label}</Text>
       <Text style={S.metaVal}>{value || "—"}</Text>
+      {!!sub && <Text style={S.metaSub}>{sub}</Text>}
     </View>
   );
 }
@@ -234,14 +236,14 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
   if (docType === "invoice") {
     if (data.relatedChallan)   metaRows.push(["Challan Ref",   data.relatedChallan]);
     if (data.relatedQuotation) metaRows.push(["Quotation Ref", data.relatedQuotation]);
-    metaRows.push(["Invoice Date",  fmtDate(data.date)]);
-    metaRows.push(["Due Date",      fmtDate(data.dueDate)]);
+    metaRows.push(["Invoice Date",  fmtDate(data.date), fmtDateBSLabel(data.date)]);
+    metaRows.push(["Due Date",      fmtDate(data.dueDate), fmtDateBSLabel(data.dueDate)]);
     metaRows.push(["Payment Terms", data.paymentTerms || "Net 30"]);
     metaRows.push(["Supplier PAN",  COMPANY_PAN]);
   } else if (docType === "challan") {
     if (data.relatedInvoice)   metaRows.push(["Invoice Ref",   data.relatedInvoice]);
     if (data.relatedQuotation) metaRows.push(["Quotation Ref", data.relatedQuotation]);
-    metaRows.push(["Date", fmtDate(data.date)]);
+    metaRows.push(["Date", fmtDate(data.date), fmtDateBSLabel(data.date)]);
     if (data.vehicleNo)          metaRows.push(["Vehicle No.",  data.vehicleNo]);
     if (data.driverName)         metaRows.push(["Driver",       data.driverName]);
     if (data.routeFrom)          metaRows.push(["From",         data.routeFrom]);
@@ -249,8 +251,8 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
     if (!data.vehicleNo && data.transportDetails) metaRows.push(["Transport", data.transportDetails]);
   } else {
     if (data.relatedInvoice) metaRows.push(["Invoice Ref", data.relatedInvoice]);
-    metaRows.push(["Date",        fmtDate(data.date)]);
-    metaRows.push(["Valid Until", fmtDate(data.validUntil)]);
+    metaRows.push(["Date",        fmtDate(data.date), fmtDateBSLabel(data.date)]);
+    metaRows.push(["Valid Until", fmtDate(data.validUntil), fmtDateBSLabel(data.validUntil)]);
   }
 
   return (
@@ -283,7 +285,7 @@ export function InvoicePDFDoc({ data, docType, letterheadUrl }) {
               {!!data.clientPhone  && <Text style={S.billSub}>Tel: {data.clientPhone}</Text>}
             </View>
             <View style={S.metaCol}>
-              {metaRows.map(([lbl, val]) => <MetaRow key={lbl} label={lbl} value={val} />)}
+              {metaRows.map(([lbl, val, sub]) => <MetaRow key={lbl} label={lbl} value={val} sub={sub} />)}
             </View>
           </View>
 
