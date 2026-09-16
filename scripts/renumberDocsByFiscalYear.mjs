@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
  * One-off: renumber invoices, challans and quotations so each Nepali fiscal
- * year runs a clean 1..N sequence (INV-01, INV-02, …) ordered by document
+ * year runs a clean 1..N sequence (INV-001, INV-002, …) ordered by document
  * date. From migration 0030 on, new documents are numbered this way already;
- * this rewrites the history that was raised under the old all-time counter.
+ * this rewrites the history that was raised under the old all-time counter
+ * (or under 0034's two-digit padding).
  *
  * The fiscal year of each document is computed from its own Bikram Sambat date
  * (Shrawan 1 → next Asar end), NOT from the Gregorian month, so a document
  * dated early-to-mid July lands in the correct year.
  *
- * Run this AFTER migration 0034, so the numbers it writes and the numbers
- * next_doc_number hands out from then on are padded the same way.
+ * Run this AFTER migrations 0036 and 0037: 0036 is what makes the numbers it
+ * writes match what next_doc_number hands out from then on (three digits),
+ * and 0037 is what makes invoice_no/challan_no/quotation_no unique per fiscal
+ * year instead of for all time (without it, two years both writing INV-013
+ * collide) and is what adds quotations.fiscal_year for this script to fill in.
  *
  * Connection: mentions/supabase.txt (gitignored) — the session-pooler URI,
  * same as scripts/migrate.cjs.
@@ -64,9 +68,9 @@ function fiscalYearForDate(adIso) {
 }
 
 const isoDate = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : (v ? String(v).slice(0, 10) : ""));
-// Two digits, matching next_doc_number since migration 0034. padStart only
-// pads, so a year that runs past 99 continues INV-100 rather than truncating.
-const pad2 = (n) => String(n).padStart(2, "0");
+// Three digits, matching next_doc_number since migration 0036. padStart only
+// pads, so a year that runs past 999 continues INV-1000 rather than truncating.
+const pad3 = (n) => String(n).padStart(3, "0");
 const col = (s, n) => String(s ?? "").padEnd(n);
 
 async function main() {
@@ -102,7 +106,7 @@ async function main() {
       });
 
       list.forEach((r, i) => {
-        const to = `${doc.prefix}-${pad2(i + 1)}`;
+        const to = `${doc.prefix}-${pad3(i + 1)}`;
         if ((r.num || "") !== to) {
           changes.push({ table: doc.table, numCol: doc.numCol, id: r.id, from: r.num || "(blank)", to, fy, when: isoDate(r.dt), who: r.client_name || "" });
         }
@@ -131,11 +135,18 @@ async function main() {
 
   // ── Apply ─────────────────────────────────────────────────────────────
   // Two phases so a target number that currently belongs to another row in the
-  // same table can't trip a unique index mid-update.
+  // same table can't trip a unique index mid-update. fiscal_year is set in
+  // between: invoice_no/challan_no/quotation_no are unique per (fiscal_year,
+  // number) since 0035/0037, so the stored fiscal_year has to already match
+  // the year `to` was computed for before `to` is written, or the index check
+  // is comparing the new number against the OLD (possibly different) year.
   await pg.query("begin");
   try {
     for (const c of changes) {
       await pg.query(`update ${c.table} set ${c.numCol} = $1 where id = $2`, [`RENUM:${c.id}`, c.id]);
+    }
+    for (const c of changes) {
+      await pg.query(`update ${c.table} set fiscal_year = $1 where id = $2`, [c.fy, c.id]);
     }
     for (const c of changes) {
       await pg.query(`update ${c.table} set ${c.numCol} = $1 where id = $2`, [c.to, c.id]);

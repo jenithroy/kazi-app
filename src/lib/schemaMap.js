@@ -1337,7 +1337,8 @@ export const SCHEMA_MAP = {
       "updatedAt": "updated_at",
       "discountMode": "discount_mode",
       "discountFlatAmt": "discount_flat_amt",
-      "region": "region"
+      "region": "region",
+      "fiscalYear": "fiscal_year"
     },
     "derived": [
       "items"
@@ -1354,6 +1355,7 @@ export const SCHEMA_MAP = {
       "discount_flat_amt",
       "discount_mode",
       "discount_pct",
+      "fiscal_year",
       "id",
       "note",
       "quotation_no",

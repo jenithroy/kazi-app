@@ -5,16 +5,22 @@
 -- the Supabase SQL editor when Node and the pooler URI are not to hand.
 --
 -- Rewrites invoices, challans and quotations so each Nepali fiscal year runs a
--- clean 1..N ordered by document date: INV-01, INV-02, ... INV-99, INV-100.
--- Invoices and challans also get their stored fiscal_year set to the year the
--- number was drawn from, so the two always agree.
+-- clean 1..N ordered by document date: INV-001, INV-002, ... INV-999, INV-1000.
+-- Invoices, challans and quotations also get their stored fiscal_year set to
+-- the year the number was drawn from, so the two always agree.
 --
--- Run it AFTER migrations 0034 and 0035. 0035 in particular: without it the
--- challan pass fails, because CH-01 exists once per fiscal year and the old
--- constraint allowed it only once in the whole table.
+-- Run it AFTER migrations 0034, 0035, 0036 and 0037. 0035 and 0037 in
+-- particular: without them this fails with "duplicate key value violates
+-- unique constraint ..._no_key", because two fiscal years both writing e.g.
+-- INV-013 collides with the old all-time-unique constraint on invoice_no /
+-- challan_no / quotation_no. 0037 also adds quotations.fiscal_year, which
+-- this script now fills in the same way it already does for invoices and
+-- challans. 0036 is what makes next_doc_number hand out three-digit numbers
+-- from here on, matching what this script writes.
 --
 -- PART 1 is read-only and shows every change it would make. Run that first and
--- read it. PART 2 does the work, in one transaction.
+-- read it. PART 2 does the work — run it as a single submission to the SQL
+-- editor (see the note above PART 2 for why it can't be a wrapping transaction).
 --
 -- The fiscal-year boundaries below are not computed in SQL — they come from the
 -- same Bikram Sambat conversion table the app uses (src/utils/fiscalYear.js),
@@ -73,7 +79,12 @@ seq as (
     join fy f on d.dt between f.start_ad and f.end_ad
 )
 select kind, prefix, id, old_no, dt, fy, rn,
-       prefix || '-' || case when rn < 10 then '0' || rn::text else rn::text end as new_no
+       prefix || '-' ||
+         case
+           when rn < 10  then '00' || rn::text
+           when rn < 100 then '0'  || rn::text
+           else rn::text
+         end as new_no
   from seq;
 
 
@@ -101,18 +112,29 @@ select 'billing:' || kind || ':' || fy as counter_id, max(rn) + 1 as next_val
 
 
 -- ════════════════════════════════════════════════════════════════════════════
--- PART 2 — apply. Everything below runs as one transaction: it all lands or
--- none of it does.
+-- PART 2 — apply.
 --
 -- Each table is written twice. The first pass parks every affected row on a
 -- value nothing else can hold, because a number this run is about to assign
--- may still belong to a different row at that moment — challans.challan_no is
--- UNIQUE, so a single-pass update would collide partway through and abort.
+-- may still belong to a different row at that moment — invoice_no, challan_no
+-- and quotation_no are all UNIQUE per fiscal year (0035, 0037), so a
+-- single-pass update would collide partway through and abort.
+--
+-- Run every statement below TOGETHER, in the order they appear, as ONE
+-- submission to the SQL editor — not deliberately split into separate runs.
+--
+-- Deliberately NOT a `begin; ... commit;` block wrapped around a TEMP TABLE
+-- (an earlier version of this script did that and failed with "relation
+-- _plan does not exist"): the Supabase SQL editor does not guarantee every
+-- statement in one submission shares a single backend session, and a TEMP
+-- TABLE only exists on the connection that created it. `_plan` below is an
+-- ordinary table instead, so it is visible to whichever connection runs the
+-- next statement; it is dropped at the very end, and the DROP TABLE IF EXISTS
+-- up front makes the whole block safe to re-run if it stops partway.
 -- ════════════════════════════════════════════════════════════════════════════
 
-begin;
-
-create temp table _plan on commit drop as select * from _renumber_plan;
+drop table if exists _plan;
+create table _plan as select * from _renumber_plan;
 
 update invoices   set invoice_no   = 'RENUM:' || id::text where id::text in (select id from _plan where kind = 'invoice');
 update challans   set challan_no   = 'RENUM:' || id::text where id::text in (select id from _plan where kind = 'challan');
@@ -120,9 +142,11 @@ update quotations set quotation_no = 'RENUM:' || id::text where id::text in (sel
 
 -- The fiscal year stored on the record is set from the same plan that decided
 -- the number, so the two can never disagree. It is also what the uniqueness
--- added in 0035 groups by, and what Billing prints beside the number.
-update invoices t set fiscal_year = p.fy from _plan p where p.id = t.id::text and p.kind = 'invoice';
-update challans t set fiscal_year = p.fy from _plan p where p.id = t.id::text and p.kind = 'challan';
+-- added in 0035 (challans) and 0037 (invoices, quotations) groups by, and
+-- what Billing prints beside the number.
+update invoices   t set fiscal_year = p.fy from _plan p where p.id = t.id::text and p.kind = 'invoice';
+update challans   t set fiscal_year = p.fy from _plan p where p.id = t.id::text and p.kind = 'challan';
+update quotations t set fiscal_year = p.fy from _plan p where p.id = t.id::text and p.kind = 'quotation';
 
 update invoices   t set invoice_no   = p.new_no from _plan p where p.id = t.id::text and p.kind = 'invoice';
 update challans   t set challan_no   = p.new_no from _plan p where p.id = t.id::text and p.kind = 'challan';
@@ -135,7 +159,6 @@ select 'billing:' || kind || ':' || fy, max(rn) + 1
   from _plan group by kind, fy
 on conflict (id) do update set next_val = excluded.next_val;
 
-commit;
-
--- Housekeeping: the view was only scaffolding for this run.
+-- Housekeeping: both were only scaffolding for this run.
+drop table _plan;
 drop view if exists _renumber_plan;

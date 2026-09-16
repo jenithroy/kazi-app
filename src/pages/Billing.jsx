@@ -795,7 +795,9 @@ function Billing() {
               <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
                 {editingId
                   ? `Editing ${form[meta.numberField] || editingId} · FY ${form.fiscalYear || "—"}`
-                  : `Number auto-assigned (${meta.prefix}-01 onwards) · FY ${form.fiscalYear || "—"}`}
+                  : tab === "quotation"
+                  ? `Number auto-assigned (continues from the last quotation, no fiscal-year reset) · FY ${form.fiscalYear || "—"}`
+                  : `Number auto-assigned (${meta.prefix}-001 onwards) · FY ${form.fiscalYear || "—"}`}
               </span>
             </div>
             <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>

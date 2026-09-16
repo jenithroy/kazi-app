@@ -11,7 +11,7 @@ export const VAT_RATE = 0.13;
 // ── Company Registration ──────────────────────────────────────────────────
 export const COMPANY_PAN  = "623583278";              // PAN / VAT Reg. No. – Nepal IRD
 export const COMPANY_NAME = "Kazi Manufacturing Pvt. Ltd.";
-export const COMPANY_ADDR = "Kuleshwor-14, Kathmandu, Nepal";
+export const COMPANY_ADDR = "Sankhamul-31, Kathmandu, Nepal";
 export const COMPANY_PHONE = "+977 971-2034849";
 export const COMPANY_EMAIL = "info@kazimanufacturing.com";
 export const COMPANY_REGD = "";                       // Company Regd. No. (OCR), fill in when known
@@ -173,13 +173,18 @@ export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct
 }
 
 /**
- * Allocate the next sequential document number for a fiscal year, e.g. "INV-50".
+ * Allocate the next sequential document number, e.g. "INV-050".
  *
- * Numbering restarts at 1 each Nepali fiscal year (Shrawan 1), so the fiscal
- * year — decided from the document's Bikram Sambat date, not the Gregorian
- * month — must be passed in. It is what keeps last year's INV-01 and this
- * year's INV-01 apart. The number is padded to two digits (migration 0034) and
- * grows past it naturally, so a busy year runs INV-99, INV-100.
+ * Invoices and challans restart at 1 each Nepali fiscal year (Shrawan 1), so
+ * the fiscal year — decided from the document's Bikram Sambat date, not the
+ * Gregorian month — must be passed in for them. It is what keeps last year's
+ * INV-001 and this year's INV-001 apart. Quotations are the one exception
+ * (migration 0038): they run a single unbroken sequence for all time and
+ * ignore the fiscal year entirely, by request — fiscalYear is still passed
+ * for them (and still stored on the record, for display/sorting) but the
+ * database function does not use it to key their counter. The number is
+ * padded to three digits (migration 0036) and grows past it naturally, so a
+ * busy year runs INV-999, INV-1000.
  *
  * The whole read-increment-write happens in one statement inside the database
  * (see migration 0030). Doing it from here would mean two people raising an
