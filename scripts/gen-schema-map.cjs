@@ -71,6 +71,7 @@ const COLLECTIONS = {
   production:         { view: 'fs_production',         table: 'production_batches' },
   qc_logs:            { view: 'fs_qc_logs',            table: 'qc_logs' },
   quotations:         { view: 'fs_quotations',         table: 'quotations' },
+  recipes:            { view: 'fs_product_recipes',    table: 'product_recipes' },
   samples:            { view: 'fs_samples',            table: 'samples' },
   stage_config:       { view: 'fs_stage_config',       table: 'stage_config' },
   stock_movements:    { view: 'fs_stock_movements',    table: 'stock_movements' },

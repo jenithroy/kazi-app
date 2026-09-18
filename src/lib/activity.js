@@ -108,6 +108,7 @@ const WRITE_TARGETS = {
   clock_ins:         ["attendance",      "Clock-in"],
   inventory:         ["inventory",       "Stock item"],
   stock_movements:   ["inventory",       "Stock movement"],
+  recipes:           ["inventory",       "Recipe"],
   fabrics:           ["library",         "Fabric"],
   patterns:          ["library",         "Pattern"],
   product_costs:     ["library",         "Product cost"],

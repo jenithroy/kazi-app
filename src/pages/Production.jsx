@@ -13,6 +13,8 @@ import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
 import CustomerPicker from "../components/CustomerPicker";
+import MaterialsUsedModal from "../components/MaterialsUsedModal";
+import { orderRefOf } from "../utils/productionConsumption";
 import { notifyStageChange } from "../utils/telegram";
 import { useCurrency } from "../context/CurrencyContext";
 import { useRegion } from "../context/RegionContext";
@@ -54,6 +56,12 @@ const STAGES = [
   "Shipped",
   "Delivered"
 ];
+
+// Materials come out of stock when finished pieces leave Quality Check, not at
+// Cutting: a piece that is spoiled in stitching gets re-cut, and deducting at
+// Cutting would mean entering that fabric twice.
+const MATERIALS_STAGE = "Quality Check";
+const STAGES_AWAITING_STOCK_DEDUCTION = ["Packing", "Shipped"];
 
 // An order in the Embellishment stage carries any combination of these — one,
 // two, or all three — rather than moving through them as separate stages.
@@ -110,6 +118,7 @@ const emptyOrderForm = {
   notes: "",
   sampleId: "",
   sampleName: "",
+  recipeId: "",
   fabricGramsUsed: "",
   fabricCostPerPcNPR: "",
   region: ""
@@ -398,7 +407,7 @@ function EmbellishmentPicker({ order, canEdit, onUpdate }) {
 }
 
 /* ── Pipeline card ────────────────────────────────────── */
-function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, onEdit, canEdit, profile, onUpdate }) {
+function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, onEdit, canEdit, stockState, onMaterials, profile, onUpdate }) {
   const pri = orderPriority(order);
   const pct = stageProgress(order.stage);
   const [dispatching, setDispatching] = useState(false);
@@ -447,6 +456,13 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, on
       </div>
       <div className="kprod-card-c">{order.customerName}</div>
       <div className="kprod-card-p">{order.styleName}</div>
+      {stockState && (
+        <div>
+          <Pill tone={stockState === "deducted" ? "mint" : "amber"}>
+            {stockState === "deducted" ? "Stock deducted" : "Stock not deducted"}
+          </Pill>
+        </div>
+      )}
       {order.stage === "Embellishment" && (order.embellishments?.length > 0) && (
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {order.embellishments.map(t => (
@@ -518,6 +534,13 @@ function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, on
                     disabled={STAGES.indexOf(order.stage) === STAGES.length - 1}
                   >{STAGES.indexOf(order.stage) === STAGES.length - 2 ? "Deliver" : "Next →"}</button>
                 </>
+              )}
+              {onMaterials && order.status === "Active" && (
+                <button
+                  className="ghost-button"
+                  style={{ fontSize: 11, padding: "3px 8px" }}
+                  onClick={e => { e.stopPropagation(); onMaterials(); }}
+                >Materials used</button>
               )}
               <button
                 className="ghost-button"
@@ -863,6 +886,9 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
 function Production() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "production");
+  // Stock rows are gated on the inventory section by the database, so deducting
+  // materials needs inventory edit rights on top of production edit rights.
+  const canDeductStock = canEdit && sectionCanEdit(profile, "inventory");
   const { fmt: fmtC } = useCurrency();
   const { showPointsToast } = useReward();
   const { region } = useRegion();
@@ -900,6 +926,7 @@ function Production() {
   const [allFabrics, setFabrics] = useState([]);
   const [allSamples, setSamples] = useState([]);
   const [allCustomers, setCustomers] = useState([]);
+  const [recipes, setRecipes] = useState([]);
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -914,6 +941,10 @@ function Production() {
   const [invoiceModal,    setInvoiceModal]    = useState(null); // order object
   const [savingInvoice,   setSavingInvoice]   = useState(false);
   const [invModalFields,  setInvModalFields]  = useState(emptyInvFields);
+
+  /* ── Materials-used state ── */
+  const [materialsModal, setMaterialsModal] = useState(null); // { order, advancing }
+  const [deductedRefs,   setDeductedRefs]   = useState(() => new Set()); // order refs with stock already deducted
 
   /* ── Region-scoped views of everything above ────────────
      The switch in the header is the only thing between the raw rows and the
@@ -982,7 +1013,7 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows] = await Promise.all([
+    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows, recipeRows, deductionRows] = await Promise.all([
       fetchAll("production"),
       fetchAll("orders"),
       fetchAll("employees"),
@@ -992,7 +1023,18 @@ function Production() {
       fetchAll("fabrics"),
       fetchAll("samples"),
       fetchAll("customers"),
+      // Recipes power the order form's picker. A page that cannot read them (the
+      // 0039 update not applied yet, or no access) just gets no picker.
+      fetchAll("recipes").catch(() => []),
+      // Which orders already had their materials deducted. Only asked for by
+      // people who can act on it: the database returns nothing to anyone without
+      // inventory access, which would read as "nothing deducted".
+      canDeductStock
+        ? fetchAll("stock_movements", { filters: [{ field: "source", value: "production" }] }).catch(() => [])
+        : Promise.resolve([]),
     ]);
+    setDeductedRefs(new Set(deductionRows.map(m => m.sourceId).filter(Boolean)));
+    setRecipes([...recipeRows].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
     setFabrics(fabricRows);
     setSamples(sampleRows);
     setCustomers(customerRows);
@@ -1078,7 +1120,7 @@ function Production() {
     };
   }
 
-  useEffect(() => { loadData().catch(console.error); }, []);
+  useEffect(() => { loadData().catch(console.error); }, [canDeductStock]);
 
   /* ── Batch helpers ── */
   const nextBatchId = useMemo(() => {
@@ -1161,6 +1203,17 @@ function Production() {
     });
   }
 
+  // Picking the recipe is choosing the product type, so the style name follows
+  // it when nothing has been typed yet.
+  function selectOrderRecipe(recipeId) {
+    const recipe = recipes.find(r => r.id === recipeId);
+    setOrderForm(f => ({
+      ...f,
+      recipeId: recipeId || "",
+      styleName: f.styleName || recipe?.name || "",
+    }));
+  }
+
   function selectOrderSample(sampleId) {
     const sample = samples.find(s => s.id === sampleId);
     setOrderForm(f => ({
@@ -1221,6 +1274,9 @@ function Production() {
         fabricCostPerPcNPR:  Number(orderForm.fabricCostPerPcNPR || 0),
         materialCostTotalNPR,
         region:              orderForm.region || null,
+        // Only sent when there is something to set or clear, so orders that
+        // never use a recipe keep saving even where the 0039 column is absent.
+        ...((orderForm.recipeId || editingOrder.recipeId) ? { recipeId: orderForm.recipeId || null } : {}),
       });
       setEditingOrder(null);
     } else {
@@ -1253,6 +1309,8 @@ function Production() {
       // link has to be spelled out here or it silently never persists.
       delete orderDoc.customerId;
       orderDoc.customer_id = orderForm.customerId || null;
+      // An empty string is not a uuid; leave the key out unless a recipe was picked.
+      if (!orderForm.recipeId) delete orderDoc.recipeId;
       const orderRef = await insertRow("orders", orderDoc);
       if (issueInvoice && invNum) {
         const invDoc = buildInvoiceDoc(
@@ -1295,6 +1353,7 @@ function Production() {
       notes:         order.notes || "",
       sampleId:            order.sampleId || "",
       sampleName:          order.sampleName || "",
+      recipeId:            order.recipeId || "",
       fabricGramsUsed:     order.fabricGramsUsed || "",
       fabricCostPerPcNPR:  order.fabricCostPerPcNPR || "",
       region:              order.region || "",
@@ -1314,7 +1373,36 @@ function Production() {
     setSavingInvoice(false);
   }
 
-  async function advanceStage(order) {
+  // Coming out of Quality Check is when materials leave stock: ask which ones
+  // were used (pre-filled from the recipe) before the order moves on. Orders
+  // whose materials were already deducted, and people without inventory access,
+  // go straight through.
+  function advanceStage(order) {
+    if (canDeductStock && order.stage === MATERIALS_STAGE && !deductedRefs.has(orderRefOf(order))) {
+      setMaterialsModal({ order, advancing: true });
+      return;
+    }
+    return performAdvance(order);
+  }
+
+  async function handleMaterialsDone() {
+    const { order, advancing } = materialsModal;
+    setMaterialsModal(null);
+    if (advancing) await performAdvance(order);
+    else await loadData();
+  }
+
+  // "deducted" once any production stock-out exists for the order; "pending" for
+  // an active order that is past Quality Check with nothing deducted yet (the
+  // usual cause is dragging it across the board instead of using Advance).
+  function stockStateFor(order) {
+    if (!canDeductStock) return null;
+    if (deductedRefs.has(orderRefOf(order))) return "deducted";
+    if (order.status === "Active" && STAGES_AWAITING_STOCK_DEDUCTION.includes(order.stage)) return "pending";
+    return null;
+  }
+
+  async function performAdvance(order) {
     const curIdx = STAGES.indexOf(order.stage);
     if (curIdx >= STAGES.length - 1) return;
     const newStage = STAGES[curIdx + 1];
@@ -1543,6 +1631,8 @@ function Production() {
                         onReverse={() => reverseStage(order)}
                         onEdit={() => handleOpenEditOrder(order)}
                         canEdit={canEdit}
+                        stockState={stockStateFor(order)}
+                        onMaterials={canDeductStock ? () => setMaterialsModal({ order, advancing: false }) : undefined}
                         profile={profile}
                         onUpdate={loadData}
                       />
@@ -1603,6 +1693,8 @@ function Production() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--accent)", fontSize: "1rem" }}>{order.orderId}</span>
                           {orderStatusBadge(order.status)}
+                          {stockStateFor(order) === "deducted" && <Pill tone="mint">Stock deducted</Pill>}
+                          {stockStateFor(order) === "pending" && <Pill tone="amber">Stock not deducted</Pill>}
                           {order.invoiceNumber
                             ? <span className="kprod-inv-badge">
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -1694,6 +1786,26 @@ function Production() {
                           <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--ok)", borderColor: "rgba(46,125,50,0.4)" }}
                             onClick={() => updateOrderStatus(order, "Active")}>
                             Resume
+                          </button>
+                        )}
+                        {(order.status === "Active" || order.status === "On Hold") && (
+                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--danger)", borderColor: "rgba(220,38,38,0.4)" }}
+                            onClick={() => {
+                              if (window.confirm(`Cancel order ${order.orderId}?`)) updateOrderStatus(order, "Cancelled");
+                            }}>
+                            Cancel Order
+                          </button>
+                        )}
+                        {order.status === "Cancelled" && (
+                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--ok)", borderColor: "rgba(46,125,50,0.4)" }}
+                            onClick={() => updateOrderStatus(order, "Active")}>
+                            Reactivate
+                          </button>
+                        )}
+                        {canDeductStock && order.status === "Active" && (
+                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
+                            onClick={() => setMaterialsModal({ order, advancing: false })}>
+                            Materials used
                           </button>
                         )}
                         <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
@@ -1936,6 +2048,16 @@ function Production() {
         </>
       )}
 
+      {/* ── Materials used: confirm and deduct stock ── */}
+      {materialsModal && (
+        <MaterialsUsedModal
+          order={materialsModal.order}
+          advancing={materialsModal.advancing}
+          onClose={() => { setMaterialsModal(null); loadData(); }}
+          onDone={handleMaterialsDone}
+        />
+      )}
+
       {/* ── Invoice modal for existing orders ── */}
       {invoiceModal && (
         <InvoiceModal
@@ -2058,6 +2180,14 @@ function Production() {
                 Style / Item Name
                 <input type="text" value={orderForm.styleName} required placeholder="e.g. Men's Hoodie"
                   onChange={e => setOrderForm(f => ({ ...f, styleName: e.target.value }))} />
+              </label>
+              <label>
+                Recipe (materials per piece)
+                <select value={orderForm.recipeId} disabled={recipes.length === 0}
+                  onChange={e => selectOrderRecipe(e.target.value)}>
+                  <option value="">{recipes.length === 0 ? "— No recipes yet (add in Inventory → Recipes) —" : "— None —"}</option>
+                  {recipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
               </label>
               <label>
                 Fabric Type

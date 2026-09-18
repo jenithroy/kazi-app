@@ -920,7 +920,8 @@ export const SCHEMA_MAP = {
       "assigned_to": "assigned_to",
       "embellishments": "embellishments",
       "sampleId": "sample_id",
-      "region": "region"
+      "region": "region",
+      "recipeId": "recipe_id"
     },
     "derived": [
       "assignedTo",
@@ -948,6 +949,7 @@ export const SCHEMA_MAP = {
       "order_no",
       "price_per_pc_npr",
       "quantity",
+      "recipe_id",
       "region",
       "sample_id",
       "sample_name",
@@ -1371,6 +1373,31 @@ export const SCHEMA_MAP = {
       "updated_by",
       "valid_until",
       "vat_amount_npr"
+    ]
+  },
+  "recipes": {
+    "view": "fs_product_recipes",
+    "table": "product_recipes",
+    "fields": {
+      "id": "id",
+      "name": "name",
+      "wastagePct": "wastage_pct",
+      "lines": "lines",
+      "notes": "notes",
+      "createdBy": "created_by",
+      "createdAt": "created_at",
+      "updatedAt": "updated_at"
+    },
+    "derived": [],
+    "columns": [
+      "created_at",
+      "created_by",
+      "id",
+      "lines",
+      "name",
+      "notes",
+      "updated_at",
+      "wastage_pct"
     ]
   },
   "samples": {

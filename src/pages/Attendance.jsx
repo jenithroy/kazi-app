@@ -118,6 +118,20 @@ function MonthCalendar({ currentMonthDate, setCurrentMonthDate, selectedDate, se
 }
 
 /* ─── Employee Monthly Report ──────────────────────── */
+// Whole minutes between clock-in and clock-out; null until both exist. Read from
+// the clock_ins row rather than attendance.hours, which holds an 8h placeholder
+// for anyone who hasn't clocked out (and for Absent/Leave rows saved by admin).
+function workedMinutes(clk) {
+  const inAt = tsDate(clk?.clockedInAt);
+  const outAt = tsDate(clk?.clockedOutAt);
+  if (!inAt || !outAt) return null;
+  return Math.max(0, Math.round((outAt - inAt) / 60000));
+}
+
+function fmtMinutes(min) {
+  return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
+}
+
 function SummaryStat({ label, value, color }) {
   return (
     <div style={{ minWidth: 84 }}>
@@ -160,17 +174,28 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
     days.push(toLocalISOString(new Date(year, month, i)));
   }
 
-  const summary = days.reduce((acc, d) => {
+  // A past day with a clock-in but no clock-out counts as Absent. Today is
+  // exempt — they may simply still be at work.
+  const today = todayDate();
+  const attFor = d => {
     const att = attByDate[d];
+    const clk = clockByDate[d];
+    const missedClockOut = d < today && tsDate(clk?.clockedInAt) && !tsDate(clk?.clockedOutAt);
+    if (!missedClockOut) return att;
+    return { ...att, status: "Absent", lateCutApplied: false, note: att?.note || "No clock-out" };
+  };
+
+  const summary = days.reduce((acc, d) => {
+    const att = attFor(d);
     if (att) {
       if (att.status === "Present" || att.status === "Half-day") acc.present++;
       else if (att.status === "Late") { acc.late++; if (att.lateCutApplied) acc.cuts++; }
       else if (att.status === "Absent") acc.absent++;
       else if (att.status === "Leave") acc.leave++;
-      acc.hours += Number(att.hours || 0);
     }
+    acc.minutes += workedMinutes(clockByDate[d]) ?? 0;
     return acc;
-  }, { present: 0, late: 0, absent: 0, leave: 0, cuts: 0, hours: 0 });
+  }, { present: 0, late: 0, absent: 0, leave: 0, cuts: 0, minutes: 0 });
 
   return (
     <div className="kazi-card" style={{ overflow: "hidden" }}>
@@ -210,7 +235,7 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
             <SummaryStat label="Salary cuts"  value={summary.cuts}    color="var(--terra)" />
             <SummaryStat label="Absent"       value={summary.absent}  color="var(--terra)" />
             <SummaryStat label="Leave"        value={summary.leave}   color="var(--blue-2)" />
-            <SummaryStat label="Total hours"  value={`${summary.hours}h`} />
+            <SummaryStat label="Total hours"  value={fmtMinutes(summary.minutes)} />
           </div>
 
           {loadingClocks ? (
@@ -225,10 +250,11 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
                 </thead>
                 <tbody>
                   {days.map(d => {
-                    const att = attByDate[d];
+                    const att = attFor(d);
                     const clk = clockByDate[d];
                     const inT  = tsTime(clk?.clockedInAt,  null);
                     const outT = tsTime(clk?.clockedOutAt, null);
+                    const mins = workedMinutes(clk);
                     const dateLabel = parseLocalDate(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
                     return (
                       <tr key={d}>
@@ -245,7 +271,7 @@ function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, set
                         </td>
                         <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{inT  || "—"}</td>
                         <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{outT || "—"}</td>
-                        <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>{att?.hours != null ? `${att.hours}h` : "—"}</td>
+                        <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>{mins != null ? fmtMinutes(mins) : "—"}</td>
                         <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{att?.note || ""}</td>
                       </tr>
                     );

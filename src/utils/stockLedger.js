@@ -1,7 +1,9 @@
 // Transaction-level stock ledger — dated in/out movements per inventory item,
 // replacing the old silent stepper (openingStock/stockIn/stockUsed with no dates
 // or history). Balance is always derived by replaying movements, never stored.
-import { insertRow } from "../lib/db";
+import { insertRow, supabase } from "../lib/db";
+import { logWrite } from "../lib/activity";
+import { todayDate } from "./date";
 
 export const STOCK_MOVEMENTS_COLLECTION = "stock_movements";
 
@@ -37,7 +39,7 @@ export async function logStockMovement({ itemId, date, qty, direction, source, s
     date: date || new Date().toISOString().slice(0, 10),
     qty: Number(qty) || 0,
     direction, // "in" | "out"
-    source: source || "manual", // "manual" | "purchase" | "opening"
+    source: source || "manual", // "manual" | "purchase" | "opening" | "sale" | "production"
     sourceId: sourceId || null,
     note: note || "",
     // The actual purchase/sale value for this movement's qty — lets the Stock
@@ -101,4 +103,49 @@ export async function postSaleStockOut({ invoice, items, createdBy }) {
     posted.push(it.stockItemId);
   }
   return posted;
+}
+
+// Posts the materials a production order used, filed under the order reference
+// (ORD-051) the way purchases and sales are filed under their document number.
+// Unlike those two, the caller has already resolved which inventory item each
+// line hits and its quantity in that item's own unit (the person confirming can
+// swap a colour or correct an amount first), so nothing is name-matched here.
+// The rows go in as ONE insert so a failure part-way cannot leave an order half
+// deducted — a retry would otherwise deduct the rows that did land a second time.
+export async function postProductionStockOut({ orderRef, pieces, lines, date, createdBy }) {
+  const rows = (lines || [])
+    .filter(l => l.itemId && Number(l.qty) > 0)
+    .map(l => ({
+      item_id: l.itemId,
+      // Local date, not UTC: before 05:45 in Kathmandu the UTC date is still yesterday.
+      moved_on: date || todayDate(),
+      qty: Number(l.qty),
+      direction: "out",
+      source: "production",
+      source_id: orderRef || null,
+      note: [orderRef, `${pieces} pcs`, l.label].filter(Boolean).join(" · "),
+      amount_npr: Number(l.qty) * (Number(l.unitCostNPR) || 0),
+      created_by: createdBy || "Unknown",
+    }));
+  if (!rows.length) return [];
+
+  const { data, error } = await supabase.from("stock_movements").insert(rows).select("id");
+  if (error) throw error;
+  (data || []).forEach(r => logWrite(STOCK_MOVEMENTS_COLLECTION, "create", r.id));
+  return data || [];
+}
+
+// Takes back every production deduction for an order, for when the wrong item or
+// amount was confirmed. Deleting (not offsetting) keeps the ledger free of
+// pairs that cancel each other out; the balance is replayed from what remains.
+export async function undoProductionStockOut(orderRef) {
+  if (!orderRef) return 0;
+  const { error, count } = await supabase
+    .from("stock_movements")
+    .delete({ count: "exact" })
+    .eq("source", "production")
+    .eq("source_id", orderRef);
+  if (error) throw error;
+  logWrite(STOCK_MOVEMENTS_COLLECTION, "delete", orderRef);
+  return count || 0;
 }

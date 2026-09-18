@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef, Fragment } from "react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import PageHeader from "../components/PageHeader";
+import RecipesTab from "../components/RecipesTab";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
@@ -298,7 +299,7 @@ function TextCell({ value, onChange, disabled, width = "110px", style = {}, list
 /* ── Per-order size-run reconciliation panel (Stock tab) ── */
 /* ── Dated stock ledger — replaces the old silent stepper ── */
 function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, disabled, colSpan }) {
-  const SOURCE_LABEL = { purchase: "Purchase", sale: "Sale", manual: "Manual", opening: "Opening" };
+  const SOURCE_LABEL = { purchase: "Purchase", sale: "Sale", manual: "Manual", opening: "Opening", production: "Production" };
   return (
     <tr className="kinv-row">
       <td colSpan={colSpan} style={{ padding: "16px 20px", background: "var(--bg-2)", borderBottom: "1px solid var(--line)" }}>
@@ -2520,6 +2521,7 @@ function Inventory() {
     allowedTabs.push({ key: "stock", label: "Stock Levels" });
     allowedTabs.push({ key: "details", label: "Item Details" });
     allowedTabs.push({ key: "ledger", label: "Stock Ledger" });
+    allowedTabs.push({ key: "recipes", label: "Recipes" });
   }
   if (showLibrary) {
     allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
@@ -3613,6 +3615,11 @@ function Inventory() {
               onToChange={setLedgerTo}
             />
           </div>
+        )}
+
+        {/* ── Recipes: what one piece of each product uses (drives production stock deduction) ── */}
+        {activeTab === "recipes" && showInventory && (
+          <RecipesTab items={allRows} canEdit={sectionCanEdit(profile, "inventory")} />
         )}
 
         {/* ── Item Details ── */}
