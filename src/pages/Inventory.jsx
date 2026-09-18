@@ -2505,6 +2505,10 @@ function Inventory() {
   const canEditInventory = hasPageAccess;
   const canEditLibrary = hasPageAccess;
   const canEditUnitEconomics = hasPageAccess;
+  // Recipes are written to a table the database gates on the inventory section
+  // alone, so this is stricter than the page-wide access above.
+  const canEditRecipes = sectionCanEdit(profile, "inventory");
+  const [newRecipeRequest, setNewRecipeRequest] = useState(0); // bumped by the header button
 
   const showPage = sectionVisible(profile, "inventory") || sectionVisible(profile, "library");
   const showInventory = showPage;
@@ -3190,6 +3194,14 @@ function Inventory() {
         </button>
       );
     }
+    if (activeTab === "recipes") {
+      if (!canEditRecipes) return null;
+      return (
+        <button className="primary-button" onClick={() => setNewRecipeRequest(n => n + 1)}>
+          + New Recipe
+        </button>
+      );
+    }
     if (activeTab === "fabrics") {
       if (!canEditLibrary) return null;
       return (
@@ -3619,7 +3631,7 @@ function Inventory() {
 
         {/* ── Recipes: what one piece of each product uses (drives production stock deduction) ── */}
         {activeTab === "recipes" && showInventory && (
-          <RecipesTab items={allRows} canEdit={sectionCanEdit(profile, "inventory")} />
+          <RecipesTab items={allRows} canEdit={canEditRecipes} newRecipeRequest={newRecipeRequest} />
         )}
 
         {/* ── Item Details ── */}

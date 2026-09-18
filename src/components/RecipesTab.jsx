@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import StockItemSelect from "./StockItemSelect";
@@ -193,11 +193,21 @@ function RecipeEditor({ recipe, items, onClose, onSaved }) {
  * The Recipes tab: for each product, what one piece uses. Production reads these
  * to pre-fill the materials-used confirmation when an order comes out of QC.
  */
-export default function RecipesTab({ items, canEdit }) {
+export default function RecipesTab({ items, canEdit, newRecipeRequest = 0 }) {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [editing, setEditing] = useState(null); // recipe object, or {} for new
+
+  // "+ New Recipe" lives in the page header like every other tab's action, so it
+  // asks for the editor by bumping a counter. Only a change from the value seen
+  // at mount opens it, so re-opening the tab never pops the editor by itself.
+  const lastRequest = useRef(newRecipeRequest);
+  useEffect(() => {
+    if (newRecipeRequest === lastRequest.current) return;
+    lastRequest.current = newRecipeRequest;
+    if (canEdit) setEditing({});
+  }, [newRecipeRequest]);
 
   async function load() {
     setLoading(true);
@@ -215,15 +225,11 @@ export default function RecipesTab({ items, canEdit }) {
 
   return (
     <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-        <p style={{ ...hint, maxWidth: 620 }}>
-          A recipe says how much of each material one piece of a product uses. When an order comes out of Quality Check,
-          Production asks which materials it used, pre-filled from its recipe, and takes them out of stock.
-        </p>
-        {canEdit && (
-          <button className="primary-button" onClick={() => setEditing({})}>+ New recipe</button>
-        )}
-      </div>
+      <p style={{ ...hint, maxWidth: 620 }}>
+        A recipe says how much of each material one piece of a product uses. Pick it when you create an order; when that
+        order comes out of Quality Check, Production asks which materials it used, pre-filled from the recipe, and takes
+        them out of stock.
+      </p>
 
       {loading && <p style={hint}>Loading recipes…</p>}
       {!loading && loadError && (
