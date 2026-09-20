@@ -9,7 +9,9 @@ import { asCurrency } from "../utils/format";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch } from "../components/RegionSwitch";
-import { countUntagged, filterByRegion } from "../utils/region";
+import { countUntagged, filterByRegion, inRegion } from "../utils/region";
+import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { filterByFiscalYear, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, isFiscalYearLabel, isoDay, payrollPeriodDate, fmtDateBS } from "../utils/fiscalYear";
 
 const DEFAULT_ACCOUNTS = [
   { name: "Cash", type: "Asset" },
@@ -53,6 +55,9 @@ function Accounting() {
   const [activeTab, setActiveTab] = useState("journal");
 
   const { region } = useRegion();
+  const [fy] = useFiscalYearFilter();
+  const fyActive = isFiscalYearLabel(fy);
+  const fyRange = useMemo(() => (fyActive ? fiscalYearDateRangeAD(fy) : null), [fy, fyActive]);
 
   const [allEntries, setEntries] = useState([]);
   const [allAccounts, setAccounts] = useState([]);
@@ -69,13 +74,35 @@ function Accounting() {
      The ledger, the P&L and the balance sheet are all built out of these five
      lists, so narrowing them here is what makes "UK profit" and "Nepal profit"
      two different numbers rather than one blended one. Payroll follows the
-     employee's own location rather than a tag of its own — see migration 0029. */
-  const entries   = useMemo(() => filterByRegion(allEntries,   region), [allEntries,   region]);
+     employee's own location rather than a tag of its own — see migration 0029.
+
+     The fiscal year narrows the same lists a second time, after the region: the
+     journal, ledger and P&L see only what is dated inside the chosen year. The
+     balance sheet is a position rather than a period, so it takes the journal
+     region-only (`regionEntries`) and cuts it off at the year's end itself. The
+     chart of accounts has no date and is not a year's activity, so it is never
+     narrowed by year. */
+  const regionEntries = useMemo(() => filterByRegion(allEntries, region), [allEntries, region]);
   const accounts  = useMemo(() => filterByRegion(allAccounts,  region), [allAccounts,  region]);
-  const expenses  = useMemo(() => filterByRegion(allExpenses,  region), [allExpenses,  region]);
-  const purchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
-  const payroll   = useMemo(() => filterByRegion(allPayroll,   region), [allPayroll,   region]);
-  const invoices  = useMemo(() => filterByRegion(allInvoices,  region), [allInvoices,  region]);
+  const entries   = useMemo(() => filterByFiscalYear(regionEntries, fy), [regionEntries, fy]);
+  const expenses  = useMemo(() => filterByFiscalYear(filterByRegion(allExpenses,  region), fy), [allExpenses,  region, fy]);
+  const purchases = useMemo(() => filterByFiscalYear(filterByRegion(allPurchases, region), fy), [allPurchases, region, fy]);
+  const payroll   = useMemo(() => filterByFiscalYear(filterByRegion(allPayroll,   region), fy, payrollPeriodDate), [allPayroll, region, fy]);
+  const invoices  = useMemo(() => filterByFiscalYear(filterByRegion(allInvoices,  region), fy), [allInvoices,  region, fy]);
+
+  // The years the books actually cover: journal entries for the journal and
+  // ledger, and everything the P&L and balance sheet are built from for those.
+  const yearsHere = useMemo(() => {
+    const jnl = fiscalYearsIn(regionEntries);
+    if (activeTab === "journal" || activeTab === "ledger") return jnl;
+    return mergeFiscalYears(
+      jnl,
+      fiscalYearsIn(allExpenses.filter(r => inRegion(r, region))),
+      fiscalYearsIn(allPurchases.filter(r => inRegion(r, region))),
+      fiscalYearsIn(allInvoices.filter(r => inRegion(r, region))),
+      fiscalYearsIn(allPayroll.filter(r => inRegion(r, region)), payrollPeriodDate),
+    );
+  }, [activeTab, regionEntries, allExpenses, allPurchases, allInvoices, allPayroll, region]);
 
   async function loadData() {
     const [entryRowsAll, accountRows, expRows, purRows, payRows, invRows] = await Promise.all([
@@ -131,9 +158,9 @@ function Accounting() {
   }
 
   // Build ledger map
-  const ledger = useMemo(() => {
+  function buildLedger(rows) {
     const map = {};
-    for (const entry of entries) {
+    for (const entry of rows) {
       [entry.debitAccount, entry.creditAccount].forEach(acc => {
         if (!map[acc]) map[acc] = { debits: 0, credits: 0, entryCount: 0 };
       });
@@ -143,7 +170,16 @@ function Accounting() {
       map[entry.creditAccount].entryCount++;
     }
     return map;
-  }, [entries]);
+  }
+  const ledger = useMemo(() => buildLedger(entries), [entries]);
+
+  // Balance sheet books: with a fiscal year picked, everything posted up to that
+  // year's last day (earlier years included, later ones not); otherwise all of it.
+  const asOfEntries = useMemo(() => {
+    if (!fyRange) return regionEntries;
+    return regionEntries.filter(e => { const day = isoDay(e.date); return !!day && day <= fyRange.endAD; });
+  }, [regionEntries, fyRange]);
+  const asOfLedger = useMemo(() => buildLedger(asOfEntries), [asOfEntries]);
 
   // P&L
   const pl = useMemo(() => {
@@ -170,7 +206,7 @@ function Accounting() {
   // Balance sheet
   const bs = useMemo(() => {
     const balance = (name, type) => {
-      const data = ledger[name] || { debits: 0, credits: 0 };
+      const data = asOfLedger[name] || { debits: 0, credits: 0 };
       return type === "Asset" ? data.debits - data.credits : data.credits - data.debits;
     };
     const assets = accounts.filter(a => a.type === "Asset").map(a => ({ ...a, balance: balance(a.name, "Asset") }));
@@ -182,7 +218,7 @@ function Accounting() {
       totalLiabilities: liabilities.reduce((s, a) => s + a.balance, 0),
       totalEquity: equity.reduce((s, a) => s + a.balance, 0),
     };
-  }, [accounts, ledger]);
+  }, [accounts, asOfLedger]);
 
   const accountNames = [...new Set(accounts.map(a => a.name))];
 
@@ -193,6 +229,7 @@ function Accounting() {
   ];
 
   return (
+    <>
       <PageHeader
         title="Accounting"
         description="Journal entries, ledger, profit &amp; loss statement and balance sheet."
@@ -224,13 +261,16 @@ function Accounting() {
       </section>
 
       {/* Tabs */}
-      <div className="tab-row">
-        {["journal", "ledger", "p&l", "balance sheet"].map(t => (
-          <button key={t} className={activeTab === t ? "tab-button active" : "tab-button"}
-            onClick={() => setActiveTab(t)}>
-            {t === "p&l" ? "P & L" : t === "balance sheet" ? "Balance Sheet" : t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div className="tab-row" style={{ flex: 1, minWidth: 0 }}>
+          {["journal", "ledger", "p&l", "balance sheet"].map(t => (
+            <button key={t} className={activeTab === t ? "tab-button active" : "tab-button"}
+              onClick={() => setActiveTab(t)}>
+              {t === "p&l" ? "P & L" : t === "balance sheet" ? "Balance Sheet" : t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+        <FiscalYearSelect years={yearsHere} style={{ flexShrink: 0 }} />
       </div>
 
       {/* ── Journal ── */}
@@ -285,7 +325,11 @@ function Accounting() {
           <section className="panel">
             <h3>Journal <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>({entries.length} entries)</span></h3>
             {entries.length === 0 ? (
-              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No journal entries yet.</p>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
+                {fyActive && regionEntries.length > 0
+                  ? `No journal entries in FY ${fy} — ${regionEntries.length} in other years. Pick another year or "All years" to see them.`
+                  : "No journal entries yet."}
+              </p>
             ) : (
               <div className="table-wrap">
                 <table>
@@ -327,7 +371,11 @@ function Accounting() {
         <section className="panel">
           <h3>Account Ledger</h3>
           {Object.keys(ledger).length === 0 ? (
-            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No entries yet. Post journal entries to see the ledger.</p>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
+              {fyActive && regionEntries.length > 0
+                ? `No entries in FY ${fy} — ${regionEntries.length} in other years. Pick another year or "All years" to see them.`
+                : "No entries yet. Post journal entries to see the ledger."}
+            </p>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, marginTop: 8 }}>
               {Object.entries(ledger).sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
@@ -344,7 +392,7 @@ function Accounting() {
                         <span style={{ fontSize: "0.75rem", fontWeight: 600, color: typeColor[accType] || "var(--text-muted)" }}>{accType.toUpperCase()}</span>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Balance</p>
+                        <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fyActive ? "Net in year" : "Balance"}</p>
                         <p style={{ fontWeight: 700, fontSize: "0.95rem", color: balance >= 0 ? "var(--ok)" : "var(--danger)" }}>
                           NPR {Math.abs(balance).toLocaleString()}
                         </p>
@@ -368,6 +416,7 @@ function Accounting() {
         <div className="kacc-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 14 }}>
           <section className="panel">
             <h3>Profit & Loss Statement</h3>
+            {fyActive && <p style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>FY {fy} · {fmtDateBS(fyRange.startAD)} to {fmtDateBS(fyRange.endAD)}</p>}
             <div style={{ marginTop: 14, fontSize: "0.9rem" }}>
               {/* Income */}
               <div style={{ padding: "0 0 12px", borderBottom: "1.5px solid var(--line)", marginBottom: 12 }}>
@@ -452,6 +501,7 @@ function Accounting() {
           {/* Assets */}
           <section className="panel">
             <h3 style={{ color: "var(--ok)" }}>Assets</h3>
+            {fyActive && <p style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>As of {fmtDateBS(fyRange.endAD)} (end of FY {fy}) · cumulative</p>}
             <div style={{ marginTop: 10 }}>
               {bs.assets.map(a => (
                 <div key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: "0.9rem" }}>
@@ -508,6 +558,7 @@ function Accounting() {
           </div>
         </div>
       )}
+    </>
   );
 }
 

@@ -2,6 +2,7 @@
 // conversion tables in "nepali-date-converter", not an approximation.
 // A Nepali fiscal year runs Shrawan 1 -> next Ashar-end.
 import NepaliDate, { dateConfigMap } from "nepali-date-converter";
+import { tsDate } from "./date";
 
 export const BS_MONTHS = [
   "Baisakh", "Jestha", "Asar", "Shrawan", "Bhadra", "Aswin",
@@ -127,4 +128,100 @@ export function fmtDateBSNumeric(adIso) {
   const parts = adToBsParts(adIso);
   if (!parts) return null;
   return `${parts.year}-${String(parts.month + 1).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+/* ── Filtering records by fiscal year ─────────────────────────────────────
+   Every finance page offers the same "which fiscal year?" choice, so the
+   comparison lives here once. A record belongs to the year its own date falls
+   in — decided on the Bikram Sambat calendar, never the Gregorian month. */
+
+/** The filter value that means "no fiscal-year restriction". */
+export const ALL_FISCAL_YEARS = "all";
+
+export const EN_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/** Is this a fiscal-year label ("2082/83") rather than "all" or junk? */
+export function isFiscalYearLabel(value) {
+  return typeof value === "string" && /^\d{4}\/\d{2}$/.test(value);
+}
+
+/**
+ * The calendar day of a stored date as "YYYY-MM-DD".
+ *
+ * Plain dates and "2026-09-15 14:32" style bank timestamps are cut down as they
+ * are. A real timestamp (created_at, uploaded_at — UTC on the wire) is read in
+ * the browser's own timezone instead, so something filed at 11pm in Kathmandu
+ * does not slip into the previous day's fiscal year at a year boundary.
+ */
+export function isoDay(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    if (/^\d{4}-\d{2}-\d{2} /.test(value)) return value.slice(0, 10);
+  }
+  const d = tsDate(value);
+  if (!d) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** The first of the month a payroll row is for, as an AD date — payroll stores a month name and a year, not a date. */
+export function payrollPeriodDate(row) {
+  const idx = EN_MONTHS.indexOf(row?.month);
+  return row?.year && idx >= 0 ? `${row.year}-${String(idx + 1).padStart(2, "0")}-01` : null;
+}
+
+/**
+ * A predicate over stored dates for one fiscal year.
+ *
+ * "all" (or nothing) accepts everything, undated rows included. A specific year
+ * accepts only rows whose date lies inside it: a row with no usable date belongs
+ * to no year, and is left out rather than filed under whichever is current.
+ * The year's boundaries are worked out once, not per row.
+ */
+export function fiscalYearMatcher(label) {
+  if (!isFiscalYearLabel(label)) return () => true;
+  const { startAD, endAD } = fiscalYearDateRangeAD(label);
+  if (!startAD || !endAD) return () => true;
+  return (value) => {
+    const day = isoDay(value);
+    return !!day && day >= startAD && day <= endAD;
+  };
+}
+
+/** Keep the rows whose date (read by `dateOf`) falls in the given fiscal year. */
+export function filterByFiscalYear(rows, label, dateOf = (r) => r.date) {
+  if (!Array.isArray(rows)) return [];
+  if (!isFiscalYearLabel(label)) return rows;
+  const match = fiscalYearMatcher(label);
+  return rows.filter((r) => match(dateOf(r)));
+}
+
+/** Sort fiscal-year labels newest first. */
+export function sortFiscalYearsDesc(labels) {
+  return [...labels].sort((a, b) => parseFiscalYearLabel(b).startYear - parseFiscalYearLabel(a).startYear);
+}
+
+/**
+ * The fiscal years these rows actually fall in, newest first — what a year
+ * picker should offer, rather than a fixed window of years most of which are empty.
+ * Dates are deduplicated before converting, since a year holds far fewer distinct
+ * days than rows and each conversion goes through the Bikram Sambat tables.
+ */
+export function fiscalYearsIn(rows, dateOf = (r) => r.date) {
+  const days = new Set();
+  for (const r of rows || []) {
+    const day = isoDay(dateOf(r));
+    if (day) days.add(day);
+  }
+  const years = new Set();
+  for (const day of days) {
+    const fy = fiscalYearForDate(day);
+    if (fy) years.add(fy);
+  }
+  return sortFiscalYearsDesc(years);
+}
+
+/** Merge several lists of fiscal-year labels into one, newest first, no repeats. */
+export function mergeFiscalYears(...lists) {
+  return sortFiscalYearsDesc(new Set(lists.flat().filter(isFiscalYearLabel)));
 }

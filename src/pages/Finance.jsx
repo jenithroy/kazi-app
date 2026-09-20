@@ -22,6 +22,8 @@ import { tsMillis, tsDate } from "../utils/date";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
+import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { filterByFiscalYear, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, isFiscalYearLabel, isoDay, payrollPeriodDate } from "../utils/fiscalYear";
 
 /* ── Seed data ─────────────────────────────────────── */
 // NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
@@ -141,6 +143,22 @@ const TAB_SHORTCUTS = {
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+// Dr/Cr totals per account over a list of journal entries. The Ledger tab's
+// "Other Accounts" cards and the Balance Sheet both read this, over different lists.
+function journalTotals(list) {
+  const map = {};
+  for (const entry of list) {
+    [entry.debitAccount, entry.creditAccount].forEach(acc => {
+      if (!map[acc]) map[acc] = { debits: 0, credits: 0, entryCount: 0 };
+    });
+    map[entry.debitAccount].debits  += Number(entry.amountNPR || 0);
+    map[entry.debitAccount].entryCount++;
+    map[entry.creditAccount].credits += Number(entry.amountNPR || 0);
+    map[entry.creditAccount].entryCount++;
+  }
+  return map;
+}
+
 function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -252,17 +270,82 @@ function Finance() {
      The `all*` originals stay in scope where a number must span the company:
      `allPurchaseIdsRef` already held every expense id for exactly this reason,
      and the untagged counts in the header report on the whole list. */
-  const payroll        = useMemo(() => filterByRegion(allPayroll,        region), [allPayroll,        region]);
-  const employees      = useMemo(() => filterByRegion(allEmployees,      region), [allEmployees,      region]);
-  const expenses       = useMemo(() => filterByRegion(allExpenses,       region), [allExpenses,       region]);
-  const purchases      = useMemo(() => filterByRegion(allPurchases,      region), [allPurchases,      region]);
-  const inventoryItems = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
-  const vatBills       = useMemo(() => filterByRegion(allVatBills,       region), [allVatBills,       region]);
-  const entries        = useMemo(() => filterByRegion(allEntries,        region), [allEntries,        region]);
-  const accounts       = useMemo(() => filterByRegion(allAccounts,       region), [allAccounts,       region]);
-  const invoices       = useMemo(() => filterByRegion(allInvoices,       region), [allInvoices,       region]);
-  const bankTxns       = useMemo(() => filterByRegion(allBankTxns,       region), [allBankTxns,       region]);
-  const orders         = useMemo(() => filterByRegion(allOrders,         region), [allOrders,         region]);
+  const regionPayroll   = useMemo(() => filterByRegion(allPayroll,   region), [allPayroll,   region]);
+  const employees       = useMemo(() => filterByRegion(allEmployees, region), [allEmployees, region]);
+  const regionExpenses  = useMemo(() => filterByRegion(allExpenses,  region), [allExpenses,  region]);
+  const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
+  const inventoryItems  = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
+  const regionVatBills  = useMemo(() => filterByRegion(allVatBills,  region), [allVatBills,  region]);
+  const regionEntries   = useMemo(() => filterByRegion(allEntries,   region), [allEntries,   region]);
+  const accounts        = useMemo(() => filterByRegion(allAccounts,  region), [allAccounts,  region]);
+  const regionInvoices  = useMemo(() => filterByRegion(allInvoices,  region), [allInvoices,  region]);
+  const regionBankTxns  = useMemo(() => filterByRegion(allBankTxns,  region), [allBankTxns,  region]);
+  const regionOrders    = useMemo(() => filterByRegion(allOrders,    region), [allOrders,    region]);
+
+  /* ── One fiscal year's books ───────────────────────────────
+     The same idea one step further: the region says whose books, the fiscal year
+     says which year of them. It is applied right after the region, so every tab,
+     KPI, chart and total below reads the narrowed lists and needs no knowledge
+     of the picker. "all" (the default) changes nothing.
+
+     The `region*` lists above are the unfiltered-by-year originals. They stay in
+     scope where a number must reach across years: the Ledger's brought-forward
+     balances, the Balance Sheet's position as of the year end, the bank-name
+     list, the VAT upload dropdown, and the "N in other years" empty states.
+
+     A record belongs to the year its own date falls in (Bikram Sambat calendar).
+     A row with no usable date belongs to no year, so a specific year leaves it
+     out; "all" still shows it. */
+  const [fy] = useFiscalYearFilter();
+  const fyRange  = useMemo(() => {
+    if (!isFiscalYearLabel(fy)) return null;
+    const r = fiscalYearDateRangeAD(fy);
+    return r?.startAD && r?.endAD ? r : null;
+  }, [fy]);
+  const fyActive = !!fyRange;
+
+  const payroll   = useMemo(() => filterByFiscalYear(regionPayroll,   fy, payrollPeriodDate), [regionPayroll,   fy]);
+  const expenses  = useMemo(() => filterByFiscalYear(regionExpenses,  fy, r => r.date),       [regionExpenses,  fy]);
+  const purchases = useMemo(() => filterByFiscalYear(regionPurchases, fy, r => r.date),       [regionPurchases, fy]);
+  const entries   = useMemo(() => filterByFiscalYear(regionEntries,   fy, r => r.date),       [regionEntries,   fy]);
+  const invoices  = useMemo(() => filterByFiscalYear(regionInvoices,  fy, r => r.date),       [regionInvoices,  fy]);
+  const bankTxns  = useMemo(() => filterByFiscalYear(regionBankTxns,  fy, r => r.date),       [regionBankTxns,  fy]);
+  // An order's own date when it has one, else when it was created.
+  const orders    = useMemo(() => filterByFiscalYear(regionOrders,    fy, o => o.date || o.createdAt), [regionOrders, fy]);
+  // A bill has no date of its own worth filing by — it is uploaded whenever someone
+  // gets round to it — so it goes in the year of what it is a bill FOR. Purchase
+  // bills carry the purchase's EXPxxx id, expense bills the expense's row id; if
+  // neither can be found (or has no date), fall back to when it was uploaded.
+  const vatBills  = useMemo(() => {
+    if (!fyActive) return regionVatBills;
+    const dateOf = new Map();
+    allExpenses.forEach(e => { if (e.id != null && e.date) dateOf.set(String(e.id), e.date); });
+    allPurchases.forEach(p => { if (p.expenseId && p.date) dateOf.set(String(p.expenseId), p.date); });
+    return filterByFiscalYear(regionVatBills, fy, b => dateOf.get(String(b.expenseId)) || b.uploadedAt);
+  }, [regionVatBills, allExpenses, allPurchases, fy, fyActive]);
+
+  // The years the current tab's records actually fall in. Tabs built from several
+  // lists (ledger, P&L, balance sheet) offer every year any of them touches.
+  const yearsHere = useMemo(() => {
+    const exp = fiscalYearsIn(regionExpenses), pur = fiscalYearsIn(regionPurchases),
+          jnl = fiscalYearsIn(regionEntries),  bnk = fiscalYearsIn(regionBankTxns),
+          inv = fiscalYearsIn(regionInvoices), pay = fiscalYearsIn(regionPayroll, payrollPeriodDate);
+    switch (activeTab) {
+      case "expenses":   return exp;
+      case "purchases":  return pur;
+      case "vat bills":  return mergeFiscalYears(exp, pur);
+      case "journal":    return jnl;
+      case "bank":       return bnk;
+      case "order p&l":  return fiscalYearsIn(regionOrders, o => o.date || o.createdAt);
+      case "ledger":     return mergeFiscalYears(pur, inv, bnk, jnl);
+      default:           return mergeFiscalYears(exp, pur, jnl, bnk, inv, pay);
+    }
+  }, [activeTab, regionExpenses, regionPurchases, regionEntries, regionBankTxns, regionInvoices, regionPayroll, regionOrders]);
+
+  // "No expenses in FY 2082/83 (12 in other years)." when the year is why a list is
+  // empty; `fallback` (the message the tab always had) when there is simply no data.
+  const fyEmpty = (noun, regionCount, fallback) =>
+    fyActive && regionCount > 0 ? `No ${noun} in FY ${fy} (${regionCount} in other years).` : fallback;
 
   /* ── Load data ── */
   async function loadData() {
@@ -574,7 +657,8 @@ function Finance() {
         task.on("state_changed", snap => setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)), reject, resolve);
       });
       const url = await getDownloadURL(fileRef);
-      const purchase = purchases.find(p => p.expenseId === vatExpenseId);
+      // Across every year, not the one on screen — the dropdown offers them all.
+      const purchase = regionPurchases.find(p => p.expenseId === vatExpenseId);
       await insertRow("vat_bills", {
         expenseId: vatExpenseId, expenseItem: purchase?.expenseItem || "",
         fileName: vatFile.name, fileUrl: url, storagePath: path, fileType: vatFile.type,
@@ -764,9 +848,11 @@ function Finance() {
     const now = new Date();
     const curMonth = MONTHS[now.getMonth()];
     const curYear  = now.getFullYear();
-    // KPI strip: payroll filtered to current month (MTD) — intentionally narrower than P&L which uses the full current year
+    // KPI strip: payroll filtered to current month (MTD) — intentionally narrower than P&L which uses the full current year.
+    // With a fiscal year picked, `payroll` is already that year's rows and the strip shows the whole year instead —
+    // "this month" would read 0 for any year that is not the current one.
     const payrollNPR  = payroll
-      .filter(r => r.month === curMonth && Number(r.year) === curYear)
+      .filter(r => fyActive || (r.month === curMonth && Number(r.year) === curYear))
       .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
     const expensesNPR = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchNPR    = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
@@ -776,42 +862,46 @@ function Finance() {
       expensesGBP: expensesNPR / GBP_RATE,
       purchGBP:    purchNPR    / GBP_RATE,
       totalGBP:    totalNPR    / GBP_RATE };
-  }, [payroll, expenses, purchases]);
+  }, [payroll, expenses, purchases, fyActive]);
 
-  const ledger = useMemo(() => {
-    const map = {};
-    for (const entry of entries) {
-      [entry.debitAccount, entry.creditAccount].forEach(acc => {
-        if (!map[acc]) map[acc] = { debits: 0, credits: 0, entryCount: 0 };
-      });
-      map[entry.debitAccount].debits  += Number(entry.amountNPR || 0);
-      map[entry.debitAccount].entryCount++;
-      map[entry.creditAccount].credits += Number(entry.amountNPR || 0);
-      map[entry.creditAccount].entryCount++;
-    }
-    return map;
-  }, [entries]);
+  // The "Other Accounts" cards: journal activity in the selected year (all of it with "all").
+  const ledger = useMemo(() => journalTotals(entries), [entries]);
+
+  // The Balance Sheet is a position, not a period: with a year picked it is every
+  // entry dated up to that year's END, so earlier years' entries are still in it.
+  // With "all" it is the same list the cards use, exactly as before.
+  const ledgerAsOf = useMemo(() => {
+    if (!fyRange) return ledger;
+    return journalTotals(regionEntries.filter(e => { const d = isoDay(e.date); return !!d && d <= fyRange.endAD; }));
+  }, [ledger, regionEntries, fyRange]);
 
   // Nabil/Sanima plus any bank name typed into the "Other" field on a purchase,
   // invoice or bank transaction — keeps custom-typed banks from silently
   // dropping off the Ledger tab and cashBankLedger below.
+  // Read from every year so the same banks are listed whichever year is picked.
   const bankAccountNames = useMemo(() => {
     const set = new Set(BANK_NAMES);
-    purchases.forEach(p => { if (p.paymentType === "Bank" && p.bankName) set.add(p.bankName); });
-    invoices.forEach(i => { if (i.paymentType === "Bank" && i.bankName) set.add(i.bankName); });
-    bankTxns.forEach(t => { if (t.accountName) set.add(t.accountName); });
+    regionPurchases.forEach(p => { if (p.paymentType === "Bank" && p.bankName) set.add(p.bankName); });
+    regionInvoices.forEach(i => { if (i.paymentType === "Bank" && i.bankName) set.add(i.bankName); });
+    regionBankTxns.forEach(t => { if (t.accountName) set.add(t.accountName); });
     return [...BANK_NAMES, ...[...set].filter(n => !BANK_NAMES.includes(n)).sort()];
-  }, [purchases, invoices, bankTxns]);
+  }, [regionPurchases, regionInvoices, regionBankTxns]);
 
   // Running Cash/Bank ledger — matches Deepa's notebook format (Particulars/Dr/Cr/Balance).
   // Rows are derived on the fly from Purchases, paid Invoices, Bank txns and Journal
   // entries — nothing is written back, so there's no separate ledger doc to keep in sync.
+  //
+  // Built from every year's rows, then cut to the selected year: what happened
+  // before the year folds into a brought-forward opening balance (the account's
+  // own opening + all earlier movement), the year's rows follow, and later rows
+  // are left out — so the closing balance is the account's balance at that
+  // year's end and carries straight into the next year's opening.
   const cashBankLedger = useMemo(() => {
     const CASH = "Cash";
     const ACCOUNTS = [CASH, ...bankAccountNames];
     const rowsFor = Object.fromEntries(ACCOUNTS.map(name => [name, []]));
 
-    purchases.forEach(p => {
+    regionPurchases.forEach(p => {
       const acct = p.paymentType === "CASH" ? CASH : p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : null;
       if (!acct || !rowsFor[acct]) return; // Credit purchases move to Accounts Payable, not Cash/Bank
       rowsFor[acct].push({
@@ -821,7 +911,7 @@ function Finance() {
       });
     });
 
-    invoices.filter(i => i.status === "Paid").forEach(i => {
+    regionInvoices.filter(i => i.status === "Paid").forEach(i => {
       const val = Number(i.totalNPR || 0);
       const amt = i.currency === "GBP" ? val * GBP_RATE : val;
       // defaults to Cash for older invoices with no paymentType set
@@ -833,7 +923,7 @@ function Finance() {
       });
     });
 
-    bankTxns.forEach(t => {
+    regionBankTxns.forEach(t => {
       const acct = t.accountName || "Nabil Bank"; // txns logged before multi-bank support default to Nabil
       if (!rowsFor[acct]) return;
       const amt = Number(t.amount ?? t.amountNPR ?? 0);
@@ -845,7 +935,7 @@ function Finance() {
       });
     });
 
-    entries.forEach(e => {
+    regionEntries.forEach(e => {
       const amt = Number(e.amountNPR || 0);
       if (rowsFor[e.debitAccount]) {
         rowsFor[e.debitAccount].push({ date: e.date || "", sortKey: tsMillis(e.createdAt), particulars: e.description || "Journal entry", dr: amt, cr: 0, sourceType: "journal", sourceId: e.id });
@@ -858,17 +948,28 @@ function Finance() {
     const result = {};
     for (const name of ACCOUNTS) {
       const accountId = accounts.find(a => a.name === name)?.id || null;
-      const opening = accounts.find(a => a.name === name)?.openingBalanceNPR || 0;
+      const baseOpening = accounts.find(a => a.name === name)?.openingBalanceNPR || 0;
       const sorted = rowsFor[name].sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
+      let opening = baseOpening;
+      let shown = sorted;
+      if (fyRange) {
+        shown = [];
+        for (const r of sorted) {
+          const day = isoDay(r.date);
+          if (!day) continue;                                        // undated: belongs to no year
+          if (day < fyRange.startAD) opening += r.dr - r.cr;         // earlier years: brought forward
+          else if (day <= fyRange.endAD) shown.push(r);              // this year: listed
+        }
+      }
       let balance = opening;
-      const rows = sorted.map(r => {
+      const rows = shown.map(r => {
         balance += r.dr - r.cr;
         return { ...r, balance };
       });
-      result[name] = { accountId, openingBalanceNPR: opening, rows, closingBalance: balance };
+      result[name] = { accountId, openingBalanceNPR: opening, rows, closingBalance: balance, totalRows: sorted.length };
     }
     return result;
-  }, [purchases, invoices, bankTxns, entries, accounts, bankAccountNames]);
+  }, [regionPurchases, regionInvoices, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
 
   const pl = useMemo(() => {
     // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
@@ -882,17 +983,19 @@ function Finance() {
     const totalIncome   = salesRevenue + otherIncome;
     const expensesTotal = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchasesTotal= purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
+    // "all" keeps the P&L's long-standing payroll rule (the current calendar year only). With a fiscal
+    // year picked, `payroll` is already that year's months (Shrawan..Asar), so all of it counts.
     const curYear = new Date().getFullYear();
     const payrollTotal  = payroll
-      .filter(r => Number(r.year) === curYear)
+      .filter(r => fyActive || Number(r.year) === curYear)
       .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
     const journalExpenses = entries.filter(e => accounts.find(a => a.name === e.debitAccount && a.type === "Expense")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
     const totalExpenses = expensesTotal + purchasesTotal + payrollTotal + journalExpenses;
     return { salesRevenue, otherIncome, totalIncome, expensesTotal, purchasesTotal, payrollTotal, journalExpenses, totalExpenses, netProfit: totalIncome - totalExpenses };
-  }, [entries, accounts, expenses, purchases, payroll, invoices]);
+  }, [entries, accounts, expenses, purchases, payroll, invoices, fyActive]);
 
   const bs = useMemo(() => {
-    const balance = (name, type) => { const d = ledger[name] || { debits: 0, credits: 0 }; return type === "Asset" ? d.debits - d.credits : d.credits - d.debits; };
+    const balance = (name, type) => { const d = ledgerAsOf[name] || { debits: 0, credits: 0 }; return type === "Asset" ? d.debits - d.credits : d.credits - d.debits; };
     const assets      = accounts.filter(a => a.type === "Asset").map(a => ({ ...a, balance: balance(a.name, "Asset") }));
     const liabilities = accounts.filter(a => a.type === "Liability").map(a => ({ ...a, balance: balance(a.name, "Liability") }));
     const equity      = accounts.filter(a => a.type === "Equity").map(a => ({ ...a, balance: balance(a.name, "Equity") }));
@@ -900,15 +1003,15 @@ function Finance() {
       totalAssets:      assets.reduce((s, a) => s + a.balance, 0),
       totalLiabilities: liabilities.reduce((s, a) => s + a.balance, 0),
       totalEquity:      equity.reduce((s, a) => s + a.balance, 0) };
-  }, [accounts, ledger]);
+  }, [accounts, ledgerAsOf]);
 
   const accountNames = [...new Set(accounts.map(a => a.name))];
 
   const donutData = useMemo(() => [
     { name: "Purchases", value: summary.purchNPR,    color: "#1f6e4c" },
     { name: "Expenses",  value: summary.expensesNPR, color: "#c4654a" },
-    { name: "Payroll (MTD)",   value: summary.payrollNPR,  color: "#5688b0" },
-  ].filter(d => d.value > 0), [summary]);
+    { name: fyActive ? "Payroll" : "Payroll (MTD)", value: summary.payrollNPR, color: "#5688b0" },
+  ].filter(d => d.value > 0), [summary, fyActive]);
 
   const categoryBarData = useMemo(() => {
     const map = {};
@@ -928,7 +1031,7 @@ function Finance() {
   return (
       <div className="kfin-wrap">
 
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
           <RegionSwitch untagged={countUntagged([...allExpenses, ...allPurchases, ...allEntries])} />
         </div>
 
@@ -959,7 +1062,7 @@ function Finance() {
                 <circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3.1-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.7.4 4.4 2.2 5 5.3"/>
               </svg>
             </div>
-            <p className="kfin-kpi-label">Payroll This Month</p>
+            <p className="kfin-kpi-label">{fyActive ? `Payroll · FY ${fy}` : "Payroll This Month"}</p>
             <p className="kfin-kpi-value">{asCurrency(summary.payrollNPR, "NPR")}</p>
             <p className="kfin-kpi-sub">{asCurrency(summary.payrollGBP, "GBP")}</p>
           </div>
@@ -1016,7 +1119,7 @@ function Finance() {
           <div className="kfin-panel">
             <p className="kfin-panel-title">Outgoings Breakdown</p>
             {donutData.length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No data yet.</p>
+              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("outgoings", regionExpenses.length + regionPurchases.length + regionPayroll.length, "No data yet.")}</p>
               : (
                 <ResponsiveContainer width="100%" height={210}>
                   <PieChart>
@@ -1032,7 +1135,7 @@ function Finance() {
           <div className="kfin-panel">
             <p className="kfin-panel-title">Purchases by Category</p>
             {categoryBarData.length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No purchases yet.</p>
+              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("purchases", regionPurchases.length, "No purchases yet.")}</p>
               : (
                 <ResponsiveContainer width="100%" height={210}>
                   <BarChart data={categoryBarData} margin={{ top: 4, right: 8, left: 0, bottom: 48 }}>
@@ -1048,17 +1151,20 @@ function Finance() {
         </div>
 
         {/* ── Tabs ── */}
-        <div className="kfin-tabs" data-tour="finance-tabs">
-          {visibleTabs.map(t => (
-            <button
-              key={t}
-              className={`kfin-tab${activeTab === t ? " kfin-tab--on" : ""}`}
-              onClick={() => setActiveTab(t)}
-              title={`Shift+${Object.keys(TAB_SHORTCUTS).find(k => TAB_SHORTCUTS[k] === t)?.toUpperCase()}`}
-            >
-              {tabLabel(t)}
-            </button>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div className="kfin-tabs" data-tour="finance-tabs" style={{ flex: 1, minWidth: 0 }}>
+            {visibleTabs.map(t => (
+              <button
+                key={t}
+                className={`kfin-tab${activeTab === t ? " kfin-tab--on" : ""}`}
+                onClick={() => setActiveTab(t)}
+                title={`Shift+${Object.keys(TAB_SHORTCUTS).find(k => TAB_SHORTCUTS[k] === t)?.toUpperCase()}`}
+              >
+                {tabLabel(t)}
+              </button>
+            ))}
+          </div>
+          <FiscalYearSelect years={yearsHere} style={{ flexShrink: 0 }} />
         </div>
         {!visibleTabs.includes(activeTab) && visibleTabs.length > 0 && (() => { setActiveTab(visibleTabs[0]); return null; })()}
 
@@ -1130,6 +1236,11 @@ function Finance() {
                 <table className="kfin-tbl">
                   <thead><tr><th>Category</th><th>Amount NPR</th><th>Amount GBP</th><th>Date</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
                   <tbody>
+                    {expenses.length === 0 && (
+                      <tr><td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>
+                        {fyEmpty("expenses", regionExpenses.length, "No expenses yet.")}
+                      </td></tr>
+                    )}
                     {expenses.map(item => {
                       const bill = vatBills.find(b => b.expenseId === item.id);
                       const isPaid = item.status === "Paid";
@@ -1192,7 +1303,7 @@ function Finance() {
               </p>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  {purchases.length} saved · NPR {roundAmount(purchaseTotal).toLocaleString()}
+                  {purchases.length} saved{fyActive ? ` in FY ${fy}` : ""} · NPR {roundAmount(purchaseTotal).toLocaleString()}
                   <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
                 </span>
                 <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => navigate("/purchases")}>
@@ -1247,7 +1358,7 @@ function Finance() {
                 <div className="kfin-form">
                   <label className="kfin-label kfin-full">Linked Purchase (Expense ID)
                     <select className="kfin-select" value={vatExpenseId} disabled={!canEdit} onChange={e => setVatExpenseId(e.target.value)}>
-                      {purchases.map(p => <option key={p.id} value={p.expenseId}>{p.expenseId} — {p.expenseItem}</option>)}
+                      {regionPurchases.map(p => <option key={p.id} value={p.expenseId}>{p.expenseId} — {p.expenseItem}</option>)}
                     </select>
                   </label>
                   <label className="kfin-label kfin-full">File (image or PDF)
@@ -1271,9 +1382,10 @@ function Finance() {
             <div className="kfin-block">
               <div className="kfin-block-hd">
                 <p className="kfin-block-title">VAT Bills <span className="kfin-block-sub">({vatBills.length})</span></p>
+                {fyActive && <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Filed by the date of the purchase or expense each bill is for</span>}
               </div>
               {vatBills.length === 0
-                ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No VAT bills uploaded yet.</p>
+                ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("VAT bills", regionVatBills.length, "No VAT bills uploaded yet.")}</p>
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
@@ -1358,7 +1470,7 @@ function Finance() {
                 <p className="kfin-block-title">Journal Entries <span className="kfin-block-sub">({entries.length})</span></p>
               </div>
               {entries.length === 0
-                ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No journal entries yet.</p>
+                ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("journal entries", regionEntries.length, "No journal entries yet.")}</p>
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
@@ -1462,19 +1574,23 @@ function Finance() {
                     <tbody>
                       {(() => {
                         const editingOpening = ledgerDraft && ledgerDraft.type === "opening" && ledgerDraft.id === data.accountId;
+                        // With a year picked this row is brought forward (the stored opening balance + every earlier year's
+                        // movement), not the stored figure itself — clicking it would edit the wrong number, so it is
+                        // read-only until "All years" is chosen.
+                        const openingEditable = canEdit && !fyActive;
                         return (
                           <>
                           <tr
-                            style={{ background: editingOpening ? "var(--mint-soft)" : "var(--bg-2)", cursor: canEdit && !editingOpening ? "pointer" : "default" }}
-                            title={canEdit && !editingOpening ? "Click to edit opening balance" : undefined}
+                            style={{ background: editingOpening ? "var(--mint-soft)" : "var(--bg-2)", cursor: openingEditable && !editingOpening ? "pointer" : "default" }}
+                            title={openingEditable && !editingOpening ? "Click to edit opening balance" : (fyActive ? "Opening balance plus everything before this fiscal year — choose All years to edit the opening balance" : undefined)}
                             onClick={() => {
-                              if (!canEdit || editingOpening) return;
+                              if (!openingEditable || editingOpening) return;
                               setLedgerDraft({ type: "opening", id: data.accountId, particulars: "Opening Balance", amount: data.openingBalanceNPR });
                             }}
                             onKeyDown={editingOpening ? ledgerEditKeys : undefined}
                           >
                             <td style={{ color: "var(--ink-4)", fontSize: 12 }}>—</td>
-                            <td style={{ fontWeight: 600 }}>Opening Balance</td>
+                            <td style={{ fontWeight: 600 }}>{fyActive ? `Balance brought forward (before FY ${fy})` : "Opening Balance"}</td>
                             <td></td><td></td>
                             <td style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>
                               {editingOpening
@@ -1489,7 +1605,7 @@ function Finance() {
                         );
                       })()}
                       {data.rows.length === 0 ? (
-                        <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>No transactions yet.</td></tr>
+                        <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>{fyEmpty("transactions", data.totalRows, "No transactions yet.")}</td></tr>
                       ) : data.rows.map((r, i) => {
                         // Scoped to this account's table as well as the row: a journal entry
                         // shows up twice, once under its debit account and once under its
@@ -1561,9 +1677,10 @@ function Finance() {
           <div className="kfin-block">
             <div className="kfin-block-hd">
               <p className="kfin-block-title">Other Accounts</p>
+              {fyActive && <span style={{ fontSize: 11, color: "var(--ink-4)" }}>FY {fy} activity only — see Balance Sheet for the position at year end</span>}
             </div>
             {Object.entries(ledger).filter(([a]) => a !== "Cash" && !bankAccountNames.includes(a)).length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No journal entries yet for other accounts.</p>
+              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyActive && regionEntries.length > 0 ? `No journal entries in FY ${fy} for other accounts.` : "No journal entries yet for other accounts."}</p>
               : (
                 <div className="kfin-ledger-grid">
                   {Object.entries(ledger).filter(([a]) => a !== "Cash" && !bankAccountNames.includes(a)).sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
@@ -1587,7 +1704,7 @@ function Finance() {
                             <span className="kfin-ledger-type" style={{ color: tc.color, background: tc.bg }}>{accType}</span>
                           </div>
                           <div style={{ textAlign: "right" }}>
-                            <p className="kfin-ledger-bal-label">Balance</p>
+                            <p className="kfin-ledger-bal-label">{fyActive ? "Net for year" : "Balance"}</p>
                             <p className="kfin-ledger-bal" style={{ color: balance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
                               NPR {roundAmount(Math.abs(balance)).toLocaleString()}
                             </p>
@@ -1617,6 +1734,11 @@ function Finance() {
         {/* ── P&L ── */}
         {activeTab === "p&l" && (
           <div className="kfin-pl">
+            {fyActive && (
+              <div className="kfin-notice" style={{ marginBottom: 14 }}>
+                ℹ FY {fy} · {fmtDateBS(fyRange.startAD)} to {fmtDateBS(fyRange.endAD)} — paid invoices, expenses, purchases, journal entries and payroll dated in this year.
+              </div>
+            )}
             <div className="kfin-block">
               <p className="kfin-block-title" style={{ marginBottom: 18 }}>Profit & Loss Statement</p>
               <div className="kfin-pl-section">
@@ -1713,6 +1835,12 @@ function Finance() {
 
         {/* ── Balance Sheet ── */}
         {activeTab === "balance sheet" && (
+          <>
+          {fyActive && (
+            <div className="kfin-notice" style={{ marginBottom: 14 }}>
+              ℹ Position as of {fmtDateBS(fyRange.endAD)}, the end of FY {fy} — every journal entry dated up to then, not only this year's.
+            </div>
+          )}
           <div className="kfin-bs">
             <div className="kfin-block">
               <p className="kfin-block-title" style={{ marginBottom: 14, color: "var(--mint-deep)" }}>Assets</p>
@@ -1781,6 +1909,7 @@ function Finance() {
               </div>
             </div>
           </div>
+          </>
         )}
 
         {/* ── Bank Transactions ── */}
@@ -1891,7 +2020,7 @@ function Finance() {
                   </thead>
                   <tbody>
                     {bankTxns.length === 0 && (
-                      <tr><td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>No transactions yet — add one above.</td></tr>
+                      <tr><td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>{fyEmpty("transactions", regionBankTxns.length, "No transactions yet — add one above.")}</td></tr>
                     )}
                     {bankTxns.map(t => (
                       <tr key={t.id}>
@@ -2088,7 +2217,9 @@ function Finance() {
                       {rows.length === 0 && (
                         <tr>
                           <td colSpan={13} style={{ textAlign: "center", color: "var(--ink-4)", padding: "32px 0" }}>
-                            No orders found. {orders.length === 0 ? "Orders will appear here once created." : "Try adjusting your filters."}
+                            {orders.length === 0 && fyActive && regionOrders.length > 0
+                              ? fyEmpty("orders", regionOrders.length, "")
+                              : <>No orders found. {orders.length === 0 ? "Orders will appear here once created." : `Try adjusting your filters${fyActive ? " or fiscal year" : ""}.`}</>}
                           </td>
                         </tr>
                       )}

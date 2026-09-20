@@ -9,6 +9,8 @@ import { Icons } from "../components/ui";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
+import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { filterByFiscalYear, fiscalYearsIn, isFiscalYearLabel } from "../utils/fiscalYear";
 import { deletePurchaseWithLinks } from "../utils/financeRows";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
@@ -23,9 +25,13 @@ function Purchases() {
 
   const { region } = useRegion();
   const [allPurchases, setPurchases] = useState([]);
+  const [fy] = useFiscalYearFilter();
+  const fyActive = isFiscalYearLabel(fy);
   // The count, the total and the table all read `purchases`, so scoping it
-  // here is the whole of the region split on this page.
-  const purchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
+  // here is the whole of the region and fiscal-year split on this page.
+  const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
+  const purchases = useMemo(() => filterByFiscalYear(regionPurchases, fy), [regionPurchases, fy]);
+  const yearsHere = useMemo(() => fiscalYearsIn(regionPurchases), [regionPurchases]);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [loading, setLoading] = useState(true);
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
@@ -177,7 +183,7 @@ function Purchases() {
           </h2>
         </div>
 
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <input
             className="kfin-input"
             type="text"
@@ -189,9 +195,10 @@ function Purchases() {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
             >✕ Clear</button>
           )}
+          <FiscalYearSelect years={yearsHere} />
         </div>
 
         {!canEdit && <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ You don't have permission to edit or delete purchases.</div>}
@@ -201,9 +208,14 @@ function Purchases() {
         ) : filtered.length === 0 ? (
           <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>No purchases found</div>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>
+              {fyActive && purchases.length === 0 && regionPurchases.length > 0 ? `No purchases in FY ${fy}` : "No purchases found"}
+            </div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
-              {searchQuery ? "Try clearing your search." : "Add a purchase from the Finance page to see it here."}
+              {fyActive && purchases.length === 0 && regionPurchases.length > 0
+                ? `${regionPurchases.length} purchase${regionPurchases.length !== 1 ? "s" : ""} in other years — pick another year or "All years" to see them.`
+                : searchQuery ? (fyActive ? `Nothing in FY ${fy} matches your search — try clearing it or choosing "All years".` : "Try clearing your search.")
+                : "Add a purchase from the Finance page to see it here."}
             </div>
           </div>
         ) : (
@@ -214,10 +226,13 @@ function Purchases() {
                 <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
               </tr></thead>
 
-              {filtered.map((row, idx) => (
+              {filtered.map(row => (
                 <PurchaseRowGroup
                   key={row.id}
-                  expenseId={`EXP${String(idx + 1).padStart(3, "0")}`}
+                  // The purchase's own stored id (the one Finance issues, search matches and
+                  // the delete prompt quotes) — a position in this list would renumber
+                  // whenever the year, region or search changed.
+                  expenseId={row.expenseId || "—"}
                   data={purchaseRowData(row)}
                   onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
                   onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}

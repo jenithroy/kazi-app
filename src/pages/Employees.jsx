@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { authClient, authRedirectUrl, createSignupClient, supabase } from "../supabase";
@@ -10,6 +10,8 @@ import { GBP_RATE, WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
 import { tsMillis } from "../utils/date";
+import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { filterByFiscalYear, fiscalYearsIn, isFiscalYearLabel, payrollPeriodDate } from "../utils/fiscalYear";
 
 const DEPARTMENTS = ["Management", "Operations", "Production", "Finance", "HR", "Marketing", "IT", "Other"];
 
@@ -245,7 +247,14 @@ function Employees() {
   const [search, setSearch] = useState("");
 
   /* ── Payroll State ── */
-  const [payroll, setPayroll] = useState([]);
+  const [allPayroll, setPayroll] = useState([]);
+  // The payroll list, its count and its empty state read `payroll`; the fiscal
+  // year narrows it here. Rows carry a month name and a year, not a date, so the
+  // year is judged on the first of that month.
+  const [fy] = useFiscalYearFilter();
+  const fyActive = isFiscalYearLabel(fy);
+  const payroll = useMemo(() => filterByFiscalYear(allPayroll, fy, payrollPeriodDate), [allPayroll, fy]);
+  const payrollYears = useMemo(() => fiscalYearsIn(allPayroll, payrollPeriodDate), [allPayroll]);
   const [payrollForm, setPayrollForm] = useState({
     staffName: "", role: "",
     month: new Date().toLocaleString("default", { month: "long" }),
@@ -482,7 +491,7 @@ function Employees() {
         title="Employee and HR"
         description="Manage employee profiles, salaries, and payroll runs."
         action={
-          <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button
               className="ghost-button"
               style={{ display: "flex", alignItems: "center", gap: 6, borderColor: "var(--mint-deep)", color: "var(--mint-deep)", fontWeight: 600 }}
@@ -1026,6 +1035,7 @@ function Employees() {
           <section className="panel">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <h3>Payroll Records <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>({payroll.length})</span></h3>
+              <FiscalYearSelect years={payrollYears} />
             </div>
             <div className="table-wrap kfin-tbl-wrap" style={{ border: "none", margin: 0 }}>
               <table className="kfin-tbl">
@@ -1033,6 +1043,15 @@ function Employees() {
                   <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th><th>Net NPR</th><th>Net GBP</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
+                  {payroll.length === 0 && (
+                    <tr>
+                      <td colSpan={13} style={{ color: "var(--text-muted)", textAlign: "center", padding: "20px 12px" }}>
+                        {fyActive && allPayroll.length > 0
+                          ? `No payroll records in FY ${fy} — ${allPayroll.length} in other years. Pick another year or "All years" to see them.`
+                          : "No payroll records yet."}
+                      </td>
+                    </tr>
+                  )}
                   {payroll.map(item => (
                     <tr key={item.id}>
                       <td style={{ fontWeight: 500 }}>{item.staffName}</td>

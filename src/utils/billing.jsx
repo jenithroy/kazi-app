@@ -1,6 +1,7 @@
 import { supabase } from "../lib/db";
 import { roundAmount } from "./format";
 import { currentFiscalYear, fiscalYearForDate, fmtDateBS } from "./fiscalYear";
+import { tsMillis } from "./date";
 
 // Re-exported for callers that still import it from here. The real, BS-accurate
 // implementation lives in ./fiscalYear (backed by the exact conversion tables).
@@ -203,6 +204,62 @@ export async function getNextNumber(type, fiscalYear) {
   const { data, error } = await supabase.rpc("next_doc_number", { kind: type, fiscal_year: fy });
   if (error) throw error;
   return data;
+}
+
+/**
+ * Put a series back in date order — the earliest document becomes 001, the next
+ * 002, and so on (migration 0040). Invoices and challans are one series per
+ * fiscal year, so pass the year; quotations are a single series and ignore it.
+ * Resolves to how many documents changed number.
+ *
+ * Throws if the signed-in person may not edit billing.
+ */
+export async function resequenceDocNumbers(type, fiscalYear) {
+  if (!DOC_TYPES[type]) throw new Error("Unknown doc type: " + type);
+  const { data, error } = await supabase.rpc("resequence_doc_numbers", {
+    p_kind: type,
+    p_fiscal_year: type === "quotation" ? null : fiscalYear,
+  });
+  if (error) throw error;
+  return data || 0;
+}
+
+/**
+ * The series a document is numbered in: its fiscal year for invoices and
+ * challans, one shared series ("") for quotations, which never restart.
+ */
+export function seriesKey(type, doc) {
+  return type === "quotation" ? "" : String(doc?.fiscalYear || "").trim();
+}
+
+const padNumber = (prefix, n) => `${prefix}-${n < 10 ? "00" + n : n < 100 ? "0" + n : n}`;
+
+/**
+ * What resequencing would do to one series, without doing it.
+ *
+ * `docs` is every document in the series (whichever region they belong to —
+ * numbers are shared across regions). Mirrors the ordering in
+ * resequence_doc_numbers: document date, then creation time, then id, with
+ * undated documents last. Returns only the documents whose number would
+ * change, as { id, from, to }, in their new order.
+ *
+ * It is a preview for the confirmation dialog and the "out of order" notice;
+ * the database is what actually renumbers.
+ */
+export function planRenumber(type, docs) {
+  const { prefix, numberField } = DOC_TYPES[type];
+  const sorted = [...docs].sort((a, b) =>
+    (a.date ? 0 : 1) - (b.date ? 0 : 1) ||
+    String(a.date || "").localeCompare(String(b.date || "")) ||
+    tsMillis(a.createdAt) - tsMillis(b.createdAt) ||
+    String(a.id).localeCompare(String(b.id))
+  );
+  const changes = [];
+  sorted.forEach((doc, i) => {
+    const to = padNumber(prefix, i + 1);
+    if (doc[numberField] !== to) changes.push({ id: doc.id, from: doc[numberField] || null, to });
+  });
+  return changes;
 }
 
 export function statusBadge(status) {

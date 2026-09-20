@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { fetchAll, insertRow, updateRow } from "../lib/db";
+import { fetchAll, fetchOne, insertRow, updateRow } from "../lib/db";
 import DocPreview from "../components/DocPreview";
 import KeyboardSelect from "../components/KeyboardSelect";
 import { Icons, cn } from "../components/ui";
@@ -13,11 +13,13 @@ import { todayDate } from "../utils/date";
 import {
   DOC_TYPES, STATUS_BY_TYPE, BANK_NAMES, emptyItem, makeEmptyForm,
   fmtNPR, fmtCurrency, fmtDate, calcTotals, getNextNumber, statusBadge,
+  resequenceDocNumbers, planRenumber, seriesKey,
 } from "../utils/billing.jsx";
 import {
-  fiscalYearForDate, parseFiscalYearLabel, currentFiscalYear,
-  fiscalYearDateRangeAD, isDateInFiscalYear, fmtDateBS,
+  fiscalYearForDate, currentFiscalYear, isFiscalYearLabel,
+  fiscalYearDateRangeAD, filterByFiscalYear, fiscalYearsIn, fmtDateBS,
 } from "../utils/fiscalYear";
+import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
 import DualDateInput from "../components/DualDateInput";
 import { postSaleStockOut } from "../utils/stockLedger";
 import { useRegion } from "../context/RegionContext";
@@ -192,6 +194,16 @@ function Billing() {
   const challans       = useMemo(() => filterByRegion(allChallans,   region), [allChallans,   region]);
   const quotations     = useMemo(() => filterByRegion(allQuotations, region), [allQuotations, region]);
   const inventoryItems = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
+
+  /* ── One fiscal year at a time (or all of them) ────────────
+     A document belongs to the year its own Nepali date falls in. The tab counts,
+     the KPI strip and both tables read these, so the filter reaches the whole
+     page. `invoices` and friends stay unfiltered by year for the Finance-ledger
+     deep link, which has to find its document whichever year it is in. */
+  const [fiscalYear] = useFiscalYearFilter();
+  const invoicesInYear   = useMemo(() => filterByFiscalYear(invoices,   fiscalYear), [invoices,   fiscalYear]);
+  const challansInYear   = useMemo(() => filterByFiscalYear(challans,   fiscalYear), [challans,   fiscalYear]);
+  const quotationsInYear = useMemo(() => filterByFiscalYear(quotations, fiscalYear), [quotations, fiscalYear]);
   const [showForm, setShowForm]     = useState(false);
   const [form, setForm]             = useState(makeEmptyForm("invoice"));
   const [submitting, setSubmitting] = useState(false);
@@ -227,20 +239,15 @@ function Billing() {
       fetchAll("inventory"),
     ]);
     setInventoryItems(invtRows);
-    // Sort newest-first by fiscal year, then by the immutable sequential number
-    // within that year (not the user-editable `date` field) — a backdated invoice
-    // would otherwise scramble the order even though numbers ran strictly in
-    // sequence. The number restarts at 1 each fiscal year, so the year has to be
-    // the primary key or last year's INV-45 would sit above this year's INV-01.
+    // Newest document first, by its own date — the Nepali and English calendars
+    // order identically, so one comparison serves both. Numbers follow dates
+    // (see resequenceDocNumbers), so within a day the higher number is the later
+    // one; that also keeps a day's documents in a stable order.
     const seqNum = (row) => {
       const m = /(\d+)\s*$/.exec(row.invoiceNumber || row.challanNumber || row.quotationNumber || "");
       return m ? parseInt(m[1], 10) : -1;
     };
-    const fyStart = (row) => {
-      const label = fiscalYearForDate(row.date);
-      return label ? parseFiscalYearLabel(label).startYear : 0;
-    };
-    const sort = (a, b) => (fyStart(b) - fyStart(a)) || (seqNum(b) - seqNum(a));
+    const sort = (a, b) => (b.date || "").localeCompare(a.date || "") || (seqNum(b) - seqNum(a));
     setInvoices([...invRows].sort(sort));
     setChallans([...chRows].sort(sort));
     setQuotations([...qtRows].sort(sort));
@@ -257,7 +264,14 @@ function Billing() {
   }
 
   /* ── Active list & meta ── */
-  const activeList     = tab === "invoice" ? invoices : tab === "challan" ? challans : quotations;
+  const activeList     = tab === "invoice" ? invoicesInYear : tab === "challan" ? challansInYear : quotationsInYear;
+  // The years this tab's documents (in the region on screen) actually fall in —
+  // the only ones the picker offers.
+  const regionList     = tab === "invoice" ? invoices : tab === "challan" ? challans : quotations;
+  const yearsHere      = useMemo(() => fiscalYearsIn(regionList), [regionList]);
+  // Every document of this kind, in any region and any year: numbers are one
+  // series across regions, so what would be renumbered has to be judged on all.
+  const allOfKind      = tab === "invoice" ? allInvoices : tab === "challan" ? allChallans : allQuotations;
   const meta           = DOC_TYPES[tab];
 
   // Fix 1: filter by search query (client name, invoice number, or status)
@@ -357,6 +371,97 @@ function Billing() {
     });
   }
 
+  /* ── Numbers follow dates ──────────────────────────────────
+     A document's number is its place in its series by date: the earliest is 001,
+     the next 002. Filing one with an earlier date than documents already on
+     record — or moving an existing one's date — therefore shifts everything after
+     it. Before saving, work out whether that would change numbers already issued,
+     so the person can be asked first. The database does the renumbering itself
+     (resequence_doc_numbers); this is only the preview. */
+  function planSave() {
+    const numberField = meta.numberField;
+    const newFY = fiscalYearForDate(form.date) || form.fiscalYear || currentFiscalYear();
+    const existing = editingId ? allOfKind.find(d => d.id === editingId) : null;
+    const oldFY = String(existing?.fiscalYear || "").trim();
+    // Only a date edit reshuffles anything. Changing a client name in a series
+    // that happens to be out of order must not start renumbering it.
+    const run = !existing || existing.date !== form.date;
+    // A real move between fiscal-year series (never for quotations, which are
+    // one series for all time).
+    const fyChanged = !!existing && run && tab !== "quotation" && isFiscalYearLabel(oldFY) && newFY !== oldFY;
+    const inSeries = (fy) => allOfKind.filter(d => d.id !== editingId && seriesKey(tab, d) === seriesKey(tab, { fiscalYear: fy }));
+    const me = {
+      id: editingId || "__new__",
+      date: form.date,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      [numberField]: existing && !fyChanged ? existing[numberField] : null,
+    };
+    let affected = [], self = null;
+    const seriesToFix = [];
+    if (run) {
+      const changes = planRenumber(tab, [...inSeries(newFY), me]);
+      affected = changes.filter(c => c.id !== me.id);
+      self = changes.find(c => c.id === me.id) || null;
+      seriesToFix.push(newFY);
+      if (fyChanged) {
+        affected = [...affected, ...planRenumber(tab, inSeries(oldFY))];
+        seriesToFix.push(oldFY);
+      }
+    }
+    return { run, newFY, fyChanged, affected, self, seriesToFix };
+  }
+
+  function renumberMessage(changes, what) {
+    const shown = changes.slice(0, 8).map(c => `${c.from || "—"}  →  ${c.to}`).join("\n");
+    const more = changes.length > 8 ? `\n…and ${changes.length - 8} more` : "";
+    return `${what} will renumber ${changes.length} existing ${meta.label.toLowerCase()}${changes.length !== 1 ? "s" : ""} so the numbers keep following the dates:\n\n${shown}${more}\n\nCopies already printed or sent will still show the old numbers. Continue?`;
+  }
+
+  /** Put each series back in date order. Never throws — the document itself is already saved by now. */
+  async function resequenceSeries(fys) {
+    try {
+      for (const fy of fys) await resequenceDocNumbers(tab, fy);
+      return true;
+    } catch (err) {
+      console.error("Failed to renumber by date:", err);
+      alert("The document was saved, but the numbers could not be put back in date order. Ask an admin to apply database migration 0040, then use \"Renumber by date\" on this page.");
+      return false;
+    }
+  }
+
+  /* Series that are out of date order right now, judged on every region and every
+     year. Fixing one is a deliberate act (a button), never a side effect. */
+  const outOfOrder = useMemo(() => {
+    const groups = new Map();
+    for (const d of allOfKind) {
+      const key = seriesKey(tab, d);
+      if (tab !== "quotation" && !isFiscalYearLabel(key)) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(d);
+    }
+    const out = [];
+    for (const [key, docs] of groups) {
+      if (tab !== "quotation" && isFiscalYearLabel(fiscalYear) && key !== fiscalYear) continue;
+      const changes = planRenumber(tab, docs);
+      if (changes.length) out.push({ key, changes });
+    }
+    return out;
+  }, [allOfKind, tab, fiscalYear]);
+
+  async function renumberOutOfOrder() {
+    const changes = outOfOrder.flatMap(g => g.changes);
+    if (!changes.length || !window.confirm(renumberMessage(changes, "This"))) return;
+    setSubmitting(true);
+    try {
+      for (const g of outOfOrder) await resequenceDocNumbers(tab, g.key);
+      await loadAll();
+    } catch (err) {
+      console.error("Failed to renumber by date:", err);
+      alert("Could not renumber. Database migration 0040 may not be applied yet.");
+    }
+    setSubmitting(false);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
@@ -372,6 +477,8 @@ function Billing() {
       }
     }
     setPanError("");
+    const plan = planSave();
+    if (plan.affected.length && !window.confirm(renumberMessage(plan.affected, "Saving this document"))) return;
     setSubmitting(true);
     try {
       const applyVAT = tab === "invoice" && form.applyVAT;
@@ -381,10 +488,12 @@ function Billing() {
         /* ── UPDATE existing document ── */
         const updates = {
           ...form,
-          // The number on this document was drawn from its fiscal year's 1..N
-          // series, so the year is fixed for the life of the document — editing
-          // the date must not move it into a year where that number is taken.
-          fiscalYear:     form.fiscalYear,
+          // The year follows the date, and the number follows the year: a date
+          // moved into another fiscal year takes the document into that year's
+          // series. It is parked on a placeholder number first — the old one may
+          // already be taken there — and given its real one by the renumber below.
+          fiscalYear:     plan.run ? plan.newFY : form.fiscalYear,
+          ...(plan.fyChanged ? { [meta.numberField]: `RENUM:${editingId}` } : {}),
           currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
           subtotalNPR:    subtotal,
           discountMode:    form.discountMode || "pct",
@@ -424,6 +533,7 @@ function Billing() {
             region:     form.region || region,
           });
         }
+        if (plan.affected.length || plan.self || plan.fyChanged) await resequenceSeries(plan.seriesToFix);
         setEditingId(null);
       } else {
         /* ── CREATE new document ── */
@@ -454,7 +564,16 @@ function Billing() {
         if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; delete record.paymentType; delete record.bankName; }
         if (tab !== "challan")   { delete record.vehicleNo; delete record.driverName; delete record.routeFrom; delete record.routeTo; }
         if (tab !== "quotation") { delete record.validUntil; delete record.terms; }
-        await insertRow(meta.coll, record);
+        const saved = await insertRow(meta.coll, record);
+        // The number just drawn is the next one in the series, which is only right
+        // if this is the latest document by date. A backdated one — or a series
+        // with gaps — is put back in date order, and stock is posted under the
+        // number the document ends up with.
+        if (plan.affected.length || (plan.self && plan.self.to !== docNumber)) {
+          if (await resequenceSeries(plan.seriesToFix)) {
+            try { record[meta.numberField] = (await fetchOne(meta.coll, saved.id))?.[meta.numberField] || docNumber; } catch { /* keep the drawn number */ }
+          }
+        }
         // Deduct stock for any line item explicitly linked to an inventory item —
         // only on invoice creation, never on edits/status changes, so stock is
         // deducted exactly once per sale.
@@ -742,7 +861,7 @@ function Billing() {
         {/* ── Tabs ── */}
         <div className="tab-row" data-tour="billing-tabs">
           {Object.entries(DOC_TYPES).map(([key, dt]) => {
-            const count = key === "invoice" ? invoices.length : key === "challan" ? challans.length : quotations.length;
+            const count = key === "invoice" ? invoicesInYear.length : key === "challan" ? challansInYear.length : quotationsInYear.length;
             return (
               <button key={key} className={`tab-button ${tab === key ? "active" : ""}`} onClick={() => switchTab(key)}>
                 {dt.label}<span className="tab-badge">{count}</span>
@@ -796,17 +915,16 @@ function Billing() {
                 {editingId
                   ? `Editing ${form[meta.numberField] || editingId} · FY ${form.fiscalYear || "—"}`
                   : tab === "quotation"
-                  ? `Number auto-assigned (continues from the last quotation, no fiscal-year reset) · FY ${form.fiscalYear || "—"}`
-                  : `Number auto-assigned (${meta.prefix}-001 onwards) · FY ${form.fiscalYear || "—"}`}
+                  ? `Number follows the date, one run across all years (no fiscal-year reset) · FY ${form.fiscalYear || "—"}`
+                  : `Number follows the date (${meta.prefix}-001 onwards) · FY ${form.fiscalYear || "—"}`}
               </span>
             </div>
             <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
               <div className="kfin-form" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
 
-                {/* Date — enterable in either calendar. On a new document it also
-                    drives the fiscal year (and therefore the number series) off the
-                    Nepali date, so the FY field stays in step. On an edit the year is
-                    left alone: the number was already drawn from that year's series. */}
+                {/* Date — enterable in either calendar. It drives the fiscal year (and
+                    therefore the number series) off the Nepali date, so the FY field
+                    stays in step, and the number follows the date within that year. */}
                 <label className="kfin-label">
                   Date
                   <DualDateInput
@@ -817,7 +935,7 @@ function Billing() {
                     onChange={v => setForm(f => ({
                       ...f,
                       date: v,
-                      fiscalYear: editingId ? f.fiscalYear : (fiscalYearForDate(v) || f.fiscalYear),
+                      fiscalYear: fiscalYearForDate(v) || f.fiscalYear,
                     }))}
                   />
                 </label>
@@ -864,15 +982,18 @@ function Billing() {
                 {(tab === "invoice" || tab === "challan") && (() => {
                   const fy = form.fiscalYear || "—";
                   const range = form.fiscalYear ? fiscalYearDateRangeAD(form.fiscalYear) : null;
-                  const outOfYear = editingId && form.fiscalYear && !isDateInFiscalYear(form.date, form.fiscalYear);
+                  // The year the document is filed under today. Changing the date to
+                  // another year moves it into that year's series on save.
+                  const filedIn = editingId ? String(allOfKind.find(d => d.id === editingId)?.fiscalYear || "").trim() : "";
+                  const moving = isFiscalYearLabel(filedIn) && !!form.fiscalYear && filedIn !== form.fiscalYear;
                   return (
                     <label className="kfin-label">
                       Fiscal Year (B.S.)
                       <input className="kfin-input" type="text" value={fy} readOnly tabIndex={-1}
                         style={{ background: "var(--bg-2)", color: "var(--ink-3)", cursor: "default" }} />
-                      <span style={{ fontSize: 11, color: outOfYear ? "var(--terra)" : "var(--ink-4)", marginTop: 3, lineHeight: 1.4 }}>
-                        {outOfYear
-                          ? `This date falls outside FY ${form.fiscalYear}, but ${form[meta.numberField] || "the document"} was already numbered in that year's series — the year is kept so the number stays valid.`
+                      <span style={{ fontSize: 11, color: moving ? "var(--terra)" : "var(--ink-4)", marginTop: 3, lineHeight: 1.4 }}>
+                        {moving
+                          ? `This date is in FY ${form.fiscalYear}, but ${form[meta.numberField] || "the document"} is filed in FY ${filedIn}. Saving moves it into FY ${form.fiscalYear} and gives it a new number there.`
                           : range
                             ? `Shrawan 1 – Asar end · ${range.startAD} to ${range.endAD} A.D.`
                             : "Set automatically from the date above."}
@@ -1218,8 +1339,22 @@ function Billing() {
               </button>
             )}
           </div>
+          {/* Numbers are meant to follow dates. When a series has drifted — documents
+              filed out of order before this rule, or a date edited elsewhere — say so
+              and offer the fix, rather than renumbering issued documents unasked. */}
+          {canEdit && outOfOrder.length > 0 && (
+            <div className="kfin-notice" style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <span style={{ flex: 1, minWidth: 220 }}>
+                ⚠ {outOfOrder.reduce((n, g) => n + g.changes.length, 0)} {meta.label.toLowerCase()} number{outOfOrder.reduce((n, g) => n + g.changes.length, 0) !== 1 ? "s are" : " is"} out of date order
+                {" "}({outOfOrder.length === 1 && tab !== "quotation" ? `FY ${outOfOrder[0].key}` : tab === "quotation" ? "all years" : `${outOfOrder.length} fiscal years`}).
+              </span>
+              <button type="button" className="kbil-btn-ghost" style={{ fontSize: 12, padding: "5px 12px" }} disabled={submitting} onClick={renumberOutOfOrder}>
+                Renumber by date
+              </button>
+            </div>
+          )}
           {/* Fix 1: search input */}
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <input
               className="kfin-input"
               type="text"
@@ -1231,16 +1366,19 @@ function Billing() {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
               >✕ Clear</button>
             )}
+            <FiscalYearSelect years={yearsHere} />
           </div>
 
           {activeDocs.length === 0 ? (
             <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>No invoices found</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>Try clearing your search or create a new invoice</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>No {meta.label.toLowerCase()}s found{isFiscalYearLabel(fiscalYear) ? ` in FY ${fiscalYear}` : ""}</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                {isFiscalYearLabel(fiscalYear) ? "Try another fiscal year, clearing your search, or create a new one" : `Try clearing your search or create a new ${meta.label.toLowerCase()}`}
+              </div>
             </div>
           ) : (
             <div className="kfin-tbl-wrap">
