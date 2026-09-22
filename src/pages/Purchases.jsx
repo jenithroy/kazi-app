@@ -6,6 +6,7 @@ import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/pe
 import { GBP_RATE, createdAfterCutoff } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { Icons } from "../components/ui";
+import { DateModeToggle } from "../components/DualDateInput";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
@@ -36,6 +37,7 @@ function Purchases() {
   const [loading, setLoading] = useState(true);
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
   const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
+  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs" — one switch for the whole Date column
   const deletingIdsRef = useRef(new Set());
 
   async function loadPurchases() {
@@ -222,7 +224,14 @@ function Purchases() {
           <div className="kfin-tbl-wrap">
             <table className="kfin-tbl kfin-tbl-compact kfin-tbl--plain">
               <thead><tr>
-                <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
+                <th>Expense ID</th>
+                <th>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    Date
+                    <DateModeToggle mode={dateMode} onToggle={() => setDateMode(m => m === "ad" ? "bs" : "ad")} />
+                  </div>
+                </th>
+                <th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
                 <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
               </tr></thead>
 
@@ -234,6 +243,7 @@ function Purchases() {
                   // whenever the year, region or search changed.
                   expenseId={row.expenseId || "—"}
                   data={purchaseRowData(row)}
+                  dateMode={dateMode}
                   onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
                   onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}
                   onAddItem={() => canEdit && addPurchaseItem(row)}

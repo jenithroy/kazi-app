@@ -160,7 +160,9 @@ function addItemOnEnter(e, onAddItem) {
 }
 
 // One purchase (Date/Party/Category/Payment/VAT shared via rowSpan) rendered as one <tr> per particular.
-export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
+// `dateMode` ("ad" | "bs") is for a list with one switch in its Date column header; left out,
+// the date carries a switch of its own (the single new-purchase row on Finance).
+export function PurchaseRowGroup({ expenseId, data, highlight, dateMode, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
   const items = data.items;
   const subtotal = purchaseSubtotal(items);
   const discountAmt = Number(data.discountAmt || 0);
@@ -179,7 +181,8 @@ export function PurchaseRowGroup({ expenseId, data, highlight, onFieldChange, on
             <>
               <td rowSpan={items.length} style={{ color: "var(--mint-deep)", fontWeight: 700, fontSize: 12, fontFamily: "var(--mono)", verticalAlign: "top", paddingTop: 10 }}>{expenseId}</td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6, minWidth: 180 }}>
-                <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" dataRole="purchase-date" />
+                <DualDateInput value={data.date} onChange={date => onFieldChange({ date })} className="kfin-input" dataRole="purchase-date"
+                  mode={dateMode} hideToggle={!!dateMode} />
               </td>
               <td rowSpan={items.length} style={{ verticalAlign: "top", paddingTop: 6 }}>
                 <input className="kfin-input"

@@ -18,12 +18,13 @@ import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { postPurchaseStockIn } from "../utils/stockLedger";
-import { tsMillis, tsDate } from "../utils/date";
+import { tsMillis, tsDate, todayDate } from "../utils/date";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
-import { filterByFiscalYear, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, isFiscalYearLabel, isoDay, payrollPeriodDate } from "../utils/fiscalYear";
+import DualDateInput, { DateModeToggle } from "../components/DualDateInput";
+import { filterByFiscalYear, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, adToBsParts, isFiscalYearLabel, isoDay, payrollPeriodDate } from "../utils/fiscalYear";
 
 /* ── Seed data ─────────────────────────────────────── */
 // NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
@@ -159,6 +160,29 @@ function journalTotals(list) {
   return map;
 }
 
+// A date field that follows the page's calendar (`dateMode` in Finance). The value is
+// always an A.D. "YYYY-MM-DD" string, or "" when nothing is picked — the calendar only
+// decides how it is shown and entered. A.D. is the plain date input, as it always was.
+// B.S. is DualDateInput's Year/Month/Day dropdowns, except while blank: they would have
+// to show some date and look chosen when nothing is, so a blank one is a button that
+// starts from today instead.
+function DateField({ mode, value, onChange, style, required, dataRole, autoFocus, blankLabel = "Pick date" }) {
+  if (mode !== "bs") {
+    return (
+      <input type="date" className="kfin-input" style={style} value={value || ""} required={required}
+        data-role={dataRole} autoFocus={autoFocus} onChange={e => onChange(e.target.value)} />
+    );
+  }
+  if (!adToBsParts(value)) {
+    return (
+      <button type="button" className="ghost-button" style={{ padding: "6px 12px" }} onClick={() => onChange(todayDate())}>
+        {blankLabel}
+      </button>
+    );
+  }
+  return <DualDateInput value={value} onChange={onChange} mode="bs" hideToggle />;
+}
+
 function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -191,6 +215,22 @@ function Finance() {
     window.addEventListener("keydown", handleTabShortcut);
     return () => window.removeEventListener("keydown", handleTabShortcut);
   }, []);
+
+  /* ── English (A.D.) / Nepali (B.S.) dates ──────────────────
+     Stored dates are always A.D. strings; the calendar is only how one is shown and
+     entered. A single switch serves the Journal, Ledger, Bank and Order P&L tabs, so
+     flipping any of its pills flips every date on them at once. */
+  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs"
+  const dateSwitch = <DateModeToggle mode={dateMode} onToggle={() => setDateMode(m => (m === "ad" ? "bs" : "ad"))} />;
+  const dateTh = (
+    <th>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        Date
+        {dateSwitch}
+      </div>
+    </th>
+  );
+  const showDate = iso => (dateMode === "bs" ? fmtDateBS(iso) : iso || "—");
 
   /* ── Fix 3: page-level error banner (auto-clears after 5s) ── */
   const [pageError, setPageError] = useState("");
@@ -680,6 +720,7 @@ function Finance() {
 
   async function addEntry(e) {
     e.preventDefault();
+    if (!journalForm.date) { alert("Pick the entry date."); return; } // B.S. mode has no native "required" to catch this
     if (journalForm.debitAccount === journalForm.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
     if (isAdvanceEntry(journalForm) && !journalForm.partyName.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
     setJournalSubmitting(true);
@@ -1429,11 +1470,13 @@ function Finance() {
               <div className="kfin-block">
                 <div className="kfin-block-hd">
                   <p className="kfin-block-title">Post Journal Entry</p>
+                  {dateSwitch}
                 </div>
                 <form className="kfin-form" ref={journalFormRef} onSubmit={addEntry}
                   onKeyDown={e => focusNextOnEnter(e, () => journalFormRef.current?.requestSubmit())}>
                   <label className="kfin-label">Date
-                    <input type="date" className="kfin-input" data-role="journal-date" value={journalForm.date} required onChange={e => setJournalForm(f => ({ ...f, date: e.target.value }))} />
+                    <DateField mode={dateMode} value={journalForm.date} required dataRole="journal-date"
+                      onChange={v => setJournalForm(f => ({ ...f, date: v }))} />
                   </label>
                   <label className="kfin-label">Amount (NPR)
                     <input type="number" min="1" className="kfin-input" value={journalForm.amountNPR} required placeholder="0"
@@ -1474,7 +1517,7 @@ function Finance() {
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
-                      <thead><tr><th>Date</th><th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
+                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
                       <tbody>
                         {entries.map(entry => {
                           const editing = journalEditId === entry.id;
@@ -1482,7 +1525,7 @@ function Finance() {
                           if (!editing) {
                             return (
                               <tr key={entry.id}>
-                                <td>{entry.date}</td>
+                                <td style={{ whiteSpace: "nowrap" }}>{showDate(entry.date)}</td>
                                 <td style={{ fontWeight: 500 }}>{entry.description}</td>
                                 <td style={{ color: "var(--mint-deep)", fontWeight: 500 }}>{entry.debitAccount}</td>
                                 <td style={{ color: "var(--terra)", fontWeight: 500 }}>{entry.creditAccount}</td>
@@ -1504,8 +1547,8 @@ function Finance() {
                             <tr key={entry.id} style={{ background: "var(--mint-soft)" }}
                               onKeyDown={e => focusNextOnEnter(e, () => saveJournalEdit(entry.id))}>
                               <td>
-                                <input type="date" className="kfin-input" style={inputStyle} value={journalDraft.date} autoFocus
-                                  onChange={e => setJournalDraft(d => ({ ...d, date: e.target.value }))} />
+                                <DateField mode={dateMode} style={inputStyle} value={journalDraft.date} autoFocus
+                                  onChange={v => setJournalDraft(d => ({ ...d, date: v }))} />
                               </td>
                               <td>
                                 <input className="kfin-input" style={inputStyle} value={journalDraft.description}
@@ -1570,7 +1613,7 @@ function Finance() {
                 </div>
                 <div className="kfin-tbl-wrap">
                   <table className="kfin-tbl">
-                    <thead><tr><th>Date</th><th>Particulars</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th><th>Balance (NPR)</th></tr></thead>
+                    <thead><tr>{dateTh}<th>Particulars</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th><th>Balance (NPR)</th></tr></thead>
                     <tbody>
                       {(() => {
                         const editingOpening = ledgerDraft && ledgerDraft.type === "opening" && ledgerDraft.id === data.accountId;
@@ -1627,7 +1670,7 @@ function Finance() {
                             }}
                             onKeyDown={editing ? ledgerEditKeys : undefined}
                           >
-                            <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>{r.date || "—"}</td>
+                            <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>{showDate(r.date)}</td>
                             <td>
                               {editing
                                 ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars} autoFocus
@@ -1920,13 +1963,17 @@ function Finance() {
               <div className="kfin-block">
                 <div className="kfin-block-hd">
                   <p className="kfin-block-title">Log Transaction</p>
-                  <button className="ghost-button" style={{ fontSize: 12, padding: "5px 12px" }} onClick={() => setShowBankForm(v => !v)}>
-                    {showBankForm ? "✕ Cancel" : "+ Add Transaction"}
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {dateSwitch}
+                    <button className="ghost-button" style={{ fontSize: 12, padding: "5px 12px" }} onClick={() => setShowBankForm(v => !v)}>
+                      {showBankForm ? "✕ Cancel" : "+ Add Transaction"}
+                    </button>
+                  </div>
                 </div>
                 {showBankForm && (
                   <form className="kfin-form" onSubmit={async e => {
                     e.preventDefault();
+                    if (!bankForm.date) { alert("Pick the transaction date."); return; } // B.S. mode has no native "required" to catch this
                     await insertRow("bank_transactions", {
                       ...bankForm,
                       region,
@@ -1958,7 +2005,8 @@ function Finance() {
                       );
                     })()}
                     <label className="kfin-label">Date
-                      <input type="date" className="kfin-input" value={bankForm.date} required onChange={e => setBankForm(f => ({ ...f, date: e.target.value }))} />
+                      <DateField mode={dateMode} value={bankForm.date} required
+                        onChange={v => setBankForm(f => ({ ...f, date: v }))} />
                     </label>
                     <label className="kfin-label">Description
                       <input type="text" className="kfin-input" value={bankForm.description} required placeholder="e.g. Supplier payment — fabric" onChange={e => setBankForm(f => ({ ...f, description: e.target.value }))} />
@@ -2016,7 +2064,7 @@ function Finance() {
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
                   <thead>
-                    <tr><th>Date</th><th>Bank</th><th>Description</th><th>Category</th><th>Type</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th>{canEdit && <th></th>}</tr>
+                    <tr>{dateTh}<th>Bank</th><th>Description</th><th>Category</th><th>Type</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th>{canEdit && <th></th>}</tr>
                   </thead>
                   <tbody>
                     {bankTxns.length === 0 && (
@@ -2024,7 +2072,7 @@ function Finance() {
                     )}
                     {bankTxns.map(t => (
                       <tr key={t.id}>
-                        <td>{t.date || "—"}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>{showDate(t.date)}</td>
                         <td style={{ color: "var(--ink-3)" }}>{t.accountName || "Nabil Bank"}</td>
                         <td style={{ fontWeight: 500 }}>{t.description}</td>
                         <td>{t.category || "—"}</td>
@@ -2175,12 +2223,13 @@ function Finance() {
                   </label>
                   <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>From</span>
-                    <input type="date" className="kfin-input" value={oplDateFrom} onChange={e => setOplDateFrom(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }} />
+                    <DateField mode={dateMode} value={oplDateFrom} onChange={setOplDateFrom} blankLabel="Any date" style={{ padding: "6px 10px", fontSize: 13 }} />
                   </label>
                   <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>To</span>
-                    <input type="date" className="kfin-input" value={oplDateTo} onChange={e => setOplDateTo(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }} />
+                    <DateField mode={dateMode} value={oplDateTo} onChange={setOplDateTo} blankLabel="Any date" style={{ padding: "6px 10px", fontSize: 13 }} />
                   </label>
+                  {dateSwitch}
                   {(oplStatusFilter !== "all" || oplDateFrom || oplDateTo) && (
                     <button className="ghost-button" style={{ fontSize: 12, padding: "6px 12px" }}
                       onClick={() => { setOplStatusFilter("all"); setOplDateFrom(""); setOplDateTo(""); }}>
