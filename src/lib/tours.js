@@ -152,9 +152,11 @@ export const TOURS = {
         anchor: "task-board",
         title: "Move your own cards",
         body:
-          "Drag between To Do, In Progress, Done and Blocked. Blocked is not an admission "
-          + "of failure — it's the column that gets you help, and a card sitting in "
-          + "In Progress while it's actually stuck is a card nobody knows to unstick.",
+          "Drag a card into the section it belongs in, or click it to change its section or owner. "
+          + "The sections are yours: click a name to rename, recolour or move one, or use Add section. "
+          + "A Blocked section is worth having — it's the one that gets you help, and a card left in "
+          + "In Progress while it's actually stuck is a card nobody knows to unstick. Finished cards "
+          + "go to the Done bar at the bottom of the screen.",
       },
     ],
   },

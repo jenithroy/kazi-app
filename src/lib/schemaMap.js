@@ -1527,13 +1527,16 @@ export const SCHEMA_MAP = {
       "createdBy": "created_by",
       "createdAt": "created_at",
       "assignee_id": "assignee_id",
-      "region": "region"
+      "region": "region",
+      "completedAt": "completed_at",
+      "sectionId": "section_id"
     },
     "derived": [],
     "columns": [
       "assignee",
       "assignee_id",
       "category",
+      "completed_at",
       "created_at",
       "created_by",
       "customer",
@@ -1544,6 +1547,7 @@ export const SCHEMA_MAP = {
       "order_ref",
       "priority",
       "region",
+      "section_id",
       "status",
       "title",
       "updated_at"
