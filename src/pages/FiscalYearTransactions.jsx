@@ -186,7 +186,20 @@ export default function FiscalYearTransactions() {
         });
       });
 
-      out.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      // Newest first by date. fetchAll has no ORDER BY, so rows sharing a date
+      // arrive in whatever order the database happens to hand them back — not
+      // necessarily the order their numbers run in (e.g. INV-005 ahead of
+      // INV-004). Doc numbers follow dates (see resequencePurchaseExpenseIds /
+      // resequenceDocNumbers), so within a day the higher number is the later
+      // one; this mirrors the tiebreak Billing.jsx's own list uses.
+      const seqNum = (entry) => {
+        const raw = entry.type === "Sales" ? entry.src.invoiceNumber
+          : entry.type === "Purchase" ? entry.src.expenseId
+          : "";
+        const m = /(\d+)\s*$/.exec(raw || "");
+        return m ? parseInt(m[1], 10) : -1;
+      };
+      out.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (seqNum(b) - seqNum(a)));
       setAllRows(out);
       setAccountNames([...new Set(accRows.map(a => a.name).filter(Boolean))]);
     } finally {
