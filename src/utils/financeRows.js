@@ -8,7 +8,8 @@
  * lives here so the fiscal-year page deletes a purchase the same way rather than
  * growing a second, slightly different copy of it.
  */
-import { deleteRow, fetchAll, updateRow } from "../lib/db";
+import { deleteRow, fetchAll, updateRow, supabase } from "../lib/db";
+import { tsMillis } from "./date";
 
 /** Delete a purchase along with everything raised from it. */
 export async function deletePurchaseWithLinks(id, expenseId) {
@@ -54,6 +55,42 @@ export async function deletePurchaseWithLinks(id, expenseId) {
       console.error("Failed to delete linked journal_entries:", e);
     }
   }
+}
+
+/**
+ * Put purchase expense IDs back in date order (migration 0042) — the earliest
+ * purchase becomes EXP001, the next EXP002, and so on. One continuous series,
+ * like quotations: nextExpenseId() reads every purchase ever raised, so there
+ * is no fiscal year to pass. Resolves to how many purchases changed number.
+ */
+export async function resequencePurchaseExpenseIds() {
+  const { data, error } = await supabase.rpc("resequence_purchase_expense_ids");
+  if (error) throw error;
+  return data || 0;
+}
+
+/**
+ * What resequencing would do, without doing it — the client-side twin of
+ * resequence_purchase_expense_ids, for the "out of order" notice.
+ *
+ * `purchases` is every purchase in any region or year — numbers are one series
+ * across both. Mirrors the function's own ordering: purchase date, then
+ * creation time, then id, undated last. Returns only the purchases whose
+ * number would change, as { id, from, to }, in their new order.
+ */
+export function planPurchaseRenumber(purchases) {
+  const sorted = [...purchases].sort((a, b) =>
+    (a.date ? 0 : 1) - (b.date ? 0 : 1) ||
+    String(a.date || "").localeCompare(String(b.date || "")) ||
+    tsMillis(a.createdAt) - tsMillis(b.createdAt) ||
+    String(a.id).localeCompare(String(b.id))
+  );
+  const changes = [];
+  sorted.forEach((p, i) => {
+    const to = `EXP${String(i + 1).padStart(3, "0")}`;
+    if (p.expenseId !== to) changes.push({ id: p.id, from: p.expenseId || null, to });
+  });
+  return changes;
 }
 
 /**

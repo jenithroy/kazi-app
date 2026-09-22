@@ -12,7 +12,7 @@ import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
 import { filterByFiscalYear, fiscalYearsIn, isFiscalYearLabel } from "../utils/fiscalYear";
-import { deletePurchaseWithLinks } from "../utils/financeRows";
+import { deletePurchaseWithLinks, planPurchaseRenumber, resequencePurchaseExpenseIds } from "../utils/financeRows";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
   itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload,
@@ -38,7 +38,33 @@ function Purchases() {
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
   const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
   const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs" — one switch for the whole Date column
+  const [renumbering, setRenumbering] = useState(false);
   const deletingIdsRef = useRef(new Set());
+
+  // Expense IDs are one continuous series across every region and year (like
+  // quotations — nextExpenseId() reads every purchase ever raised), so whether
+  // they are in date order has to be judged on all of them, not just what's on
+  // screen. Fixing it is a deliberate act (a button), never a side effect.
+  const outOfOrder = useMemo(() => planPurchaseRenumber(allPurchases), [allPurchases]);
+
+  function renumberMessage(changes) {
+    const shown = changes.slice(0, 8).map(c => `${c.from || "—"}  →  ${c.to}`).join("\n");
+    const more = changes.length > 8 ? `\n…and ${changes.length - 8} more` : "";
+    return `This will renumber ${changes.length} existing purchase${changes.length !== 1 ? "s" : ""} so the numbers keep following the dates:\n\n${shown}${more}\n\nContinue?`;
+  }
+
+  async function renumberByDate() {
+    if (!outOfOrder.length || !window.confirm(renumberMessage(outOfOrder))) return;
+    setRenumbering(true);
+    try {
+      await resequencePurchaseExpenseIds();
+      await loadPurchases();
+    } catch (err) {
+      console.error("Failed to renumber purchases by date:", err);
+      alert("Could not renumber. Database migration 0042 may not be applied yet.");
+    }
+    setRenumbering(false);
+  }
 
   async function loadPurchases() {
     setLoading(true);
@@ -184,6 +210,20 @@ function Purchases() {
             Saved Purchases <span className="kfin-block-sub">({filtered.length}{searchQuery ? ` of ${purchases.length}` : ""})</span>
           </h2>
         </div>
+
+        {/* Numbers are meant to follow dates. When the series has drifted — purchases
+            filed out of order, or a date edited afterwards — say so and offer the
+            fix, rather than renumbering issued expense IDs unasked. */}
+        {canEdit && outOfOrder.length > 0 && (
+          <div className="kfin-notice" style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ flex: 1, minWidth: 220 }}>
+              ⚠ {outOfOrder.length} expense ID{outOfOrder.length !== 1 ? "s are" : " is"} out of date order.
+            </span>
+            <button type="button" className="kbil-btn-ghost" style={{ fontSize: 12, padding: "5px 12px" }} disabled={renumbering} onClick={renumberByDate}>
+              Renumber by date
+            </button>
+          </div>
+        )}
 
         <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <input
