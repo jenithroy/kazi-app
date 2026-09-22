@@ -6839,3 +6839,348 @@ span.kap-personal { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .kspot-ring, .kspot-tip, .kspot-scrim { animation: none; transition: none; }
 }
+
+/* ══════════════════════════════════════════════════════
+   MODAL SHELL — components/Modal.jsx
+   Header and footer stay put; only the body scrolls.
+   ≥641px: centred dialog.  ≤640px: bottom sheet.
+══════════════════════════════════════════════════════ */
+.kmodal-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(10, 28, 20, .45);
+  backdrop-filter: blur(2px);
+  animation: kmodal-fade .18s ease-out;
+}
+.kmodal {
+  --kmodal-w: 640px;
+  position: relative;
+  display: flex; flex-direction: column;
+  width: 100%; max-width: var(--kmodal-w);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;              /* rounds the header and footer; the body is what scrolls */
+  outline: none;
+  animation: kmodal-in .22s cubic-bezier(.16, 1, .3, 1);
+}
+.kmodal--sm { --kmodal-w: 480px; }
+.kmodal--lg { --kmodal-w: 760px; }
+
+.kmodal-hd {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 14px 14px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.kmodal-hd-text { min-width: 0; }
+.kmodal-title {
+  margin: 0; font-size: 16px; font-weight: 700; line-height: 1.3;
+  letter-spacing: -.01em; color: var(--ink); overflow-wrap: anywhere;
+}
+.kmodal-sub { margin: 2px 0 0; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.kmodal-x {
+  flex: none; width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 10px; background: transparent; color: var(--ink-3);
+  cursor: pointer; transition: background .12s, color .12s;
+}
+.kmodal-x:hover { background: var(--bg-2); color: var(--ink); }
+.kmodal-x:focus-visible { border-radius: 10px; }
+
+/* The form (or plain div) that holds body + footer. min-height: 0 at every level
+   of this flex chain is what lets the body shrink and scroll instead of the whole
+   panel growing past the screen. */
+.kmodal-inner { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0; }
+.kmodal-body {
+  flex: 1 1 auto; min-height: 0;
+  padding: 20px 24px 24px;
+  overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-block: 16px;
+}
+/* Scrollbar: Chromium and Safari get the app's own slim thumb (no arrow buttons).
+   Setting scrollbar-width there would switch that off in Chrome 121+ and bring the
+   platform arrows back, so the standard properties are for Firefox only. */
+.kmodal-body::-webkit-scrollbar { width: 10px; }
+.kmodal-body::-webkit-scrollbar-track { background: transparent; }
+.kmodal-body::-webkit-scrollbar-thumb {
+  background: rgba(15, 46, 34, .2); border: 2px solid transparent;
+  background-clip: content-box; border-radius: 999px;
+}
+.kmodal-body::-webkit-scrollbar-thumb:hover { background: rgba(15, 46, 34, .34); background-clip: content-box; }
+/* Touch screens get the platform's overlay bar instead: a custom webkit scrollbar
+   there is a permanent 10px strip that squeezes the form on the phone it matters on. */
+@media (pointer: coarse) {
+  .kmodal-body { scrollbar-width: thin; scrollbar-color: rgba(15, 46, 34, .28) transparent; }
+}
+@supports (-moz-appearance: none) {
+  .kmodal-body { scrollbar-width: thin; scrollbar-color: rgba(15, 46, 34, .28) transparent; }
+}
+
+.kmodal-ft {
+  flex: none;
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+.kmodal-ft .primary-button, .kmodal-ft .ghost-button { min-height: 40px; }
+.kmodal-msg { flex: 1 1 100%; margin: 0; font-size: 12.5px; line-height: 1.45; }
+.kmodal-msg--err { color: #b42318; }
+
+@keyframes kmodal-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kmodal-in {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes kmodal-sheet-in {
+  from { opacity: .6; transform: translateY(36px); }
+  to   { opacity: 1;  transform: none; }
+}
+
+/* Phone: a bottom sheet. The frame keeps its shape, so the buttons stay under the
+   thumb and the safe-area inset keeps them clear of the home indicator. */
+@media (max-width: 640px) {
+  .kmodal-overlay { align-items: flex-end; padding: 0; }
+  .kmodal {
+    max-width: none;
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - max(12px, env(safe-area-inset-top, 0px)));
+    border-radius: 20px 20px 0 0;
+    animation: kmodal-sheet-in .3s cubic-bezier(.16, 1, .3, 1);
+  }
+  .kmodal-hd { padding: 8px 8px 8px 18px; }
+  .kmodal-x { width: 44px; height: 44px; }
+  .kmodal-body { padding: 16px 16px 20px; }
+  .kmodal-ft { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .kmodal-ft .primary-button, .kmodal-ft .ghost-button { min-height: 44px; }
+  .kmodal-ft .primary-button { flex: 1; width: auto; }
+}
+
+/* Landscape phones and other short windows: give the body the room. */
+@media (max-height: 520px) {
+  .kmodal-hd { padding-top: 6px; padding-bottom: 6px; }
+  .kmodal-body { padding-top: 12px; padding-bottom: 14px; }
+  .kmodal-ft { padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kmodal-overlay, .kmodal { animation: none; }
+}
+
+/* ══════════════════════════════════════════════════════
+   ORDER FORM — body of the New / Edit Production Order modal
+   One grid, 12 columns wide: a field says how many it takes
+   (.kof-c3/4/6/8; none = the whole row). On a phone the grid is
+   2 columns: fields go full width, and the short ones marked
+   .kof-h (dates, numbers) pair up.
+══════════════════════════════════════════════════════ */
+.kof {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+  align-items: start;
+}
+.kof > * { grid-column: 1 / -1; min-width: 0; }
+.kof > .kof-h { grid-column: span 1; }
+@media (min-width: 641px) {
+  .kof { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px 16px; }
+  .kof > .kof-c3 { grid-column: span 3; }
+  .kof > .kof-c4 { grid-column: span 4; }
+  .kof > .kof-c6 { grid-column: span 6; }
+  .kof > .kof-c8 { grid-column: span 8; }
+}
+
+/* Group headings: more room above than below, a hairline to close them off. */
+.kof-sec {
+  display: flex; align-items: center; gap: 12px;
+  margin: 10px 0 -4px; padding: 0;
+  font-family: inherit; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3);
+}
+.kof-sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.kof-sec svg { flex: none; color: var(--mint-deep); }
+.kof > .kof-sec:first-child { margin-top: 0; }
+
+/* Field = label above control. */
+.kof-f {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  font-size: 12.5px; font-weight: 600; letter-spacing: .01em; color: var(--ink-3);
+}
+.kof-l { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kof-req { margin-left: 3px; color: #b42318; font-weight: 700; }
+.kof .kfield-hint { margin: 0; font-size: 12px; font-weight: 400; color: var(--ink-3); }
+
+.kof input:not([type="checkbox"]):not([type="radio"]),
+.kof select {
+  display: block; width: 100%; min-width: 0; max-width: 100%;
+  height: 40px; padding: 0 12px;
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-input);
+  background-color: #fff; color: var(--ink);
+  font: 400 14px/1.25 var(--font); letter-spacing: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+.kof input::placeholder { color: #66766d; opacity: 1; }
+.kof input:hover:not(:disabled):not(:focus),
+.kof select:hover:not(:disabled):not(:focus) { border-color: var(--ink-5); }
+.kof input:focus, .kof select:focus,
+.kof input:focus-visible, .kof select:focus-visible {
+  outline: none; border-color: var(--mint-2); border-radius: var(--r-input);
+  box-shadow: 0 0 0 3px rgba(90, 185, 138, .25);
+}
+.kof input:user-invalid, .kof select:user-invalid { border-color: var(--terra); }
+.kof input:disabled, .kof select:disabled {
+  background-color: var(--bg); color: var(--ink-4); cursor: not-allowed;
+}
+
+/* Dates: same box on every browser. iOS gives a bare date input no height and
+   centres its text without this. */
+.kof input[type="date"] { -webkit-appearance: none; appearance: none; text-align: left; }
+.kof input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.kof input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .6; }
+.kof input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+/* Numbers: the steppers are noise for quantities and prices, and a wheel over a
+   focused one silently changes the value. */
+.kof input[type="number"] { -moz-appearance: textfield; appearance: textfield; font-variant-numeric: tabular-nums; }
+.kof input[type="number"]::-webkit-outer-spin-button,
+.kof input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.kof select {
+  -webkit-appearance: none; appearance: none;
+  padding-right: 36px; cursor: pointer; text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b6a62' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px 16px;
+}
+
+/* Touch: 44px targets, and 16px text so iOS does not zoom the page on focus. */
+@media (max-width: 640px), (pointer: coarse) {
+  .kof input:not([type="checkbox"]):not([type="radio"]), .kof select { height: 44px; font-size: 16px; }
+}
+
+/* Suggestion from the latest invoice */
+.kof-sugg {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px;
+  margin-bottom: 18px; padding: 10px 10px 10px 14px;
+  border-radius: 12px; background: var(--mint-wash);
+  border: 1px solid rgba(90, 185, 138, .35);
+}
+.kof-sugg-ico { display: inline-flex; color: var(--mint-deep); }
+.kof-sugg-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kof-sugg-txt strong { font-size: 13px; font-weight: 600; color: var(--ink); }
+/* Up to two lines: on a phone the rate at the end of the line is the part worth
+   keeping, and one line of ellipsis cuts exactly that. */
+.kof-sugg-txt span {
+  font-size: 12px; line-height: 1.4; color: var(--ink-3);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.kof-sugg-act { display: flex; align-items: center; gap: 4px; }
+.kof-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 32px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-3);
+  font: 600 12.5px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.kof-btn:hover { background: rgba(15, 46, 34, .06); color: var(--ink); }
+.kof-btn:focus-visible { border-radius: 8px; }
+.kof-btn--solid { background: var(--mint-deep); color: #fff; }
+.kof-btn--solid:hover { background: var(--mint-2); color: #fff; }
+@media (max-width: 640px) {
+  .kof-sugg { grid-template-columns: auto minmax(0, 1fr); }
+  .kof-sugg-act { grid-column: 1 / -1; justify-content: flex-end; }
+  .kof-btn { height: 40px; padding: 0 16px; }
+}
+
+/* On/off row. The whole row is the button. */
+.kof-switch {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  width: 100%; min-height: 56px; padding: 10px 14px;
+  border: 1.5px solid var(--line-strong); border-radius: 12px;
+  background: #fff; color: var(--ink);
+  font-family: inherit; text-align: left; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.kof-switch:hover { border-color: var(--ink-5); }
+.kof-switch.is-on { border-color: var(--mint-2); background: var(--mint-wash); }
+.kof-switch:focus-visible { border-radius: 12px; }
+.kof-switch-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kof-switch-l { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.kof-switch-h { font-size: 12px; font-weight: 400; line-height: 1.4; color: var(--ink-3); }
+.kof-track {
+  flex: none; position: relative; width: 40px; height: 24px;
+  border-radius: 12px; background: var(--ink-4); transition: background .18s;
+}
+.kof-knob {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: transform .18s cubic-bezier(.16, 1, .3, 1);
+}
+.kof-switch.is-on .kof-track { background: var(--mint-deep); }
+.kof-switch.is-on .kof-knob { transform: translateX(16px); }
+
+/* Invoice details: the same grid again, nested, so its fields line up with
+   the ones above. */
+.kof-inv { margin-top: 10px; animation: kof-reveal .2s ease-out; }
+@keyframes kof-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .kof-inv { animation: none; } }
+
+.kof-vat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; align-items: start; }
+@media (max-width: 640px) { .kof-vat { grid-template-columns: minmax(0, 1fr); } }
+.kof-tot { display: grid; gap: 4px; margin: 0; padding: 2px 2px 0; font-size: 13px; }
+.kof-tot > div { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-3); }
+.kof-tot dt, .kof-tot dd { margin: 0; }
+.kof-tot dd { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.kof-tot > .kof-tot-total { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--line-strong); color: var(--ink); font-weight: 700; }
+.kof-tot > .kof-tot-total dd { color: var(--mint-deep); font-size: 14.5px; font-weight: 700; }
+
+/* Dates that can be entered in A.D. or B.S. (DateField). DualDateInput sizes the
+   B.S. dropdowns and its calendar-switch chip with inline styles, so the overrides
+   below need !important to win: without them the three dropdowns keep their 56/78/40px
+   minimums and 2px padding, which runs the text into the chevron and overflows a
+   phone. The dropdowns share the row instead, weighted to what they hold. */
+.kof-date select {
+  flex: 1.1 1 0; width: auto !important; min-width: 0 !important;
+  padding: 0 26px 0 10px !important; font-size: 14px !important;
+  background-position: right 8px center;
+}
+.kof-date select:nth-of-type(2) { flex-grow: 1.7; }
+.kof-date select:nth-of-type(3) { flex-grow: .9; }
+.kof-date button { font-family: inherit; }
+
+/* A blank B.S. date: a button that reads like an empty field, plus the same chip. */
+.kof-date-blank { display: flex; flex-direction: column; gap: 3px; }
+.kof-pick {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; height: 40px; padding: 0 12px;
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-input);
+  background: #fff; color: #66766d;
+  font: 400 14px/1.25 var(--font); text-align: left; cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.kof-pick svg { flex: none; color: var(--ink-3); }
+.kof-pick:hover { border-color: var(--ink-5); }
+.kof-pick:focus-visible {
+  outline: none; border-color: var(--mint-2); border-radius: var(--r-input);
+  box-shadow: 0 0 0 3px rgba(90, 185, 138, .25);
+}
+.kof-chip {
+  display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+  padding: 2px 8px 2px 7px; border: 1px solid rgba(45, 155, 111, .25); border-radius: 20px;
+  background: var(--mint-wash); color: var(--mint-deep);
+  font: 600 11px/1.4 var(--font); cursor: pointer;
+}
+.kof-chip:focus-visible { border-radius: 20px; }
+
+/* Touch: a bigger switch chip, and 16px text in the dropdowns so iOS does not zoom. */
+@media (max-width: 640px), (pointer: coarse) {
+  .kof-pick { height: 44px; font-size: 16px; }
+  .kof-date select { font-size: 16px !important; padding-left: 12px !important; }
+  .kof-date button:not(.kof-pick), .kof-chip { min-height: 32px; padding: 4px 12px !important; font-size: 12px !important; }
+}

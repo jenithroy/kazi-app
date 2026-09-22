@@ -13,6 +13,10 @@ import { cn, Pill, Progress, Icons } from "../components/ui";
 import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
 import CustomerPicker from "../components/CustomerPicker";
+import Modal from "../components/Modal";
+import DualDateInput from "../components/DualDateInput";
+import { adToBsParts } from "../utils/fiscalYear";
+import { clientsFromDocuments, sameName } from "../utils/billingClients";
 import MaterialsUsedModal from "../components/MaterialsUsedModal";
 import { orderRefOf } from "../utils/productionConsumption";
 import { notifyStageChange } from "../utils/telegram";
@@ -118,7 +122,8 @@ const emptyOrderForm = {
   notes: "",
   sampleId: "",
   sampleName: "",
-  recipeId: "",
+  // Not entered on the form any more. They are carried through so that saving an
+  // older order does not wipe the fabric figures it was created with.
   fabricGramsUsed: "",
   fabricCostPerPcNPR: "",
   region: ""
@@ -130,16 +135,174 @@ function findFabricByNameProd(fabrics, name) {
   return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
 }
 
-// Fabric is priced by weight (₨/1000g) in the Fabrics library — this derives the
-// per-piece fabric cost from grams used, same math as the Inventory Item Cost tab,
-// so it doesn't have to be hand-calculated and retyped here too.
-function computeFabricCostProd(fabrics, name, gramsUsed) {
-  const match = findFabricByNameProd(fabrics, name);
-  const grams = Number(gramsUsed);
-  if (match && match.pricePerKg && grams > 0) {
-    return Math.round((Number(match.pricePerKg) / 1000) * grams * 100) / 100;
-  }
-  return null;
+/* ── New / Edit order form: building blocks ──────────────
+   Layout classes are the .kof-* set in styles.css. */
+
+// Label above a control. `w` is how many of the 12 desktop columns it takes (3, 4,
+// 6, 8, or 12 for a whole row); `half` lets a short field sit two-to-a-row on a
+// phone, and is only for fields narrower than a full row.
+function Field({ label, w = 12, half = false, required = false, hint, children }) {
+  return (
+    <label className={cn("kof-f", w < 12 && `kof-c${w}`, half && "kof-h")}>
+      <span className="kof-l">
+        {label}
+        {required && <span className="kof-req" aria-hidden="true">*</span>}
+      </span>
+      {children}
+      {hint && <span className="kfield-hint">{hint}</span>}
+    </label>
+  );
+}
+
+// A date in the form's calendar. The stored value is always an A.D. "YYYY-MM-DD"
+// string (or "" when unset); `mode` only decides how it is shown and entered, and the
+// chip under the field flips it for every date in the form at once (Billing does the
+// same). B.S. entry is DualDateInput's Year/Month/Day dropdowns, except while blank:
+// those have to show some date and would look chosen when nothing is, so a blank one
+// is a button that starts from today (Finance's dates follow the same rule).
+function DateField({ label, w, half, required, value, onChange, mode, onModeChange }) {
+  const blankBs = mode === "bs" && !adToBsParts(value);
+  return (
+    // Three dropdowns need more than half a phone's width, so B.S. takes the whole row.
+    <Field label={label} w={w} half={half && mode !== "bs"} required={required}>
+      <div className="kof-date">
+        {blankBs ? (
+          <div className="kof-date-blank">
+            <button type="button" className="kof-pick" onClick={() => onChange(todayDate())}>
+              Pick date <Icons.Calendar size={16} />
+            </button>
+            <button type="button" className="kof-chip" title="Click to switch calendar" onClick={() => onModeChange("ad")}>
+              <span aria-hidden="true">⇄</span> A.D.
+            </button>
+          </div>
+        ) : (
+          <DualDateInput className="kof-dd" value={value} onChange={onChange} required={required}
+            mode={mode} onModeChange={onModeChange} />
+        )}
+      </div>
+    </Field>
+  );
+}
+
+// An on/off row where the whole row is the button.
+function Switch({ checked, onChange, label, hint }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked}
+      className={cn("kof-switch", checked && "is-on")}
+      onClick={() => onChange(!checked)}>
+      <span className="kof-switch-txt">
+        <span className="kof-switch-l">{label}</span>
+        {hint && <span className="kof-switch-h">{hint}</span>}
+      </span>
+      <span className="kof-track" aria-hidden="true"><span className="kof-knob" /></span>
+    </button>
+  );
+}
+
+// Offers to copy the latest invoice into a blank order. It changes wording once
+// Apply is pressed: on a phone the fields it fills can be below the fold, and a
+// button that appears to do nothing gets pressed twice.
+function SuggestionBanner({ invoice, onApply, onDismiss }) {
+  const [applied, setApplied] = useState(false);
+  const item = invoice.items?.[0];
+  const facts = [
+    invoice.invoiceNumber && `Latest invoice ${invoice.invoiceNumber}`,
+    invoice.clientName,
+    (item?.description || "").split("\n")[0],
+    item?.qty ? `${Number(item.qty).toLocaleString()} pcs` : "",
+    item?.rate ? `NPR ${roundAmount(item.rate).toLocaleString()}/pc` : "",
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div className="kof-sugg" role="region" aria-label="Smart recommendation">
+      <span className="kof-sugg-ico" aria-hidden="true">
+        {applied ? <Icons.Check size={18} /> : <Icons.Billing size={18} />}
+      </span>
+      <div className="kof-sugg-txt" aria-live="polite">
+        <strong>{applied ? "Recommendation applied" : "Smart recommendation"}</strong>
+        <span>{applied ? "Check the details below before saving." : facts}</span>
+      </div>
+      <div className="kof-sugg-act">
+        {!applied && (
+          <button type="button" className="kof-btn kof-btn--solid"
+            onClick={() => { onApply(); setApplied(true); }}>
+            Apply
+          </button>
+        )}
+        <button type="button" className="kof-btn" onClick={onDismiss}>{applied ? "Done" : "Dismiss"}</button>
+      </div>
+    </div>
+  );
+}
+
+// The invoice or challan an order belongs to, picked from the ones that exist: a
+// typed reference can point at nothing. Newest first, cancelled ones left out.
+// Invoice and challan numbers restart every fiscal year, so a number that turns up
+// more than once is shown with its year. A reference an older order already carries
+// that matches nothing listed (typed by hand before this was a picker) stays as its
+// own option, so opening and saving that order cannot blank it.
+// When `customer` is given, the list narrows to that customer's own documents —
+// by customerId for invoices, or by name for challans, which have no such column
+// at all. A value already on the order that falls outside that narrowed list is
+// never dropped silently: it is shown as "not found" (doesn't exist anywhere) or
+// "different customer" (exists, just not theirs), so a mismatch is something the
+// person sees and can decide about, not something that quietly vanishes.
+function DocumentRefSelect({ value, onChange, invoices, challans, locked, customer }) {
+  const newestFirst = (a, b) => (b.date || "").localeCompare(a.date || "");
+  const usable = d => !/^cancel/i.test(d.status || "");
+  const prep = (rows, numberField) => rows
+    .filter(usable)
+    .map(d => ({ ...d, number: d[numberField] }))
+    .filter(d => d.number)
+    .sort(newestFirst);
+  const allInv = prep(invoices, "invoiceNumber");
+  const allCh = prep(challans, "challanNumber");
+
+  const belongsToCustomer = d => !customer || d.customerId === customer.id || sameName(d.clientName, customer.name);
+  const inv = customer ? allInv.filter(belongsToCustomer) : allInv;
+  const ch = customer ? allCh.filter(belongsToCustomer) : allCh;
+
+  const count = {};
+  [...inv, ...ch].forEach(d => { count[d.number] = (count[d.number] || 0) + 1; });
+  const label = d => [
+    count[d.number] > 1 && d.fiscalYear ? `${d.number} (FY ${d.fiscalYear})` : d.number,
+    d.clientName,
+    Number(d.totalNPR) > 0 ? `NPR ${roundAmount(d.totalNPR).toLocaleString()}` : null,
+  ].filter(Boolean).join(" · ");
+
+  const selectedDoc = value ? [...allInv, ...allCh].find(d => d.number === value) : null;
+  const missing = value && !selectedDoc;
+  const elsewhere = value && selectedDoc && !count[value];
+  return (
+    <select value={locked ? "" : value} disabled={locked} onChange={e => onChange(e.target.value)}>
+      <option value="">{locked ? "New invoice — numbered when you save" : "— None —"}</option>
+      {missing && !locked && <option value={value}>{value} (not found)</option>}
+      {elsewhere && !locked && <option value={value}>{value} — {selectedDoc.clientName} (different customer)</option>}
+      {inv.length > 0 && (
+        <optgroup label="Invoices">
+          {inv.map(d => <option key={d.id} value={d.number}>{label(d)}</option>)}
+        </optgroup>
+      )}
+      {ch.length > 0 && (
+        <optgroup label="Challans">
+          {ch.map(d => <option key={d.id} value={d.number}>{label(d)}</option>)}
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
+function InvoiceTotals({ quantity, price, applyVAT }) {
+  if (!(Number(quantity) > 0 && Number(price) > 0)) return null;
+  const sub = Number(quantity) * Number(price);
+  const vat = applyVAT ? sub * VAT_RATE : 0;
+  return (
+    <dl className="kof-tot">
+      <div><dt>Subtotal</dt><dd>NPR {roundAmount(sub).toLocaleString()}</dd></div>
+      {applyVAT && <div><dt>VAT 13%</dt><dd>NPR {roundAmount(vat).toLocaleString()}</dd></div>}
+      <div className="kof-tot-total"><dt>Total</dt><dd>NPR {roundAmount(sub + vat).toLocaleString()}</dd></div>
+    </dl>
+  );
 }
 
 /* ── Invoice modal (existing orders) ─────────────────── */
@@ -920,13 +1083,17 @@ function Production() {
   const [savingOrder, setSavingOrder] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
+  // One calendar for every date in the order form — see DateField. It lives here rather
+  // than in the form so the choice survives closing and reopening it.
+  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs"
   const [employees, setEmployees] = useState([]);
   const [orderCosts, setOrderCosts] = useState({});
   const [labourRatePerUnit, setLabourRatePerUnit] = useState(null);
   const [allFabrics, setFabrics] = useState([]);
   const [allSamples, setSamples] = useState([]);
   const [allCustomers, setCustomers] = useState([]);
-  const [recipes, setRecipes] = useState([]);
+  const [allChallans, setChallans] = useState([]);
+  const [allQuotations, setQuotations] = useState([]);
 
   /* ── Pipeline drag state ── */
   const [dragOver, setDragOver] = useState(null);
@@ -960,6 +1127,16 @@ function Production() {
   const fabrics  = useMemo(() => filterByRegion(allFabrics,  region), [allFabrics,  region]);
   const samples  = useMemo(() => filterByRegion(allSamples,  region), [allSamples,  region]);
   const invoices = useMemo(() => filterByRegion(allInvoices, region), [allInvoices, region]);
+  const challans = useMemo(() => filterByRegion(allChallans, region), [allChallans, region]);
+  const quotations = useMemo(() => filterByRegion(allQuotations, region), [allQuotations, region]);
+  // Clients who have been invoiced, sent a challan or quoted in Billing but were
+  // never added to Customers, so the customer picker offers them too. Checked against
+  // every customer, not just this region's, so one filed on the other side is not
+  // offered again as new.
+  const billingClients = useMemo(
+    () => clientsFromDocuments([...invoices, ...challans, ...quotations], allCustomers),
+    [invoices, challans, quotations, allCustomers],
+  );
   const customers = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
 
   /* ── Recommendation state & helpers ── */
@@ -986,9 +1163,15 @@ function Production() {
     const firstItem = latestInvoice.items?.[0] || {};
     const parsed = parseInvoiceDescription(firstItem.description || "");
 
+    // The invoice carries only the client's typed name. Link the order to the customer
+    // of that name when there is one, so it does not come out as "(not linked)" while
+    // the same customer sits in the list.
+    const customer = customers.find(c => sameName(c.name, latestInvoice.clientName));
+
     setOrderForm(f => ({
       ...f,
-      customerName: latestInvoice.clientName || "",
+      customerId: customer?.id || "",
+      customerName: customer?.name || latestInvoice.clientName || "",
       styleName: parsed.styleName,
       fabricType: parsed.fabricType,
       colorway: parsed.colorway,
@@ -1013,7 +1196,7 @@ function Production() {
   }
 
   async function loadData() {
-    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows, recipeRows, deductionRows] = await Promise.all([
+    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows, challanRows, quotationRows, deductionRows] = await Promise.all([
       fetchAll("production"),
       fetchAll("orders"),
       fetchAll("employees"),
@@ -1023,9 +1206,11 @@ function Production() {
       fetchAll("fabrics"),
       fetchAll("samples"),
       fetchAll("customers"),
-      // Recipes power the order form's picker. A page that cannot read them (the
-      // 0039 update not applied yet, or no access) just gets no picker.
-      fetchAll("recipes").catch(() => []),
+      // Challans and quotations are only read to offer them (as an order's document,
+      // and for the client names on them). A role that cannot read them still gets
+      // the invoices.
+      fetchAll("challans").catch(() => []),
+      fetchAll("quotations").catch(() => []),
       // Which orders already had their materials deducted. Only asked for by
       // people who can act on it: the database returns nothing to anyone without
       // inventory access, which would read as "nothing deducted".
@@ -1034,7 +1219,8 @@ function Production() {
         : Promise.resolve([]),
     ]);
     setDeductedRefs(new Set(deductionRows.map(m => m.sourceId).filter(Boolean)));
-    setRecipes([...recipeRows].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+    setChallans(challanRows);
+    setQuotations(quotationRows);
     setFabrics(fabricRows);
     setSamples(sampleRows);
     setCustomers(customerRows);
@@ -1098,6 +1284,10 @@ function Production() {
       fiscalYear:     "",
       paymentTerms:   fields.paymentTerms || "Net 30",
       clientName:     order.customerName || "",
+      // The order already knows which customer it is for (orders read it as
+      // customer_id, the form as customerId); carry it so the invoice is not the one
+      // record of that sale left unlinked.
+      customerId:     order.customerId || order.customer_id || null,
       clientPAN:      fields.clientPAN || "",
       clientAddress:  fields.clientAddress || "",
       clientPhone:    fields.clientPhone || "",
@@ -1187,33 +1377,6 @@ function Production() {
     return `ORD-${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
   }
 
-  // Fabric type + grams used share the same auto-calc: typing/changing either one
-  // recomputes fabricCostPerPcNPR from the material's stored ₨/kg price, but the
-  // cost field stays directly editable afterwards if she wants to override it.
-  function updateOrderFabric(field, value) {
-    setOrderForm(f => {
-      const next = { ...f, [field]: value };
-      const computed = computeFabricCostProd(
-        fabrics,
-        field === "fabricType" ? value : next.fabricType,
-        field === "fabricGramsUsed" ? value : next.fabricGramsUsed
-      );
-      if (computed !== null) next.fabricCostPerPcNPR = computed;
-      return next;
-    });
-  }
-
-  // Picking the recipe is choosing the product type, so the style name follows
-  // it when nothing has been typed yet.
-  function selectOrderRecipe(recipeId) {
-    const recipe = recipes.find(r => r.id === recipeId);
-    setOrderForm(f => ({
-      ...f,
-      recipeId: recipeId || "",
-      styleName: f.styleName || recipe?.name || "",
-    }));
-  }
-
   function selectOrderSample(sampleId) {
     const sample = samples.find(s => s.id === sampleId);
     setOrderForm(f => ({
@@ -1274,9 +1437,6 @@ function Production() {
         fabricCostPerPcNPR:  Number(orderForm.fabricCostPerPcNPR || 0),
         materialCostTotalNPR,
         region:              orderForm.region || null,
-        // Only sent when there is something to set or clear, so orders that
-        // never use a recipe keep saving even where the 0039 column is absent.
-        ...((orderForm.recipeId || editingOrder.recipeId) ? { recipeId: orderForm.recipeId || null } : {}),
       });
       setEditingOrder(null);
     } else {
@@ -1309,8 +1469,6 @@ function Production() {
       // link has to be spelled out here or it silently never persists.
       delete orderDoc.customerId;
       orderDoc.customer_id = orderForm.customerId || null;
-      // An empty string is not a uuid; leave the key out unless a recipe was picked.
-      if (!orderForm.recipeId) delete orderDoc.recipeId;
       const orderRef = await insertRow("orders", orderDoc);
       if (issueInvoice && invNum) {
         const invDoc = buildInvoiceDoc(
@@ -1334,6 +1492,16 @@ function Production() {
     }
   }
 
+  // Every way out of the order form — ✕, Cancel, Escape, a click on the backdrop —
+  // discards the draft the same way.
+  function closeOrderForm() {
+    setShowOrderForm(false);
+    setEditingOrder(null);
+    setIssueInvoice(false);
+    setInvFields(emptyInvFields);
+    setOrderForm(emptyOrderForm);
+  }
+
   function handleOpenEditOrder(order) {
     setEditingOrder(order);
     setOrderForm({
@@ -1353,7 +1521,6 @@ function Production() {
       notes:         order.notes || "",
       sampleId:            order.sampleId || "",
       sampleName:          order.sampleName || "",
-      recipeId:            order.recipeId || "",
       fabricGramsUsed:     order.fabricGramsUsed || "",
       fabricCostPerPcNPR:  order.fabricCostPerPcNPR || "",
       region:              order.region || "",
@@ -1374,7 +1541,7 @@ function Production() {
   }
 
   // Coming out of Quality Check is when materials leave stock: ask which ones
-  // were used (pre-filled from the recipe) before the order moves on. Orders
+  // were used before the order moves on. Orders
   // whose materials were already deducted, and people without inventory access,
   // go straight through.
   function advanceStage(order) {
@@ -2069,316 +2236,200 @@ function Production() {
           saving={savingInvoice}
         />
       )}
-      {/* ── Order Form Modal (New / Edit) ── */}
+      {/* ── Order Form Modal (New / Edit) ──
+          Shell, scrolling and phone bottom-sheet behaviour live in components/Modal.jsx;
+          the layout classes are .kof-* in styles.css. */}
       {showOrderForm && canEdit && (
-        <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); } }}>
-          <div className="kbrf-modal" style={{ maxWidth: 640, maxHeight: "90vh", overflowY: "auto" }}>
-            <div className="kbrf-modal-hd">
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>
-                  {editingOrder ? `Edit Order — ${editingOrder.orderId}` : "New Production Order"}
-                </div>
-              </div>
-              <button className="kbrf-modal-close" onClick={() => { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); }}>✕</button>
+        <Modal
+          size="lg"
+          title={editingOrder ? `Edit Order — ${editingOrder.orderId}` : "New Production Order"}
+          onClose={closeOrderForm}
+          onSubmit={submitOrder}
+          footer={
+            <>
+              {/* submitOrder reports through pageError, which on the page sits behind
+                  this dialog's backdrop, so a failed save has to be said in here. */}
+              {pageError && <p className="kmodal-msg kmodal-msg--err" role="alert">{pageError}</p>}
+              <button type="button" className="ghost-button" onClick={closeOrderForm}>Cancel</button>
+              <button type="submit" className="primary-button" disabled={savingOrder}>
+                {savingOrder ? "Saving…" : editingOrder ? "Save Changes" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
+              </button>
+            </>
+          }
+        >
+          {latestInvoice && !dismissedSuggestion && !editingOrder && (
+            <SuggestionBanner
+              invoice={latestInvoice}
+              onApply={applyInvoiceSuggestion}
+              onDismiss={() => setDismissedSuggestion(true)}
+            />
+          )}
+
+          <div className="kof">
+            <h3 className="kof-sec">Customer &amp; dates</h3>
+            <div className="kof-f">
+              <label className="kof-l" htmlFor="kof-customer">
+                Customer<span className="kof-req" aria-hidden="true">*</span>
+              </label>
+              <CustomerPicker
+                id="kof-customer"
+                customers={customers}
+                suggestions={billingClients}
+                valueId={orderForm.customerId}
+                valueName={orderForm.customerName}
+                onChange={({ id, name }) => setOrderForm(f => ({ ...f, customerId: id, customerName: name }))}
+                onCustomerCreated={c => setCustomers(list => [...list, c])}
+                canCreate={sectionCanEdit(profile, "customers")}
+              />
             </div>
+            <DateField label="Order Date" w={6} half required
+              value={orderForm.date} onChange={v => setOrderForm(f => ({ ...f, date: v }))}
+              mode={dateMode} onModeChange={setDateMode} />
+            <DateField label="Delivery Date" w={6} half
+              value={orderForm.deliveryDate} onChange={v => setOrderForm(f => ({ ...f, deliveryDate: v }))}
+              mode={dateMode} onModeChange={setDateMode} />
 
-            {latestInvoice && !dismissedSuggestion && !editingOrder && (
-              <div className="kprod-suggestion-banner" style={{
-                background: "var(--ok-container)",
-                border: "1.5px solid var(--ok-container-border)",
-                borderRadius: "var(--r-card, 10px)",
-                padding: "14px 18px",
-                marginBottom: 20,
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                boxShadow: "var(--shadow-1)",
-                animation: "fadeIn 0.2s ease-out"
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ok-text)", fontWeight: 600, fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    <span style={{ fontSize: "1.1rem" }}>💡</span> Smart Recommendation
-                  </div>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    style={{ padding: "3px 8px", fontSize: 11, border: "none", background: "transparent", color: "var(--ok-text)", opacity: 0.8, cursor: "pointer" }}
-                    onClick={() => setDismissedSuggestion(true)}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-                
-                <div style={{ fontSize: 13, color: "var(--ok-text)", lineHeight: 1.4 }}>
-                  Auto-fill order details using the latest invoice <strong>{latestInvoice.invoiceNumber}</strong> for <strong>{latestInvoice.clientName}</strong>:
-                </div>
+            <h3 className="kof-sec">Garment</h3>
+            <Field label="Style / Item Name" w={6} required>
+              <input type="text" value={orderForm.styleName} required placeholder="e.g. Men's Hoodie"
+                onChange={e => setOrderForm(f => ({ ...f, styleName: e.target.value }))} />
+            </Field>
+            <Field label="Sample" w={6}>
+              <select value={orderForm.sampleId} onChange={e => selectOrderSample(e.target.value)}>
+                <option value="">— None —</option>
+                {samples.map(s => <option key={s.id} value={s.id}>{s.name}{s.product_type ? ` (${s.product_type})` : ""}</option>)}
+              </select>
+            </Field>
+            <Field label="Fabric Type" w={6} half>
+              <input type="text" list="prod-fabric-names" value={orderForm.fabricType} placeholder="e.g. Terry Cotton"
+                onChange={e => setOrderForm(f => ({ ...f, fabricType: e.target.value }))} />
+              <datalist id="prod-fabric-names">
+                {fabrics.map(f => <option key={f.id} value={f.name} />)}
+                {FABRIC_TYPES.map(t => <option key={t} value={t} />)}
+              </datalist>
+            </Field>
+            <Field label="Colorway" w={6} half>
+              <input type="text" value={orderForm.colorway} placeholder="e.g. Black, Navy, Olive"
+                onChange={e => setOrderForm(f => ({ ...f, colorway: e.target.value }))} />
+            </Field>
 
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                  gap: 12,
-                  fontSize: 12,
-                  color: "var(--ok-text)",
-                  background: "rgba(255, 255, 255, 0.4)",
-                  padding: "10px 14px",
-                  borderRadius: 8,
-                  border: "1px solid var(--ok-container-border)"
-                }}>
-                  <div><strong>Customer:</strong> {latestInvoice.clientName}</div>
-                  {latestInvoice.items?.[0] && (
-                    <>
-                      <div style={{ gridColumn: "span 2" }}><strong>Item:</strong> {latestInvoice.items[0].description}</div>
-                      <div><strong>Qty:</strong> {latestInvoice.items[0].qty?.toLocaleString()} pcs</div>
-                      <div><strong>Rate:</strong> NPR {roundAmount(latestInvoice.items[0].rate || 0).toLocaleString()}</div>
-                    </>
-                  )}
-                </div>
+            <h3 className="kof-sec">Quantity &amp; price</h3>
+            <Field label="Quantity (pcs)" w={6} half required>
+              <input type="number" min="1" inputMode="numeric" value={orderForm.quantity} required placeholder="0"
+                onChange={e => setOrderForm(f => ({ ...f, quantity: e.target.value }))} />
+            </Field>
+            <Field label="Price per Piece (NPR)" w={6} half>
+              <input type="number" min="0" step="any" inputMode="decimal" value={orderForm.pricePerPcNPR} placeholder="0"
+                onChange={e => setOrderForm(f => ({ ...f, pricePerPcNPR: e.target.value }))} />
+            </Field>
 
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    style={{
-                      fontSize: 11.5,
-                      padding: "6px 14px",
-                      background: "var(--primary-deep, #1b5e20)",
-                      borderColor: "var(--primary-deep, #1b5e20)",
-                      color: "#fff",
-                      cursor: "pointer"
-                    }}
-                    onClick={applyInvoiceSuggestion}
-                  >
-                    ✓ Apply Recommendation
-                  </button>
+            <h3 className="kof-sec">Assignment &amp; notes</h3>
+            <Field label="Assigned To" w={4}>
+              <select value={orderForm.assignedTo} onChange={e => setOrderForm(f => ({ ...f, assignedTo: e.target.value }))}>
+                <option value="">— Select —</option>
+                {employees.map(em => <option key={em.id} value={em.id}>{em.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Initial Stage" w={4}>
+              <select value={orderForm.stage} onChange={e => setOrderForm(f => ({ ...f, stage: e.target.value }))}>
+                {STAGES.map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            <RegionField
+              className="kof-f kof-c4"
+              value={orderForm.region}
+              onChange={v => setOrderForm(f => ({ ...f, region: v }))}
+              hint="Which arm of the business this order belongs to."
+            />
+            <Field label="Invoice / Challan" w={6}
+              hint={
+                invoices.length + challans.length === 0
+                  ? "No invoices or challans yet. Create them in Billing."
+                  : orderForm.customerId
+                  ? `Showing ${orderForm.customerName}'s documents.`
+                  : "Pick a customer above to narrow this to their documents."
+              }>
+              <DocumentRefSelect
+                value={orderForm.invoiceRef}
+                onChange={v => setOrderForm(f => ({ ...f, invoiceRef: v }))}
+                invoices={invoices}
+                challans={challans}
+                locked={issueInvoice && !editingOrder}
+                customer={orderForm.customerId ? { id: orderForm.customerId, name: orderForm.customerName } : null}
+              />
+            </Field>
+            <Field label="Notes" w={6}>
+              <input type="text" value={orderForm.notes} placeholder="Optional notes"
+                onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))} />
+            </Field>
+
+            {/* ── Issue invoice with this order (new orders only) ── */}
+            {!editingOrder && (
+              <>
+                <h3 className="kof-sec"><Icons.Billing size={13} /> Invoice</h3>
+                <Switch
+                  checked={issueInvoice}
+                  onChange={setIssueInvoice}
+                  label="Issue invoice with this order"
+                  hint="Optional. Creates the invoice at the same time as the order."
+                />
+              </>
+            )}
+
+            {issueInvoice && !editingOrder && (
+              <div className="kof kof-inv">
+                <Field label="Client Address">
+                  <input type="text" autoComplete="off" placeholder="Street, City, Country"
+                    value={invFields.clientAddress}
+                    onChange={e => setInvFields(f => ({ ...f, clientAddress: e.target.value }))} />
+                </Field>
+                <Field label="Client Phone" w={6} half>
+                  <input type="tel" autoComplete="off" placeholder="+977 ..."
+                    value={invFields.clientPhone}
+                    onChange={e => setInvFields(f => ({ ...f, clientPhone: e.target.value }))} />
+                </Field>
+                <Field label="PAN / Tax No." w={6} half>
+                  <input type="text" autoComplete="off" placeholder="VAT / PAN number"
+                    value={invFields.clientPAN}
+                    onChange={e => setInvFields(f => ({ ...f, clientPAN: e.target.value }))} />
+                </Field>
+                <DateField label="Due Date" w={6} half
+                  value={invFields.dueDate} onChange={v => setInvFields(f => ({ ...f, dueDate: v }))}
+                  mode={dateMode} onModeChange={setDateMode} />
+                <Field label="Payment Terms" w={3} half>
+                  <select value={invFields.paymentTerms}
+                    onChange={e => setInvFields(f => ({ ...f, paymentTerms: e.target.value }))}>
+                    <option>Net 15</option>
+                    <option>Net 30</option>
+                    <option>Net 45</option>
+                    <option>Net 60</option>
+                    <option>Due on Receipt</option>
+                  </select>
+                </Field>
+                <Field label="Payment Type" w={3} half>
+                  <select value={invFields.paymentType}
+                    onChange={e => setInvFields(f => ({ ...f, paymentType: e.target.value }))}>
+                    <option value="CASH">Cash</option>
+                    <option value="Bank">Bank</option>
+                    <option value="Credit">Credit</option>
+                  </select>
+                </Field>
+                <div className="kof-vat">
+                  <Switch
+                    checked={invFields.applyVAT}
+                    onChange={v => setInvFields(f => ({ ...f, applyVAT: v }))}
+                    label="Apply VAT (13%)"
+                  />
+                  <InvoiceTotals
+                    quantity={orderForm.quantity}
+                    price={orderForm.pricePerPcNPR}
+                    applyVAT={invFields.applyVAT}
+                  />
                 </div>
               </div>
             )}
-
-            <form className="grid-form" onSubmit={submitOrder}>
-              <label>
-                Order Date
-                <input type="date" value={orderForm.date} required
-                  onChange={e => setOrderForm(f => ({ ...f, date: e.target.value }))} />
-              </label>
-              <label>
-                Delivery Date
-                <input type="date" value={orderForm.deliveryDate}
-                  onChange={e => setOrderForm(f => ({ ...f, deliveryDate: e.target.value }))} />
-              </label>
-              <label style={{ gridColumn: "span 2" }}>
-                Customer
-                <CustomerPicker
-                  customers={customers}
-                  valueId={orderForm.customerId}
-                  valueName={orderForm.customerName}
-                  onChange={({ id, name }) => setOrderForm(f => ({ ...f, customerId: id, customerName: name }))}
-                  onCustomerCreated={c => setCustomers(list => [...list, c])}
-                  canCreate={sectionCanEdit(profile, "customers")}
-                />
-              </label>
-              <label>
-                Style / Item Name
-                <input type="text" value={orderForm.styleName} required placeholder="e.g. Men's Hoodie"
-                  onChange={e => setOrderForm(f => ({ ...f, styleName: e.target.value }))} />
-              </label>
-              <label>
-                Recipe (materials per piece)
-                <select value={orderForm.recipeId} disabled={recipes.length === 0}
-                  onChange={e => selectOrderRecipe(e.target.value)}>
-                  <option value="">{recipes.length === 0 ? "— No recipes yet (add in Inventory → Recipes) —" : "— None —"}</option>
-                  {recipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </label>
-              <label>
-                Fabric Type
-                <input type="text" list="prod-fabric-names" value={orderForm.fabricType} placeholder="e.g. Terry Cotton"
-                  onChange={e => updateOrderFabric("fabricType", e.target.value)} />
-                <datalist id="prod-fabric-names">
-                  {fabrics.map(f => <option key={f.id} value={f.name} />)}
-                  {FABRIC_TYPES.map(t => <option key={t} value={t} />)}
-                </datalist>
-              </label>
-              <label>
-                Colorway
-                <input type="text" value={orderForm.colorway} placeholder="e.g. Black, Navy, Olive"
-                  onChange={e => setOrderForm(f => ({ ...f, colorway: e.target.value }))} />
-              </label>
-              <label>
-                Sample
-                <select value={orderForm.sampleId} onChange={e => selectOrderSample(e.target.value)}>
-                  <option value="">— None —</option>
-                  {samples.map(s => <option key={s.id} value={s.id}>{s.name}{s.product_type ? ` (${s.product_type})` : ""}</option>)}
-                </select>
-              </label>
-              <label>
-                Quantity (pcs)
-                <input type="number" min="1" value={orderForm.quantity} required placeholder="0"
-                  onChange={e => setOrderForm(f => ({ ...f, quantity: e.target.value }))} />
-              </label>
-              <label>
-                Price per Piece (NPR)
-                <input type="number" min="0" value={orderForm.pricePerPcNPR} placeholder="0"
-                  onChange={e => setOrderForm(f => ({ ...f, pricePerPcNPR: e.target.value }))} />
-              </label>
-              <label>
-                Fabric Used (grams / pc)
-                <input type="number" min="0" value={orderForm.fabricGramsUsed} placeholder="e.g. 900"
-                  onChange={e => updateOrderFabric("fabricGramsUsed", e.target.value)} />
-              </label>
-              <label>
-                Fabric Cost / pc (NPR)
-                <input type="number" min="0" value={orderForm.fabricCostPerPcNPR} placeholder="auto from material price"
-                  onChange={e => setOrderForm(f => ({ ...f, fabricCostPerPcNPR: e.target.value }))} />
-              </label>
-              <label>
-                Invoice / Challan Ref
-                <input type="text" value={orderForm.invoiceRef} placeholder="INV001 / CH-001"
-                  onChange={e => setOrderForm(f => ({ ...f, invoiceRef: e.target.value }))} />
-              </label>
-              <label>
-                Assigned To
-                <select value={orderForm.assignedTo} onChange={e => setOrderForm(f => ({ ...f, assignedTo: e.target.value }))}>
-                  <option value="">— Select —</option>
-                  {employees.map(em => <option key={em.id} value={em.id}>{em.name}</option>)}
-                </select>
-              </label>
-              <label>
-                Initial Stage
-                <select value={orderForm.stage} onChange={e => setOrderForm(f => ({ ...f, stage: e.target.value }))}>
-                  {STAGES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </label>
-              <RegionField
-                value={orderForm.region}
-                onChange={v => setOrderForm(f => ({ ...f, region: v }))}
-                hint="Which arm of the business this order belongs to."
-              />
-              <label style={{ gridColumn: "span 2" }}>
-                Notes
-                <input type="text" value={orderForm.notes} placeholder="Optional notes"
-                  onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))} />
-              </label>
-
-              {orderForm.quantity && orderForm.pricePerPcNPR && (
-                <div style={{ gridColumn: "span 2", background: "var(--bg-surface-soft)", borderRadius: 10, padding: "10px 16px", border: "1.5px solid var(--line)", fontSize: "0.9rem" }}>
-                  Order Value: <strong>NPR {roundAmount(Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR)).toLocaleString()}</strong>
-                  <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {roundAmount(orderForm.pricePerPcNPR).toLocaleString()})</span>
-                  {orderForm.fabricCostPerPcNPR && (
-                    <div style={{ marginTop: 4 }}>
-                      Material Cost: <strong>NPR {roundAmount(Number(orderForm.quantity) * Number(orderForm.fabricCostPerPcNPR)).toLocaleString()}</strong>
-                      <span style={{ color: "var(--text-muted)", marginLeft: 12 }}>({orderForm.quantity} pcs × NPR {roundAmount(orderForm.fabricCostPerPcNPR).toLocaleString()}/pc)</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Issue Invoice toggle ── */}
-              {!editingOrder && (
-                <div style={{ gridColumn: "span 2" }}>
-                  <button
-                    type="button"
-                    onClick={() => setIssueInvoice(v => !v)}
-                    className={cn("kprod-inv-toggle", issueInvoice && "kprod-inv-toggle--on")}
-                  >
-                    <span className="kprod-inv-toggle-box">
-                      {issueInvoice && <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </span>
-                    <span>Issue invoice with this order</span>
-                    <span className="kprod-inv-toggle-tag">optional</span>
-                  </button>
-                </div>
-              )}
-
-              {issueInvoice && !editingOrder && (
-                <div className="kprod-inv-section">
-                  <div className="kprod-inv-section-hd">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    Invoice Details
-                  </div>
-                  <div className="kprod-inv-grid">
-                    <label className="kprod-inv-label">
-                      Client Address
-                      <input className="kprod-inv-input" type="text" placeholder="Street, City, Country"
-                        value={invFields.clientAddress}
-                        onChange={e => setInvFields(f => ({ ...f, clientAddress: e.target.value }))} />
-                    </label>
-                    <label className="kprod-inv-label">
-                      Client Phone
-                      <input className="kprod-inv-input" type="text" placeholder="+977 ..."
-                        value={invFields.clientPhone}
-                        onChange={e => setInvFields(f => ({ ...f, clientPhone: e.target.value }))} />
-                    </label>
-                    <label className="kprod-inv-label">
-                      PAN / Tax No.
-                      <input className="kprod-inv-input" type="text" placeholder="VAT / PAN number"
-                        value={invFields.clientPAN}
-                        onChange={e => setInvFields(f => ({ ...f, clientPAN: e.target.value }))} />
-                    </label>
-                    <label className="kprod-inv-label">
-                      Due Date
-                      <input className="kprod-inv-input" type="date"
-                        value={invFields.dueDate}
-                        onChange={e => setInvFields(f => ({ ...f, dueDate: e.target.value }))} />
-                    </label>
-                    <label className="kprod-inv-label">
-                      Payment Terms
-                      <select className="kprod-inv-input"
-                        value={invFields.paymentTerms}
-                        onChange={e => setInvFields(f => ({ ...f, paymentTerms: e.target.value }))}>
-                        <option>Net 15</option>
-                        <option>Net 30</option>
-                        <option>Net 45</option>
-                        <option>Net 60</option>
-                        <option>Due on Receipt</option>
-                      </select>
-                    </label>
-                    <label className="kprod-inv-label">
-                      Payment Type
-                      <select className="kprod-inv-input"
-                        value={invFields.paymentType}
-                        onChange={e => setInvFields(f => ({ ...f, paymentType: e.target.value }))}>
-                        <option value="CASH">Cash</option>
-                        <option value="Bank">Bank</option>
-                        <option value="Credit">Credit</option>
-                      </select>
-                    </label>
-                    <label className="kprod-inv-label" style={{ justifyContent: "flex-end" }}>
-                      <div className="kprod-inv-vat-row">
-                        <span>Apply VAT (13%)</span>
-                        <button type="button"
-                          className={cn("kadm-toggle", invFields.applyVAT && "kadm-toggle--on")}
-                          onClick={() => setInvFields(f => ({ ...f, applyVAT: !f.applyVAT }))}>
-                          <span className="kadm-toggle-knob" />
-                        </button>
-                      </div>
-                      {orderForm.quantity && orderForm.pricePerPcNPR && (
-                        <div className="kprod-inv-preview">
-                          {(() => {
-                            const sub = Number(orderForm.quantity) * Number(orderForm.pricePerPcNPR);
-                            const vat = invFields.applyVAT ? sub * VAT_RATE : 0;
-                            const tot = sub + vat;
-                            return <>
-                              <span>Subtotal: <strong>NPR {roundAmount(sub).toLocaleString()}</strong></span>
-                              {invFields.applyVAT && <span>VAT 13%: <strong>NPR {roundAmount(vat).toLocaleString()}</strong></span>}
-                              <span className="kprod-inv-total">Total: <strong>NPR {roundAmount(tot).toLocaleString()}</strong></span>
-                            </>;
-                          })()}
-                        </div>
-                      )}
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                <button type="submit" className="primary-button" disabled={savingOrder}>
-                  {savingOrder ? "Saving…" : editingOrder ? "Save Changes" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
-                </button>
-                <button type="button" className="ghost-button" onClick={() => { setShowOrderForm(false); setEditingOrder(null); setIssueInvoice(false); setInvFields(emptyInvFields); setOrderForm(emptyOrderForm); }}>Cancel</button>
-              </div>
-            </form>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );
