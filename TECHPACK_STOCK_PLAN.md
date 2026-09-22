@@ -1,143 +1,276 @@
-# Smart tech packs → automatic stock deduction (planning notes)
+# Smart tech packs → automatic stock (planning notes)
 
-Written 2026-09-20 from a design conversation. Nothing in this file has been built yet.
+Started 2026-09-20, rewritten 2026-09-21 after a second design conversation and a
+read-only audit of the live database. **Nothing here is built yet.**
 
 ## 1. The goal
 
 Make the tech pack the single source of truth for a product, so that:
 
-1. **Purchases add stock** (already mostly works, see §3.4).
-2. **Creating an order** in `src/pages/Production.jsx` is just: pick a tech pack, pick a colour, type quantities per size.
-3. **When the order reaches a certain stage**, stock reduces on its own, using the materials and per-size amounts stored on the tech pack.
-4. The **Recipes tab is removed**. Tech packs replace it.
+1. **Purchases add stock** (today this barely works — see §3, it is the biggest problem in the chain).
+2. **Creating an order** in `src/pages/Production.jsx` is: pick a tech pack, pick a colour, type quantities per size.
+3. **After QC**, stock reduces on its own from the tech pack's material list.
+4. The tech pack is built by **clicking dots on the front/back photo**, not by filling a table.
 
-Inspiration: https://mrch.tech/ (seen on reels; not opened or verified). From the screenshot, it splits a garment (a bomber jacket) into 12 labelled parts: CF zipper, inner neck, rib collar, chest logo, right/left pocket, R/L shoulder, right/left cuff, rib hem, zip puller. Each part is effectively one material/BOM line. A later phase could propose a tech pack's material list from an uploaded photo (draft only, a human must check it).
+Inspiration: https://mrch.tech/ — it splits a garment photo into ~12 labelled zones
+(CF zipper, inner neck, rib collar, chest logo, pockets, shoulders, cuffs, rib hem,
+zip puller) with tabs for callouts, points of measure, artwork, placement, BOM and
+sign-off. Its zones are found automatically from an uploaded image, and it has
+**no stock or inventory side at all** — that half is ours to build.
 
-The user said they don't know much about the factory floor, so anything that needs factory numbers (grams per piece per size) must be collected from whoever runs cutting. The code comments say a person called Anusha builds tech packs by hand today.
+## 2. Decisions locked in
 
-## 2. Decisions made so far
+From the 2026-09-21 conversation (staff transcript + user's answers):
 
-- **Remove the Recipes tab and fold everything into tech packs.** Agreed.
-- **The `product_recipes` table holds no data**, per the user, so it can be dropped outright. No copy or migration of recipe rows is needed. (Earlier suggestion of a staged drop is superseded.)
-- Stock is added from Purchases, reduced by Production when an order reaches a stage.
-- Users want deduction to be **automatic** ("it just reduces the stocks on its own").
+| Question | Decision |
+|---|---|
+| Dots found by AI or placed by hand? | **By hand.** AI suggestions are a later phase, if ever. |
+| What does a dot label pick from? | A **dropdown of real stock / materials**, not free text. |
+| Who uses the dot editor? | **Staff only.** Website customers can't see our stock. |
+| Measurements from pixels? | **No.** Staff measure the real garment and type the number. The two dots only draw *where* the measurement is taken. |
+| Reusable measurement sets? | **Yes — measurement templates** ("T-Shirt", "Hoodie") that pre-fill the label column. |
+| When does stock drop? | **After QC / when finished pieces come out.** Not at cutting. |
+| Existing 32 tech packs? | **Left alone.** They keep working; dots can be added later, one at a time. |
+| Recipes | Already removed from the app (2026-09-21). DB leftovers still to drop. |
 
-## 3. What exists today (verified by reading the code)
+### Why stock drops after QC, not at cutting
 
-### 3.1 Recipes feature (commits a38b832 and 7612e48, 2026-09-18)
+Staff, verbatim: *"Stock drop चाहिँ cutting पछि हिसाब गर्न सजिलो हुन्छ। तर … cutting
+भइसकेर stitching मा गइसकेर अनि कति दुई-तीन वटा चाहिँ बिग्रिन्छ, अनि फेरि काट्नुपर्ने हुन्छ।
+त्यही भएर फेरि दुई चोटि entry गर्नुपर्‍यो। त्यही भएर बरु piece निस्किसकेपछि stock drop गर्दा
+राम्रो हुन्छ होला।"*
 
-- `supabase/migrations/0039_product_recipes.sql`
-  - table `product_recipes` (`name`, `wastage_pct`, `lines` jsonb, `notes`); unique on `lower(name)`.
-  - `lines` is `[{kind: fabric|trim|packaging, label, itemId, qty, qtyLarge, unit: g|kg|m|pcs}]`. `qty` is S to XL, `qtyLarge` is XXL and above. Wastage applies to fabric lines only.
-  - RLS: read for inventory or production viewers (`production_read`), write for inventory editors.
-  - `orders.recipe_id uuid references product_recipes(id) on delete set null`; `fs_orders` view re-issued to expose `"recipeId"`.
-  - `stock_movements.source` check widened to include `'production'`.
-- `src/components/RecipesTab.jsx` (recipe editor and list), mounted in `src/pages/Inventory.jsx` (tab `recipes`, `canEditRecipes`, `newRecipeRequest`, import at line 4, tab registered around line 2528, header button around 3200, render around 3632).
-- `src/components/MaterialsUsedModal.jsx`, popup that pre-fills from the recipe and posts the deductions. Has two inputs: standard pieces and XXL+ pieces.
-- `src/components/StockItemSelect.jsx`, inventory item picker (reusable).
-- `src/utils/productionConsumption.js`, pure helpers: `plannedLineQty`, `resolveRows`, `matchRecipe` (matches recipe to style name by string), `suggestItem` (guesses fabric item by name containing fabric type and colour), `convertQty` (g/kg only; metres to grams is unsupported without width and GSM), `materialItems`, `orderRefOf`.
-- `src/utils/stockLedger.js`, `logStockMovement`, `postPurchaseStockIn`, `postSaleStockOut`, and production movements (`source: "production"`, `source_id` = order ref like `ORD-051`; there is a lookup and delete by order ref around line 146, probably used for undo).
-- `src/pages/Production.jsx`
-  - `MATERIALS_STAGE = "Quality Check"` (line ~63). Comment: materials come out when finished pieces leave QC, not at Cutting, because a piece spoiled in stitching gets re-cut and deducting at Cutting would mean entering that fabric twice. `STAGES_AWAITING_STOCK_DEDUCTION = ["Packing", "Shipped"]`.
-  - Loads `recipes` via `fetchAll("recipes")` (~line 1028) and `deductionRows`.
-  - `selectOrderRecipe` (~1208) sets `orderForm.recipeId` and defaults `styleName` from the recipe name.
-  - Order save writes `recipeId` (~1279, ~1312); edit loads it (~1356).
-  - `handleAdvance`-style flow at ~1376–1390: leaving QC opens `MaterialsUsedModal` if `canDeductStock` and the order hasn't been deducted (`deductedRefs`).
-  - "Materials used" buttons at ~538 and ~1807; modal mounted via `materialsModal` state (~946).
-  - Order form (~2195–2240) has: Fabric type, Colorway, **Sample** select (`sampleId`, from `samples`), **Quantity (pcs)** as a single number, Price per piece, **Fabric Used (grams / pc)** as a manual field, Fabric cost/pc.
-- Also touched: `src/lib/schemaMap.js`, `scripts/gen-schema-map.cjs`, `src/lib/activity.js`, `src/utils/stockLedger.js`, `src/lib/roles.js` (grep hits for recipe).
+Counting at cutting is easier arithmetic, but pieces spoil during stitching and get
+re-cut, which would mean entering the same fabric twice. QC-failed pieces have their
+material reused (scrap also goes to test embroidery). So: **deduct what passed QC.**
+This keeps today's `MATERIALS_STAGE = "Quality Check"` in `Production.jsx`.
 
-### 3.2 Tech packs (table `patterns`, view `fs_patterns`)
+### Other factory rules that drive the data model
 
-Columns: `style_no`, `name`, `product_type`, `category`, `season`, `market`, `designer_name`, `sizes_available text[]`, `available_colors`, `spec_size`, `spec_date`, `trims` (free text), `wash_care`, `remarks`, `notes`, `measurements jsonb` (array of `{label, inch}`, **one size column only**), `fabric_rows jsonb` (up to 3 rows of `{fabricName, description}`, free text), `front_sketch_url`, `back_sketch_url`, `tech_pack_url`, `tech_pack_images text[]`.
-RLS: `sect_read` / `sect_write` gated to the inventory section. **No production read policy**, which Production will need.
+- **10% wastage on fabric**, flat, every order. Fabric lines only.
+- **S–XL use much the same material** (industry standard, pricing unchanged). **XXL / 3XL / 4XL use more and cost more.**
+- **Buttons are never bought or stocked** — the button-attaching vendor supplies them. They belong on the tech pack (the factory needs to see them) but must never deduct.
+- **Thread**: common colours (black, white, red) are stocked; unusual colours are bought per order.
+- **Packaging**: plastic is stocked in bulk and re-ordered when it runs out. Printed paper packaging is **UK only**, already bought in quantity.
+- **Fabric**: a little is kept in stock, but bulk orders buy fresh, because colour and seasonal variation means old stock rarely matches. Stock is tracked per colour.
+- **Substitutions happen**: if a fabric or colour is short, the client is asked to change. The deduction step must let a person swap the item before posting.
+- Costing lives in an **Excel sheet** (fabric, rib, trims, labour, embroidery) — user is sending it; the per-size gram numbers should come from there rather than being invented.
 
-UI: `TechPackSpecModal` in `src/pages/Inventory.jsx` (~line 1161), `emptyTechPackSpec` (~188), `nextStyleCode` (`#KAZI001` style). The tech pack spec is also a **printed sheet**.
+## 3. What the live database actually shows (audited 2026-09-21, read-only)
 
-### 3.3 Constraints from `PRODUCT.md`
+This is the part that changes the build order.
 
-- Printed and PDF documents, including **tech-pack spec print sheets**, are compliance artefacts. Their output stays exactly as it is; only the UI around them may change. So the new structured materials must render into the existing fabric and trims boxes and not change the printed layout.
-- Business logic (stock balances etc.) must not change as a side effect of UI work.
-- A UK / Nepal region switch splits most records (`filterByRegion`). `orders.region`, patterns have `market`.
+### 3.1 Purchases are almost never adding stock
+
+| | |
+|---|---|
+| Purchases recorded | 233 |
+| Purchase lines with a quantity | 447 |
+| Lines that added stock | **6** |
+| Lines that added nothing | **441**, worth **NPR 1,239,571** |
+| Stock movements in the entire database | **3** |
+
+All 3 movements are "Cotton Terry", from EXP205 / EXP214 / EXP215. Every other
+purchase line silently did nothing, because `postPurchaseStockIn`
+([stockLedger.js:59](src/utils/stockLedger.js#L59)) only posts when a line's
+`particulars` text **exactly equals** an inventory item's name.
+
+Plenty of the 441 are correctly skipped — HP Victus, Samsung Phone, Table, Printer,
+Carpet, Histon Cooker are not stock. But the fabric is, and it was all missed. The
+same fabric is typed a different way nearly every time:
+
+```
+Polister Fabric Without Brushes          ×9     NPR  99,411
+Polister  Fabric Without Brushes         ×1     NPR  35,822   (double space)
+polister knitted fabrics without brushes ×1     NPR  24,017
+Polyster Knitted Fabrics                 ×7     NPR  45,395
+Polyster Knitted Fabric                  ×2     NPR  33,054
+polister knitted fabric                  ×1     NPR  25,840
+Polister knitted                         ×1     NPR  21,981
+Polysterr Knitted Fabrics                ×1     NPR  16,838
+Lycra Terry                              ×6     NPR  34,624
+lycra Terry                              ×2     NPR  43,250
+```
+
+Roughly **NPR 590,000 of fabric** in the top 25 alone never touched stock. No
+amount of fuzzy matching fixes this reliably — the fix is a picker (§5.4).
+
+### 3.2 The Dashboard's stock numbers are stale by design
+
+All 11 inventory items have `stock_in = 0` and `stock_used = 0`; those columns were
+abandoned when the dated ledger came in. But the Dashboard still computes
+`openingStock + stockIn − stockUsed` at [Dashboard.jsx:651](src/pages/Dashboard.jsx#L651),
+743, 951 and 1197 — so it shows nothing but the hand-typed opening figure and
+ignores every real movement.
+
+Proof: **Cotton Terry** — Dashboard says **10**, the ledger says **21.1**.
+
+Inventory.jsx already does this correctly via `movementTotals`, so the two pages
+disagree today.
+
+### 3.3 The ledger will break silently as it grows
+
+`fetchAll` ([db.js:180](src/lib/db.js#L180)) issues a plain `select *` with no
+paging. Supabase caps a request at 1000 rows, so once `stock_movements` passes
+1000 the balances quietly go wrong — no error, just numbers that drift. There are
+3 rows today, and automating purchases + production will pass 1000 quickly.
+
+### 3.4 Stock and the fabric library are not connected
+
+| | |
+|---|---|
+| Inventory items | **11** (6 Finished Goods, 5 Raw Materials) |
+| Materials & Fabrics library rows | **59** |
+| …of which have colours filled in | **3** |
+| Tech packs | **32** (17 with a front image, 16 with a back) |
+
+Nothing joins the 59 fabrics to the 11 stock items, and stock items carry no
+colour. So "fabric + colour → the exact roll to deduct from" has nothing to
+resolve against. Also note the `Fabric`, `Thread & Accessories` and `Packaging`
+categories exist in `STOCK_CATEGORIES` but are unused — everything is filed as
+Raw Materials or Finished Goods.
+
+### 3.5 Recipes leftovers
+
+`product_recipes`, `fs_product_recipes`, `orders.recipe_id` and the `"recipeId"`
+column in `fs_orders` still exist, plus their entries in `src/lib/schemaMap.js`.
+Nothing in `src` reads them. Dropping them means re-issuing `fs_orders`, so it
+belongs in a real migration. Migrations are at **0042**, so the next is **0043**.
+
+## 4. The design
+
+### 4.1 Dots on the photo ("callouts")
+
+The tech pack already stores `front_sketch_url` and `back_sketch_url`. The editor
+gains a front/back canvas: tap the image to drop a numbered dot, then label it.
+
+New column `patterns.callouts jsonb`, one object per dot:
+
+```js
+{
+  id: "uuid",
+  side: "front" | "back",
+  x: 0.42, y: 0.31,          // fraction of the image, never pixels — works on any screen
+  n: 1,                       // display number, matches the list beside the image
+  label: "CF zipper",
+  kind: "fabric" | "trim" | "packaging",
+
+  // what it draws from — one of these two:
+  itemId:   "uuid" | null,   // a stock item directly (plastic bag, printed packaging)
+  fabricId: "uuid" | null,   // a Materials & Fabrics row; colour comes from the order
+
+  qtyBySize: { S: 0.28, M: 0.30, L: 0.32, XL: 0.34, XXL: 0.40, "3XL": 0.44 },
+  unit: "g" | "kg" | "m" | "pcs",
+  fromStock: true,            // false = vendor supplies it (buttons) → shown, never deducted
+  colorHex: "#1a1a1a",        // sampled from the pixel under the dot, a suggestion only
+  note: ""
+}
+```
+
+Storing positions as fractions is how the website's Atelier editor already does it
+(`app/lib/design-layers.js` in `jenithroy/kazi-platform`), so the two stay consistent.
+
+**The dropdown.** Labelling a dot opens a picker of real stock and library
+materials — reuse `StockItemSelect`, with `materialItems()` from
+`productionConsumption.js` ordering the sensible categories first. Free text stays
+possible for things that aren't stock (buttons), but the default is to pick.
+
+**One dot = one BOM line.** The list beside the image *is* the material list; there
+is no second table to keep in sync.
+
+### 4.2 Measurements as two dots
+
+`patterns.measurements` today is `[{label, inch}]` — one size only. It becomes:
+
+```js
+{
+  label: "Chest",
+  bySize: { S: 20, M: 21, L: 22, XL: 23 },   // typed from the real garment
+  inch: "21",                                 // kept for old rows and the print sheet
+  line: { side: "front", x1: 0.3, y1: 0.4, x2: 0.7, y2: 0.4 } | null
+}
+```
+
+Two taps draw the line; the numbers are typed, never measured from pixels, because
+photos distort. `line` is optional — an old tech pack with numbers and no line is
+still valid.
+
+### 4.3 Measurement templates
+
+New table `measurement_templates`: `id`, `name` ("T-Shirt", "Hoodie", "Bomber"),
+`product_type`, `labels jsonb` (the ordered label list), `market`, timestamps.
+
+Applying one fills the label column so staff only type numbers. Saving the current
+grid as a new template is one button. Templates carry **labels only**, not
+positions — dot positions depend on the photo.
+
+### 4.4 Linking stock to fabrics and colour
+
+The rule: **the Materials & Fabrics library is the catalogue of *kinds*; an
+inventory item is a *kind in one colour*** — the physical thing you deduct from.
+
+- Add `inventory_items.fabric_id` (→ `fabrics.id`) and `inventory_items.color` (+ `color_hex`).
+- Thread and rib move into the Materials & Fabrics library too, with their colours — the tab is already named for it, and thread varies by colour exactly like fabric.
+- A fabric dot points at the **fabric**, not a stock item, because the colour isn't known until an order exists.
+- At order time, fabric + chosen colour resolves to the stock item. More than one match → the person picks. No match → offer to create the item. **Never guess silently** — a wrong guess deducts from the wrong roll.
+- Trims and packaging that don't vary (plastic bags, printed paper packaging) point straight at a stock item.
+
+Back-filling colours on the 59 library rows is data entry someone has to do; only 3
+have colours today.
+
+### 4.5 Order form
+
+- Replace the single **Quantity** with a **size grid**, limited to the tech pack's sizes. `quantity` stays as the sum.
+- Add `orders.pattern_id` and `orders.size_breakdown jsonb`.
+- **"Needs vs in stock" panel** while typing: fabric kg including the 10% wastage, trims, packaging, against stock on hand, flagged short/OK. Nothing is deducted here.
+- **Snapshot the resolved materials onto the order when it is saved**, so editing the tech pack later never changes what an in-flight order deducts.
+
+### 4.6 Deduction
+
+- Fires when the order leaves QC, using the snapshot × pieces that passed.
+- Tagged `source: "production"`, `source_id` = order ref (`ORD-051`), reversible — `undoProductionStockOut` already does this.
+- `MaterialsUsedModal` shrinks to a confirm/correct step, pre-filled: *"planned 38 kg, used ___"*. Swapping an item or amount stays possible (substitutions are normal). Planned-vs-actual variance is how the gram numbers improve over time.
+- Warn, don't block, if a deduction takes an item below zero.
+- Lines with `fromStock: false` are listed but never posted.
+
+### 4.7 Colour palette from the image
+
+Sampling the pixel under a dot is reliable and nearly free. Extracting a whole
+palette from the photo picks up background and shadow, so it stays a suggestion
+next to the colour picker, never an automatic assignment. Low priority.
+
+## 5. Build order
+
+Plumbing first — the dots are worthless if stock numbers are wrong underneath.
+
+1. **Fix the Dashboard** ([Dashboard.jsx:651](src/pages/Dashboard.jsx#L651), 743, 951, 1197): fetch `stock_movements` and use the same `stockClosing` helper Inventory uses. Delete the `stockIn`/`stockUsed` arithmetic.
+2. **Page `fetchAll`** ([db.js:180](src/lib/db.js#L180)) with a `.range()` loop so no caller can silently lose rows. Later, a `fs_stock_balances` view so the client stops pulling the whole ledger at all.
+3. **Purchase line item picker** — `stockItemId` on `line_items`, reusing `StockItemSelect`, exactly as sales invoices already do. Keep the name match as a fallback for old rows.
+4. **Migration 0043**: `inventory_items.fabric_id` / `color` / `color_hex`; `patterns.callouts`, `wastage_pct`, new `measurements` shape; `measurement_templates`; `orders.pattern_id` / `size_breakdown` / materials snapshot; `production_read` policy on `patterns`; drop the recipes leftovers and re-issue `fs_orders` + `fs_patterns` (re-set `security_invoker` after `create or replace view`, as 0039 did). Then regenerate `src/lib/schemaMap.js`.
+5. **Tech pack editor**: the dot canvas, the stock dropdown, per-size quantities, per-size measurements, measurement templates.
+6. **Order form**: tech pack picker, size grid, colour → stock item resolution, needs-vs-stock panel, snapshot on save.
+7. **Deduction at QC** from the snapshot; shrink `MaterialsUsedModal` to confirm/correct.
+8. Colour sampling; AI-drafted dots much later, if at all.
+
+## 6. Constraints that must not be broken
+
+- **Printed sheets are compliance artefacts** ([PRODUCT.md:39](PRODUCT.md#L39)). The tech-pack spec print sheet keeps its exact current output — dots and per-size grids are screen-only, and structured materials must still render into the existing fabric rows and trims boxes.
+- Business logic (stock balances) must not change as a side effect of UI work.
+- UK / Nepal region split: `orders.region`, `patterns.market`, `filterByRegion`.
 - Permissions are enforced by Supabase RLS; the UI must match what the DB allows.
-- Stack: React 18 + Vite, Supabase, Capacitor wrapper. Migrations live in `supabase/migrations/` (last is `0039`; next is `0040`).
+- Migrations must be safe to re-run (`if not exists`, `drop policy if exists`).
+- Stack: React 18 + Vite, Supabase, Capacitor. Migrations in `supabase/migrations/`, latest **0042**.
 
-### 3.4 Purchases → stock
+## 7. Still open
 
-`postPurchaseStockIn` in `src/utils/stockLedger.js` posts an "in" movement **only when a purchase line's `particulars` exactly equals an inventory item's name** (case-insensitive, trimmed). Anything else is skipped silently. This works, but is fragile: "Black jersey 180gsm" vs "Black Jersey 180 GSM" adds no stock and gives no error. Deleting a purchase also removes its linked stock entries (`Purchases.jsx` ~119–127).
-
-## 4. Gaps identified
-
-1. **Tech pack and recipe are two separate things** joined only by a typed name string. Orders link to `recipe_id` and `sample_id` but not to a tech pack.
-2. **An order has a single `quantity`.** Real orders are split by size (e.g. 20 S / 40 M / 30 L). Today, someone re-types two buckets (S–XL, XXL+) at QC time.
-3. **No look-ahead.** Stock effect is only visible after the fact; the useful moment is at order creation ("needs 38 kg black jersey, stock 25, short 13").
-4. **Tech pack measurements only cover one size.** Fabrics and trims are free text, so they can't drive inventory.
-
-## 5. Proposed design
-
-### 5.1 Tech pack gets structured materials, per size
-
-- New jsonb on `patterns` (name TBD, e.g. `materials`), one object per material line:
-  `{ kind: fabric|trim|packaging, label, itemId (nullable for fabric), qtyBySize: {S, M, L, XL, XXL, ...}, unit, deductAt (optional stage) }`
-- Plus `wastage_pct` on the tech pack (applies to fabric lines).
-- **Per-size quantities, single inventory item per line.** Two zipper lengths = two lines, each with 0 for the sizes it doesn't apply to. This avoids needing per-size item overrides.
-- Measurement grid gets **one column per size** (currently one `inch` value).
-- **Fabric is special:** stock is tracked per colour but the tech pack doesn't know the colour. The tech pack line names the fabric type (ideally linked to the fabric library, which has `available_colors`), and the **order form resolves it to the actual stock item once the colour is chosen**. If more than one item matches, the person picks before saving. Don't silently guess: a wrong pre-selection deducts from the wrong roll (existing `suggestItem` already follows this principle).
-- Keep the printed sheet identical: render structured materials into the existing fabric rows and trims boxes.
-
-### 5.2 Order form (Production.jsx)
-
-- Replace the **Recipe** picker and the **Sample**-driven flow with a **Tech pack** picker (filtered by region/market).
-- Replace the single **Quantity** with a **size grid** (only sizes the tech pack offers). `quantity` = sum. Store the breakdown, e.g. `orders.size_breakdown jsonb`.
-- Add `orders.pattern_id` (references `patterns`, on delete set null).
-- Live **"Needs vs in stock" panel**: fabric kg (incl. wastage), trims, packaging vs stock on hand, with short/OK flags. No deduction at this point.
-- **Snapshot the materials onto the order at creation** (resolved item ids plus per-size totals) so editing the tech pack later doesn't change what an in-flight order deducts.
-- The manual "Fabric Used (grams / pc)" field could be derived from the tech pack (decide whether to keep as an override).
-
-### 5.3 Deduction
-
-- Automatic, tagged `source: "production"`, `source_id` = order ref (`ORD-xxx`), reversible/adjustable (existing ledger helpers look up and delete by order ref).
-- Suggested timing (pending user's answer, see §6):
-  - **Fabric at Cutting**: fabric physically leaves the store then, so stock isn't overstated for weeks.
-  - **Trims and packaging at Packing.**
-  - A re-cut/spoilage is a manual adjustment on the order, not a blocker.
-  - Alternative: a single stage for everything (one constant like today's `MATERIALS_STAGE`).
-- The current **QC popup (`MaterialsUsedModal`)** either goes away or shrinks to a correction step: "planned 38 kg, used 41 kg". The planned-vs-actual variance is how the numbers improve over time.
-- Show a warning (don't block) if a deduction takes an item below zero, e.g. because purchases weren't logged.
-
-### 5.4 Purchases → stock
-
-Make purchase lines **pick from inventory** (reuse `StockItemSelect`) instead of relying on exact name match. Store `stockItemId` on the line, like sales invoices already do (`postSaleStockOut` uses `stockItemId`). Without this the whole chain can quietly drift. (Undecided whether in scope, see §6.)
-
-### 5.5 Database
-
-New migration `0040_...`:
-- `patterns`: add `materials` jsonb, `wastage_pct`, per-size measurements shape if needed.
-- `orders`: add `pattern_id`, `size_breakdown`, materials snapshot column; **drop `recipe_id`**; re-issue `fs_orders` (a view can only gain columns at the END; `create or replace view` drops reloptions so re-run `alter view fs_orders set (security_invoker = on)` as 0039 does).
-- `fs_patterns`: re-issue with the new columns, again re-set `security_invoker`.
-- RLS: add a `production_read` policy on `patterns` (mirror 0039's on `product_recipes`) so Production users can read tech packs.
-- **Drop `product_recipes` and `fs_product_recipes`** (no data, confirmed by the user). Keep the `stock_movements.source` `'production'` value.
-- Update `src/lib/schemaMap.js` (generated by `scripts/gen-schema-map.cjs`).
-- Migration must be safe to re-run (0039 style: `if not exists`, `drop policy if exists`).
-
-## 6. Open questions (not answered yet)
-
-1. **When does stock reduce?** Fabric at Cutting + trims/packaging at Packing (recommended), or a single stage for all? Today it's Quality Check.
-2. **Purchase picker in scope now, or later?** (Recommended: soon, because the chain is unreliable without it.)
-3. **Who owns the per-size grams numbers?** Ask whoever runs cutting (likely Anusha) for grams per piece per size for the top 3–5 styles. The software can't invent these. Estimating from measurements × GSM is ~10–15% off because it ignores marker layout; a real cutting run (weigh fabric, count pieces per size) is the reliable source.
-4. Do zippers or rib differ by size? Assumed yes and handled via separate lines with 0 qty on non-applicable sizes (no data-model change needed).
-
-## 7. Suggested build order
-
-1. Migration 0040 (columns, policies, views, drop recipes) + schemaMap regeneration.
-2. Tech pack editor: structured materials (per-size), per-size measurements; keep printed sheet unchanged.
-3. Production order form: tech pack picker, size grid, colour to stock-item resolution, "needs vs in stock" panel, snapshot on save.
-4. Automatic deduction at the chosen stage(s); shrink or remove `MaterialsUsedModal`; variance display.
-5. Remove the Recipes tab: `RecipesTab.jsx`, Inventory.jsx wiring, `matchRecipe`, `recipes` fetch and `recipeId` handling in Production.jsx, `recipe` references in `roles.js` / `activity.js` as applicable.
-6. (Optional) purchase line item picker.
-7. (Later) AI-drafted material list from an uploaded tech pack photo (human-reviewed).
+1. **Backfill or fresh start?** 441 purchase lines worth NPR 1.24M never posted to stock, and current balances are hand-typed opening figures. Either map the ~20 fabric name variants and create the historical movements, or do a physical count, set a clean opening, and automate from that date on. **User's call — this touches real data.**
+2. **Per-size gram numbers** have to come from the costing Excel sheet the user is sending, or from whoever runs cutting. Estimating from measurements × GSM is 10–15% off because it ignores marker layout.
+3. Should the "Fabric Used (grams / pc)" idea come back as a read-only derived figure on the order, now that the tech pack can compute it?
+4. Do the 59 library rows get their colours filled in by hand, or only as each one is first purchased?
 
 ## 8. Status
 
-- No code changed yet. Git working tree was clean at the start of the conversation (branch `master`, HEAD `7612e48`).
-- User instruction received: **remove the recipes table/feature outright** (it has no data). Not yet executed.
+- **No code changed yet** for any of the above.
+- 2026-09-21: recipes UI removed (`RecipesTab.jsx` deleted, recipe picker gone from the order form, `MaterialsUsedModal` is now a manual dialog). DB leftovers remain — see §3.5.
+- Migration 0039 must be applied for production deductions to save at all.
+- `fabricGramsUsed` / `fabricCostPerPcNPR` / `materialCostTotalNPR` stay in the database and are carried through when an older order is saved, though the form no longer asks for them.

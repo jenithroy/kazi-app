@@ -1,11 +1,11 @@
 import { materialItems } from "../utils/productionConsumption";
 
-// Inventory item picker for recipe lines and stock deductions, grouped by
-// category with the categories that normally hold this kind of material first.
+// Inventory item picker for stock deductions, grouped by category with the
+// categories that normally hold this kind of material first.
 export default function StockItemSelect({ items, kind, value, onChange, disabled, placeholder = "Choose item…" }) {
   const list = materialItems([...items], kind);
-  // An item saved on a recipe stays selectable even if it has since been filed
-  // under a category this picker normally hides.
+  // The item already chosen stays selectable even if it is filed under a
+  // category this picker normally hides.
   if (value && !list.some(i => i.id === value)) {
     const current = items.find(i => i.id === value);
     if (current) list.unshift(current);
