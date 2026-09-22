@@ -37,6 +37,10 @@ export function makeEmptyForm(type) {
   const base = {
     date: new Date().toISOString().slice(0, 10),
     clientName: "", clientPAN: "", clientAddress: "", clientPhone: "",
+    // Which row in `customers` this client is. Only invoices have a column for it
+    // (challans/quotations carry the key through the form for the picker's sake,
+    // but handleSubmit never writes it for them) — see utils/billingClients.js.
+    customerId: "",
     status: "Draft", note: "",
     region: "",          // "uk" | "nepal" | "" — which arm of the business billed this
     discountMode: "pct", // "pct" | "amount"

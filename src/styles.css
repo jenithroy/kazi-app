@@ -1060,23 +1060,42 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .grid-form .full-width { grid-column: span 2; }
 
-/* Inline "add new customer" panel inside the order form's customer picker */
+/* Inline "add new customer" panel inside the order form's customer picker.
+   It takes the <select>'s place, so it sizes itself from its own width (a
+   container query) rather than the screen's: a 640px dialog on a 1900px monitor
+   is "wide" to the viewport but only has ~580px to lay three inputs across.
+   Every track is minmax(0, 1fr) so an input's default width can never push the
+   row past the panel — the old 1fr tracks did, and that was the sideways scroll. */
 .kcp-new {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 12px; border-radius: var(--r-input);
-  border: 1.5px dashed var(--line-strong); background: var(--bg-3, #fafafa);
+  container-type: inline-size;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border-radius: 12px;
+  background: var(--mint-wash);
+  border: 1px solid rgba(90, 185, 138, .35);
 }
-.kcp-new-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-.kcp-new-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.kcp-new-title { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.kcp-new-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.kcp-new-row > :first-child { grid-column: 1 / -1; }          /* contact person gets its own line */
+.kcp-new-ft { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.kcp-new-actions { display: flex; gap: 8px; margin-left: auto; }
 .kcp-hint, .kcp-note, .kcp-err {
-  margin: 0; font-size: 11.5px; font-weight: 500; letter-spacing: 0;
+  margin: 0; font-size: 12px; font-weight: 400; letter-spacing: 0; line-height: 1.45;
 }
-.kcp-hint { color: var(--ink-4); }
-.kcp-note { color: var(--ink-3); }
+.kcp-hint { flex: 1 1 200px; color: var(--ink-3); }
+.kcp-status { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
+.kcp-note { color: var(--ink-2); }
 .kcp-err  { color: #b42318; }
 
-@media (max-width: 720px) {
-  .kcp-new-row { grid-template-columns: 1fr; }
+@container (min-width: 480px) {
+  .kcp-new-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kcp-new-row > :first-child { grid-column: auto; }
+}
+@container (max-width: 300px) {
+  .kcp-new-row { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 380px) {
+  .kcp-new-actions { width: 100%; }
+  .kcp-new-actions > * { flex: 1; }                             /* buttons share the row instead of overflowing it */
 }
 
 /* Table wrapper */

@@ -21,7 +21,9 @@ import {
 } from "../utils/fiscalYear";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
 import DualDateInput from "../components/DualDateInput";
+import CustomerPicker from "../components/CustomerPicker";
 import { postSaleStockOut } from "../utils/stockLedger";
+import { customerIdForClient } from "../utils/billingClients";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
@@ -169,6 +171,10 @@ function Billing() {
   const location = useLocation();
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "billing");
+  // Picking a customer for a document can create one — gated on Customers access,
+  // same rule Production's order form uses, so a role that cannot add customers
+  // there cannot back-door it by adding one from an invoice either.
+  const canAddCustomers = sectionCanEdit(profile, "customers");
   const { fmt: fmtC } = useCurrency();
   const { region } = useRegion();
 
@@ -184,6 +190,7 @@ function Billing() {
   const [allChallans, setChallans]     = useState([]);
   const [allQuotations, setQuotations] = useState([]);
   const [allInventoryItems, setInventoryItems] = useState([]); // for the invoice line item "Stock Item" link
+  const [allCustomers, setCustomers]   = useState([]); // for the Client field's picker
 
   /* ── One region's book of documents ────────────────────────
      Tab counts, the tables, the preview list and the stock-item picker all read
@@ -194,6 +201,7 @@ function Billing() {
   const challans       = useMemo(() => filterByRegion(allChallans,   region), [allChallans,   region]);
   const quotations     = useMemo(() => filterByRegion(allQuotations, region), [allQuotations, region]);
   const inventoryItems = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
+  const customers      = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
 
   /* ── One fiscal year at a time (or all of them) ────────────
      A document belongs to the year its own Nepali date falls in. The tab counts,
@@ -232,13 +240,15 @@ function Billing() {
 
   /* ── Load data ── */
   async function loadAll() {
-    const [invRows, chRows, qtRows, invtRows] = await Promise.all([
+    const [invRows, chRows, qtRows, invtRows, custRows] = await Promise.all([
       fetchAll("invoices"),
       fetchAll("challans"),
       fetchAll("quotations"),
       fetchAll("inventory"),
+      fetchAll("customers"),
     ]);
     setInventoryItems(invtRows);
+    setCustomers(custRows);
     // Newest document first, by its own date — the Nepali and English calendars
     // order identically, so one comparison serves both. Numbers follow dates
     // (see resequenceDocNumbers), so within a day the higher number is the later
@@ -467,6 +477,14 @@ function Billing() {
     if (document.activeElement && document.activeElement.tagName === "TEXTAREA") {
       return;
     }
+    // The picker's `required` select is unmounted while its inline "add new
+    // customer" panel is open, so the browser cannot enforce this for us at
+    // exactly the moment a half-finished client is on screen (same guard as
+    // Production's order form).
+    if (!(form.clientName || "").trim()) {
+      alert("Pick a client, or finish adding the new one, before saving.");
+      return;
+    }
     // Fix 6: PAN required if invoice total > 50000 NPR
     if (tab === "invoice") {
       const applyVATPreview = form.applyVAT;
@@ -483,6 +501,20 @@ function Billing() {
     try {
       const applyVAT = tab === "invoice" && form.applyVAT;
       const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(form.items, applyVAT, form.discountPct, form.discountMode, form.discountFlatAmt || 0);
+
+      // Link an invoice to its customer, adding the client to Customers if they are new
+      // (utils/billingClients.js). Done first and on its own: it only produces a
+      // customerId to store beside the invoice, it never blocks the save, and it runs
+      // before a number is drawn so it cannot leave a gap in the numbering. Nothing
+      // written on the invoice, the client name included, is touched. Cancelled
+      // invoices are left alone so they do not add stray customers.
+      const customerId = tab === "invoice" && !form.customerId && form.status !== "Cancelled"
+        ? await customerIdForClient({
+            clientName: form.clientName, clientPhone: form.clientPhone,
+            clientAddress: form.clientAddress, region: form.region || region,
+          })
+        : (form.customerId || null);
+      const customerLink = tab === "invoice" ? { customerId } : {};
 
       if (editingId) {
         /* ── UPDATE existing document ── */
@@ -505,6 +537,7 @@ function Billing() {
           totalNPR:       total,
           updatedBy:      profile?.name || "Unknown",
           updatedAt:      new Date().toISOString(),
+          ...customerLink,
         };
         // Manually flipping an invoice to Paid must settle its credit — otherwise
         // the badge says Paid while Credit Due/Record Payment still show an
@@ -524,7 +557,7 @@ function Billing() {
         if (settleNPR > 0.005) {
           await insertRow("payments", {
             invoiceId:  editingId,
-            customerId: form.customerId || null,
+            customerId: customerId || null,
             paidOn:     todayDate(),
             amount:     settleNPR,
             method:     form.paymentType || null,
@@ -558,7 +591,7 @@ function Billing() {
           amountPaid:     0,
           region:         form.region || region,
           createdBy:      profile?.name || "Unknown",
-
+          ...customerLink,
         };
         // Strip fields irrelevant to this doc type
         if (tab !== "invoice")   { delete record.applyVAT; delete record.dueDate; delete record.paymentTerms; delete record.amountPaid; delete record.relatedChallan; delete record.relatedQuotation; delete record.paymentType; delete record.bankName; }
@@ -703,11 +736,17 @@ function Billing() {
       // follow today's Nepali date, not the quotation's fiscal year.
       const invDate = new Date().toISOString().slice(0, 10);
       const invFiscalYear = fiscalYearForDate(invDate) || currentFiscalYear();
+      // Same link as a hand-made invoice gets, worked out before the number is drawn.
+      const customerId = await customerIdForClient({
+        clientName: qt.clientName, clientPhone: qt.clientPhone,
+        clientAddress: qt.clientAddress, region: qt.region,
+      });
       const invNumber = await getNextNumber("invoice", invFiscalYear);
       const d = new Date(); d.setDate(d.getDate() + 30);
 
       await insertRow("invoices", {
         invoiceNumber:    invNumber,
+        customerId,
         date:             invDate,
         dueDate:          d.toISOString().slice(0, 10),
         fiscalYear:       invFiscalYear,
@@ -1062,10 +1101,31 @@ function Billing() {
                   </>
                 )}
 
-                {/* Client fields */}
+                {/* Client fields — picked from Customers rather than typed, so the document
+                    comes out linked from the start instead of being reconciled by name after
+                    the fact (see utils/billingClients.js). An address/phone already typed here
+                    is left alone; only blank ones are filled from the customer's record, since
+                    those two are otherwise free text on what is a legal document. */}
                 <label className="kfin-label" style={{ gridColumn: "span 3" }}>
                   Client / Company Name
-                  <input className="kfin-input" type="text" value={form.clientName} required placeholder="Client or company name" onChange={e => setF("clientName", e.target.value)} />
+                  <CustomerPicker
+                    customers={customers}
+                    valueId={form.customerId}
+                    valueName={form.clientName}
+                    canCreate={canAddCustomers}
+                    className="kfin-select"
+                    onChange={({ id, name }) => setForm(f => {
+                      const picked = customers.find(c => c.id === id);
+                      return {
+                        ...f,
+                        customerId: id || "",
+                        clientName: name,
+                        clientAddress: f.clientAddress || picked?.address || f.clientAddress,
+                        clientPhone: f.clientPhone || picked?.phone || f.clientPhone,
+                      };
+                    })}
+                    onCustomerCreated={c => setCustomers(list => [...list, c])}
+                  />
                 </label>
                 <label className="kfin-label">
                   Client PAN
