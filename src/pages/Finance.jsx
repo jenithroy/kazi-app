@@ -785,11 +785,16 @@ function Finance() {
 
   async function commitLedgerDraft() {
     if (!ledgerDraft || ledgerSaving) return;
-    const { type, id, particulars, amount } = ledgerDraft;
+    const { type, id, particulars, amount, earlierMovementNPR } = ledgerDraft;
     setLedgerSaving(true);
     try {
       if (type === "opening") {
-        await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) });
+        // With a year picked, `amount` is the brought-forward total shown on screen
+        // (opening + every earlier year's movement), not the openingBalanceNPR column.
+        // Back that movement out so the stored figure keeps meaning "before anything
+        // was recorded" — saving the combined number as-is would double-count those
+        // earlier years the next time this loads.
+        await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) - (earlierMovementNPR || 0) });
       } else if (type === "bank") {
         // bank_transactions keeps the figure in `amount`. Sending `amountNPR`
         // named no column the table has, and the write layer drops keys it
@@ -1007,7 +1012,7 @@ function Finance() {
         balance += r.dr - r.cr;
         return { ...r, balance };
       });
-      result[name] = { accountId, openingBalanceNPR: opening, rows, closingBalance: balance, totalRows: sorted.length };
+      result[name] = { accountId, openingBalanceNPR: opening, baseOpeningNPR: baseOpening, rows, closingBalance: balance, totalRows: sorted.length };
     }
     return result;
   }, [regionPurchases, regionInvoices, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
@@ -1617,18 +1622,25 @@ function Finance() {
                     <tbody>
                       {(() => {
                         const editingOpening = ledgerDraft && ledgerDraft.type === "opening" && ledgerDraft.id === data.accountId;
-                        // With a year picked this row is brought forward (the stored opening balance + every earlier year's
-                        // movement), not the stored figure itself — clicking it would edit the wrong number, so it is
-                        // read-only until "All years" is chosen.
-                        const openingEditable = canEdit && !fyActive;
+                        const openingEditable = canEdit;
                         return (
                           <>
                           <tr
                             style={{ background: editingOpening ? "var(--mint-soft)" : "var(--bg-2)", cursor: openingEditable && !editingOpening ? "pointer" : "default" }}
-                            title={openingEditable && !editingOpening ? "Click to edit opening balance" : (fyActive ? "Opening balance plus everything before this fiscal year — choose All years to edit the opening balance" : undefined)}
+                            title={openingEditable && !editingOpening ? (fyActive ? "Click to edit — updates the opening balance behind this brought-forward figure" : "Click to edit opening balance") : undefined}
                             onClick={() => {
                               if (!openingEditable || editingOpening) return;
-                              setLedgerDraft({ type: "opening", id: data.accountId, particulars: "Opening Balance", amount: data.openingBalanceNPR });
+                              // With a year picked, `data.openingBalanceNPR` is already the brought-forward
+                              // total (see the ledger memo above) — stash the gap to the raw stored value so
+                              // commitLedgerDraft can undo it on save instead of overwriting the real column
+                              // with the combined figure.
+                              setLedgerDraft({
+                                type: "opening",
+                                id: data.accountId,
+                                particulars: "Opening Balance",
+                                amount: data.openingBalanceNPR,
+                                earlierMovementNPR: data.openingBalanceNPR - data.baseOpeningNPR,
+                              });
                             }}
                             onKeyDown={editingOpening ? ledgerEditKeys : undefined}
                           >
