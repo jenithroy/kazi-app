@@ -341,7 +341,11 @@ export const SCHEMA_MAP = {
       "country": "country",
       "notes": "notes",
       "createdAt": "created_at",
-      "region": "region"
+      "region": "region",
+      "sourceCampaignId": "source_campaign_id",
+      "sourceNote": "source_note",
+      "sourceTaggedAt": "source_tagged_at",
+      "sourceTaggedBy": "source_tagged_by"
     },
     "derived": [],
     "columns": [
@@ -356,6 +360,10 @@ export const SCHEMA_MAP = {
       "notes",
       "phone",
       "region",
+      "source_campaign_id",
+      "source_note",
+      "source_tagged_at",
+      "source_tagged_by",
       "updated_at"
     ]
   },
@@ -1668,6 +1676,307 @@ export const SCHEMA_MAP = {
       "storage_path",
       "uploaded_at",
       "uploaded_by"
+    ]
+  },
+  "meta_ad_accounts": {
+    "view": "fs_meta_ad_accounts",
+    "table": "meta_ad_accounts",
+    "fields": {
+      "id": "id",
+      "name": "name",
+      "currency": "currency",
+      "timezoneName": "timezone_name",
+      "isActive": "is_active",
+      "addedBy": "added_by",
+      "addedByName": "added_by_name",
+      "createdAt": "created_at",
+      "lastSyncedAt": "last_synced_at"
+    },
+    "derived": [],
+    "columns": [
+      "added_by",
+      "added_by_name",
+      "created_at",
+      "currency",
+      "id",
+      "is_active",
+      "last_synced_at",
+      "name",
+      "timezone_name"
+    ]
+  },
+  "meta_campaigns": {
+    "view": "fs_meta_campaigns",
+    "table": "meta_campaigns",
+    "fields": {
+      "id": "id",
+      "adAccountId": "ad_account_id",
+      "name": "name",
+      "status": "status",
+      "effectiveStatus": "effective_status",
+      "objective": "objective",
+      "dailyBudgetMinor": "daily_budget_minor",
+      "lifetimeBudgetMinor": "lifetime_budget_minor",
+      "createdTime": "created_time",
+      "metaUpdatedTime": "meta_updated_time",
+      "lastSyncedAt": "last_synced_at"
+    },
+    "derived": [],
+    "columns": [
+      "ad_account_id",
+      "created_time",
+      "daily_budget_minor",
+      "effective_status",
+      "id",
+      "last_synced_at",
+      "lifetime_budget_minor",
+      "meta_updated_time",
+      "name",
+      "objective",
+      "status"
+    ]
+  },
+  "meta_adsets": {
+    "view": "fs_meta_adsets",
+    "table": "meta_adsets",
+    "fields": {
+      "id": "id",
+      "campaignId": "campaign_id",
+      "adAccountId": "ad_account_id",
+      "name": "name",
+      "status": "status",
+      "effectiveStatus": "effective_status",
+      "dailyBudgetMinor": "daily_budget_minor",
+      "lifetimeBudgetMinor": "lifetime_budget_minor",
+      "createdTime": "created_time",
+      "metaUpdatedTime": "meta_updated_time",
+      "lastSyncedAt": "last_synced_at"
+    },
+    "derived": [],
+    "columns": [
+      "ad_account_id",
+      "campaign_id",
+      "created_time",
+      "daily_budget_minor",
+      "effective_status",
+      "id",
+      "last_synced_at",
+      "lifetime_budget_minor",
+      "meta_updated_time",
+      "name",
+      "status"
+    ]
+  },
+  "meta_ads": {
+    "view": "fs_meta_ads",
+    "table": "meta_ads",
+    "fields": {
+      "id": "id",
+      "adsetId": "adset_id",
+      "campaignId": "campaign_id",
+      "adAccountId": "ad_account_id",
+      "name": "name",
+      "status": "status",
+      "effectiveStatus": "effective_status",
+      "creativeThumbnailUrl": "creative_thumbnail_url",
+      "createdTime": "created_time",
+      "metaUpdatedTime": "meta_updated_time",
+      "lastSyncedAt": "last_synced_at"
+    },
+    "derived": [],
+    "columns": [
+      "ad_account_id",
+      "adset_id",
+      "campaign_id",
+      "created_time",
+      "creative_thumbnail_url",
+      "effective_status",
+      "id",
+      "last_synced_at",
+      "meta_updated_time",
+      "name",
+      "status"
+    ]
+  },
+  "meta_ad_insights": {
+    "view": "fs_meta_ad_insights",
+    "table": "meta_ad_insights",
+    "fields": {
+      "entityLevel": "entity_level",
+      "entityId": "entity_id",
+      "adAccountId": "ad_account_id",
+      "date": "date",
+      "impressions": "impressions",
+      "clicks": "clicks",
+      "spend": "spend",
+      "reach": "reach",
+      "conversions": "conversions",
+      "currency": "currency",
+      "syncedAt": "synced_at"
+    },
+    "derived": [],
+    "columns": [
+      "ad_account_id",
+      "clicks",
+      "conversions",
+      "currency",
+      "date",
+      "entity_id",
+      "entity_level",
+      "impressions",
+      "reach",
+      "spend",
+      "synced_at"
+    ]
+  },
+  "meta_campaign_insights": {
+    "view": "meta_campaign_insights",
+    "table": "meta_campaign_insights",
+    "fields": {
+      "campaignId": "campaign_id",
+      "adAccountId": "ad_account_id",
+      "date": "date",
+      "impressions": "impressions",
+      "clicks": "clicks",
+      "spend": "spend",
+      "reach": "reach",
+      "conversions": "conversions",
+      "currency": "currency"
+    },
+    "derived": [],
+    "columns": [
+      "ad_account_id",
+      "campaign_id",
+      "clicks",
+      "conversions",
+      "currency",
+      "date",
+      "impressions",
+      "reach",
+      "spend"
+    ]
+  },
+  "meta_sync_runs": {
+    "view": "fs_meta_sync_runs",
+    "table": "meta_sync_runs",
+    "fields": {
+      "id": "id",
+      "triggerType": "trigger_type",
+      "triggeredByPersonId": "triggered_by_person_id",
+      "triggeredByName": "triggered_by_name",
+      "startedAt": "started_at",
+      "finishedAt": "finished_at",
+      "status": "status",
+      "adAccountsSynced": "ad_accounts_synced",
+      "campaignsSynced": "campaigns_synced",
+      "adsetsSynced": "adsets_synced",
+      "adsSynced": "ads_synced",
+      "insightRowsSynced": "insight_rows_synced",
+      "errorMessage": "error_message",
+      "detail": "detail"
+    },
+    "derived": [],
+    "columns": [
+      "ad_accounts_synced",
+      "adsets_synced",
+      "ads_synced",
+      "campaigns_synced",
+      "detail",
+      "error_message",
+      "finished_at",
+      "id",
+      "insight_rows_synced",
+      "started_at",
+      "status",
+      "trigger_type",
+      "triggered_by_name",
+      "triggered_by_person_id"
+    ]
+  },
+  "meta_ads_actions": {
+    "view": "fs_meta_ads_actions",
+    "table": "meta_ads_actions",
+    "fields": {
+      "id": "id",
+      "personId": "person_id",
+      "personName": "person_name",
+      "entityLevel": "entity_level",
+      "entityId": "entity_id",
+      "entityName": "entity_name",
+      "action": "action",
+      "field": "field",
+      "before": "before",
+      "after": "after",
+      "confirmedOverCeiling": "confirmed_over_ceiling",
+      "createdAt": "created_at"
+    },
+    "derived": [],
+    "columns": [
+      "action",
+      "after",
+      "before",
+      "confirmed_over_ceiling",
+      "created_at",
+      "entity_id",
+      "entity_level",
+      "entity_name",
+      "field",
+      "id",
+      "person_id",
+      "person_name"
+    ]
+  },
+  "meta_ads_settings": {
+    "view": "fs_meta_ads_settings",
+    "table": "meta_ads_settings",
+    "fields": {
+      "id": "id",
+      "budgetCeilingMinor": "budget_ceiling_minor",
+      "budgetCeilingCurrency": "budget_ceiling_currency",
+      "confirmMultiplier": "confirm_multiplier",
+      "updatedAt": "updated_at",
+      "updatedBy": "updated_by"
+    },
+    "derived": [],
+    "columns": [
+      "budget_ceiling_currency",
+      "budget_ceiling_minor",
+      "confirm_multiplier",
+      "id",
+      "updated_at",
+      "updated_by"
+    ]
+  },
+  "marketing_tabs": {
+    "view": null,
+    "table": "marketing_tabs",
+    "fields": {
+      "id": "id",
+      "label": "label",
+      "sort_order": "sort_order"
+    },
+    "derived": [],
+    "columns": [
+      "id",
+      "label",
+      "sort_order"
+    ]
+  },
+  "position_marketing_tabs": {
+    "view": null,
+    "table": "position_marketing_tabs",
+    "fields": {
+      "position_id": "position_id",
+      "tab_id": "tab_id",
+      "can_view": "can_view",
+      "can_edit": "can_edit"
+    },
+    "derived": [],
+    "columns": [
+      "can_edit",
+      "can_view",
+      "position_id",
+      "tab_id"
     ]
   }
 };

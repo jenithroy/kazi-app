@@ -35,6 +35,7 @@ import { GBP_RATE } from "../constants";
 const EMPTY = {
   name: "", city: "", address: "",
   contactPerson: "", email: "", phone: "", notes: "", region: "",
+  sourceCampaignId: "",
 };
 
 /* Invoice money is stored in the invoice's own currency — total_npr holds
@@ -161,6 +162,13 @@ function CustomerForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial || { ...EMPTY, region });
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // Optional — most customers won't have one, and that's the honest default:
+  // there's no ad-click tracking here, only what staff happen to know.
+  const [campaigns, setCampaigns] = useState([]);
+  useEffect(() => {
+    fetchAll("meta_campaigns", { orderBy: "name", orderDir: "asc" }).then(setCampaigns).catch(() => {});
+  }, []);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="krsp-2" style={{ gap: 10 }}>
@@ -181,9 +189,15 @@ function CustomerForm({ initial, onSave, onCancel }) {
         <input style={inp} value={form.address} onChange={set("address")} placeholder="123 High Street, London, W1A 1AA" /></label>
       <label style={lbl}>Notes
         <textarea style={{ ...inp, resize: "vertical", lineHeight: 1.5 }} rows={2} value={form.notes} onChange={set("notes")} placeholder="Any additional notes…" /></label>
+      <label style={lbl}>Source campaign (optional — set this only if you know they came from a specific ad)
+        <select style={inp} value={form.sourceCampaignId || ""} onChange={set("sourceCampaignId")}>
+          <option value="">Not set</option>
+          {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select></label>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 4 }}>
         <button className="ghost-button" onClick={onCancel}>Cancel</button>
-        <button className="primary-button" onClick={() => form.name.trim() && onSave(form)}
+        <button className="primary-button"
+          onClick={() => form.name.trim() && onSave({ ...form, sourceCampaignId: form.sourceCampaignId || null })}
           style={{ opacity: form.name.trim() ? 1 : .5 }}>Save customer</button>
       </div>
     </div>

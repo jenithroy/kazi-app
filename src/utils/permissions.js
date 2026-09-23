@@ -95,6 +95,20 @@ export function messengerTabCanEdit(profile, key) {
   return sectionCanEdit(profile, "messenger") && profile?.messengerTabs?.[key]?.canEdit === true;
 }
 
+/**
+ * Meta Ads is split out from the rest of Marketing the same way Leads is
+ * split from Messenger (migration 0045) — both can_view and can_edit are
+ * real, since seeing ad spend and pausing a live campaign / changing a
+ * budget are different levels of trust.
+ */
+export function marketingTabAllowed(profile, key) {
+  return profile?.marketingTabs?.[key]?.canView === true;
+}
+
+export function marketingTabCanEdit(profile, key) {
+  return sectionCanEdit(profile, "marketing") && profile?.marketingTabs?.[key]?.canEdit === true;
+}
+
 /** Tab label as shown in Finance.jsx → tab id in the database. */
 export const FINANCE_TAB_KEYS = {
   expenses: "expenses",
@@ -102,6 +116,7 @@ export const FINANCE_TAB_KEYS = {
   purchases: "purchases",
   "vat bills": "vat_bills",
   journal: "journal",
+  "day book": "day_book",
   ledger: "ledger",
   "p&l": "pl",
   "balance sheet": "balance_sheet",
