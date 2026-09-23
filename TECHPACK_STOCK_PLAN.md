@@ -1,7 +1,9 @@
 # Smart tech packs → automatic stock (planning notes)
 
 Started 2026-09-20, rewritten 2026-09-21 after a second design conversation and a
-read-only audit of the live database. **Nothing here is built yet.**
+read-only audit of the live database. **Build steps 1–3 and 5 are done (2026-09-22).
+Migrations 0043 and 0044 are written and rehearsed but NOT APPLIED — see §8.
+Still to build: the order form and the deduction itself.**
 
 ## 1. The goal
 
@@ -243,11 +245,11 @@ next to the colour picker, never an automatic assignment. Low priority.
 
 Plumbing first — the dots are worthless if stock numbers are wrong underneath.
 
-1. **Fix the Dashboard** ([Dashboard.jsx:651](src/pages/Dashboard.jsx#L651), 743, 951, 1197): fetch `stock_movements` and use the same `stockClosing` helper Inventory uses. Delete the `stockIn`/`stockUsed` arithmetic.
-2. **Page `fetchAll`** ([db.js:180](src/lib/db.js#L180)) with a `.range()` loop so no caller can silently lose rows. Later, a `fs_stock_balances` view so the client stops pulling the whole ledger at all.
-3. **Purchase line item picker** — `stockItemId` on `line_items`, reusing `StockItemSelect`, exactly as sales invoices already do. Keep the name match as a fallback for old rows.
-4. **Migration 0043**: `inventory_items.fabric_id` / `color` / `color_hex`; `patterns.callouts`, `wastage_pct`, new `measurements` shape; `measurement_templates`; `orders.pattern_id` / `size_breakdown` / materials snapshot; `production_read` policy on `patterns`; drop the recipes leftovers and re-issue `fs_orders` + `fs_patterns` (re-set `security_invoker` after `create or replace view`, as 0039 did). Then regenerate `src/lib/schemaMap.js`.
-5. **Tech pack editor**: the dot canvas, the stock dropdown, per-size quantities, per-size measurements, measurement templates.
+1. ~~**Fix the Dashboard**~~ **— done 2026-09-22.** ([Dashboard.jsx:651](src/pages/Dashboard.jsx#L651), 743, 951, 1197): fetch `stock_movements` and use the same `stockClosing` helper Inventory uses. Delete the `stockIn`/`stockUsed` arithmetic.
+2. ~~**Page `fetchAll`**~~ **— done 2026-09-22.** ([db.js:180](src/lib/db.js#L180)) with a `.range()` loop so no caller can silently lose rows. Later, a `fs_stock_balances` view so the client stops pulling the whole ledger at all.
+3. ~~**Purchase line item picker**~~ **— done 2026-09-22.** — `stockItemId` on `line_items`, reusing `StockItemSelect`, exactly as sales invoices already do. Keep the name match as a fallback for old rows.
+4. **Migration 0043 — written, rehearsed, NOT YET APPLIED.** The fabric/colour half is done and is the file in the repo; the rest below stays for a later migration: `inventory_items.fabric_id` / `color` / `color_hex`; `patterns.callouts`, `wastage_pct`, new `measurements` shape; `measurement_templates`; `orders.pattern_id` / `size_breakdown` / materials snapshot; `production_read` policy on `patterns`; drop the recipes leftovers and re-issue `fs_orders` + `fs_patterns` (re-set `security_invoker` after `create or replace view`, as 0039 did). Then regenerate `src/lib/schemaMap.js`.
+5. ~~**Tech pack editor**~~ **— done 2026-09-22.** Dot canvas, stock/fabric dropdown, per-size quantities, per-size measurements, measurement templates.
 6. **Order form**: tech pack picker, size grid, colour → stock item resolution, needs-vs-stock panel, snapshot on save.
 7. **Deduction at QC** from the snapshot; shrink `MaterialsUsedModal` to confirm/correct.
 8. Colour sampling; AI-drafted dots much later, if at all.
@@ -263,14 +265,39 @@ Plumbing first — the dots are worthless if stock numbers are wrong underneath.
 
 ## 7. Still open
 
-1. **Backfill or fresh start?** 441 purchase lines worth NPR 1.24M never posted to stock, and current balances are hand-typed opening figures. Either map the ~20 fabric name variants and create the historical movements, or do a physical count, set a clean opening, and automate from that date on. **User's call — this touches real data.**
+1. ~~Backfill or fresh start?~~ **Decided 2026-09-22: physical count, clean start.** Count what is in the store, set that as opening stock on a chosen date, automate from there. Past purchases stay accounting records only; no historical movements are created. Manual stock editing stays as it is — it is how the count gets entered (the per-item ledger panel in Inventory, and the item's Opening Stock field).
 2. **Per-size gram numbers** have to come from the costing Excel sheet the user is sending, or from whoever runs cutting. Estimating from measurements × GSM is 10–15% off because it ignores marker layout.
 3. Should the "Fabric Used (grams / pc)" idea come back as a read-only derived figure on the order, now that the tech pack can compute it?
 4. Do the 59 library rows get their colours filled in by hand, or only as each one is first purchased?
 
 ## 8. Status
 
-- **No code changed yet** for any of the above.
+### Done 2026-09-22 (build steps 1–3, plus the 0043 file)
+
+- **Dashboard now reads the real ledger.** Both dashboards load `stock_movements` and use `stockClosing`; the dead `stockIn`/`stockUsed` arithmetic is gone from all four places. The ledger is deliberately not region-filtered (the item carries the region, not the movement).
+- **`fetchAll` pages.** A full first page triggers a stable, id-ordered page-through; anything under 1000 rows issues the same single query as before, in the same order.
+- **Purchase lines can name their stock item.** A quiet "Not stock / …" dropdown under each Particulars box, on both the Finance new-purchase row and the Purchases list. `postPurchaseStockIn` prefers that link and keeps the old exact-name match as a fallback. New `syncPurchaseStockIn` re-posts a purchase's movements after an edit — previously, editing a purchase left its old movements untouched, so linking an item to an existing purchase did nothing at all.
+- **Migration `0043_stock_fabric_colour_link.sql`** adds `inventory_items.fabric_id` / `color` / `color_hex`, indexes the fabric, and re-issues `fs_inventory`. Rehearsed twice in pglite: re-runnable, existing rows byte-identical, and deleting a fabric nulls the link instead of deleting the stock item.
+- **The Inventory UI for it is gated on the migration.** `supportsFabricLink` checks whether a loaded row actually has `fabricId`, so before 0043 is applied the fields simply do not appear and nothing tries to write them; afterwards they appear with no redeploy. `schemaMap.js` was hand-edited with the three entries the generator will produce, because `toRow()` silently drops unmapped keys.
+- Verified with the esbuild + headless-Edge harness: 15 checks over the picker and `postPurchaseStockIn`, including that an explicit link beats a conflicting name and that a misspelt name still posts nothing. `vite build` clean.
+
+### Done 2026-09-22 (build step 5 — the tech pack editor)
+
+- **`src/utils/techPackMaterials.js`** — the material maths, pure and testable: per-size quantities, the 10% fabric wastage, order totals, which callouts can actually be deducted and which are set aside (vendor-supplied, or not finished). 32 checks pass.
+- **`src/components/TechPackCallouts.jsx`** — the board. Tap the front or back sketch to drop a numbered dot; each dot is one BOM line with a label, a kind, a source (Materials & Fabrics row / a specific stock item / vendor-supplied), a per-piece quantity and a colour sampled from the pixel under the dot. Dots drag to move, are numbered per side, and turn amber until they could actually deduct something. Positions are fractions of the image, not pixels. Quantities are entered as two buckets (S–XL, XXL+) with a per-size view for exceptions — that is how the factory costs them.
+- **Measurement lines** — two taps on the photo mark where a measurement is taken. The inches are always typed from the real garment; nothing is derived from pixel distance.
+- **`src/components/MeasurementGrid.jsx`** — one column per size, with the column the printed sheet quotes highlighted and named underneath. Templates fill the point NAMES only, and only the ones missing, so applying one over a part-filled grid cannot wipe measured numbers.
+- **The printed spec sheet is untouched** — `TechPackSpecPreview` has no diff at all. `syncMeasurementInch` keeps `inch` equal to the spec size's column on save, so per-size data never changes what comes out of the printer. A hand-typed `inch` with no per-size number is left alone.
+- **Fabrics/Linings and Trims keep their own wording.** A "Fill from photo points" button is offered next to each, never applied automatically, because those two boxes are what the sheet prints.
+- **Migration `0044_techpack_callouts_and_measurements.sql`** — `patterns.callouts` + `wastage_pct`, a `measurement_templates` table with its RLS and view, `production_read` on `patterns`, and `fs_patterns` re-issued. Rehearsed twice in pglite: re-runnable, a legacy tech pack comes back byte-identical, duplicate template names rejected.
+- Verified: 27 checks in the headless-Edge harness over the board and the grid, 32 over the maths, plus a screenshot against the real stylesheet. `vite build` clean.
+- One real bug the tests caught: picking "a specific stock item" flipped straight back to "fabric", because the chosen source was derived from whichever id happened to be set and neither was, yet. The editor now holds that choice in its own state.
+
+### Not done
+
+- **0043 and 0044 have not been applied.** Migrations here are pasted into the Supabase SQL editor by hand. Until then the fabric/colour fields and the dot board stay hidden behind their capability checks, and the rest of the tech pack sheet behaves exactly as it does today.
+- **The order form and the deduction** (build steps 6–7) are not built: no tech pack picker on an order, no size grid, no "needs vs in stock" panel, no automatic deduction at QC. `MaterialsUsedModal` is still the manual dialog.
+- Nobody has entered a per-size gram figure yet — see §7.2.
 - 2026-09-21: recipes UI removed (`RecipesTab.jsx` deleted, recipe picker gone from the order form, `MaterialsUsedModal` is now a manual dialog). DB leftovers remain — see §3.5.
 - Migration 0039 must be applied for production deductions to save at all.
 - `fabricGramsUsed` / `fabricCostPerPcNPR` / `materialCostTotalNPR` stay in the database and are carried through when an older order is saved, though the form no longer asks for them.

@@ -17,7 +17,7 @@ export const PURCHASE_UNITS = [
 
 export const PAYMENT_TYPES = ["CASH", "Bank", "Credit"];
 
-const emptyLineItem = { particulars: "", quantity: "", unit: "pcs", rate: "", amount: "" };
+const emptyLineItem = { particulars: "", quantity: "", unit: "pcs", rate: "", amount: "", stockItemId: "" };
 
 export const emptyPurchaseForm = {
   date: new Date().toISOString().slice(0, 10),
@@ -80,7 +80,8 @@ function itemsForEdit(row) {
       quantity: it.quantity == null ? "" : String(it.quantity),
       unit: it.unit || "pcs",
       rate: it.rate == null ? "" : String(it.rate),
-      amount: it.amount == null ? "" : String(it.amount)
+      amount: it.amount == null ? "" : String(it.amount),
+      stockItemId: it.stockItemId || ""
     }));
   }
   if (row.particulars || row.quantity != null || row.rate != null) {
@@ -131,7 +132,10 @@ export function purchaseItemsPayload(items) {
       quantity: it.quantity === "" || it.quantity == null ? null : Number(it.quantity),
       unit: it.unit || "pcs",
       rate: it.rate === "" || it.rate == null ? null : Number(it.rate),
-      amount: it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0
+      amount: it.amount === "" || it.amount == null ? 0 : Number(it.amount) || 0,
+      // "" is what an unset <select> gives; db.js turns that into null, since it
+      // is not a uuid and the insert would be rejected.
+      stockItemId: it.stockItemId || null
     }));
 }
 
@@ -159,10 +163,77 @@ function addItemOnEnter(e, onAddItem) {
   });
 }
 
+// Links a purchase line to the inventory item it stocks, so saving the purchase
+// raises that item's balance.
+//
+// Deliberately a second, quiet control rather than a replacement for the
+// Particulars box: the particulars is the vendor's own wording and ends up on
+// documents, while most lines — rent, fees, a laptop — are not stock at all and
+// should stay as quick to type as they always were. Left on "Not stock", a line
+// behaves exactly as it did before this existed.
+function StockLinkSelect({ items, value, lineUnit, hasParticulars, onChange }) {
+  if (!items.length) return null;
+
+  const groups = [];
+  for (const it of [...items].sort((a, b) => String(a.item || "").localeCompare(String(b.item || "")))) {
+    const category = it.category || "Other";
+    let group = groups.find(g => g.category === category);
+    if (!group) { group = { category, items: [] }; groups.push(group); }
+    group.items.push(it);
+  }
+  // Alphabetical, so the list is in the same order every time someone opens it
+  // rather than an order that falls out of which item happens to sort first.
+  groups.sort((a, b) => a.category.localeCompare(b.category));
+
+  const linked = value ? items.find(i => i.id === value) : null;
+  // The quantity on this line lands in the item's balance untouched, so a line
+  // bought in metres against an item counted in kilos would corrupt it. Say so
+  // rather than converting: only whoever bought it knows which number is right.
+  const unitClash = linked && linked.unit && lineUnit && linked.unit !== lineUnit;
+
+  return (
+    <>
+      <select
+        className="kfin-select"
+        style={{
+          padding: "2px 4px", fontSize: 11, marginTop: 3, maxWidth: 150,
+          color: linked ? "var(--mint-deep)" : "var(--ink-4)",
+          fontWeight: linked ? 600 : 400,
+        }}
+        value={value || ""}
+        title="Link this line to a stock item so the purchase adds to its balance"
+        onChange={e => {
+          const id = e.target.value;
+          const picked = items.find(i => i.id === id);
+          const patch = { stockItemId: id };
+          // Naming the line after the item it stocks is nearly always what was
+          // meant, but only when there is nothing there to overwrite.
+          if (picked && !hasParticulars) patch.particulars = picked.item;
+          onChange(patch);
+        }}
+      >
+        <option value="">Not stock</option>
+        {groups.map(g => (
+          <optgroup key={g.category} label={g.category}>
+            {g.items.map(i => (
+              <option key={i.id} value={i.id}>{i.item}{i.unit ? " (" + i.unit + ")" : ""}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {unitClash && (
+        <div style={{ fontSize: 10, color: "var(--terra)", fontWeight: 600, marginTop: 2, maxWidth: 150 }}>
+          Stock is counted in {linked.unit} — this line says {lineUnit}
+        </div>
+      )}
+    </>
+  );
+}
+
 // One purchase (Date/Party/Category/Payment/VAT shared via rowSpan) rendered as one <tr> per particular.
 // `dateMode` ("ad" | "bs") is for a list with one switch in its Date column header; left out,
 // the date carries a switch of its own (the single new-purchase row on Finance).
-export function PurchaseRowGroup({ expenseId, data, highlight, dateMode, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError }) {
+export function PurchaseRowGroup({ expenseId, data, highlight, dateMode, onFieldChange, onItemChange, onAddItem, onRemoveItem, onBlurAway, onFinishEnter, actionCell, partyError, inventoryItems = [] }) {
   const items = data.items;
   const subtotal = purchaseSubtotal(items);
   const discountAmt = Number(data.discountAmt || 0);
@@ -242,6 +313,13 @@ export function PurchaseRowGroup({ expenseId, data, highlight, dateMode, onField
             <input className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, minWidth: 110 }} value={item.particulars} placeholder="Particulars"
               data-role="particulars"
               onChange={e => onItemChange(idx, { particulars: e.target.value })} />
+            <StockLinkSelect
+              items={inventoryItems}
+              value={item.stockItemId}
+              lineUnit={item.unit}
+              hasParticulars={!!(item.particulars || "").trim()}
+              onChange={patch => onItemChange(idx, patch)}
+            />
           </td>
           <td>
             <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "5px 6px", fontSize: 13, width: 48 }} value={item.quantity} placeholder="Qty"

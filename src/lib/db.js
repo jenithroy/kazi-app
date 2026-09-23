@@ -170,26 +170,67 @@ async function writeChildren(collection, parentId, nested) {
   }
 }
 
+/** PostgREST refuses to return more than this in one response. */
+const PAGE_SIZE = 1000;
+
 /**
  * Read a whole collection.
  *
  *   filters  [{ field, op, value }]  op defaults to "eq"
  *   orderBy  a key from the view; orderDir "asc" | "desc"
  *   limit    max rows
+ *
+ * "Whole" is meant literally. Supabase caps a response at PAGE_SIZE rows and
+ * says nothing when it truncates -- no error, no flag, just a short list. That
+ * is survivable for invoices, and not survivable for stock_movements, where a
+ * missing row is a balance that is silently wrong for every item after it. So
+ * a full first page is treated as "there is probably more" and the read is
+ * repeated page by page.
+ *
+ * Paging needs a total order or rows can repeat or disappear between requests,
+ * and an unordered query has none. Rather than impose one on every caller, the
+ * first page is fetched exactly as before: collections that fit in one page --
+ * which today is all of them -- issue the same single query and come back in
+ * the same order they always did. Only a collection that fills a page pays for
+ * the ordering, and it pays with one wasted request.
  */
 export async function fetchAll(collection, { filters = [], orderBy, orderDir = "desc", limit } = {}) {
-  let q = supabase.from(readFrom(collection)).select("*");
+  const table = readFrom(collection);
+  const build = () => {
+    let q = supabase.from(table).select("*");
+    for (const { field, op = "eq", value } of filters) {
+      if (value === undefined) continue;
+      q = typeof q[op] === "function" ? q[op](field, value) : q.eq(field, value);
+    }
+    if (orderBy) q = q.order(orderBy, { ascending: orderDir === "asc" });
+    return q;
+  };
 
-  for (const { field, op = "eq", value } of filters) {
-    if (value === undefined) continue;
-    q = typeof q[op] === "function" ? q[op](field, value) : q.eq(field, value);
+  // A caller that asked for less than a page can never be truncated.
+  if (limit && limit <= PAGE_SIZE) {
+    const { data, error } = await build().limit(limit);
+    if (error) throw error;
+    return data || [];
   }
-  if (orderBy) q = q.order(orderBy, { ascending: orderDir === "asc" });
-  if (limit) q = q.limit(limit);
 
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  const { data: first, error: firstErr } = await build();
+  if (firstErr) throw firstErr;
+  if (!first || first.length < PAGE_SIZE) return first || [];
+
+  const out = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const want = limit ? Math.min(PAGE_SIZE, limit - out.length) : PAGE_SIZE;
+    if (want <= 0) break;
+    let q = build();
+    // id is unique in every fs_ view, so it is a total order even when the
+    // caller's own orderBy has ties.
+    q = q.order("id", { ascending: true });
+    const { data, error } = await q.range(from, from + want - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < want) break;
+  }
+  return out;
 }
 
 /** One row by id, or null. */

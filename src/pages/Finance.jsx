@@ -1371,6 +1371,7 @@ function Finance() {
                     data={purchaseForm}
                     highlight
                     partyError={purchaseError}
+                    inventoryItems={inventoryItems}
                     onFieldChange={patch => {
                       if ("expenseItem" in patch) setPurchaseError("");
                       setPurchaseForm(f => ({ ...f, ...patch }));

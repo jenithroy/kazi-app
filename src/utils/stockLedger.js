@@ -52,18 +52,31 @@ export async function logStockMovement({ itemId, date, qty, direction, source, s
   });
 }
 
-// Auto-posts "in" movements for purchase line items whose particulars match an
-// inventory item name (case-insensitive, exact). Silently skips items with no
-// match — most purchases (rent, professional fees, etc.) aren't stock at all,
-// so this only fires for the subset that happen to name a real inventory item.
+// Posts "in" movements for purchase lines that name a stock item.
+//
+// A line says which item it feeds in one of two ways. The explicit stockItemId,
+// picked from the dropdown on the purchase form, always wins. Failing that the
+// particulars text is matched against item names (case-insensitive, exact),
+// which is how this worked before the picker existed and is kept so purchases
+// saved back then keep behaving the way they did.
+//
+// That name match is why the feature had barely run: of 447 historical purchase
+// lines, six matched. "Polyster Knitted Fabrics", "polister knitted fabric" and
+// "Polister  Fabric Without Brushes" are one fabric typed three ways, and every
+// one of them added nothing and said nothing. Lines that genuinely are not
+// stock — rent, professional fees, a laptop — are still skipped in silence,
+// which is correct, and is why this cannot simply warn on every miss.
 export async function postPurchaseStockIn({ purchase, items, inventoryItems, createdBy }) {
   if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) return [];
+  const byId   = new Map(inventoryItems.map(inv => [inv.id, inv]));
   const byName = new Map(inventoryItems.map(inv => [String(inv.item || "").trim().toLowerCase(), inv]));
   const posted = [];
   for (const it of items || []) {
     const qty = Number(it.quantity);
     if (!qty || qty <= 0) continue;
-    const match = byName.get(String(it.particulars || "").trim().toLowerCase());
+    const match = it.stockItemId
+      ? byId.get(it.stockItemId)
+      : byName.get(String(it.particulars || "").trim().toLowerCase());
     if (!match) continue;
     await logStockMovement({
       itemId: match.id,
@@ -79,6 +92,28 @@ export async function postPurchaseStockIn({ purchase, items, inventoryItems, cre
     posted.push(match.item);
   }
   return posted;
+}
+
+// Re-posts a purchase's stock movements after it has been edited.
+//
+// Saving an edit replaces the purchase's line items wholesale, so movements
+// posted from the old lines no longer describe anything that exists — and until
+// now nothing touched them, which meant linking an item to an existing purchase
+// changed precisely nothing. Clearing and re-posting keeps the ledger a
+// function of the purchase as it currently stands, the same way
+// undoProductionStockOut lets an order's deduction be corrected. A purchase
+// with no expenseId has nothing to file movements under, so it is left alone.
+export async function syncPurchaseStockIn({ purchase, items, inventoryItems, createdBy }) {
+  const ref = purchase?.expenseId;
+  if (!ref) return [];
+  const { error } = await supabase
+    .from("stock_movements")
+    .delete()
+    .eq("source", "purchase")
+    .eq("source_id", ref);
+  if (error) throw error;
+  logWrite(STOCK_MOVEMENTS_COLLECTION, "delete", ref);
+  return postPurchaseStockIn({ purchase, items, inventoryItems, createdBy });
 }
 
 // Auto-posts "out" movements for sales invoice line items explicitly linked to

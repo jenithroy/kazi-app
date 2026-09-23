@@ -615,15 +615,21 @@ export const SCHEMA_MAP = {
       "createdBy": "created_by",
       "updatedBy": "updated_by",
       "createdAt": "created_at",
-      "region": "region"
+      "region": "region",
+      "fabricId": "fabric_id",
+      "color": "color",
+      "colorHex": "color_hex"
     },
     "derived": [],
     "columns": [
       "category",
+      "color",
+      "color_hex",
       "condition",
       "created_at",
       "created_by",
       "damage_log",
+      "fabric_id",
       "id",
       "item",
       "item_ref",
@@ -988,12 +994,15 @@ export const SCHEMA_MAP = {
       "tech_pack_images": "tech_pack_images",
       "createdAt": "created_at",
       "updatedAt": "updated_at",
-      "region": "region"
+      "region": "region",
+      "callouts": "callouts",
+      "wastagePct": "wastage_pct"
     },
     "derived": [],
     "columns": [
       "available_colors",
       "back_sketch_url",
+      "callouts",
       "category",
       "created_at",
       "designer_name",
@@ -1016,7 +1025,33 @@ export const SCHEMA_MAP = {
       "tech_pack_url",
       "trims",
       "updated_at",
-      "wash_care"
+      "wash_care",
+      "wastage_pct"
+    ]
+  },
+  "measurement_templates": {
+    "view": "fs_measurement_templates",
+    "table": "measurement_templates",
+    "fields": {
+      "id": "id",
+      "name": "name",
+      "product_type": "product_type",
+      "market": "market",
+      "labels": "labels",
+      "createdBy": "created_by",
+      "createdAt": "created_at",
+      "updatedAt": "updated_at"
+    },
+    "derived": [],
+    "columns": [
+      "created_at",
+      "created_by",
+      "id",
+      "labels",
+      "market",
+      "name",
+      "product_type",
+      "updated_at"
     ]
   },
   "payments": {

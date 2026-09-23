@@ -15,6 +15,7 @@ import { PRODUCT_COSTS } from "../constants/productCosts";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch } from "../components/RegionSwitch";
 import { filterCollections } from "../utils/region";
+import { stockClosing } from "../utils/stockLedger";
 
 /* ── Helpers ─────────────────────────────────────────── */
 function getLast6Months() {
@@ -612,12 +613,7 @@ function NepalAdminDash() {
 
       // loadCollections uses Promise.allSettled internally — a permissions error
       // on one collection returns [] for that key and never crashes the dashboard.
-      const {
-        attendance, production: prodRows, qc_logs: qcLogs, inventory,
-        tasks, budget_requests: budgetRequests, orders, finance_expenses: expenses, users,
-        order_costs: orderCosts, invoices,
-        finance_payroll, finance_purchases, employees
-      } = filterCollections(await loadCollections({
+      const loaded = await loadCollections({
         attendance:        "attendance",
         production:        "production",
         qc_logs:           "qc_logs",
@@ -631,8 +627,20 @@ function NepalAdminDash() {
         invoices:          "invoices",
         finance_payroll:   "finance_payroll",
         finance_purchases: "finance_purchases",
-        employees:         "employees"
-      }), region);
+        employees:         "employees",
+        stock_movements:   "stock_movements",
+      });
+      // Deliberately NOT region-filtered: a movement carries no region of its
+      // own, the item it points at does. Scoping the ledger a second time would
+      // silently drop rows and understate every balance — the same reason
+      // Inventory.jsx keeps its copy whole.
+      const movements = loaded.stock_movements || [];
+      const {
+        attendance, production: prodRows, qc_logs: qcLogs, inventory,
+        tasks, budget_requests: budgetRequests, orders, finance_expenses: expenses, users,
+        order_costs: orderCosts, invoices,
+        finance_payroll, finance_purchases, employees
+      } = filterCollections(loaded, region);
 
       const todayAtt = attendance.filter(r => r.date === today);
       const presentToday = todayAtt.filter(r => ["Present", "Late", "Half-day"].includes(r.status)).length;
@@ -647,10 +655,14 @@ function NepalAdminDash() {
       const totalPass = qcLogs.reduce((s, r) => s + Number(r.passed || 0), 0);
       const qcPassRate = totalInsp ? ((totalPass / totalInsp) * 100).toFixed(1) : "0.0";
 
-      const lowStockItems = inventory.filter(item => {
-        const closing = Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0);
-        return closing <= Number(item.minLevel || 0);
-      }).slice(0, 4);
+      // stockIn/stockUsed are dead columns — zero on every row since the dated
+      // ledger replaced them — so the old sum showed nothing but the hand-typed
+      // opening figure and ignored every purchase and deduction. Carry the real
+      // balance on the row so the card below can render it without the ledger.
+      const lowStockItems = inventory
+        .map(item => ({ ...item, closing: stockClosing(item, movements) }))
+        .filter(item => item.closing <= Number(item.minLevel || 0))
+        .slice(0, 4);
 
       const tasksByCol = {
         todo:       tasks.filter(t => t.status === "To Do").length,
@@ -740,7 +752,7 @@ function NepalAdminDash() {
       const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
       const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < todayStr && t.status !== "Done");
       const lowInventoryCount = inventory.filter(item => {
-        const qty = Number(item.quantity ?? (Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0)));
+        const qty = Number(item.quantity ?? stockClosing(item, movements));
         const reorder = Number(item.reorderPoint ?? item.minLevel ?? 0);
         return reorder > 0 && qty <= reorder;
       }).length;
@@ -948,7 +960,7 @@ function NepalAdminDash() {
               {data.lowStockItems.length === 0
                 ? <p style={{ fontSize: 13, color: "var(--ink-4)", textAlign: "center", padding: "20px 0" }}>All stock levels OK</p>
                 : data.lowStockItems.map((item, i) => {
-                    const closing = Number(item.openingStock||0) + Number(item.stockIn||0) - Number(item.stockUsed||0);
+                    const closing = Number(item.closing || 0);
                     const ratio = item.minLevel ? closing / item.minLevel : 0.3;
                     return (
                       <div key={i} className="kna-inv-row">
@@ -1100,11 +1112,7 @@ function UKAdminDash() {
 
       // A collection this position cannot read comes back empty rather than
       // throwing, so one restricted panel never blanks the whole dashboard.
-      const {
-        invoices, orders, qcLogs, attendance, budgetRequests,
-        users, payroll: payrollSnap, orderCosts: costsSnap,
-        tasks: tasksSnap, inventory: inventorySnap, employees: employeesSnap,
-      } = filterCollections(await loadCollections({
+      const loaded = await loadCollections({
         invoices: "invoices",
         orders: "orders",
         qcLogs: "qc_logs",
@@ -1116,7 +1124,15 @@ function UKAdminDash() {
         tasks: "tasks",
         inventory: "inventory",
         employees: "employees",
-      }), region);
+        stock_movements: "stock_movements",
+      });
+      // See the other dashboard: the ledger is never region-scoped.
+      const movements = loaded.stock_movements || [];
+      const {
+        invoices, orders, qcLogs, attendance, budgetRequests,
+        users, payroll: payrollSnap, orderCosts: costsSnap,
+        tasks: tasksSnap, inventory: inventorySnap, employees: employeesSnap,
+      } = filterCollections(loaded, region);
 
       // Headcount is now just the active roster — the old filter tested a
       // per-user `role` string that no longer exists, since access comes
@@ -1194,7 +1210,7 @@ function UKAdminDash() {
       const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
       const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
       const lowInventoryCount = inventory.filter(item => {
-        const qty = Number(item.quantity ?? (Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0)));
+        const qty = Number(item.quantity ?? stockClosing(item, movements));
         const reorder = Number(item.reorderPoint ?? item.minLevel ?? 0);
         return reorder > 0 && qty <= reorder;
       }).length;

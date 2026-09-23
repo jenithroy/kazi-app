@@ -13,6 +13,7 @@ import { countUntagged, filterByRegion } from "../utils/region";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
 import { filterByFiscalYear, fiscalYearsIn, isFiscalYearLabel } from "../utils/fiscalYear";
 import { deletePurchaseWithLinks, planPurchaseRenumber, resequencePurchaseExpenseIds } from "../utils/financeRows";
+import { syncPurchaseStockIn } from "../utils/stockLedger";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
   itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload,
@@ -32,8 +33,13 @@ function Purchases() {
   // here is the whole of the region and fiscal-year split on this page.
   const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
   const purchases = useMemo(() => filterByFiscalYear(regionPurchases, fy), [regionPurchases, fy]);
+  const inventoryItems = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
   const yearsHere = useMemo(() => fiscalYearsIn(regionPurchases), [regionPurchases]);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
+  // Stock items, for the "which item does this line stock?" picker on each
+  // purchase line. Region-scoped like the purchases themselves, so a UK
+  // purchase cannot quietly be linked to a Nepal roll.
+  const [allInventoryItems, setInventoryItems] = useState([]);
   const [loading, setLoading] = useState(true);
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
   const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
@@ -84,6 +90,15 @@ function Purchases() {
   }
 
   useEffect(() => { loadPurchases().catch(console.error); }, []);
+  // Separate from loadPurchases: the list reloads after every edit, and the
+  // item catalogue does not change in between.
+  useEffect(() => {
+    fetchAll("inventory")
+      .then(setInventoryItems)
+      // Someone with purchases access but not inventory access gets an empty
+      // list and simply no picker, rather than a broken page.
+      .catch(err => console.warn("Purchases: could not load inventory items:", err?.message || err));
+  }, []);
 
   function purchaseRowData(row) {
     return purchaseDrafts[row.id] || initialGroupData(row);
@@ -133,6 +148,17 @@ function Purchases() {
         region: draft.region || null,
         items: purchaseItemsPayload(draft.items)
       });
+      // The edit replaced the line items, so the movements posted from the old
+      // ones are now describing rows that no longer exist. Re-post from what
+      // was just saved. Fire-and-forget, like the equivalent call on the
+      // Finance form: a ledger that needs a retry must not cost someone the
+      // edit they just made.
+      syncPurchaseStockIn({
+        purchase: { expenseId: row.expenseId, date: draft.date },
+        items: purchaseItemsPayload(draft.items),
+        inventoryItems: allInventoryItems,
+        createdBy: profile?.name || "Unknown",
+      }).catch(err => console.error("Stock re-post failed:", err));
       setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
       await loadPurchases();
     } catch (err) {
@@ -284,6 +310,7 @@ function Purchases() {
                   expenseId={row.expenseId || "—"}
                   data={purchaseRowData(row)}
                   dateMode={dateMode}
+                  inventoryItems={inventoryItems}
                   onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
                   onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}
                   onAddItem={() => canEdit && addPurchaseItem(row)}

@@ -13,6 +13,9 @@ import { COMPANY_NAME, COMPANY_ADDR } from "../utils/billing.jsx";
 import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionField, RegionSelect, RegionBadge } from "../components/RegionSwitch";
 import { countUntagged, countUntaggedBy, filterByRegion, filterByRegionField } from "../utils/region";
+import TechPackCallouts from "../components/TechPackCallouts";
+import MeasurementGrid from "../components/MeasurementGrid";
+import { sizesFor, syncMeasurementInch, calloutsToFabricRows, calloutsToTrimsText, DEFAULT_WASTAGE_PCT } from "../utils/techPackMaterials";
 
 /* ── Image compression & upload helpers ───────────────── */
 function compressFabricImage(file, maxWidth = 1200, quality = 0.8) {
@@ -149,13 +152,78 @@ const STOCK_CATEGORIES = [
 const emptyItemForm = {
   item: "", unit: "pcs", category: "Raw Materials", supplier: "",
   openingStock: 0, minLevel: 0,
-  unitCostNPR: "", location: "", owner: "", condition: "", region: ""
+  unitCostNPR: "", location: "", owner: "", condition: "", region: "",
+  // A stock item is one fabric in one colour: the library row says what it is
+  // made of, the colour says which roll. Both blank for anything that is not a
+  // library material (a laptop, a table, packaging).
+  fabricId: "", color: ""
 };
 
 const emptyCostForm = {
   item: "", category: "Raw Materials", fabricName: "", gramsUsed: "",
   fabric: "", rib: "", trims: "", directLabour: "", others: "", targetPrice: ""
 };
+
+/* Which fabric this stock item is, and in which colour.
+ *
+ * Fabric stock is tracked per colour — black and navy of one fabric are two
+ * items with two balances — but nothing recorded which fabric an item was, so
+ * "this style needs black polyester knit" had no way to find the right roll.
+ * Choosing a fabric here is what lets an order resolve that later.
+ *
+ * The colour list comes from the fabric's own available_colors when it has
+ * one, and falls back to free text, because most library rows have no colours
+ * filled in yet and waiting for that would make the field unusable. */
+function FabricColourFields({ fabrics, fabricId, color, onChange }) {
+  const fabric = fabricId ? fabrics.find(f => f.id === fabricId) : null;
+  const colours = fabric?.available_colors || fabric?.availableColors || [];
+
+  return (
+    <>
+      <label>
+        Fabric / material
+        <select
+          value={fabricId || ""}
+          onChange={e => {
+            // A different fabric rarely comes in the same colour, and a colour
+            // that is not on the new fabric's list would be a quiet lie.
+            const next = e.target.value;
+            onChange(next ? { fabricId: next, color: "" } : { fabricId: "", color: "" });
+          }}
+        >
+          <option value="">— not a library material —</option>
+          {[...fabrics]
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+            .map(f => (
+              <option key={f.id} value={f.id}>
+                {f.name}{f.gsm ? ` · ${f.gsm} GSM` : ""}
+              </option>
+            ))}
+        </select>
+        <small style={{ color: "var(--ink-4)", fontSize: 11 }}>
+          Links this stock to Materials &amp; Fabrics, so an order can find it by fabric and colour.
+        </small>
+      </label>
+      <label>
+        Colour
+        {colours.length > 0 ? (
+          <select value={color || ""} onChange={e => onChange({ color: e.target.value })}>
+            <option value="">— none —</option>
+            {colours.map(c => <option key={c} value={c}>{c}</option>)}
+            {color && !colours.includes(color) && <option value={color}>{color}</option>}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={color || ""}
+            placeholder={fabric ? "e.g. Black" : "Pick a fabric first"}
+            onChange={e => onChange({ color: e.target.value })}
+          />
+        )}
+      </label>
+    </>
+  );
+}
 
 function nextItemId(rows) {
   const kaziRows = rows.filter(r => r.itemId && r.itemId.toLowerCase().includes("kazi"));
@@ -1157,7 +1225,7 @@ function SketchUpload({ label, previewUrl, onFile, disabled }) {
 }
 
 /* ── Garment Specification Sheet — create/edit ─────────── */
-function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
+function TechPackSpecModal({ item, fabrics, patterns, inventoryItems = [], templates = [], onSaveTemplate, supportsCallouts = false, onClose, onSaved }) {
   const isEdit = !!item;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1169,7 +1237,18 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const [measurements, setMeasurements] = useState(() => (isEdit && Array.isArray(item.measurements)) ? item.measurements : []);
+  // The material dots placed on the front/back photos, and the flat fabric
+  // wastage the factory adds to every order.
+  const [callouts, setCallouts] = useState(() => (isEdit && Array.isArray(item.callouts)) ? item.callouts : []);
+  const [wastagePct, setWastagePct] = useState(() => {
+    const v = Number(isEdit ? item.wastagePct : undefined);
+    return Number.isFinite(v) && v >= 0 ? String(v) : String(DEFAULT_WASTAGE_PCT);
+  });
   const [fabricRows, setFabricRows] = useState(() => (isEdit && Array.isArray(item.fabricRows) && item.fabricRows.length) ? item.fabricRows : [{ fabricName: "", description: "" }]);
+
+  // Falls back to the full size run when nobody has ticked any sizes — 24 of
+  // the 32 existing tech packs have none, and an empty grid would be useless.
+  const specSizes = sizesFor(form.sizes_available);
 
   const [frontSketchFile, setFrontSketchFile] = useState(null);
   const [frontSketchPreview, setFrontSketchPreview] = useState(item?.frontSketchUrl || "");
@@ -1182,16 +1261,6 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
   const [packFiles, setPackFiles] = useState([]);
   const [packPreviews, setPackPreviews] = useState([]);
   const packInputRef = useRef(null);
-
-  function addMeasurementRow() {
-    setMeasurements(m => [...m, { label: "", inch: "" }]);
-  }
-  function updateMeasurementRow(idx, field, val) {
-    setMeasurements(m => m.map((r, i) => i === idx ? { ...r, [field]: val } : r));
-  }
-  function removeMeasurementRow(idx) {
-    setMeasurements(m => m.filter((_, i) => i !== idx));
-  }
 
   function addFabricRow() {
     if (fabricRows.length >= 3) return;
@@ -1241,7 +1310,13 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
         designerName: form.designerName,
         name:         form.name,
         product_type: form.product_type,
-        measurements: measurements.filter(r => r.label.trim() !== ""),
+        // The printed sheet reads `inch`; this keeps it equal to whichever size
+        // column the sheet says it is quoting, so per-size data never changes
+        // what comes out of the printer.
+        measurements: syncMeasurementInch(
+          measurements.filter(r => String(r.label || "").trim() !== ""),
+          form.specSize, specSizes
+        ),
         washCare:     form.washCare,
         fabricRows:   fabricRows.filter(r => r.fabricName.trim() !== "" || r.description.trim() !== ""),
         trims:        form.trims,
@@ -1249,6 +1324,12 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
         sizes_available: form.sizes_available,
         notes:        form.notes
       };
+      // Before 0044 these columns do not exist and naming one fails the whole
+      // write, so they are added only once the database can take them.
+      if (supportsCallouts) {
+        payload.callouts = callouts;
+        payload.wastagePct = Number(wastagePct) || DEFAULT_WASTAGE_PCT;
+      }
 
       let docId = item?.id;
       if (!isEdit) {
@@ -1361,27 +1442,6 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
             <input className="kfin-input" value={form.product_type} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie, Kurthi…" />
           </div>
 
-          {/* Measurements */}
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <label className="kfin-label" style={{ margin: 0 }}>Measurements (Inch)</label>
-              <button type="button" className="kinv-btn-ghost" onClick={addMeasurementRow}>+ Add Point</button>
-            </div>
-            {measurements.length === 0 && <p style={{ fontSize: 12, color: "var(--ink-4)", margin: "4px 0" }}>No measurement points yet.</p>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {measurements.map((r, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: "var(--ink-4)", width: 18 }}>{i + 1}</span>
-                  <input className="kfin-input" style={{ flex: 2 }} value={r.label} placeholder="e.g. Full length"
-                    onChange={e => updateMeasurementRow(i, "label", e.target.value)} />
-                  <input className="kfin-input" style={{ flex: 1 }} value={r.inch} placeholder="Inch"
-                    onChange={e => updateMeasurementRow(i, "inch", e.target.value)} />
-                  <button type="button" className="kinv-btn-del" onClick={() => removeMeasurementRow(i)} title="Remove"><TrashIcon size={13} /></button>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Sketches */}
           <div className="krsp-2" style={{ gap: 12 }}>
             <SketchUpload label="Front Sketch" previewUrl={frontSketchPreview}
@@ -1389,6 +1449,48 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
             <SketchUpload label="Back Sketch" previewUrl={backSketchPreview}
               onFile={f => { setBackSketchFile(f); setBackSketchPreview(URL.createObjectURL(f)); }} />
           </div>
+
+          {/* Materials and measurements, placed on the sketches above */}
+          {supportsCallouts ? (
+            <TechPackCallouts
+              frontUrl={frontSketchPreview}
+              backUrl={backSketchPreview}
+              callouts={callouts}
+              onCalloutsChange={setCallouts}
+              measurements={measurements}
+              onMeasurementsChange={setMeasurements}
+              sizes={specSizes}
+              specSize={form.specSize}
+              fabrics={fabrics}
+              inventoryItems={inventoryItems}
+            />
+          ) : (
+            <p style={{ fontSize: 12, color: "var(--amber)", margin: 0 }}>
+              Material points on the photo need database migration 0044. Until it is applied,
+              measurements below still work and everything else on this sheet is unchanged.
+            </p>
+          )}
+
+          <MeasurementGrid
+            measurements={measurements}
+            onChange={setMeasurements}
+            sizes={specSizes}
+            specSize={form.specSize}
+            templates={templates}
+            onSaveTemplate={onSaveTemplate}
+            canSaveTemplate={supportsCallouts && !!onSaveTemplate}
+          />
+
+          {supportsCallouts && (
+            <div>
+              <label className="kfin-label">Fabric wastage (%)</label>
+              <input className="kfin-input" type="number" min="0" step="any" style={{ maxWidth: 120 }}
+                value={wastagePct} onChange={e => setWastagePct(e.target.value)} />
+              <p style={{ fontSize: 11, color: "var(--ink-4)", margin: "4px 0 0" }}>
+                Added on top of the fabric each order needs. The factory uses a flat 10%.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="kfin-label">Wash Care Instructions</label>
@@ -1399,9 +1501,20 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <label className="kfin-label" style={{ margin: 0 }}>Fabrics / Linings</label>
-              {fabricRows.length < 3 && (
-                <button type="button" className="kinv-btn-ghost" onClick={addFabricRow}>+ Add Fabric</button>
-              )}
+              <div style={{ display: "flex", gap: 6 }}>
+                {/* Offered, never automatic: these two boxes are what the
+                    printed spec sheet shows, and silently rewriting a sheet
+                    somebody signed off is not a thing software should do. */}
+                {supportsCallouts && callouts.some(c => c.kind === "fabric") && (
+                  <button type="button" className="kinv-btn-ghost"
+                    onClick={() => setFabricRows(calloutsToFabricRows(callouts, fabrics, inventoryItems))}>
+                    Fill from photo points
+                  </button>
+                )}
+                {fabricRows.length < 3 && (
+                  <button type="button" className="kinv-btn-ghost" onClick={addFabricRow}>+ Add Fabric</button>
+                )}
+              </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {fabricRows.map((r, i) => {
@@ -1427,7 +1540,15 @@ function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
           </div>
 
           <div>
-            <label className="kfin-label">Trims and Accessories</label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <label className="kfin-label" style={{ margin: 0 }}>Trims and Accessories</label>
+              {supportsCallouts && callouts.some(c => c.kind !== "fabric") && (
+                <button type="button" className="kinv-btn-ghost"
+                  onClick={() => set("trims", calloutsToTrimsText(callouts, inventoryItems))}>
+                  Fill from photo points
+                </button>
+              )}
+            </div>
             <textarea className="kfin-input" rows={2} value={form.trims} onChange={e => set("trims", e.target.value)} style={{ resize: "vertical" }} placeholder="e.g. 0.5inch placket bias, white thread" />
           </div>
 
@@ -2562,6 +2683,52 @@ function Inventory() {
   const patterns  = useMemo(() => filterByRegionField(allPatterns, region, "market"), [allPatterns, region]);
   const samples   = useMemo(() => filterByRegion(allSamples,   region), [allSamples,   region]);
 
+  /* Migration 0043 adds fabric_id/color to inventory_items and exposes them on
+     fs_inventory. Until someone applies it the view has no such columns, so the
+     keys are simply absent from every row that comes back — and offering fields
+     that cannot be saved is worse than not offering them at all. Reading the
+     shape of the data rather than assuming it means the fields appear by
+     themselves the moment the migration lands, with no second deploy. */
+  useEffect(() => {
+    if (!showLibrary) return;
+    fetchAll("measurement_templates")
+      .then(setMeasurementTemplates)
+      // Before 0044 the table does not exist; no templates is a fine answer.
+      .catch(() => setMeasurementTemplates([]));
+  }, [showLibrary]);
+
+  async function saveMeasurementTemplate({ name, labels }) {
+    const existing = measurementTemplates.find(
+      t => String(t.name || "").trim().toLowerCase() === name.trim().toLowerCase()
+    );
+    if (existing) {
+      await updateRow("measurement_templates", existing.id, { labels, updatedAt: new Date().toISOString() });
+    } else {
+      await insertRow("measurement_templates", {
+        name, labels, createdBy: profile?.name || "Unknown",
+      });
+    }
+    setMeasurementTemplates(await fetchAll("measurement_templates"));
+  }
+
+  const supportsFabricLink = useMemo(
+    () => allRows.length > 0 && Object.prototype.hasOwnProperty.call(allRows[0], "fabricId"),
+    [allRows]
+  );
+
+  // Reusable lists of measurement point names ("T-Shirt", "Hoodie"). Empty and
+  // harmless until migration 0044 creates the table.
+  const [measurementTemplates, setMeasurementTemplates] = useState([]);
+
+  /* Migration 0044 adds patterns.callouts / wastage_pct. Same trick as
+     supportsFabricLink: read the shape of what came back rather than assume,
+     so the editor cannot offer a field the database would reject, and starts
+     offering it the moment the migration lands. */
+  const supportsCallouts = useMemo(
+    () => allPatterns.length > 0 && Object.prototype.hasOwnProperty.call(allPatterns[0], "callouts"),
+    [allPatterns]
+  );
+
   const [unitEconomics, setUnitEconomics] = useState({});
   const [draftEconomics, setDraftEconomics] = useState({});
   const [loading, setLoading] = useState(true);
@@ -2870,7 +3037,7 @@ function Inventory() {
     e.preventDefault();
     setAddingItem(true);
     try {
-      await insertRow("inventory", {
+      const payload = {
         ...itemForm,
         // Company-wide numbering: the two arms must not both mint #kazi1001.
         itemId:       nextItemId(allRows),
@@ -2878,9 +3045,16 @@ function Inventory() {
         openingStock: Number(itemForm.openingStock || 0),
         minLevel:     Number(itemForm.minLevel     || 0),
         unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
+        // An unset <select> gives "", which is not a uuid.
+        fabricId:     itemForm.fabricId || null,
+        color:        itemForm.color    || null,
         createdBy:    profile?.name || "Unknown",
         createdAt:    new Date().toISOString()
-      });
+      };
+      // Before 0043 these columns do not exist, and naming one at all is enough
+      // to fail the insert — so drop them rather than send nulls.
+      if (!supportsFabricLink) { delete payload.fabricId; delete payload.color; }
+      await insertRow("inventory", payload);
       setItemForm(emptyItemForm);
       setShowAddForm(false);
       await loadData();
@@ -3384,6 +3558,14 @@ function Inventory() {
               <input type="number" min="0" value={itemForm.unitCostNPR} placeholder="0"
                 onChange={e => setItemForm(f => ({ ...f, unitCostNPR: e.target.value }))} />
             </label>
+            {supportsFabricLink && (
+              <FabricColourFields
+                fabrics={fabrics}
+                fabricId={itemForm.fabricId}
+                color={itemForm.color}
+                onChange={patch => setItemForm(f => ({ ...f, ...patch }))}
+              />
+            )}
             <RegionField
               value={itemForm.region}
               onChange={v => setItemForm(f => ({ ...f, region: v }))}
@@ -3624,6 +3806,7 @@ function Inventory() {
                   <th>Item ID</th>
                   <th>Item</th>
                   <th>Category</th>
+                  {supportsFabricLink && <th>Fabric / Colour</th>}
                   <th>Unit</th>
                   <th>Supplier</th>
                   <th>Location</th>
@@ -3638,7 +3821,7 @@ function Inventory() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
+                    <td colSpan={supportsFabricLink ? 13 : 12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
                       No items found
                     </td>
                   </tr>
@@ -3651,6 +3834,21 @@ function Inventory() {
                       <td><span className="kinv-id">{row.itemId}</span></td>
                       <td><span className="kinv-name">{row.item}</span></td>
                       <td><span className="kinv-cat">{row.category || "—"}</span></td>
+                      {supportsFabricLink && (
+                        <td style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                          {row.fabricId || row.color ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {row.colorHex && (
+                                <span style={{ width: 10, height: 10, borderRadius: "50%", background: row.colorHex, border: "1px solid var(--line)", flex: "0 0 auto" }} />
+                              )}
+                              <span>
+                                {fabrics.find(f => f.id === row.fabricId)?.name || "—"}
+                                {row.color ? ` · ${row.color}` : ""}
+                              </span>
+                            </div>
+                          ) : "—"}
+                        </td>
+                      )}
                       <td><span className="kinv-unit">{row.unit}</span></td>
                       <td style={{ fontSize: 13, color: "var(--ink-2)" }}>{row.supplier || "—"}</td>
                       <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{row.location || "—"}</td>
@@ -4088,6 +4286,10 @@ function Inventory() {
           item={libraryEditItem}
           fabrics={fabrics}
           patterns={patterns}
+          inventoryItems={rows}
+          templates={measurementTemplates}
+          onSaveTemplate={canEditLibrary ? saveMeasurementTemplate : null}
+          supportsCallouts={supportsCallouts}
           onClose={() => { setLibraryModalOpen(false); setLibraryEditItem(null); }}
           onSaved={handleSavedLibraryItem}
         />
