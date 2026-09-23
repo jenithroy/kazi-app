@@ -960,6 +960,43 @@ export const SCHEMA_MAP = {
       "updated_at"
     ]
   },
+  "outreach_prospects": {
+    "view": null,
+    "table": "outreach_prospects",
+    "fields": {
+      "id": "id",
+      "tier": "tier",
+      "brand_name": "brand_name",
+      "country": "country",
+      "category": "category",
+      "website": "website",
+      "instagram": "instagram",
+      "email": "email",
+      "contact_note": "contact_note",
+      "rationale": "rationale",
+      "status": "status",
+      "notes": "notes",
+      "created_at": "created_at",
+      "updated_at": "updated_at"
+    },
+    "derived": [],
+    "columns": [
+      "brand_name",
+      "category",
+      "contact_note",
+      "country",
+      "created_at",
+      "email",
+      "id",
+      "instagram",
+      "notes",
+      "rationale",
+      "status",
+      "tier",
+      "updated_at",
+      "website"
+    ]
+  },
   "patterns": {
     "view": "fs_patterns",
     "table": "patterns",

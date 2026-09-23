@@ -54,6 +54,7 @@ const COLLECTIONS = {
   order_assignments:  { view: 'fs_order_assignments',  table: 'order_assignments' },
   order_costs:        { view: 'fs_order_costs',        table: 'order_costs' },
   orders:             { view: 'fs_orders',             table: 'orders' },
+  outreach_prospects: { view: null,                    table: 'outreach_prospects' },
   patterns:           { view: 'fs_patterns',           table: 'patterns' },
   payments:           { view: 'fs_payments',           table: 'payments' },
   // Read directly — these are the permission matrix itself, not Firestore
