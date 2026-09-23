@@ -9,6 +9,7 @@
  * growing a second, slightly different copy of it.
  */
 import { deleteRow, fetchAll, updateRow, supabase } from "../lib/db";
+import { deletePublicFile } from "../lib/storage";
 import { tsMillis } from "./date";
 
 /** Delete a purchase along with everything raised from it. */
@@ -23,13 +24,7 @@ export async function deletePurchaseWithLinks(id, expenseId) {
     try {
       const vatRows = await fetchAll("vat_bills", { filters: [{ field: "expenseId", value: expId }] });
       for (const vData of vatRows) {
-        if (vData.storagePath) {
-          try {
-            const { ref: storageRef, deleteObject } = await import("firebase/storage");
-            const { storage } = await import("../firebase");
-            await deleteObject(storageRef(storage, vData.storagePath));
-          } catch (_) {}
-        }
+        await deletePublicFile("finance-attachments", vData.storagePath);
         await deleteRow("vat_bills", vData.id);
       }
     } catch (e) {

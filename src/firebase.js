@@ -1,6 +1,5 @@
 import { initializeApp } from "firebase/app";
 import { browserSessionPersistence, getAuth, setPersistence } from "firebase/auth";
-import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -15,19 +14,25 @@ const firebaseConfig = {
  * What Firebase is still for.
  *
  * Auth — as a fallback, so anyone who has not set a Supabase password yet can
- * still sign in with their old one. Storage — file uploads (VAT bills, tech
- * packs, swatches) still live in a Firebase bucket. Messaging — push tokens.
+ * still sign in with their old one. Messaging — push tokens.
  *
- * NOT Firestore. All data reads and writes go to Supabase; nothing imports a
- * Firestore handle any more, and the SDK is deliberately not initialised here.
- * That matters beyond tidiness: when a Firestore listener fails it throws out
- * of its own async queue, which React cannot catch, so a single denied read
- * unmounted the entire app. Leaving it initialised would keep that failure mode
- * available for no benefit.
+ * NOT Storage any more. File uploads (VAT bills, tech packs, swatches, order
+ * attachments) used to live in a Firebase bucket, gated by "must have a
+ * Firebase session" — but login only creates one as a fallback for people who
+ * haven't set a Supabase password, so once someone signs in through Supabase
+ * (everyone, today) that bucket silently refused every upload. They're on
+ * Supabase Storage now (see src/lib/storage.js and migration 0043), gated the
+ * same way every other table in this app is.
+ *
+ * NOT Firestore either. All data reads and writes go to Supabase; nothing
+ * imports a Firestore handle any more, and the SDK is deliberately not
+ * initialised here. That matters beyond tidiness: when a Firestore listener
+ * fails it throws out of its own async queue, which React cannot catch, so a
+ * single denied read unmounted the entire app. Leaving it initialised would
+ * keep that failure mode available for no benefit.
  */
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const storage = getStorage(app);
 
 /**
  * Firebase sessions last for the tab, not forever.
@@ -50,4 +55,4 @@ const storage = getStorage(app);
 const firebasePersistenceReady = setPersistence(auth, browserSessionPersistence)
   .catch(err => console.warn("Could not set Firebase session persistence:", err));
 
-export { app, auth, storage, firebaseConfig, firebasePersistenceReady };
+export { app, auth, firebaseConfig, firebasePersistenceReady };

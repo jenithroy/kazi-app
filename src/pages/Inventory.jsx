@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState, useRef, Fragment } from "react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import PageHeader from "../components/PageHeader";
 import useFirestore from "../hooks/useFirestore";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
-import { storage } from "../firebase";
 import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
+import { uploadPublicFileAtPath } from "../lib/storage";
 import { roundAmount } from "../utils/format";
 import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
 import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
@@ -85,15 +84,8 @@ async function inlineImageFallback(file) {
 
 async function uploadImage(path, file) {
   try {
-    const storagePromise = (async () => {
-      const storageRef = ref(storage, path);
-      const metadata = {
-        cacheControl: "public, max-age=31536000, immutable",
-        contentType: "image/jpeg"
-      };
-      const snapshot = await uploadBytes(storageRef, file, metadata);
-      return await getDownloadURL(snapshot.ref);
-    })();
+    const storagePromise = uploadPublicFileAtPath("product-media", path, file, { contentType: "image/jpeg" })
+      .then(({ url }) => url);
 
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error("Storage upload timeout")), 3000)

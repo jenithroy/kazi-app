@@ -3,10 +3,9 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
-import { storage } from "../firebase";
 import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
+import { uploadPublicFile, deletePublicFile } from "../lib/storage";
 import { roundAmount } from "../utils/format";
-import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { useRef } from "react";
 import { todayDate, tsMillis } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
@@ -821,7 +820,6 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
   const [file, setFile] = useState(null);
   const [compressing, setCompressing] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(null);
   const fileInputRef = useRef(null);
 
   async function handleFileChange(e) {
@@ -856,21 +854,9 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
 
     try {
       if (file) {
-        const fileToUpload = file;
-        const safeName = fileToUpload.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path = `production-notes/${order.id}/${Date.now()}_${safeName}`;
-        const fileRef = storageRef(storage, path);
-        const task = uploadBytesResumable(fileRef, fileToUpload);
-        
-        task.on(
-          "state_changed",
-          snap => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100))
-        );
-        
-        await task;
-        
-        imageUrl = await getDownloadURL(fileRef);
-        storagePath = path;
+        const uploaded = await uploadPublicFile("production-attachments", `production-notes/${order.id}`, file);
+        imageUrl = uploaded.url;
+        storagePath = uploaded.path;
       }
 
       const newNote = {
@@ -885,7 +871,6 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
       await updateRow("orders", order.id, { notesList: updatedNotes });
       setNoteText("");
       setFile(null);
-      setProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (onUpdate) onUpdate();
     } catch (err) {
@@ -899,13 +884,7 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
   async function handleDeleteNote(noteId, storagePath) {
     if (!window.confirm("Are you sure you want to delete this note?")) return;
     try {
-      if (storagePath) {
-        try {
-          await deleteObject(storageRef(storage, storagePath));
-        } catch (e) {
-          console.warn("Storage file delete failed or didn't exist:", e);
-        }
-      }
+      await deletePublicFile("production-attachments", storagePath);
       const updatedNotes = (order.notesList || []).filter(n => n.id !== noteId);
       await updateRow("orders", order.id, { notesList: updatedNotes });
       if (onUpdate) onUpdate();
@@ -1034,11 +1013,6 @@ function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
               {uploading ? "Uploading..." : "Add Note"}
             </button>
           </div>
-          {progress !== null && (
-            <div style={{ height: 3, background: "var(--line)", borderRadius: 3, overflow: "hidden", marginTop: 2 }}>
-              <div style={{ height: "100%", width: `${progress}%`, background: "var(--accent)" }} />
-            </div>
-          )}
         </form>
       )}
     </div>

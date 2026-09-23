@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import {
   Cell, Legend, Pie, PieChart,
   ResponsiveContainer, Tooltip,
@@ -11,8 +10,8 @@ import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, apply
 import KeyboardSelect from "../components/KeyboardSelect";
 import { BANK_NAMES } from "../utils/billing.jsx";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
-import { storage } from "../firebase";
 import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
+import { uploadPublicFile, deletePublicFile } from "../lib/storage";
 import { asCurrency, roundAmount } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
@@ -255,14 +254,13 @@ function Finance() {
   const [purchaseError, setPurchaseError] = useState("");     // inline error shown at the new-purchase row
   const [purchaseSuccess, setPurchaseSuccess] = useState(""); // "EXP027 saved" confirmation by the table title
   const [submitting, setSubmitting]   = useState(false);
+  const [expenseError, setExpenseError] = useState(""); // inline error shown under the Add Expense button
   const [allVatBills, setVatBills]    = useState([]);
   const [vatFile, setVatFile]         = useState(null);
   const [vatExpenseId, setVatExpenseId] = useState("");
-  const [uploadProgress, setUploadProgress] = useState(null);
   const [uploading, setUploading]     = useState(false);
   const fileInputRef                  = useRef(null);
   const [expenseVatFile, setExpenseVatFile] = useState(null);
-  const [expenseVatProgress, setExpenseVatProgress] = useState(null);
   const expenseFileRef                = useRef(null);
 
   const journalFormRef = useRef(null);
@@ -655,6 +653,7 @@ function Finance() {
   async function addExpense(e) {
     e.preventDefault(); if (!canEdit) return;
     setSubmitting(true);
+    setExpenseError("");
     try {
       const docRef = await insertRow("finance_expenses", {
         ...expenseForm, amountNPR: Number(expenseForm.amountNPR || 0),
@@ -662,50 +661,47 @@ function Finance() {
         loggedBy: profile?.name || "Unknown",
       });
       if (expenseForm.vatBill && expenseVatFile) {
-        const safeName = expenseVatFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const path = `vat-bills/expense-${docRef.id}/${Date.now()}_${safeName}`;
-        const fileRef = storageRef(storage, path);
-        const task = uploadBytesResumable(fileRef, expenseVatFile);
-        await new Promise((resolve, reject) => {
-          task.on("state_changed", snap => setExpenseVatProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)), reject, resolve);
-        });
-        const url = await getDownloadURL(fileRef);
-        await insertRow("vat_bills", {
-          expenseId: docRef.id, expenseItem: expenseForm.note || expenseForm.category,
-          fileName: expenseVatFile.name, fileUrl: url, storagePath: path,
-          fileType: expenseVatFile.type, uploadedBy: profile?.name || "Unknown",
-          source: "expense",
-          region: expenseForm.region || region,
-        });
+        // The expense itself is already saved at this point — a failed upload
+        // must not look like the whole save failed, or lose the VAT bill
+        // ever getting attached: report it, but let the form still clear.
+        try {
+          const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/expense-${docRef.id}`, expenseVatFile);
+          await insertRow("vat_bills", {
+            expenseId: docRef.id, expenseItem: expenseForm.note || expenseForm.category,
+            fileName: expenseVatFile.name, fileUrl: url, storagePath: path,
+            fileType: expenseVatFile.type, uploadedBy: profile?.name || "Unknown",
+            source: "expense",
+            region: expenseForm.region || region,
+          });
+        } catch (err) {
+          console.error("Failed to upload VAT bill:", err);
+          setExpenseError("Expense saved, but the VAT bill file failed to upload. Attach it again from the VAT Bills tab.");
+        }
       }
       setExpenseForm(initialExpense);
-      setExpenseVatFile(null); setExpenseVatProgress(null);
+      setExpenseVatFile(null);
       if (expenseFileRef.current) expenseFileRef.current.value = "";
       await loadData();
+    } catch (err) {
+      console.error("Failed to add expense:", err);
+      setExpenseError("Failed to save. Check your connection and try again.");
     } finally { setSubmitting(false); }
   }
 
   async function uploadVatBill(e) {
     e.preventDefault(); if (!vatFile || !vatExpenseId) return;
-    setUploading(true); setUploadProgress(0);
+    setUploading(true);
     try {
-      const safeName = vatFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `vat-bills/${vatExpenseId}/${Date.now()}_${safeName}`;
-      const fileRef = storageRef(storage, path);
-      const task = uploadBytesResumable(fileRef, vatFile);
-      await new Promise((resolve, reject) => {
-        task.on("state_changed", snap => setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)), reject, resolve);
-      });
-      const url = await getDownloadURL(fileRef);
       // Across every year, not the one on screen — the dropdown offers them all.
       const purchase = regionPurchases.find(p => p.expenseId === vatExpenseId);
+      const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/${vatExpenseId}`, vatFile);
       await insertRow("vat_bills", {
         expenseId: vatExpenseId, expenseItem: purchase?.expenseItem || "",
         fileName: vatFile.name, fileUrl: url, storagePath: path, fileType: vatFile.type,
         uploadedBy: profile?.name || "Unknown",
         region: purchase?.region || region,
       });
-      setVatFile(null); setUploadProgress(null);
+      setVatFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadData();
     } catch (err) { console.error("Upload failed:", err); alert("Upload failed: " + err.message); }
@@ -714,7 +710,7 @@ function Finance() {
 
   async function deleteVatBill(bill) {
     if (!window.confirm(`Delete "${bill.fileName}"?`)) return;
-    try { if (bill.storagePath) await deleteObject(storageRef(storage, bill.storagePath)); } catch (_) {}
+    await deletePublicFile("finance-attachments", bill.storagePath);
     await deleteRow("vat_bills", bill.id); await loadData();
   }
 
@@ -1259,14 +1255,10 @@ function Finance() {
                             onChange={e => setExpenseVatFile(e.target.files[0] || null)}
                             className="kfin-input" style={{ paddingTop: 6 }} />
                         </label>
-                        {expenseVatProgress !== null && (
-                          <div className="kfin-progress-bar">
-                            <div className="kfin-progress-fill" style={{ width: `${expenseVatProgress}%` }} />
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
+                  {expenseError && <p className="form-error">{expenseError}</p>}
                   <button type="submit" className="primary-button" disabled={!canEdit || submitting}>
                     {submitting ? "Saving…" : "Add Expense"}
                   </button>
@@ -1415,14 +1407,6 @@ function Finance() {
                     {uploading ? "Uploading…" : "Upload Bill"}
                   </button>
                 </div>
-                {uploadProgress !== null && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div className="kfin-progress-bar" style={{ flex: 1 }}>
-                      <div className="kfin-progress-fill" style={{ width: `${uploadProgress}%` }} />
-                    </div>
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", minWidth: 30 }}>{uploadProgress}%</span>
-                  </div>
-                )}
               </form>
             </div>
             <div className="kfin-block">
