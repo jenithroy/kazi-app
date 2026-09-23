@@ -22,8 +22,9 @@ import { useRegion } from "../context/RegionContext";
 import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { DateRangeSelect, useDateRangeFilter } from "../components/DateRangeFilter";
 import DualDateInput, { DateModeToggle } from "../components/DualDateInput";
-import { filterByFiscalYear, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, adToBsParts, isFiscalYearLabel, isoDay, payrollPeriodDate } from "../utils/fiscalYear";
+import { filterByFiscalYear, filterByDateRange, isDateRangeActive, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, adToBsParts, isFiscalYearLabel, isoDay, payrollPeriodDate } from "../utils/fiscalYear";
 
 /* ── Seed data ─────────────────────────────────────── */
 // NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
@@ -122,10 +123,11 @@ function tabLabel(t) {
   if (t === "p&l")           return "P & L";
   if (t === "balance sheet") return "Balance Sheet";
   if (t === "order p&l")     return "Order P&L";
+  if (t === "day book")      return "Day Book";
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-const TABS = ["expenses", "purchases", "vat bills", "journal", "ledger", "p&l", "balance sheet", "bank", "order p&l"];
+const TABS = ["expenses", "purchases", "vat bills", "journal", "day book", "ledger", "p&l", "balance sheet", "bank", "order p&l"];
 
 // Shift+letter tab switching — letters chosen to stay memorable while avoiding
 // collisions between tabs that share a first letter (Purchases/P&L, Bank/Balance Sheet).
@@ -134,11 +136,21 @@ const TAB_SHORTCUTS = {
   p: "purchases",
   v: "vat bills",
   j: "journal",
+  d: "day book",
   g: "ledger",
   l: "p&l",
   s: "balance sheet",
   k: "bank",
   o: "order p&l",
+};
+
+// Where each Day Book row sends her when clicked — the tab or page that owns
+// that record, same as the Ledger tab's click-to-source rows.
+const DAY_BOOK_SOURCE_TITLE = {
+  purchase: "Open in Purchases",
+  invoice:  "Open in Billing",
+  bank:     "Open in Bank tab",
+  journal:  "Open in Journal tab",
 };
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -342,25 +354,36 @@ function Finance() {
   }, [fy]);
   const fyActive = !!fyRange;
 
-  const payroll   = useMemo(() => filterByFiscalYear(regionPayroll,   fy, payrollPeriodDate), [regionPayroll,   fy]);
-  const expenses  = useMemo(() => filterByFiscalYear(regionExpenses,  fy, r => r.date),       [regionExpenses,  fy]);
-  const purchases = useMemo(() => filterByFiscalYear(regionPurchases, fy, r => r.date),       [regionPurchases, fy]);
-  const entries   = useMemo(() => filterByFiscalYear(regionEntries,   fy, r => r.date),       [regionEntries,   fy]);
-  const invoices  = useMemo(() => filterByFiscalYear(regionInvoices,  fy, r => r.date),       [regionInvoices,  fy]);
-  const bankTxns  = useMemo(() => filterByFiscalYear(regionBankTxns,  fy, r => r.date),       [regionBankTxns,  fy]);
+  // One custom From/To range, one narrowing step further than the fiscal
+  // year (see DateRangeFilter.jsx) — region → fiscal year → this. Composed
+  // with filterByFiscalYear rather than replacing it, so picking a custom
+  // range never disturbs the fiscal-year filtering everything else here still
+  // relies on (VAT periods, the Ledger/Balance Sheet's brought-forward math).
+  // A shared `inPeriod` rather than repeating both calls on every line below
+  // keeps each tab's date accessor written once — two copies risk drifting
+  // out of sync and silently double-filtering by different rules.
+  const [dateRange] = useDateRangeFilter();
+  const inPeriod = (list, dateOf = r => r.date) => filterByDateRange(filterByFiscalYear(list, fy, dateOf), dateRange, dateOf);
+
+  const payroll   = useMemo(() => inPeriod(regionPayroll, payrollPeriodDate), [regionPayroll,   fy, dateRange]);
+  const expenses  = useMemo(() => inPeriod(regionExpenses),                  [regionExpenses,  fy, dateRange]);
+  const purchases = useMemo(() => inPeriod(regionPurchases),                 [regionPurchases, fy, dateRange]);
+  const entries   = useMemo(() => inPeriod(regionEntries),                   [regionEntries,   fy, dateRange]);
+  const invoices  = useMemo(() => inPeriod(regionInvoices),                  [regionInvoices,  fy, dateRange]);
+  const bankTxns  = useMemo(() => inPeriod(regionBankTxns),                  [regionBankTxns,  fy, dateRange]);
   // An order's own date when it has one, else when it was created.
-  const orders    = useMemo(() => filterByFiscalYear(regionOrders,    fy, o => o.date || o.createdAt), [regionOrders, fy]);
+  const orders    = useMemo(() => inPeriod(regionOrders, o => o.date || o.createdAt), [regionOrders, fy, dateRange]);
   // A bill has no date of its own worth filing by — it is uploaded whenever someone
   // gets round to it — so it goes in the year of what it is a bill FOR. Purchase
   // bills carry the purchase's EXPxxx id, expense bills the expense's row id; if
   // neither can be found (or has no date), fall back to when it was uploaded.
   const vatBills  = useMemo(() => {
-    if (!fyActive) return regionVatBills;
+    if (!fyActive && !isDateRangeActive(dateRange)) return regionVatBills;
     const dateOf = new Map();
     allExpenses.forEach(e => { if (e.id != null && e.date) dateOf.set(String(e.id), e.date); });
     allPurchases.forEach(p => { if (p.expenseId && p.date) dateOf.set(String(p.expenseId), p.date); });
-    return filterByFiscalYear(regionVatBills, fy, b => dateOf.get(String(b.expenseId)) || b.uploadedAt);
-  }, [regionVatBills, allExpenses, allPurchases, fy, fyActive]);
+    return inPeriod(regionVatBills, b => dateOf.get(String(b.expenseId)) || b.uploadedAt);
+  }, [regionVatBills, allExpenses, allPurchases, fy, fyActive, dateRange]);
 
   // The years the current tab's records actually fall in. Tabs built from several
   // lists (ledger, P&L, balance sheet) offer every year any of them touches.
@@ -375,7 +398,8 @@ function Finance() {
       case "journal":    return jnl;
       case "bank":       return bnk;
       case "order p&l":  return fiscalYearsIn(regionOrders, o => o.date || o.createdAt);
-      case "ledger":     return mergeFiscalYears(pur, inv, bnk, jnl);
+      case "ledger":
+      case "day book":   return mergeFiscalYears(pur, inv, bnk, jnl);
       default:           return mergeFiscalYears(exp, pur, jnl, bnk, inv, pay);
     }
   }, [activeTab, regionExpenses, regionPurchases, regionEntries, regionBankTxns, regionInvoices, regionPayroll, regionOrders]);
@@ -893,13 +917,30 @@ function Finance() {
     // KPI strip: payroll filtered to current month (MTD) — intentionally narrower than P&L which uses the full current year.
     // With a fiscal year picked, `payroll` is already that year's rows and the strip shows the whole year instead —
     // "this month" would read 0 for any year that is not the current one.
-    const payrollNPR  = payroll
-      .filter(r => fyActive || (r.month === curMonth && Number(r.year) === curYear))
+    //
+    // Payroll tends to get entered in after-the-fact batches — a March run logged
+    // in September — so "this calendar month" is often empty even though real
+    // payroll is sitting right there. Rather than show a bare 0 that reads as
+    // broken, fall back to whichever month actually has the most recent rows.
+    let payrollRows = payroll.filter(r => r.month === curMonth && Number(r.year) === curYear);
+    let payrollMonthLabel = null; // set only when falling back — overrides "Payroll This Month"
+    if (!fyActive && payrollRows.length === 0 && payroll.length > 0) {
+      const latest = payroll.reduce((best, r) => {
+        const y = Number(r.year), mi = MONTHS.indexOf(r.month);
+        if (!y || mi < 0) return best;
+        return (!best || y > best.y || (y === best.y && mi > best.mi)) ? { y, mi, month: r.month } : best;
+      }, null);
+      if (latest) {
+        payrollRows = payroll.filter(r => r.month === latest.month && Number(r.year) === latest.y);
+        payrollMonthLabel = `${latest.month} ${latest.y}`;
+      }
+    }
+    const payrollNPR  = (fyActive ? payroll : payrollRows)
       .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
     const expensesNPR = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchNPR    = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const totalNPR    = payrollNPR + expensesNPR + purchNPR;
-    return { payrollNPR, expensesNPR, purchNPR, totalNPR,
+    return { payrollNPR, expensesNPR, purchNPR, totalNPR, payrollMonthLabel,
       payrollGBP:  payrollNPR  / GBP_RATE,
       expensesGBP: expensesNPR / GBP_RATE,
       purchGBP:    purchNPR    / GBP_RATE,
@@ -911,11 +952,18 @@ function Finance() {
 
   // The Balance Sheet is a position, not a period: with a year picked it is every
   // entry dated up to that year's END, so earlier years' entries are still in it.
-  // With "all" it is the same list the cards use, exactly as before.
+  // A custom range works the same way — only its To-date acts as an "as of" cutoff
+  // (its From side doesn't mean anything for a snapshot); with both a fiscal year
+  // and a custom range set, the earlier (tighter) of the two cutoffs wins. With
+  // neither, it's the same list the cards use, exactly as before.
+  const asOfDate = useMemo(() => {
+    const bounds = [fyRange?.endAD, dateRange.to || null].filter(Boolean);
+    return bounds.length ? bounds.reduce((a, b) => (a < b ? a : b)) : null;
+  }, [fyRange, dateRange]);
   const ledgerAsOf = useMemo(() => {
-    if (!fyRange) return ledger;
-    return journalTotals(regionEntries.filter(e => { const d = isoDay(e.date); return !!d && d <= fyRange.endAD; }));
-  }, [ledger, regionEntries, fyRange]);
+    if (!asOfDate) return ledger;
+    return journalTotals(regionEntries.filter(e => { const d = isoDay(e.date); return !!d && d <= asOfDate; }));
+  }, [ledger, regionEntries, asOfDate]);
 
   // Nabil/Sanima plus any bank name typed into the "Other" field on a purchase,
   // invoice or bank transaction — keeps custom-typed banks from silently
@@ -1013,6 +1061,61 @@ function Finance() {
     return result;
   }, [regionPurchases, regionInvoices, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
 
+  // Day Book — every purchase, paid sale, bank transaction and journal entry in
+  // one chronological list, the way a Nepali day book (रोजमेल/Rojmel — the book
+  // of original entry) records each day's transactions as they happen, before
+  // they're posted into the per-account Ledger. Same four sources as
+  // cashBankLedger above, but every account rather than just Cash/Bank, and
+  // merged by date instead of bucketed per account — so a journal entry against
+  // (say) Sales Revenue shows up here even though it never appears in the
+  // Ledger tab's Cash/Bank blocks. Already region- and fiscal-year-filtered,
+  // since it reads the same `purchases`/`invoices`/`bankTxns`/`entries` lists
+  // the Journal and Bank tabs do, not the unfiltered `region*` ones — there's
+  // no brought-forward opening balance here for a year boundary to complicate.
+  const dayBook = useMemo(() => {
+    const rows = [];
+
+    purchases.forEach(p => {
+      const acct = p.paymentType === "CASH" ? "Cash" : p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : null;
+      if (!acct) return; // credit purchases move to Accounts Payable — no cash/bank movement yet
+      rows.push({
+        date: p.date || "", sortKey: tsMillis(p.createdAt), account: acct,
+        particulars: `Purchase — ${p.expenseItem || p.expenseId}`, dr: 0, cr: Number(p.amountNPR || 0),
+        sourceType: "purchase", searchKey: p.expenseId,
+      });
+    });
+
+    invoices.filter(i => i.status === "Paid").forEach(i => {
+      const val = Number(i.totalNPR || 0);
+      const amt = i.currency === "GBP" ? val * GBP_RATE : val;
+      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : "Cash";
+      rows.push({
+        date: i.date || "", sortKey: tsMillis(i.createdAt), account: acct,
+        particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
+        sourceType: "invoice", searchKey: i.invoiceNumber || i.clientName,
+      });
+    });
+
+    bankTxns.forEach(t => {
+      const amt = Number(t.amount ?? t.amountNPR ?? 0);
+      rows.push({
+        date: t.date || "", sortKey: tsMillis(t.createdAt), account: t.accountName || "Nabil Bank",
+        particulars: t.description || "Bank transaction",
+        dr: isBankCredit(t) ? amt : 0, cr: isBankCredit(t) ? 0 : amt,
+        sourceType: "bank",
+      });
+    });
+
+    entries.forEach(e => {
+      const amt = Number(e.amountNPR || 0);
+      const particulars = e.description || "Journal entry";
+      rows.push({ date: e.date || "", sortKey: tsMillis(e.createdAt), account: e.debitAccount, particulars, dr: amt, cr: 0, sourceType: "journal" });
+      rows.push({ date: e.date || "", sortKey: tsMillis(e.createdAt), account: e.creditAccount, particulars, dr: 0, cr: amt, sourceType: "journal" });
+    });
+
+    return rows.sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
+  }, [purchases, invoices, bankTxns, entries]);
+
   const pl = useMemo(() => {
     // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
     const salesRevenue = invoices
@@ -1052,7 +1155,7 @@ function Finance() {
   const donutData = useMemo(() => [
     { name: "Purchases", value: summary.purchNPR,    color: "#1f6e4c" },
     { name: "Expenses",  value: summary.expensesNPR, color: "#c4654a" },
-    { name: fyActive ? "Payroll" : "Payroll (MTD)", value: summary.payrollNPR, color: "#5688b0" },
+    { name: fyActive ? "Payroll" : summary.payrollMonthLabel ? `Payroll (${summary.payrollMonthLabel})` : "Payroll (MTD)", value: summary.payrollNPR, color: "#5688b0" },
   ].filter(d => d.value > 0), [summary, fyActive]);
 
   const categoryBarData = useMemo(() => {
@@ -1104,7 +1207,7 @@ function Finance() {
                 <circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3.1-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.7.4 4.4 2.2 5 5.3"/>
               </svg>
             </div>
-            <p className="kfin-kpi-label">{fyActive ? `Payroll · FY ${fy}` : "Payroll This Month"}</p>
+            <p className="kfin-kpi-label">{fyActive ? `Payroll · FY ${fy}` : summary.payrollMonthLabel ? `Payroll · ${summary.payrollMonthLabel}` : "Payroll This Month"}</p>
             <p className="kfin-kpi-value">{asCurrency(summary.payrollNPR, "NPR")}</p>
             <p className="kfin-kpi-sub">{asCurrency(summary.payrollGBP, "GBP")}</p>
           </div>
@@ -1206,6 +1309,7 @@ function Finance() {
               </button>
             ))}
           </div>
+          <DateRangeSelect style={{ flexShrink: 0 }} />
           <FiscalYearSelect years={yearsHere} style={{ flexShrink: 0 }} />
         </div>
         {!visibleTabs.includes(activeTab) && visibleTabs.length > 0 && (() => { setActiveTab(visibleTabs[0]); return null; })()}
@@ -1586,6 +1690,82 @@ function Finance() {
           </>
         )}
 
+        {/* ── Day Book ── */}
+        {activeTab === "day book" && (
+          <div className="kfin-block">
+            <div className="kfin-block-hd">
+              <p className="kfin-block-title">Day Book <span className="kfin-block-sub">({dayBook.length} entries)</span></p>
+              {dateSwitch}
+            </div>
+            {fyActive && (
+              <div className="kfin-notice" style={{ marginBottom: 14 }}>
+                ℹ FY {fy} · every purchase, paid sale, bank transaction and journal entry dated in this year, in the order they happened.
+              </div>
+            )}
+            {dayBook.length === 0 ? (
+              <p style={{ color: "var(--ink-4)", fontSize: 13 }}>
+                {fyEmpty("transactions", regionPurchases.length + regionInvoices.length + regionBankTxns.length + regionEntries.length, "No transactions yet.")}
+              </p>
+            ) : (
+              <div className="kfin-tbl-wrap">
+                <table className="kfin-tbl">
+                  <thead><tr><th>Particulars</th><th>Account</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th></tr></thead>
+                  <tbody>
+                    {(() => {
+                      // Group the already date-sorted rows under one heading per day —
+                      // a day book is organised by day first, unlike the Ledger's per-account blocks.
+                      const groups = [];
+                      for (const r of dayBook) {
+                        const last = groups[groups.length - 1];
+                        if (last && last.date === r.date) last.rows.push(r);
+                        else groups.push({ date: r.date, rows: [r] });
+                      }
+                      return groups.map(g => {
+                        const dayDr = g.rows.reduce((s, r) => s + Number(r.dr || 0), 0);
+                        const dayCr = g.rows.reduce((s, r) => s + Number(r.cr || 0), 0);
+                        return (
+                          <Fragment key={g.date || "undated"}>
+                            <tr style={{ background: "var(--bg-2)" }}>
+                              <td colSpan={4} style={{ fontWeight: 700, fontSize: 12.5 }}>{showDate(g.date)}</td>
+                            </tr>
+                            {g.rows.map((r, i) => (
+                              <tr key={i} style={{ cursor: "pointer" }} title={DAY_BOOK_SOURCE_TITLE[r.sourceType]}
+                                onClick={() => {
+                                  if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
+                                  else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
+                                  else if (r.sourceType === "bank") setActiveTab("bank");
+                                  else if (r.sourceType === "journal") setActiveTab("journal");
+                                }}
+                              >
+                                <td>{r.particulars}</td>
+                                <td style={{ color: "var(--ink-3)" }}>{r.account}</td>
+                                <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>{r.dr ? roundAmount(r.dr).toLocaleString() : "—"}</td>
+                                <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>{r.cr ? roundAmount(r.cr).toLocaleString() : "—"}</td>
+                              </tr>
+                            ))}
+                            <tr style={{ borderBottom: "2px solid var(--line)" }}>
+                              <td colSpan={2} style={{ textAlign: "right", color: "var(--ink-4)", fontSize: 11.5, fontStyle: "italic" }}>Day total</td>
+                              <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{roundAmount(dayDr).toLocaleString()}</td>
+                              <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{roundAmount(dayCr).toLocaleString()}</td>
+                            </tr>
+                          </Fragment>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: "var(--bg-2)", fontWeight: 700, borderTop: "2px solid var(--line)" }}>
+                      <td colSpan={2} style={{ fontWeight: 700 }}>Grand Total</td>
+                      <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>{roundAmount(dayBook.reduce((s, r) => s + Number(r.dr || 0), 0)).toLocaleString()}</td>
+                      <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>{roundAmount(dayBook.reduce((s, r) => s + Number(r.cr || 0), 0)).toLocaleString()}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Ledger ── */}
         {activeTab === "ledger" && (
           <>
@@ -1875,9 +2055,9 @@ function Finance() {
         {/* ── Balance Sheet ── */}
         {activeTab === "balance sheet" && (
           <>
-          {fyActive && (
+          {asOfDate && (
             <div className="kfin-notice" style={{ marginBottom: 14 }}>
-              ℹ Position as of {fmtDateBS(fyRange.endAD)}, the end of FY {fy} — every journal entry dated up to then, not only this year's.
+              ℹ Position as of {fmtDateBS(asOfDate)}{fyActive && asOfDate === fyRange.endAD ? `, the end of FY ${fy}` : ""} — every journal entry dated up to then, not only this period's.
             </div>
           )}
           <div className="kfin-bs">

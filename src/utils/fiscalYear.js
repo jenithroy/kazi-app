@@ -196,6 +196,34 @@ export function filterByFiscalYear(rows, label, dateOf = (r) => r.date) {
   return rows.filter((r) => match(dateOf(r)));
 }
 
+/** Is this range actually narrowing anything, or is it the empty "" / "" default? */
+export function isDateRangeActive(range) {
+  return !!(range?.from || range?.to);
+}
+
+/**
+ * Keep the rows whose date (read by `dateOf`) falls in a plain custom From/To
+ * range — not a fiscal year. Either side can be left "" to leave that side
+ * open ("everything up to X", "everything from X on"). Meant to run *after*
+ * filterByFiscalYear, narrowing further: see DateRangeFilter.jsx.
+ *
+ * A row with no usable date is left out once the range is active — the same
+ * rule filterByFiscalYear uses for a specific year, for the same reason: a
+ * date-less row can't be said to fall inside an explicit period.
+ */
+export function filterByDateRange(rows, range, dateOf = (r) => r.date) {
+  if (!Array.isArray(rows)) return [];
+  if (!isDateRangeActive(range)) return rows;
+  const { from, to } = range;
+  return rows.filter((r) => {
+    const day = isoDay(dateOf(r));
+    if (!day) return false;
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  });
+}
+
 /** Sort fiscal-year labels newest first. */
 export function sortFiscalYearsDesc(labels) {
   return [...labels].sort((a, b) => parseFiscalYearLabel(b).startYear - parseFiscalYearLabel(a).startYear);
