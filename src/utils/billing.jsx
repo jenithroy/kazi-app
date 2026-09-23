@@ -205,9 +205,18 @@ export function calcTotals(items, applyVAT, discountPct = 0, discountMode = "pct
 export async function getNextNumber(type, fiscalYear) {
   if (!DOC_TYPES[type]) throw new Error("Unknown doc type: " + type);
   const fy = fiscalYear || currentFiscalYear();
+  // Try 2-parameter next_doc_number(kind, fiscal_year) from migration 0030 first
   const { data, error } = await supabase.rpc("next_doc_number", { kind: type, fiscal_year: fy });
-  if (error) throw error;
-  return data;
+  if (!error) return data;
+
+  // If migration 0030 has not been applied yet to the DB, fall back to single-arg next_doc_number(kind)
+  if (error.code === "PGRST202" || error.message?.includes("schema cache")) {
+    const fallback = await supabase.rpc("next_doc_number", { kind: type });
+    if (fallback.error) throw fallback.error;
+    return fallback.data;
+  }
+
+  throw error;
 }
 
 /**

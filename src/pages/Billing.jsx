@@ -624,7 +624,8 @@ function Billing() {
       await loadAll();
     } catch (err) {
       console.error("Failed to save document:", err);
-      alert("Failed to save document. Please try again.");
+      const msg = err?.message || (typeof err === "string" ? err : "");
+      alert(msg ? `Failed to save document: ${msg}` : "Failed to save document. Please try again.");
     }
     setSubmitting(false);
   }
