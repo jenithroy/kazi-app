@@ -19,6 +19,7 @@ import Customers from "./pages/Customers";
 import Messenger from "./pages/Messenger";
 import Sales from "./pages/Sales";
 import Marketing from "./pages/Marketing";
+import Outreach from "./pages/Outreach";
 import BugReport from "./pages/BugReport";
 import Changelog from "./pages/Changelog";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -81,6 +82,7 @@ function App() {
         <Route path="/employees"   element={<RequireSection section="employees"><Employees /></RequireSection>} />
         <Route path="/customers"   element={<RequireSection section="customers"><Customers /></RequireSection>} />
         <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
+        <Route path="/outreach"    element={<RequireSection section="outreach"><Outreach /></RequireSection>} />
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
         <Route path="/admin"       element={<RequireSection section="admin"><AdminPanel /></RequireSection>} />
         <Route path="/usage"       element={<RequireSection section="usage_analytics"><Usage /></RequireSection>} />
