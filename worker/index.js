@@ -1,3 +1,8 @@
+import { AuthError, checkMarketingTabPermission, fetchCallerIdentity } from "./lib/metaAuth.js";
+import { metaPost } from "./lib/metaGraph.js";
+import { runMetaAdsSync } from "./lib/metaSync.js";
+import { select as supabaseSelect } from "./lib/supabaseRest.js";
+
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
@@ -82,6 +87,90 @@ async function handleBugReport(request, env) {
   return Response.json({ ok: true });
 }
 
+// AuthError (401/503, thrown by checkMarketingTabPermission/fetchCallerIdentity
+// when there's no valid session) maps straight to its own status; anything
+// else is an unexpected 500 — same two-branch shape the bug-report route
+// above already uses, just with one more case.
+function errorResponse(err) {
+  if (err instanceof AuthError) {
+    return Response.json({ error: err.message }, { status: err.status });
+  }
+  return Response.json({ error: err.message || "Unexpected error." }, { status: 500 });
+}
+
+async function handleMetaAdsSync(request, env) {
+  const permission = await checkMarketingTabPermission(request, env);
+  if (!permission.view) {
+    return Response.json({ error: "Your role doesn't include Meta Ads." }, { status: 403 });
+  }
+
+  // Whoever clicked "Sync now" — stamped onto meta_sync_runs so the run
+  // history shows a real person, not just "manual".
+  const identity = await fetchCallerIdentity(request, env);
+
+  const summary = await runMetaAdsSync(env, {
+    triggerType: "manual",
+    triggeredByPersonId: identity?.personId ?? null,
+    triggeredByName: identity?.fullName ?? null,
+  });
+  return Response.json(summary);
+}
+
+const PAUSE_RESUME_STATUS = { pause: "PAUSED", resume: "ACTIVE" };
+const BUDGET_FIELDS = new Set(["daily_budget", "lifetime_budget"]);
+
+/**
+ * Pauses/resumes a campaign/adset/ad, or edits its budget, by calling Meta
+ * directly. Deliberately does NOT write to Supabase: a Worker request using
+ * the service key can't satisfy meta_ads_actions' app_person_id()-based
+ * actor-stamping trigger, so the already-authenticated browser does the
+ * meta_campaigns/meta_adsets status/budget update and the meta_ads_actions
+ * audit insert itself, right after this call succeeds.
+ */
+async function handleMetaAdsAction(request, env) {
+  const permission = await checkMarketingTabPermission(request, env);
+  if (!permission.edit) {
+    return Response.json({ error: "Your role can view Meta Ads but not change it." }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const { entityLevel, entityId, action, field, valueMinor } = body || {};
+
+  if (!["campaign", "adset", "ad"].includes(entityLevel) || !entityId) {
+    return Response.json({ error: "Missing or invalid entityLevel/entityId." }, { status: 400 });
+  }
+
+  if (action === "pause" || action === "resume") {
+    const result = await metaPost(`/${entityId}`, { status: PAUSE_RESUME_STATUS[action] }, env);
+    return Response.json({ ok: true, newState: { ...result, status: PAUSE_RESUME_STATUS[action] } });
+  }
+
+  if (action === "budget_edit") {
+    if (!BUDGET_FIELDS.has(field) || !Number.isFinite(valueMinor) || valueMinor <= 0) {
+      return Response.json({ error: "budget_edit needs a valid field and valueMinor." }, { status: 400 });
+    }
+
+    // Server-side hard stop — a client confirm dialog alone is not a real
+    // guard on live ad spend.
+    const settingsRows = await supabaseSelect(env, "meta_ads_settings", {
+      id: "eq.default",
+      select: "budget_ceiling_minor",
+    });
+    const ceiling = settingsRows?.[0]?.budget_ceiling_minor;
+    if (ceiling != null && valueMinor > ceiling) {
+      return Response.json(
+        { error: `That exceeds the budget ceiling (${ceiling} minor units).` },
+        { status: 400 }
+      );
+    }
+
+    const result = await metaPost(`/${entityId}`, { [field]: valueMinor }, env);
+    return Response.json({ ok: true, newState: { ...result, [field]: valueMinor } });
+  }
+
+  return Response.json({ error: `Unknown action "${action}".` }, { status: 400 });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -94,6 +183,34 @@ export default {
       }
     }
 
+    if (request.method === "POST" && url.pathname === "/api/meta-ads/sync") {
+      try {
+        return await handleMetaAdsSync(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/meta-ads/action") {
+      try {
+        return await handleMetaAdsAction(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
     return env.ASSETS.fetch(request);
+  },
+
+  // Cron trigger (wrangler.jsonc's triggers.crons) — same sync the "Sync
+  // now" button runs, just with no signed-in caller to attribute it to.
+  // ctx.waitUntil keeps the Worker alive until the sync finishes instead of
+  // the isolate being torn down right after this handler returns.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      runMetaAdsSync(env, { triggerType: "cron" }).catch((err) => {
+        console.error("Meta Ads cron sync failed:", err?.message || err);
+      })
+    );
   },
 };

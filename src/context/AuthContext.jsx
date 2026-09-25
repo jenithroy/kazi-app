@@ -39,11 +39,12 @@ function legacyRole(tier, location) {
  * comes back empty and we return null — which the app treats as signed out.
  */
 async function loadProfile() {
-  const [meRes, permRes, tabRes, msgTabRes] = await Promise.all([
+  const [meRes, permRes, tabRes, msgTabRes, mktTabRes] = await Promise.all([
     supabase.rpc("me"),
     supabase.from("my_permissions").select("section_id, aliases, can_view, can_edit"),
     supabase.from("my_finance_tabs").select("tab_id, can_view"),
     supabase.from("my_messenger_tabs").select("tab_id, can_view, can_edit"),
+    supabase.from("my_marketing_tabs").select("tab_id, can_view, can_edit"),
   ]);
 
   if (meRes.error) throw meRes.error;
@@ -66,6 +67,11 @@ async function loadProfile() {
     messengerTabs[row.tab_id] = { canView: !!row.can_view, canEdit: !!row.can_edit };
   }
 
+  const marketingTabs = {};
+  for (const row of mktTabRes.data || []) {
+    marketingTabs[row.tab_id] = { canView: !!row.can_view, canEdit: !!row.can_edit };
+  }
+
   const tier = Number.isFinite(me.tier) ? me.tier : -1;
   const role = legacyRole(tier, me.location);
 
@@ -83,6 +89,7 @@ async function loadProfile() {
     permissions,
     financeTabs,
     messengerTabs,
+    marketingTabs,
     aliases,
     // Compatibility with pages that still branch on role strings.
     role,
