@@ -17,9 +17,10 @@ import {
 } from "../utils/billing.jsx";
 import {
   fiscalYearForDate, currentFiscalYear, isFiscalYearLabel,
-  fiscalYearDateRangeAD, filterByFiscalYear, fiscalYearsIn, fmtDateBS,
+  fiscalYearDateRangeAD, filterByFiscalYear, filterByDateRange, fiscalYearsIn, fmtDateBS,
 } from "../utils/fiscalYear";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { DateRangeSelect, useDateRangeFilter } from "../components/DateRangeFilter";
 import DualDateInput from "../components/DualDateInput";
 import CustomerPicker from "../components/CustomerPicker";
 import { postSaleStockOut } from "../utils/stockLedger";
@@ -209,9 +210,13 @@ function Billing() {
      page. `invoices` and friends stay unfiltered by year for the Finance-ledger
      deep link, which has to find its document whichever year it is in. */
   const [fiscalYear] = useFiscalYearFilter();
-  const invoicesInYear   = useMemo(() => filterByFiscalYear(invoices,   fiscalYear), [invoices,   fiscalYear]);
-  const challansInYear   = useMemo(() => filterByFiscalYear(challans,   fiscalYear), [challans,   fiscalYear]);
-  const quotationsInYear = useMemo(() => filterByFiscalYear(quotations, fiscalYear), [quotations, fiscalYear]);
+  // A custom From/To range, one narrowing step further than the fiscal year
+  // (see DateRangeFilter.jsx) — shared with Finance and Purchases, so picking
+  // a period on one page shows the same period on the others.
+  const [dateRange] = useDateRangeFilter();
+  const invoicesInYear   = useMemo(() => filterByDateRange(filterByFiscalYear(invoices,   fiscalYear), dateRange), [invoices,   fiscalYear, dateRange]);
+  const challansInYear   = useMemo(() => filterByDateRange(filterByFiscalYear(challans,   fiscalYear), dateRange), [challans,   fiscalYear, dateRange]);
+  const quotationsInYear = useMemo(() => filterByDateRange(filterByFiscalYear(quotations, fiscalYear), dateRange), [quotations, fiscalYear, dateRange]);
   const [showForm, setShowForm]     = useState(false);
   const [form, setForm]             = useState(makeEmptyForm("invoice"));
   const [submitting, setSubmitting] = useState(false);
@@ -1430,6 +1435,7 @@ function Billing() {
                 style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
               >✕ Clear</button>
             )}
+            <DateRangeSelect />
             <FiscalYearSelect years={yearsHere} />
           </div>
 

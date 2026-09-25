@@ -11,7 +11,8 @@ import { useRegion } from "../context/RegionContext";
 import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
-import { filterByFiscalYear, fiscalYearsIn, isFiscalYearLabel } from "../utils/fiscalYear";
+import { DateRangeSelect, useDateRangeFilter } from "../components/DateRangeFilter";
+import { filterByFiscalYear, filterByDateRange, fiscalYearsIn, isFiscalYearLabel } from "../utils/fiscalYear";
 import { deletePurchaseWithLinks, planPurchaseRenumber, resequencePurchaseExpenseIds } from "../utils/financeRows";
 import {
   PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
@@ -28,10 +29,14 @@ function Purchases() {
   const [allPurchases, setPurchases] = useState([]);
   const [fy] = useFiscalYearFilter();
   const fyActive = isFiscalYearLabel(fy);
+  // A custom From/To range, one narrowing step further (see
+  // DateRangeFilter.jsx) — shared with Finance and Billing, so picking a
+  // period on one page shows the same period on the others.
+  const [dateRange] = useDateRangeFilter();
   // The count, the total and the table all read `purchases`, so scoping it
-  // here is the whole of the region and fiscal-year split on this page.
+  // here is the whole of the region, fiscal-year and date-range split on this page.
   const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
-  const purchases = useMemo(() => filterByFiscalYear(regionPurchases, fy), [regionPurchases, fy]);
+  const purchases = useMemo(() => filterByDateRange(filterByFiscalYear(regionPurchases, fy), dateRange), [regionPurchases, fy, dateRange]);
   const yearsHere = useMemo(() => fiscalYearsIn(regionPurchases), [regionPurchases]);
   const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
   const [loading, setLoading] = useState(true);
@@ -240,6 +245,7 @@ function Purchases() {
               style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
             >✕ Clear</button>
           )}
+          <DateRangeSelect />
           <FiscalYearSelect years={yearsHere} />
         </div>
 
