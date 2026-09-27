@@ -355,9 +355,16 @@ function Employees() {
   async function handleSubmit(e) {
     e.preventDefault();
     setSubmitting(true);
-    // reports_to is a uuid FK to people.id — "" (the unselected default) is
-    // not a valid uuid, so it must become null rather than pass through.
-    const data = { ...form, basicSalaryNPR: Number(form.basicSalaryNPR || 0), reportsTo: form.reportsTo || null };
+    // reports_to is a uuid FK to people.id, and schedule_start/schedule_end are
+    // `time` columns — "" (the unselected default) is not a valid uuid or time,
+    // so each must become null rather than pass through.
+    const data = {
+      ...form,
+      basicSalaryNPR: Number(form.basicSalaryNPR || 0),
+      reportsTo: form.reportsTo || null,
+      scheduleStart: form.scheduleStart || null,
+      scheduleEnd: form.scheduleEnd || null,
+    };
     const isNewEmployee = !editId;
     let personId = editId;
     try {

@@ -198,7 +198,14 @@ function Purchases() {
         type="button"
         className="ghost-button"
         style={{ alignSelf: "flex-start" }}
-        onClick={() => navigate("/finance")}
+        onClick={() => {
+          // A draft no longer saves itself when you leave the row (that was the
+          // whole point of the Save button) — so leaving the page entirely has
+          // to ask first, or the edit just vanishes with no button ever pressed.
+          if (Object.keys(purchaseDrafts).length > 0
+            && !window.confirm("You have an unsaved purchase edit. Leave without saving?")) return;
+          navigate("/finance");
+        }}
       >
         <Icons.ChevronLeft size={15} sw={2} /> Back to Finance
       </button>
