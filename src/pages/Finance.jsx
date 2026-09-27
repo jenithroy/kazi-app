@@ -805,7 +805,7 @@ function Finance() {
 
   async function commitLedgerDraft() {
     if (!ledgerDraft || ledgerSaving) return;
-    const { type, id, particulars, amount, earlierMovementNPR } = ledgerDraft;
+    const { type, id, date, particulars, amount, earlierMovementNPR } = ledgerDraft;
     setLedgerSaving(true);
     try {
       if (type === "opening") {
@@ -814,15 +814,18 @@ function Finance() {
         // Back that movement out so the stored figure keeps meaning "before anything
         // was recorded" — saving the combined number as-is would double-count those
         // earlier years the next time this loads.
-        await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) - (earlierMovementNPR || 0) });
+        await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) - (earlierMovementNPR || 0), openingBalanceDate: date || null });
       } else if (type === "bank") {
         // bank_transactions keeps the figure in `amount`. Sending `amountNPR`
         // named no column the table has, and the write layer drops keys it
         // cannot map — so the amount looked saved and never was, while the
-        // description beside it went through.
-        await updateRow("bank_transactions", id, { description: particulars, amount: Number(amount || 0) });
+        // description beside it went through. `date` is the same trap: it's a
+        // read-only derived column (schemaMap marks it under `derived`, not
+        // `fields`) computed from the real column, `timestamp` → txn_at — send
+        // that key instead, or an edited date silently never saves either.
+        await updateRow("bank_transactions", id, { timestamp: date, description: particulars, amount: Number(amount || 0) });
       } else {
-        await updateRow("journal_entries", id, { description: particulars, amountNPR: Number(amount || 0) });
+        await updateRow("journal_entries", id, { date, description: particulars, amountNPR: Number(amount || 0) });
       }
       setLedgerDraft(null);
       await loadData();
@@ -1037,8 +1040,10 @@ function Finance() {
 
     const result = {};
     for (const name of ACCOUNTS) {
-      const accountId = accounts.find(a => a.name === name)?.id || null;
-      const baseOpening = accounts.find(a => a.name === name)?.openingBalanceNPR || 0;
+      const accountRow = accounts.find(a => a.name === name);
+      const accountId = accountRow?.id || null;
+      const baseOpening = accountRow?.openingBalanceNPR || 0;
+      const openingBalanceDate = accountRow?.openingBalanceDate || null;
       const sorted = rowsFor[name].sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
       let opening = baseOpening;
       let shown = sorted;
@@ -1056,7 +1061,7 @@ function Finance() {
         balance += r.dr - r.cr;
         return { ...r, balance };
       });
-      result[name] = { accountId, openingBalanceNPR: opening, baseOpeningNPR: baseOpening, rows, closingBalance: balance, totalRows: sorted.length };
+      result[name] = { accountId, openingBalanceNPR: opening, baseOpeningNPR: baseOpening, openingBalanceDate, rows, closingBalance: balance, totalRows: sorted.length };
     }
     return result;
   }, [regionPurchases, regionInvoices, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
@@ -1801,6 +1806,7 @@ function Finance() {
                               setLedgerDraft({
                                 type: "opening",
                                 id: data.accountId,
+                                date: data.openingBalanceDate,
                                 particulars: "Opening Balance",
                                 amount: data.openingBalanceNPR,
                                 earlierMovementNPR: data.openingBalanceNPR - data.baseOpeningNPR,
@@ -1808,7 +1814,13 @@ function Finance() {
                             }}
                             onKeyDown={editingOpening ? ledgerEditKeys : undefined}
                           >
-                            <td style={{ color: "var(--ink-4)", fontSize: 12 }}>—</td>
+                            <td style={{ color: "var(--ink-4)", fontSize: 12 }}>
+                              {editingOpening
+                                ? <DateField mode={dateMode} style={{ padding: "3px 6px", fontSize: 12, width: "100%" }}
+                                    value={ledgerDraft.date} blankLabel="Set date"
+                                    onChange={v => setLedgerDraft(d => ({ ...d, date: v }))} />
+                                : showDate(data.openingBalanceDate)}
+                            </td>
                             <td style={{ fontWeight: 600 }}>{fyActive ? `Balance brought forward (before FY ${fy})` : "Opening Balance"}</td>
                             <td></td><td></td>
                             <td style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>
@@ -1842,14 +1854,19 @@ function Finance() {
                               if (!canEdit || editing) return;
                               if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
                               else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
-                              else setLedgerDraft({ type: r.sourceType, id: r.sourceId, account: name, particulars: r.particulars, amount: r.dr || r.cr });
+                              else setLedgerDraft({ type: r.sourceType, id: r.sourceId, account: name, date: r.date, particulars: r.particulars, amount: r.dr || r.cr });
                             }}
                             onKeyDown={editing ? ledgerEditKeys : undefined}
                           >
-                            <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>{showDate(r.date)}</td>
+                            <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>
+                              {editing
+                                ? <DateField mode={dateMode} style={inputStyle} value={ledgerDraft.date} autoFocus
+                                    onChange={v => setLedgerDraft(d => ({ ...d, date: v }))} />
+                                : showDate(r.date)}
+                            </td>
                             <td>
                               {editing
-                                ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars} autoFocus
+                                ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars}
                                     onChange={e => setLedgerDraft(d => ({ ...d, particulars: e.target.value }))} />
                                 : r.particulars}
                             </td>

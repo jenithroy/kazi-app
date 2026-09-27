@@ -22,7 +22,8 @@ export const SCHEMA_MAP = {
       "isBank": "is_bank",
       "openingBalanceNPR": "opening_balance_npr",
       "createdAt": "created_at",
-      "region": "region"
+      "region": "region",
+      "openingBalanceDate": "opening_balance_date"
     },
     "derived": [],
     "columns": [
@@ -30,6 +31,7 @@ export const SCHEMA_MAP = {
       "id",
       "is_bank",
       "name",
+      "opening_balance_date",
       "opening_balance_npr",
       "region",
       "type"
@@ -324,7 +326,8 @@ export const SCHEMA_MAP = {
       "id",
       "next_challan",
       "next_invoice",
-      "next_quotation"
+      "next_quotation",
+      "next_val"
     ]
   },
   "customers": {
@@ -615,15 +618,21 @@ export const SCHEMA_MAP = {
       "createdBy": "created_by",
       "updatedBy": "updated_by",
       "createdAt": "created_at",
-      "region": "region"
+      "region": "region",
+      "fabricId": "fabric_id",
+      "color": "color",
+      "colorHex": "color_hex"
     },
     "derived": [],
     "columns": [
       "category",
+      "color",
+      "color_hex",
       "condition",
       "created_at",
       "created_by",
       "damage_log",
+      "fabric_id",
       "id",
       "item",
       "item_ref",
@@ -767,21 +776,6 @@ export const SCHEMA_MAP = {
       "id",
       "last_updated",
       "weekly"
-    ]
-  },
-  "messenger_tabs": {
-    "view": null,
-    "table": "messenger_tabs",
-    "fields": {
-      "id": "id",
-      "label": "label",
-      "sort_order": "sort_order"
-    },
-    "derived": [],
-    "columns": [
-      "id",
-      "label",
-      "sort_order"
     ]
   },
   "messages": {
@@ -988,12 +982,15 @@ export const SCHEMA_MAP = {
       "tech_pack_images": "tech_pack_images",
       "createdAt": "created_at",
       "updatedAt": "updated_at",
-      "region": "region"
+      "region": "region",
+      "callouts": "callouts",
+      "wastagePct": "wastage_pct"
     },
     "derived": [],
     "columns": [
       "available_colors",
       "back_sketch_url",
+      "callouts",
       "category",
       "created_at",
       "designer_name",
@@ -1016,7 +1013,8 @@ export const SCHEMA_MAP = {
       "tech_pack_url",
       "trims",
       "updated_at",
-      "wash_care"
+      "wash_care",
+      "wastage_pct"
     ]
   },
   "payments": {
@@ -1099,6 +1097,21 @@ export const SCHEMA_MAP = {
   "finance_tabs": {
     "view": null,
     "table": "finance_tabs",
+    "fields": {
+      "id": "id",
+      "label": "label",
+      "sort_order": "sort_order"
+    },
+    "derived": [],
+    "columns": [
+      "id",
+      "label",
+      "sort_order"
+    ]
+  },
+  "messenger_tabs": {
+    "view": null,
+    "table": "messenger_tabs",
     "fields": {
       "id": "id",
       "label": "label",
