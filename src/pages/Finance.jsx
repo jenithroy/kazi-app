@@ -995,7 +995,13 @@ function Finance() {
     const rowsFor = Object.fromEntries(ACCOUNTS.map(name => [name, []]));
 
     regionPurchases.forEach(p => {
-      const acct = p.paymentType === "CASH" ? CASH : p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : null;
+      // Anything not explicitly "Bank" or "Credit" is Cash -- same rule paid
+      // invoices already use below ("defaults to Cash for older invoices with
+      // no paymentType set"). Purchases used to require an exact "CASH" match,
+      // so a row from before this field existed (paymentType null) matched
+      // neither branch and silently vanished from every Cash/Bank block despite
+      // being fully visible on the Purchases page -- 38 live rows, NPR 436k.
+      const acct = p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : p.paymentType === "Credit" ? null : CASH;
       if (!acct || !rowsFor[acct]) return; // Credit purchases move to Accounts Payable, not Cash/Bank
       rowsFor[acct].push({
         date: p.date || "", sortKey: tsMillis(p.createdAt),
@@ -1081,7 +1087,10 @@ function Finance() {
     const rows = [];
 
     purchases.forEach(p => {
-      const acct = p.paymentType === "CASH" ? "Cash" : p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : null;
+      // Same fix as cashBankLedger above: only "Bank" and "Credit" are
+      // exceptions, everything else (including a legacy row with no
+      // paymentType recorded at all) is Cash.
+      const acct = p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : p.paymentType === "Credit" ? null : "Cash";
       if (!acct) return; // credit purchases move to Accounts Payable — no cash/bank movement yet
       rows.push({
         date: p.date || "", sortKey: tsMillis(p.createdAt), account: acct,
