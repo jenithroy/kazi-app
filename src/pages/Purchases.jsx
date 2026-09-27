@@ -38,7 +38,8 @@ function Purchases() {
   const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
   const purchases = useMemo(() => filterByDateRange(filterByFiscalYear(regionPurchases, fy), dateRange), [regionPurchases, fy, dateRange]);
   const yearsHere = useMemo(() => fiscalYearsIn(regionPurchases), [regionPurchases]);
-  const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until blur-commit
+  const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until Save is pressed
+  const [savingId, setSavingId] = useState(null); // rowId currently being written, or null
   const [loading, setLoading] = useState(true);
   // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
   const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
@@ -115,9 +116,10 @@ function Purchases() {
     });
   }
   async function commitPurchaseDraft(row) {
-    if (deletingIdsRef.current.has(row.id)) return;
+    if (deletingIdsRef.current.has(row.id) || savingId === row.id) return;
     const draft = purchaseDrafts[row.id];
     if (!draft) return;
+    setSavingId(row.id);
     try {
       const subtotal = purchaseSubtotal(draft.items);
       const vatAmount = purchaseVatAmount(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
@@ -144,7 +146,12 @@ function Purchases() {
       if (deletingIdsRef.current.has(row.id)) return;
       console.error("Failed to update purchase:", err);
       alert("Failed to update purchase. Please try again.");
+    } finally {
+      setSavingId(null);
     }
+  }
+  function cancelPurchaseDraft(row) {
+    setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
   }
   async function deletePurchase(row) {
     const id = row.id;
@@ -281,7 +288,11 @@ function Purchases() {
                 <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
               </tr></thead>
 
-              {filtered.map(row => (
+              {filtered.map(row => {
+                // Drafts no longer commit on blur — a row stays in purchaseDrafts,
+                // and out of the database, until its own Save button is pressed.
+                const dirty = !!purchaseDrafts[row.id];
+                return (
                 <PurchaseRowGroup
                   key={row.id}
                   // The purchase's own stored id (the one Finance issues, search matches and
@@ -294,16 +305,33 @@ function Purchases() {
                   onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}
                   onAddItem={() => canEdit && addPurchaseItem(row)}
                   onRemoveItem={idx => canEdit && removePurchaseItem(row, idx)}
-                  onBlurAway={() => canEdit && commitPurchaseDraft(row)}
                   actionCell={canEdit && (
                     <div className="kbil-tbl-actions">
-                      <button className="kbil-tbl-btn kbil-tbl-btn--danger" type="button"
-                        onMouseDown={e => e.stopPropagation()}
-                        onClick={() => deletePurchase(row)}>Delete</button>
+                      {dirty ? (
+                        <>
+                          <button className="kbil-tbl-btn kbil-tbl-btn--primary" type="button"
+                            disabled={savingId === row.id}
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={() => commitPurchaseDraft(row)}>
+                            {savingId === row.id ? "Saving…" : "Save"}
+                          </button>
+                          <button className="kbil-tbl-btn" type="button"
+                            disabled={savingId === row.id}
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={() => cancelPurchaseDraft(row)}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button className="kbil-tbl-btn kbil-tbl-btn--danger" type="button"
+                          onMouseDown={e => e.stopPropagation()}
+                          onClick={() => deletePurchase(row)}>Delete</button>
+                      )}
                     </div>
                   )}
                 />
-              ))}
+                );
+              })}
             </table>
           </div>
         )}
