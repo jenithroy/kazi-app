@@ -139,7 +139,7 @@ function OrgCard({ emp, points }) {
 }
 
 function OrgNode({ emp, allEmps, pointsMap }) {
-  const children = allEmps.filter(e => (e.reportsTo || "").toLowerCase() === emp.name.toLowerCase() && e.status !== "Inactive");
+  const children = allEmps.filter(e => e.reportsTo === emp.id && e.status !== "Inactive");
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <OrgCard emp={emp} points={pointsMap[(emp.email || "").toLowerCase()]} />
@@ -158,7 +158,7 @@ function OrgNode({ emp, allEmps, pointsMap }) {
 
 function OrgChart({ employees, pointsMap = {} }) {
   const active = employees.filter(e => e.status !== "Inactive");
-  const roots = active.filter(e => !e.reportsTo || !active.find(a => a.name.toLowerCase() === e.reportsTo.toLowerCase()));
+  const roots = active.filter(e => !e.reportsTo || !active.find(a => a.id === e.reportsTo));
   const prodCount = active.filter(e => e.isProductionWorker).length;
 
   return (
@@ -355,35 +355,43 @@ function Employees() {
   async function handleSubmit(e) {
     e.preventDefault();
     setSubmitting(true);
-    const data = { ...form, basicSalaryNPR: Number(form.basicSalaryNPR || 0) };
+    // reports_to is a uuid FK to people.id — "" (the unselected default) is
+    // not a valid uuid, so it must become null rather than pass through.
+    const data = { ...form, basicSalaryNPR: Number(form.basicSalaryNPR || 0), reportsTo: form.reportsTo || null };
     const isNewEmployee = !editId;
     let personId = editId;
-    if (editId) {
-      await updateRow("employees", editId, { ...data, updatedBy: profile?.name || "Unknown", updatedAt: new Date().toISOString() });
-      setEditId(null);
-    } else {
-      const created = await insertRow("employees", { ...data, createdBy: profile?.name || "Unknown" });
-      personId = created?.id || null;
-    }
-
-    // There is no separate user record to keep in step any more. `employees`
-    // and `users` were two views of one thing that had to be written twice and
-    // could drift apart; both now read the same `people` row, and the position
-    // saved above is what grants access.
-    if (data.email && isNewEmployee) {
-      try {
-        await createEmployeeLogin(data.email, data.name, personId);
-        alert(`${data.name} was added — a password-setup email was sent to ${data.email}.`);
-      } catch (err) {
-        console.warn("Failed to auto-create login:", err);
-        alert(`${data.name} was saved, but their login email couldn't be sent automatically (${err.message}). You can invite them from the Supabase dashboard under Authentication.`);
+    try {
+      if (editId) {
+        await updateRow("employees", editId, { ...data, updatedBy: profile?.name || "Unknown", updatedAt: new Date().toISOString() });
+        setEditId(null);
+      } else {
+        const created = await insertRow("employees", { ...data, createdBy: profile?.name || "Unknown" });
+        personId = created?.id || null;
       }
-    }
 
-    setForm(emptyForm);
-    setShowForm(false);
-    await loadData();
-    setSubmitting(false);
+      // There is no separate user record to keep in step any more. `employees`
+      // and `users` were two views of one thing that had to be written twice and
+      // could drift apart; both now read the same `people` row, and the position
+      // saved above is what grants access.
+      if (data.email && isNewEmployee) {
+        try {
+          await createEmployeeLogin(data.email, data.name, personId);
+          alert(`${data.name} was added — a password-setup email was sent to ${data.email}.`);
+        } catch (err) {
+          console.warn("Failed to auto-create login:", err);
+          alert(`${data.name} was saved, but their login email couldn't be sent automatically (${err.message}). You can invite them from the Supabase dashboard under Authentication.`);
+        }
+      }
+
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadData();
+    } catch (err) {
+      console.error("Error saving employee:", err);
+      alert("Failed to save employee: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function startEdit(emp) {
@@ -474,6 +482,8 @@ function Employees() {
   );
   const active = employees.filter(e => e.status === "Active");
   const totalPayroll = active.reduce((s, e) => s + Number(e.basicSalaryNPR || 0), 0);
+  // reportsTo holds a person id, not a name — resolve it for display.
+  const managerName = id => employees.find(e => e.id === id)?.name || "—";
 
   return (
     <>
@@ -578,7 +588,7 @@ function Employees() {
                 </label>
                 <label>
                   Email
-                  <input type="email" value={form.email} placeholder="email@example.com"
+                  <input type="email" value={form.email} required placeholder="email@example.com"
                     onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
                 </label>
                 <label>
@@ -630,10 +640,10 @@ function Employees() {
                 </label>
                 <label>
                   Reports To
-                  <select value={form.reportsTo} onChange={e => setForm(f => ({ ...f, reportsTo: e.target.value }))}>
+                  <select value={form.reportsTo || ""} onChange={e => setForm(f => ({ ...f, reportsTo: e.target.value }))}>
                     <option value="">— No manager —</option>
-                    {employees.filter(e => e.name !== form.name).map(e => (
-                      <option key={e.id} value={e.name}>{e.name} ({e.role})</option>
+                    {employees.filter(e => e.id !== editId).map(e => (
+                      <option key={e.id} value={e.id}>{e.name} ({e.role})</option>
                     ))}
                   </select>
                 </label>
@@ -824,7 +834,7 @@ function Employees() {
                         {emp.bankName ? `${emp.bankName}${emp.bankBranch ? ` (${emp.bankBranch})` : ""}` : (emp.bankAccount ? "Bank Account" : "—")}
                         {emp.bankAccount && <div style={{ fontFamily: "monospace", marginTop: 2 }}>{emp.bankAccount}</div>}
                       </td>
-                      <td style={{ fontSize: "0.82rem", color: "var(--ink-4)" }}>{emp.reportsTo || "—"}</td>
+                      <td style={{ fontSize: "0.82rem", color: "var(--ink-4)" }}>{emp.reportsTo ? managerName(emp.reportsTo) : "—"}</td>
                       <td style={{ fontSize: "0.8rem" }}>
                         {(() => {
                           const s = scheduleSummary(emp);
