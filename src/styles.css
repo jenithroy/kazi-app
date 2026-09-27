@@ -7184,3 +7184,320 @@ span.kap-personal { cursor: default; }
   .kof-date select { font-size: 16px !important; padding-left: 12px !important; }
   .kof-date button:not(.kof-pick), .kof-chip { min-height: 32px; padding: 4px 12px !important; font-size: 12px !important; }
 }
+
+/* ══════════════════════════════════════════════════════
+   MARKETING — Content Calendar (Ideas Inbox + month board)
+   Two panes: an unscheduled-ideas list and the calendar. On
+   a phone they become one pane at a time — the same idea as
+   .kchat-panes/.kchat-list swapping for Messenger.
+══════════════════════════════════════════════════════ */
+.kmkt-shell { display: flex; flex: 1; min-height: 0; overflow: hidden; background: var(--card); }
+
+/* ── Ideas Inbox (list pane) ── */
+.kmkt-inbox {
+  width: 272px; flex-shrink: 0;
+  display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
+  transition: width .25s ease;
+  overflow: hidden;
+}
+.kmkt-inbox--collapsed { width: 0; border-right-color: transparent; }
+.kmkt-inbox--drop { background: var(--mint-wash); box-shadow: inset 0 0 0 2px var(--mint-2); }
+
+.kmkt-inbox-hd { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 16px 12px; }
+.kmkt-inbox-hd-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.kmkt-inbox-eyebrow { margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-4); }
+.kmkt-inbox-title { margin: 0; font-size: 15px; font-weight: 800; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kmkt-inbox-count {
+  flex: none; font: 700 11px var(--mono); font-variant-numeric: tabular-nums;
+  padding: 2px 9px; border-radius: var(--r-pill);
+  background: var(--card); color: var(--ink-3); border: 1px solid var(--line);
+}
+.kmkt-back {
+  display: none; flex: none; align-items: center; justify-content: center;
+  width: 30px; height: 30px; margin-left: -6px;
+  border: none; background: none; color: var(--ink-2); border-radius: 8px; cursor: pointer;
+}
+
+.kmkt-quickadd { flex: none; padding: 0 14px 14px; }
+.kmkt-quickadd-row { display: flex; gap: 6px; }
+.kmkt-quickadd-row input {
+  flex: 1; min-width: 0; height: 34px; padding: 0 12px;
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-input);
+  background: var(--card); color: var(--ink); font: 400 12.5px var(--font);
+}
+.kmkt-quickadd-row input::placeholder { color: var(--ink-4); }
+
+.kmkt-idea-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 2px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.kmkt-idea-empty { padding: 40px 12px; text-align: center; color: var(--ink-4); }
+.kmkt-idea-empty svg { opacity: .35; margin-bottom: 6px; }
+.kmkt-idea-empty p { margin: 0; font-size: 11.5px; }
+
+.kmkt-idea {
+  --kmkt-dot: var(--ink-4); --kmkt-soft: var(--bg-2);
+  position: relative; display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 10px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); cursor: grab; user-select: none;
+  transition: background .12s, border-color .12s, opacity .15s, transform .15s;
+}
+.kmkt-idea:hover { border-color: var(--ink-5); }
+.kmkt-idea:active { cursor: grabbing; }
+.kmkt-idea.is-dragging { opacity: .35; transform: scale(.97); }
+.kmkt-idea-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; background: var(--kmkt-dot); }
+.kmkt-idea-body { flex: 1; min-width: 0; }
+.kmkt-idea-title {
+  margin: 0; font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.kmkt-idea-meta { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+.kmkt-idea-time { font-size: 10.5px; color: var(--ink-4); }
+.kmkt-idea-del {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border: none; background: none; border-radius: 7px;
+  color: var(--ink-4); opacity: 0; cursor: pointer; transition: opacity .12s, background .12s, color .12s;
+}
+.kmkt-idea:hover .kmkt-idea-del { opacity: 1; }
+.kmkt-idea-del:hover { background: var(--terra-soft); color: var(--terra); }
+
+.kmkt-type-pill {
+  display: inline-flex; align-items: center;
+  font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: var(--r-pill);
+  background: var(--kmkt-soft); color: var(--kmkt-dot);
+}
+
+.kmkt-inbox-hint { flex: none; padding: 10px 16px; text-align: center; border-top: 1px solid var(--line); }
+.kmkt-inbox-hint p { margin: 0; font-size: 10px; color: var(--ink-4); }
+
+/* type → colour, read by .kmkt-idea-dot / .kmkt-type-pill via custom properties */
+.kmkt-type--shoot    { --kmkt-dot: var(--blue);   --kmkt-soft: var(--blue-soft); }
+.kmkt-type--edit     { --kmkt-dot: var(--amber);  --kmkt-soft: var(--amber-soft); }
+.kmkt-type--ideation { --kmkt-dot: var(--terra);  --kmkt-soft: var(--terra-soft); }
+.kmkt-type--publish  { --kmkt-dot: var(--mint-2); --kmkt-soft: var(--mint-soft); }
+
+/* ── Calendar (main pane) ── */
+.kmkt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--card); }
+
+.kmkt-toolbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.kmkt-toolbar-group { display: flex; align-items: center; gap: 6px; }
+.kmkt-divider { width: 1px; height: 18px; background: var(--line-strong); margin: 0 2px; }
+
+.kmkt-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 8px;
+  background: none; color: var(--ink-3); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.kmkt-iconbtn:hover { background: var(--bg-2); color: var(--ink); }
+
+.kmkt-nav { display: flex; align-items: center; gap: 2px; }
+.kmkt-nav-label { min-width: 138px; text-align: center; font-size: 13px; }
+.kmkt-nav-label b { font-weight: 700; color: var(--ink); }
+.kmkt-nav-label span { margin-left: 6px; color: var(--ink-4); }
+
+.kmkt-cal-scroll { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; padding: 14px 18px; }
+
+.kmkt-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-bottom: 6px; }
+.kmkt-weekday { text-align: center; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-4); padding: 4px 0; }
+
+.kmkt-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+
+.kmkt-cell {
+  position: relative; min-height: 104px; padding: 5px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--card); cursor: pointer;
+  user-select: none; transition: background .12s, border-color .12s, box-shadow .12s;
+}
+.kmkt-cell:hover { background: var(--bg-2); }
+.kmkt-cell--blank { background: var(--bg); cursor: default; }
+.kmkt-cell--blank:hover { background: var(--bg); }
+.kmkt-cell--today { border-color: var(--mint-deep); }
+.kmkt-cell--drop { background: var(--mint-wash); border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .18); }
+
+.kmkt-cell-hd { display: flex; align-items: center; justify-content: space-between; padding: 1px 2px 4px; }
+.kmkt-cell-date { font-size: 11px; font-weight: 600; color: var(--ink-4); }
+.kmkt-cell-date--today {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: var(--mint-deep); color: #fff; font-size: 10px; font-weight: 700;
+}
+.kmkt-cell-add {
+  width: 20px; height: 20px; border-radius: 6px; border: none; background: none;
+  color: var(--ink-4); display: flex; align-items: center; justify-content: center;
+  opacity: 0; cursor: pointer; transition: opacity .12s, background .12s, color .12s;
+}
+.kmkt-cell:hover .kmkt-cell-add { opacity: 1; }
+.kmkt-cell-add:hover { background: var(--card); color: var(--ink); }
+
+.kmkt-cell-items { display: flex; flex-direction: column; gap: 3px; }
+.kmkt-item-chip { border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform .12s; }
+.kmkt-item-chip:hover { transform: scale(1.015); }
+.kmkt-item-chip:active { transform: scale(.99); }
+.kmkt-item-chip.is-dragging { opacity: .35; }
+
+.kmkt-item-chip--plain { display: flex; flex-direction: column; gap: 1px; padding: 4px 6px; background: var(--kmkt-soft); }
+.kmkt-item-chip-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.kmkt-item-chip-row .kmkt-idea-dot { margin-top: 0; width: 5px; height: 5px; }
+.kmkt-item-chip-title {
+  margin: 0; font-size: 10.5px; font-weight: 500; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+}
+.kmkt-item-chip-time { margin: 0 0 0 10px; font-size: 9px; color: var(--ink-4); }
+
+.kmkt-item-chip--media { position: relative; }
+.kmkt-item-chip--media img { display: block; width: 100%; height: 60px; object-fit: cover; }
+.kmkt-item-chip-shade { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.62), transparent 60%); }
+.kmkt-item-chip-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--kmkt-dot); }
+.kmkt-item-chip--media .kmkt-item-chip-title { position: absolute; left: 6px; right: 6px; bottom: 4px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+
+.kmkt-cell-empty-hint { height: 46px; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .12s; color: var(--ink-5); }
+.kmkt-cell:hover .kmkt-cell-empty-hint { opacity: 1; }
+
+.kmkt-drop-badge {
+  position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+  font-size: 9px; font-weight: 700; color: var(--mint-deep); background: var(--mint-wash);
+  padding: 3px 9px; border-radius: var(--r-pill); white-space: nowrap; pointer-events: none;
+}
+
+.kmkt-legend { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 18px; border-top: 1px solid var(--line); }
+.kmkt-legend-item { display: flex; align-items: center; gap: 6px; }
+.kmkt-legend-item span { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); }
+.kmkt-legend-count { margin-left: auto; font-size: 10.5px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+
+/* ── Edit drawer (portalled to <body>, see MarketingCalendar.jsx) ── */
+.kmkt-backdrop {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(10, 28, 20, .38); backdrop-filter: blur(1px);
+  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.kmkt-backdrop--show { opacity: 1; pointer-events: auto; }
+
+.kmkt-drawer {
+  position: fixed; top: 0; bottom: 0; right: 0; z-index: 901;
+  width: 100%; max-width: 380px;
+  display: flex; flex-direction: column;
+  background: var(--card); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop);
+  transform: translateX(100%); transition: transform .28s cubic-bezier(.16,1,.3,1);
+}
+.kmkt-drawer--open { transform: translateX(0); }
+
+.kmkt-drawer-hd { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 16px 14px; border-bottom: 1px solid var(--line); }
+.kmkt-drawer-eyebrow { margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-4); }
+.kmkt-drawer-title { margin: 0; font-size: 14.5px; font-weight: 700; color: var(--ink); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kmkt-drawer-actions { flex: none; display: flex; align-items: center; gap: 6px; margin-top: 1px; }
+.kmkt-drawer-unschedule {
+  font: 700 10px var(--font); color: var(--ink-3); background: var(--card);
+  border: 1px solid var(--line-strong); border-radius: var(--r-pill); padding: 5px 10px; cursor: pointer;
+}
+.kmkt-drawer-unschedule:hover { background: var(--bg-2); }
+
+.kmkt-drawer-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.kmkt-drawer-media { padding: 16px 16px 0; }
+.kmkt-drawer-media-frame { position: relative; border-radius: 14px; overflow: hidden; }
+.kmkt-drawer-media-frame img { display: block; width: 100%; height: 150px; object-fit: cover; }
+.kmkt-drawer-media-shade { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.32), transparent 55%); }
+.kmkt-drawer-media-x {
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: none; border-radius: 50%;
+  background: rgba(0,0,0,.5); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.kmkt-drawer-media-x:hover { background: rgba(0,0,0,.68); }
+.kmkt-drawer-media-add {
+  width: 100%; height: 88px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  border: 1.5px dashed var(--line-strong); border-radius: 14px; background: none; color: var(--ink-4); cursor: pointer;
+}
+.kmkt-drawer-media-add:hover { background: var(--bg-2); border-color: var(--ink-5); }
+.kmkt-drawer-media-add span { font-size: 11px; font-weight: 500; }
+
+.kmkt-drawer-fields { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.kmkt-field label { display: block; margin-bottom: 6px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-4); }
+.kmkt-input {
+  width: 100%; padding: 8px 11px; font: 400 13px var(--font); color: var(--ink);
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-input); background: var(--card);
+  transition: border-color .12s;
+}
+.kmkt-input:focus-visible { border-color: var(--mint-2); }
+textarea.kmkt-input { resize: none; line-height: 1.55; }
+
+.kmkt-type-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.kmkt-type-btn {
+  /* No fallback --kmkt-dot/--kmkt-soft here: every button always carries a
+     .kmkt-type--* modifier too, and declaring one here would sit later in
+     the cascade than that modifier and win over it by source order. */
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 6px 11px; border-radius: var(--r-pill); border: 1px solid var(--line-strong);
+  background: var(--card); color: var(--ink-3); cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.kmkt-type-btn:hover { background: var(--bg-2); }
+.kmkt-type-btn.is-active { background: var(--kmkt-soft); color: var(--kmkt-dot); border-color: transparent; }
+
+.kmkt-status-line { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); }
+.kmkt-status-line .kmkt-idea-dot { margin-top: 0; }
+
+.kmkt-drawer-ft { flex: none; display: flex; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.kmkt-drawer-ft .primary-button, .kmkt-drawer-ft .kmkt-delete-btn { flex: 1; }
+.kmkt-delete-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 14px; border-radius: var(--r-input); border: 1px solid var(--line);
+  background: none; color: var(--terra); font: 600 13px var(--font); cursor: pointer;
+  transition: background .12s;
+}
+.kmkt-delete-btn:hover { background: var(--terra-soft); }
+
+/* ── Delete zone: appears only while a card is being dragged ── */
+.kmkt-delzone {
+  position: fixed; left: 50%; z-index: 902;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 22px; border-radius: var(--r-pill);
+  background: var(--terra); color: #fff; box-shadow: var(--shadow-pop);
+  font: 700 13px var(--font); white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transform: translate(-50%, 130%);
+  transition: transform .22s cubic-bezier(.16,1,.3,1), opacity .22s ease, background .12s;
+}
+.kmkt-delzone--show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.kmkt-delzone--hot { background: #a8412a; transform: translate(-50%, 0) scale(1.06); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kmkt-backdrop, .kmkt-drawer, .kmkt-idea, .kmkt-item-chip, .kmkt-delzone { transition: none; }
+}
+
+/* ═══ MARKETING — phone layout ═══ */
+@media (max-width: 768px) {
+  .kmkt-inbox, .kmkt-inbox--collapsed { width: 100%; border-right: none; }
+  .kmkt-shell:not(.kmkt-shell--inbox) .kmkt-inbox { display: none; }
+  .kmkt-shell--inbox .kmkt-main { display: none; }
+  .kmkt-back { display: inline-flex; }
+
+  .kmkt-toolbar { padding: 8px 12px; }
+  .kmkt-nav-label { min-width: 0; }
+  .kmkt-cal-scroll { padding: 10px 12px; }
+  .kmkt-grid { gap: 4px; }
+  .kmkt-cell { min-height: 72px; padding: 4px; border-radius: 10px; }
+  .kmkt-cell-date { font-size: 10px; }
+  .kmkt-item-chip-title { font-size: 9.5px; }
+  .kmkt-legend { padding: 8px 12px; gap: 10px; }
+
+  .kmkt-quickadd-row input, .kmkt-input { font-size: 16px; }
+
+  /* Bottom sheet, matching .kmodal's own phone treatment. */
+  .kmkt-drawer {
+    top: auto; left: 0; right: 0; bottom: 0; max-width: none;
+    max-height: 88vh; max-height: 88dvh;
+    border-left: none; border-top: 1px solid var(--line);
+    border-radius: 20px 20px 0 0;
+    transform: translateY(100%);
+  }
+  .kmkt-drawer--open { transform: translateY(0); }
+  .kmkt-drawer-ft { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (max-width: 480px) {
+  .kmkt-grid { gap: 3px; }
+  .kmkt-cell { min-height: 60px; }
+  .kmkt-cell-items { max-height: 44px; overflow-y: auto; }
+  .kmkt-weekday { font-size: 9px; }
+  .kmkt-nav-label b, .kmkt-nav-label span { font-size: 12px; }
+}
