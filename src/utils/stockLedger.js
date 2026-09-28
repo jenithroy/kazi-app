@@ -33,7 +33,7 @@ export function itemMovements(movements, itemId) {
                     String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
 }
 
-export async function logStockMovement({ itemId, date, qty, direction, source, sourceId, note, createdBy, amountNPR }) {
+export async function logStockMovement({ itemId, date, qty, direction, source, sourceId, purchaseId, note, createdBy, amountNPR }) {
   return insertRow(STOCK_MOVEMENTS_COLLECTION, {
     itemId,
     date: date || new Date().toISOString().slice(0, 10),
@@ -41,6 +41,10 @@ export async function logStockMovement({ itemId, date, qty, direction, source, s
     direction, // "in" | "out"
     source: source || "manual", // "manual" | "purchase" | "opening" | "sale" | "production"
     sourceId: sourceId || null,
+    // The purchase's own uuid, alongside sourceId's human "EXP001" string —
+    // purchase numbers restart every fiscal year (migration 0046), so the
+    // string alone can no longer be trusted to name one purchase uniquely.
+    purchaseId: purchaseId || null,
     note: note || "",
     // The actual purchase/sale value for this movement's qty — lets the Stock
     // Ledger report show real Purchase/Sales Amount instead of qty × a
@@ -72,6 +76,7 @@ export async function postPurchaseStockIn({ purchase, items, inventoryItems, cre
       direction: "in",
       source: "purchase",
       sourceId: purchase.expenseId || null,
+      purchaseId: purchase.id || null,
       note: `Purchase ${purchase.expenseId || ""}`.trim(),
       createdBy,
       amountNPR: Number(it.amount) || 0,

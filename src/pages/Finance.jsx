@@ -7,6 +7,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { fmt, Icons } from "../components/ui";
 import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter } from "../components/PurchaseRowGroup";
+import { nextPurchaseNumber } from "../utils/financeRows";
 import KeyboardSelect from "../components/KeyboardSelect";
 import { BANK_NAMES } from "../utils/billing.jsx";
 import { GBP_RATE, createdAfterCutoff } from "../constants";
@@ -24,7 +25,7 @@ import { countUntagged, filterByRegion } from "../utils/region";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
 import { DateRangeSelect, useDateRangeFilter } from "../components/DateRangeFilter";
 import DualDateInput, { DateModeToggle } from "../components/DualDateInput";
-import { filterByFiscalYear, filterByDateRange, isDateRangeActive, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, adToBsParts, isFiscalYearLabel, isoDay, payrollPeriodDate } from "../utils/fiscalYear";
+import { filterByFiscalYear, filterByDateRange, isDateRangeActive, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, adToBsParts, isFiscalYearLabel, isoDay, payrollPeriodDate, fiscalYearForDate, currentFiscalYear } from "../utils/fiscalYear";
 
 /* ── Seed data ─────────────────────────────────────── */
 // NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
@@ -261,7 +262,6 @@ function Finance() {
   const [expenseForm, setExpenseForm] = useState(initialExpense);
   const [allPurchases, setPurchases]  = useState([]);
   const [allInventoryItems, setInventoryItems] = useState([]); // for auto-posting stock-in on purchase save
-  const allPurchaseIdsRef = useRef([]); // unfiltered expenseIds (incl. historical, hidden-by-cutoff rows) — nextExpenseId() must never collide with these
   const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
   const [purchaseError, setPurchaseError] = useState("");     // inline error shown at the new-purchase row
   const [purchaseSuccess, setPurchaseSuccess] = useState(""); // "EXP027 saved" confirmation by the table title
@@ -269,7 +269,10 @@ function Finance() {
   const [expenseError, setExpenseError] = useState(""); // inline error shown under the Add Expense button
   const [allVatBills, setVatBills]    = useState([]);
   const [vatFile, setVatFile]         = useState(null);
-  const [vatExpenseId, setVatExpenseId] = useState("");
+  // Holds the purchase's own uuid, not its expenseId string — expense IDs
+  // restart every fiscal year (migration 0046), so "EXP001" alone no longer
+  // picks out one purchase.
+  const [vatPurchaseId, setVatPurchaseId] = useState("");
   const [uploading, setUploading]     = useState(false);
   const fileInputRef                  = useRef(null);
   const [expenseVatFile, setExpenseVatFile] = useState(null);
@@ -318,8 +321,7 @@ function Finance() {
      staff member it is about. See migration 0029.
 
      The `all*` originals stay in scope where a number must span the company:
-     `allPurchaseIdsRef` already held every expense id for exactly this reason,
-     and the untagged counts in the header report on the whole list. */
+     the untagged counts in the header report on the whole list. */
   const regionPayroll   = useMemo(() => filterByRegion(allPayroll,   region), [allPayroll,   region]);
   const employees       = useMemo(() => filterByRegion(allEmployees, region), [allEmployees, region]);
   const regionExpenses  = useMemo(() => filterByRegion(allExpenses,  region), [allExpenses,  region]);
@@ -463,20 +465,24 @@ function Finance() {
     // something a read should do — a transient glitch could quietly destroy
     // accounting records. Postgres has no duplicates today, so hiding rather
     // than deleting costs nothing and cannot lose a purchase.
+    //
+    // Keyed by fiscal year + expense ref, not the ref alone: numbers restart
+    // every fiscal year (migration 0046), so "EXP001" alone no longer names
+    // one purchase — FY2082/83 and FY2083/84 each have their own.
     const seen = new Map();
     for (const r of purRows) {
-      if (!seen.has(r.expenseId)) seen.set(r.expenseId, r);
+      const key = `${r.fiscalYear || ""}:${r.expenseId}`;
+      if (!seen.has(key)) seen.set(key, r);
     }
     if (seen.size !== purRows.length) purRows = [...seen.values()];
     purRows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
-    allPurchaseIdsRef.current = purRows.map(r => r.expenseId).filter(Boolean);
     purRows = purRows.filter(r => createdAfterCutoff(r));
     setPurchases(purRows);
 
     const bills = [...vatBillsSnap];
     bills.sort((a, b) => tsMillis(b.uploadedAt) - tsMillis(a.uploadedAt));
     setVatBills(bills);
-    if (!vatExpenseId && purRows.length > 0) setVatExpenseId(purRows[0].expenseId || "");
+    if (!vatPurchaseId && purRows.length > 0) setVatPurchaseId(purRows[0].id || "");
 
     const entryRows = entriesSnap.filter(r => createdAfterCutoff(r));
     entryRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -601,11 +607,6 @@ function Finance() {
 
   /* ── Handlers ── */
 
-  function nextExpenseId() {
-    const nums = allPurchaseIdsRef.current.map(id => parseInt((id || "EXP000").replace("EXP", ""), 10)).filter(n => !isNaN(n));
-    return `EXP${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
-  }
-
   async function addPurchase() {
     if (!canEditTab("purchases")) { setPurchaseError("You don't have permission to add purchases."); return; }
     if (!purchaseForm.expenseItem.trim()) {
@@ -616,7 +617,11 @@ function Finance() {
     setPurchaseError("");
     setSubmitting(true);
     try {
-      const newId = nextExpenseId();
+      // Numbers restart every fiscal year (migration 0046) — decided from the
+      // purchase's own date, same as an invoice, not from today's date, so a
+      // backdated purchase draws from the year it actually belongs to.
+      const fiscalYear = fiscalYearForDate(purchaseForm.date) || currentFiscalYear();
+      const newId = await nextPurchaseNumber(fiscalYear);
       const subtotal = purchaseSubtotal(purchaseForm.items);
       const vatAmount = purchaseVatAmount(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt, purchaseForm.taxableAmt);
       const grandTotal = purchaseGrandTotal(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt, purchaseForm.taxableAmt);
@@ -634,15 +639,17 @@ function Finance() {
         vatAmountNPR: vatAmount,
         amountNPR: grandTotal,
         date: purchaseForm.date,
+        fiscalYear,
         region: purchaseForm.region || region,
         items: purchaseItemsPayload(purchaseForm.items)
       };
-      await insertRow("finance_purchases", purchasePayload);
+      const inserted = await insertRow("finance_purchases", purchasePayload);
       // Auto-post stock-in for any line item whose particulars name an existing
       // inventory item (e.g. "Buff Meat") — silently skips everything else
-      // (rent, fees, etc. aren't stock).
+      // (rent, fees, etc. aren't stock). Needs the row's own id (not just its
+      // human expenseId), since stock_movements now links a purchase by uuid.
       postPurchaseStockIn({
-        purchase: purchasePayload,
+        purchase: { ...purchasePayload, id: inserted.id },
         items: purchasePayload.items,
         inventoryItems,
         createdBy: profile?.name || "Unknown",
@@ -657,6 +664,8 @@ function Finance() {
       console.error("Failed to add purchase:", err);
       setPurchaseError(err?.code === "permission-denied"
         ? "You don't have permission to add purchases."
+        : err?.code === "PGRST202" || err?.message?.includes("schema cache")
+        ? "Failed to save. Database migration 0046 may not be applied yet."
         : "Failed to save. Check your connection and try again.");
     } finally {
       setSubmitting(false);
@@ -713,14 +722,14 @@ function Finance() {
   }
 
   async function uploadVatBill(e) {
-    e.preventDefault(); if (!vatFile || !vatExpenseId) return;
+    e.preventDefault(); if (!vatFile || !vatPurchaseId) return;
     setUploading(true);
     try {
       // Across every year, not the one on screen — the dropdown offers them all.
-      const purchase = regionPurchases.find(p => p.expenseId === vatExpenseId);
-      const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/${vatExpenseId}`, vatFile);
+      const purchase = regionPurchases.find(p => p.id === vatPurchaseId);
+      const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/${vatPurchaseId}`, vatFile);
       await insertRow("vat_bills", {
-        expenseId: vatExpenseId, expenseItem: purchase?.expenseItem || "",
+        expenseId: purchase?.expenseId || "", purchaseId: vatPurchaseId, expenseItem: purchase?.expenseItem || "",
         fileName: vatFile.name, fileUrl: url, storagePath: path, fileType: vatFile.type,
         uploadedBy: profile?.name || "Unknown",
         region: purchase?.region || region,
@@ -1477,7 +1486,10 @@ function Finance() {
                   </tr></thead>
 
                   <PurchaseRowGroup
-                    expenseId={`${nextExpenseId()} (new)`}
+                    // The real number is drawn atomically at save time (an
+                    // atomic per-fiscal-year counter, migration 0046) -- showing
+                    // a computed guess here would burn a number on every render.
+                    expenseId={`New · FY ${fiscalYearForDate(purchaseForm.date) || currentFiscalYear()}`}
                     data={purchaseForm}
                     highlight
                     partyError={purchaseError}
@@ -1513,15 +1525,15 @@ function Finance() {
               <form onSubmit={uploadVatBill} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div className="kfin-form">
                   <label className="kfin-label kfin-full">Linked Purchase (Expense ID)
-                    <select className="kfin-select" value={vatExpenseId} disabled={!canEdit} onChange={e => setVatExpenseId(e.target.value)}>
-                      {regionPurchases.map(p => <option key={p.id} value={p.expenseId}>{p.expenseId} — {p.expenseItem}</option>)}
+                    <select className="kfin-select" value={vatPurchaseId} disabled={!canEdit} onChange={e => setVatPurchaseId(e.target.value)}>
+                      {regionPurchases.map(p => <option key={p.id} value={p.id}>{p.expenseId} · FY {p.fiscalYear || "—"} — {p.expenseItem}</option>)}
                     </select>
                   </label>
                   <label className="kfin-label kfin-full">File (image or PDF)
                     <input ref={fileInputRef} type="file" accept="image/*,.pdf" disabled={!canEdit}
                       onChange={e => setVatFile(e.target.files[0] || null)} className="kfin-input" style={{ paddingTop: 6 }} />
                   </label>
-                  <button type="submit" className="primary-button" disabled={!canEdit || uploading || !vatFile || !vatExpenseId}>
+                  <button type="submit" className="primary-button" disabled={!canEdit || uploading || !vatFile || !vatPurchaseId}>
                     {uploading ? "Uploading…" : "Upload Bill"}
                   </button>
                 </div>

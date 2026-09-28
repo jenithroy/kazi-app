@@ -47,10 +47,10 @@ function Purchases() {
   const [renumbering, setRenumbering] = useState(false);
   const deletingIdsRef = useRef(new Set());
 
-  // Expense IDs are one continuous series across every region and year (like
-  // quotations — nextExpenseId() reads every purchase ever raised), so whether
-  // they are in date order has to be judged on all of them, not just what's on
-  // screen. Fixing it is a deliberate act (a button), never a side effect.
+  // Expense IDs are one series per fiscal year, across every region (migration
+  // 0046), so whether they are in date order has to be judged on all of them,
+  // not just what's on screen. Fixing it is a deliberate act (a button), never
+  // a side effect.
   const outOfOrder = useMemo(() => planPurchaseRenumber(allPurchases), [allPurchases]);
 
   function renumberMessage(changes) {
@@ -67,7 +67,7 @@ function Purchases() {
       await loadPurchases();
     } catch (err) {
       console.error("Failed to renumber purchases by date:", err);
-      alert("Could not renumber. Database migration 0042 may not be applied yet.");
+      alert("Could not renumber. Database migration 0046 may not be applied yet.");
     }
     setRenumbering(false);
   }
