@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { fmt, Icons } from "../components/ui";
-import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter } from "../components/PurchaseRowGroup";
+import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter, PAYMENT_TYPES } from "../components/PurchaseRowGroup";
 import { nextPurchaseNumber } from "../utils/financeRows";
 import KeyboardSelect from "../components/KeyboardSelect";
 import { BANK_NAMES } from "../utils/billing.jsx";
@@ -100,7 +100,8 @@ const DEFAULT_ACCOUNTS = [
 
 const initialExpense = {
   category: "Utilities", amountNPR: "",
-  date: new Date().toISOString().slice(0, 10), note: "", vatBill: false, region: ""
+  date: new Date().toISOString().slice(0, 10), note: "", vatBill: false, region: "",
+  paymentType: "CASH", bankName: "Nabil Bank"
 };
 
 const emptyJournalForm = {
@@ -150,6 +151,7 @@ const TAB_SHORTCUTS = {
 const DAY_BOOK_SOURCE_TITLE = {
   purchase: "Open in Purchases",
   invoice:  "Open in Billing",
+  expense:  "Open in Expenses tab",
   bank:     "Open in Bank tab",
   journal:  "Open in Journal tab",
 };
@@ -511,13 +513,14 @@ function Finance() {
       }
     }
     // Auto-provision an Asset account for any bank name typed into the "Other"
-    // field on a purchase/invoice/bank transaction (beyond the Nabil/Sanima
-    // quick picks), so it gets an opening balance and shows up in the Ledger tab
-    // like any other bank instead of silently dropping off cashBankLedger.
+    // field on a purchase/invoice/expense/bank transaction (beyond the Nabil/
+    // Sanima quick picks), so it gets an opening balance and shows up in the
+    // Ledger tab like any other bank instead of silently dropping off cashBankLedger.
     {
       const customBankNames = new Set();
       purRows.forEach(p => { if (p.paymentType === "Bank" && p.bankName && !BANK_NAMES.includes(p.bankName)) customBankNames.add(p.bankName); });
       invSnap.forEach(inv => { if (inv.paymentType === "Bank" && inv.bankName && !BANK_NAMES.includes(inv.bankName)) customBankNames.add(inv.bankName); });
+      expRows.forEach(x => { if (x.paymentType === "Bank" && x.bankName && !BANK_NAMES.includes(x.bankName)) customBankNames.add(x.bankName); });
       // bank_transactions has no per-account name — the importer feeds a
       // single account — so there is nothing to harvest here any more.
       const existingNames2 = new Set(accs.map(a => a.name));
@@ -985,13 +988,15 @@ function Finance() {
     const set = new Set(BANK_NAMES);
     regionPurchases.forEach(p => { if (p.paymentType === "Bank" && p.bankName) set.add(p.bankName); });
     regionInvoices.forEach(i => { if (i.paymentType === "Bank" && i.bankName) set.add(i.bankName); });
+    regionExpenses.forEach(x => { if (x.paymentType === "Bank" && x.bankName) set.add(x.bankName); });
     regionBankTxns.forEach(t => { if (t.accountName) set.add(t.accountName); });
     return [...BANK_NAMES, ...[...set].filter(n => !BANK_NAMES.includes(n)).sort()];
-  }, [regionPurchases, regionInvoices, regionBankTxns]);
+  }, [regionPurchases, regionInvoices, regionExpenses, regionBankTxns]);
 
   // Running Cash/Bank ledger — matches Deepa's notebook format (Particulars/Dr/Cr/Balance).
-  // Rows are derived on the fly from Purchases, paid Invoices, Bank txns and Journal
-  // entries — nothing is written back, so there's no separate ledger doc to keep in sync.
+  // Rows are derived on the fly from Purchases, paid/partial Invoices, paid
+  // Expenses, Bank txns and Journal entries — nothing is written back, so
+  // there's no separate ledger doc to keep in sync.
   //
   // Built from every year's rows, then cut to the selected year: what happened
   // before the year folds into a brought-forward opening balance (the account's
@@ -1019,15 +1024,35 @@ function Finance() {
       });
     });
 
-    regionInvoices.filter(i => i.status === "Paid").forEach(i => {
-      const val = Number(i.totalNPR || 0);
+    // Paid AND partially-paid invoices both carry real cash/bank receipts --
+    // amountPaid (a database trigger's running total of the invoice's own
+    // `payments` rows) is what actually arrived, so it's used for both rather
+    // than totalNPR, which a Partial invoice hasn't fully collected yet.
+    regionInvoices.filter(i => i.status === "Paid" || i.status === "Partial").forEach(i => {
+      const val = Number(i.amountPaid || 0);
       const amt = i.currency === "GBP" ? val * GBP_RATE : val;
-      // defaults to Cash for older invoices with no paymentType set
-      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : CASH;
+      // defaults to Cash for older invoices with no paymentType set; a Credit
+      // sale (terms, not yet banked) has no cash/bank movement to post, same
+      // as a Credit purchase.
+      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : i.paymentType === "Credit" ? null : CASH;
+      if (!acct) return;
       rowsFor[acct].push({
         date: i.date || "", sortKey: tsMillis(i.createdAt),
         particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
         sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName,
+      });
+    });
+
+    // Expenses had no payment method at all until now (migration 0047) and so
+    // never posted here -- only a *paid* expense is a real cash/bank movement,
+    // same reasoning as Partial vs. unpaid on the Sales side above.
+    regionExpenses.filter(x => x.status === "Paid").forEach(x => {
+      const acct = x.paymentType === "Bank" ? (x.bankName || "Nabil Bank") : x.paymentType === "Credit" ? null : CASH;
+      if (!acct || !rowsFor[acct]) return;
+      rowsFor[acct].push({
+        date: x.date || "", sortKey: tsMillis(x.createdAt),
+        particulars: `Expense — ${x.category || ""}${x.note ? ": " + x.note : ""}`, dr: 0, cr: Number(x.amountNPR || 0),
+        sourceType: "expense", sourceId: x.id, searchKey: null,
       });
     });
 
@@ -1079,19 +1104,20 @@ function Finance() {
       result[name] = { accountId, openingBalanceNPR: opening, baseOpeningNPR: baseOpening, openingBalanceDate, rows, closingBalance: balance, totalRows: sorted.length };
     }
     return result;
-  }, [regionPurchases, regionInvoices, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
+  }, [regionPurchases, regionInvoices, regionExpenses, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
 
-  // Day Book — every purchase, paid sale, bank transaction and journal entry in
-  // one chronological list, the way a Nepali day book (रोजमेल/Rojmel — the book
-  // of original entry) records each day's transactions as they happen, before
-  // they're posted into the per-account Ledger. Same four sources as
-  // cashBankLedger above, but every account rather than just Cash/Bank, and
-  // merged by date instead of bucketed per account — so a journal entry against
-  // (say) Sales Revenue shows up here even though it never appears in the
-  // Ledger tab's Cash/Bank blocks. Already region- and fiscal-year-filtered,
-  // since it reads the same `purchases`/`invoices`/`bankTxns`/`entries` lists
-  // the Journal and Bank tabs do, not the unfiltered `region*` ones — there's
-  // no brought-forward opening balance here for a year boundary to complicate.
+  // Day Book — every purchase, paid/partial sale, paid expense, bank
+  // transaction and journal entry in one chronological list, the way a Nepali
+  // day book (रोजमेल/Rojmel — the book of original entry) records each day's
+  // transactions as they happen, before they're posted into the per-account
+  // Ledger. Same sources as cashBankLedger above, but every account rather
+  // than just Cash/Bank, and merged by date instead of bucketed per account —
+  // so a journal entry against (say) Sales Revenue shows up here even though
+  // it never appears in the Ledger tab's Cash/Bank blocks. Already region- and
+  // fiscal-year-filtered, since it reads the same `purchases`/`invoices`/
+  // `expenses`/`bankTxns`/`entries` lists the Journal and Bank tabs do, not the
+  // unfiltered `region*` ones — there's no brought-forward opening balance
+  // here for a year boundary to complicate.
   const dayBook = useMemo(() => {
     const rows = [];
 
@@ -1108,14 +1134,26 @@ function Finance() {
       });
     });
 
-    invoices.filter(i => i.status === "Paid").forEach(i => {
-      const val = Number(i.totalNPR || 0);
+    // Paid and Partial both carry real receipts — see cashBankLedger above.
+    invoices.filter(i => i.status === "Paid" || i.status === "Partial").forEach(i => {
+      const val = Number(i.amountPaid || 0);
       const amt = i.currency === "GBP" ? val * GBP_RATE : val;
-      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : "Cash";
+      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : i.paymentType === "Credit" ? null : "Cash";
+      if (!acct) return;
       rows.push({
         date: i.date || "", sortKey: tsMillis(i.createdAt), account: acct,
         particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
         sourceType: "invoice", searchKey: i.invoiceNumber || i.clientName,
+      });
+    });
+
+    expenses.filter(x => x.status === "Paid").forEach(x => {
+      const acct = x.paymentType === "Bank" ? (x.bankName || "Nabil Bank") : x.paymentType === "Credit" ? null : "Cash";
+      if (!acct) return;
+      rows.push({
+        date: x.date || "", sortKey: tsMillis(x.createdAt), account: acct,
+        particulars: `Expense — ${x.category || ""}${x.note ? ": " + x.note : ""}`, dr: 0, cr: Number(x.amountNPR || 0),
+        sourceType: "expense", searchKey: null,
       });
     });
 
@@ -1137,7 +1175,7 @@ function Finance() {
     });
 
     return rows.sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
-  }, [purchases, invoices, bankTxns, entries]);
+  }, [purchases, invoices, expenses, bankTxns, entries]);
 
   const pl = useMemo(() => {
     // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
@@ -1364,6 +1402,26 @@ function Finance() {
                     <RegionSelect className="kfin-input" value={expenseForm.region} disabled={!canEdit}
                       onChange={v => setExpenseForm(f => ({ ...f, region: v }))} />
                   </label>
+                  <label className="kfin-label">Payment Type
+                    <KeyboardSelect className="kfin-select" value={expenseForm.paymentType || "CASH"} options={PAYMENT_TYPES} disabled={!canEdit}
+                      onChange={v => setExpenseForm(f => ({ ...f, paymentType: v }))} />
+                  </label>
+                  {expenseForm.paymentType === "Bank" && (() => {
+                    const isOtherBank = expenseForm.bankName === "other" || (expenseForm.bankName && !BANK_NAMES.includes(expenseForm.bankName));
+                    return (
+                      <label className="kfin-label">Bank
+                        <KeyboardSelect className="kfin-select" value={isOtherBank ? "other" : (expenseForm.bankName || "Nabil Bank")} disabled={!canEdit}
+                          options={[...BANK_NAMES, { value: "other", label: "Other" }]}
+                          onChange={v => setExpenseForm(f => ({ ...f, bankName: v }))} />
+                        {isOtherBank && (
+                          <input type="text" className="kfin-input" style={{ marginTop: 6 }} disabled={!canEdit}
+                            value={expenseForm.bankName === "other" ? "" : expenseForm.bankName}
+                            placeholder="Type bank name"
+                            onChange={e => setExpenseForm(f => ({ ...f, bankName: e.target.value === "" ? "other" : e.target.value }))} />
+                        )}
+                      </label>
+                    );
+                  })()}
                   <label className="kfin-label kfin-full">Note
                     <input type="text" className="kfin-input" value={expenseForm.note} disabled={!canEdit}
                       onChange={e => setExpenseForm(f => ({ ...f, note: e.target.value }))} placeholder="Optional description" />
@@ -1399,10 +1457,10 @@ function Finance() {
               </div>
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
-                  <thead><tr><th>Category</th><th>Amount NPR</th><th>Amount GBP</th><th>Date</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
+                  <thead><tr><th>Category</th><th>Amount NPR</th><th>Amount GBP</th><th>Date</th><th>Payment</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
                   <tbody>
                     {expenses.length === 0 && (
-                      <tr><td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>
+                      <tr><td colSpan={canEdit ? 10 : 9} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>
                         {fyEmpty("expenses", regionExpenses.length, "No expenses yet.")}
                       </td></tr>
                     )}
@@ -1415,6 +1473,7 @@ function Finance() {
                           <td style={{ fontFamily: "var(--mono)", textDecoration: isPaid ? "line-through" : "none" }}>{asCurrency(item.amountNPR || 0, "NPR")}</td>
                           <td style={{ color: "var(--ink-3)" }}>{asCurrency((item.amountNPR || 0) / GBP_RATE, "GBP")}</td>
                           <td>{item.date}</td>
+                          <td style={{ color: "var(--ink-3)" }}>{item.paymentType === "Bank" ? (item.bankName || "Bank") : item.paymentType === "Credit" ? "Credit" : "Cash"}</td>
                           <td style={{ color: "var(--ink-3)" }}>{item.note || "—"}</td>
                           <td>
                             {item.vatBill
@@ -1759,6 +1818,7 @@ function Finance() {
                                 onClick={() => {
                                   if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
                                   else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
+                                  else if (r.sourceType === "expense") setActiveTab("expenses");
                                   else if (r.sourceType === "bank") setActiveTab("bank");
                                   else if (r.sourceType === "journal") setActiveTab("journal");
                                 }}
@@ -1869,12 +1929,13 @@ function Finance() {
                         return (
                           <Fragment key={i}>
                           <tr
-                            title={canEdit && !editing ? (r.sourceType === "purchase" ? "Click to edit in Purchases" : r.sourceType === "invoice" ? "Click to edit in Billing" : "Click to edit") : undefined}
+                            title={canEdit && !editing ? (r.sourceType === "purchase" ? "Click to edit in Purchases" : r.sourceType === "invoice" ? "Click to edit in Billing" : r.sourceType === "expense" ? "Click to open in Expenses" : "Click to edit") : undefined}
                             style={{ cursor: canEdit && !editing ? "pointer" : "default", background: editing ? "var(--mint-soft)" : undefined }}
                             onClick={() => {
                               if (!canEdit || editing) return;
                               if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
                               else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
+                              else if (r.sourceType === "expense") setActiveTab("expenses");
                               else setLedgerDraft({ type: r.sourceType, id: r.sourceId, account: name, date: r.date, particulars: r.particulars, amount: r.dr || r.cr });
                             }}
                             onKeyDown={editing ? ledgerEditKeys : undefined}

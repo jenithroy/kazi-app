@@ -481,6 +481,8 @@ export const SCHEMA_MAP = {
       "note": "note",
       "status": "status",
       "vatBill": "vat_bill",
+      "paymentType": "payment_type",
+      "bankName": "bank_name",
       "loggedBy": "logged_by",
       "createdAt": "created_at",
       "region": "region"
@@ -488,12 +490,14 @@ export const SCHEMA_MAP = {
     "derived": [],
     "columns": [
       "amount_npr",
+      "bank_name",
       "category",
       "created_at",
       "expense_date",
       "id",
       "logged_by",
       "note",
+      "payment_type",
       "region",
       "status",
       "vat_bill"
