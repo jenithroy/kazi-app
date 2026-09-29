@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0046_meta_ads.sql
+-- 0050_meta_ads.sql
 --
 -- Meta (Facebook/Instagram) Ads: a read-only mirror of campaign/ad-set/ad
 -- structure and daily performance, synced from the Graph API by the Worker

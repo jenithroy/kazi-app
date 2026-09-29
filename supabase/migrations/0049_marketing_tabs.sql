@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0045_marketing_tabs.sql
+-- 0049_marketing_tabs.sql
 --
 -- Meta Ads lives inside the existing /marketing route (the Marketing
 -- Calendar keeps working exactly as today, gated only by the base

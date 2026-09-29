@@ -9,7 +9,7 @@
  *
  * Meta Ads gates on TWO views agreeing, same as Leads' messenger/leads
  * split: the section-level `marketing` permission AND the `meta_ads`
- * marketing-tab permission (see migration 0045_marketing_tabs.sql). Both
+ * marketing-tab permission (see migration 0049_marketing_tabs.sql). Both
  * view and edit are real here — pausing a live campaign or changing a
  * budget is real-money territory, not a read-only tab.
  */

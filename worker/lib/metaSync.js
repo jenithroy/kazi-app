@@ -6,7 +6,7 @@
  * (POST /api/meta-ads/sync).
  *
  * Column names below are copied verbatim from
- * supabase/migrations/0046_meta_ads.sql — see that file for the schema.
+ * supabase/migrations/0050_meta_ads.sql — see that file for the schema.
  *
  * Never throws once the meta_sync_runs row exists: a failure partway
  * through one account is caught and recorded so the rest of the run can

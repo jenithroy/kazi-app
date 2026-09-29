@@ -1,6 +1,6 @@
 /**
  * Small Graph API client. Auth is a single Business Manager System User
- * token (see migration 0046_meta_ads.sql's header) held as the Worker
+ * token (see migration 0050_meta_ads.sql's header) held as the Worker
  * secret META_ACCESS_TOKEN — sent as a Bearer header on every call, never
  * as an `access_token` query param, so it never ends up in logs or in a
  * `paging.next` URL.
