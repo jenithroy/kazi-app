@@ -751,7 +751,8 @@ export const SCHEMA_MAP = {
       "reference": "reference",
       "createdBy": "created_by",
       "createdAt": "created_at",
-      "region": "region"
+      "region": "region",
+      "partyName": "party_name"
     },
     "derived": [],
     "columns": [
@@ -763,6 +764,7 @@ export const SCHEMA_MAP = {
       "description",
       "entry_date",
       "id",
+      "party_name",
       "reference",
       "region"
     ]

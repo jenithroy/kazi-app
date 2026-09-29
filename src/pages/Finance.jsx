@@ -1668,6 +1668,13 @@ function Finance() {
                     <KeyboardSelect className="kfin-select" value={journalForm.creditAccount} options={accountNames}
                       onChange={v => setJournalForm(f => ({ ...f, creditAccount: v }))} />
                   </label>
+                  {isAdvanceEntry(journalForm) && (
+                    <label className="kfin-label">Customer / Supplier
+                      <input type="text" className="kfin-input" value={journalForm.partyName} required
+                        placeholder="Who this advance belongs to"
+                        onChange={e => setJournalForm(f => ({ ...f, partyName: e.target.value }))} />
+                    </label>
+                  )}
                   <label className="kfin-label kfin-full">Description
                     <input type="text" className="kfin-input" value={journalForm.description} required placeholder="Transaction description"
                       onChange={e => setJournalForm(f => ({ ...f, description: e.target.value }))} />
@@ -1695,7 +1702,7 @@ function Finance() {
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
-                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
+                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Customer / Supplier</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
                       <tbody>
                         {entries.map(entry => {
                           const editing = journalEditId === entry.id;
@@ -1707,6 +1714,7 @@ function Finance() {
                                 <td style={{ fontWeight: 500 }}>{entry.description}</td>
                                 <td style={{ color: "var(--mint-deep)", fontWeight: 500 }}>{entry.debitAccount}</td>
                                 <td style={{ color: "var(--terra)", fontWeight: 500 }}>{entry.creditAccount}</td>
+                                <td style={{ color: "var(--ink-3)", fontSize: 12 }}>{entry.partyName || "—"}</td>
                                 <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>
                                 <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((entry.amountNPR || 0) / GBP_RATE, "GBP")}</td>
                                 <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{entry.reference || "—"}</td>
@@ -1739,6 +1747,11 @@ function Finance() {
                               <td>
                                 <KeyboardSelect className="kfin-select" style={inputStyle} value={journalDraft.creditAccount} options={accountNames}
                                   onChange={v => setJournalDraft(d => ({ ...d, creditAccount: v }))} />
+                              </td>
+                              <td>
+                                <input className="kfin-input" style={inputStyle} value={journalDraft.partyName || ""}
+                                  placeholder={isAdvanceEntry(journalDraft) ? "Who this advance belongs to" : ""}
+                                  onChange={e => setJournalDraft(d => ({ ...d, partyName: e.target.value }))} />
                               </td>
                               <td>
                                 <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={journalDraft.amountNPR}
