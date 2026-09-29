@@ -94,11 +94,11 @@ language sql stable as $$
   from meta_campaigns mc
   join meta_ad_accounts aa on aa.id = mc.ad_account_id
   left join (
-    select campaign_id, sum(spend) as total_spend, max(currency) as currency
+    select "campaignId" as campaign_id, sum(spend) as total_spend, max(currency) as currency
       from meta_campaign_insights
      where (date_from is null or date >= date_from)
        and (date_to   is null or date <= date_to)
-     group by campaign_id
+     group by "campaignId"
   ) sp on sp.campaign_id = mc.id
   left join (
     select source_campaign_id, count(*) as tagged_customers
