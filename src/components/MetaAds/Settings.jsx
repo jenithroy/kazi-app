@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Card, Btn, Pill } from "../ui";
 import { asCurrency } from "../../utils/format";
 import { fetchAdAccounts, fetchSettings, fetchSyncRuns } from "../../lib/metaAds";
-import { insertRow, updateRow } from "../../lib/db";
+import { updateRow } from "../../lib/db";
 import { runMetaAdsSync } from "../../lib/metaAdsApi";
+import { supabase } from "../../supabase";
 
 const RUN_STATUS_TONE = { success: "mint", partial: "terra", failed: "terra", running: "neutral" };
 
@@ -30,7 +31,13 @@ export default function Settings({ canEdit }) {
     if (!id) return;
     setError("");
     try {
-      await insertRow("meta_ad_accounts", { id: id.startsWith("act_") ? id : `act_${id}`, isActive: true });
+      // Straight to the table, not insertRow: toRow() drops `id` (right for
+      // uuid-keyed tables), but this id is Meta's own act_... string with no
+      // default, so it has to be sent — same as AdminPanel's positions insert.
+      const { error: err } = await supabase
+        .from("meta_ad_accounts")
+        .insert({ id: id.startsWith("act_") ? id : `act_${id}`, is_active: true });
+      if (err) throw err;
       setNewAccountId("");
       load();
     } catch (e2) {
