@@ -7,7 +7,7 @@ import { cn } from "./ui";
 import { roundAmount } from "../utils/format";
 
 /* ── Area chart with hover tooltip ───────────────────── */
-export function AreaChart({ series, height = 220, dates }) {
+export function AreaChart({ series, height = 220, dates, valuePrefix = "£" }) {
   const ref = useRef(null);
   const [hover, setHover] = useState(null);
   const W = 800, H = height;
@@ -52,7 +52,7 @@ export function AreaChart({ series, height = 220, dates }) {
           return (
             <g key={i}>
               <line x1={padL} y1={yy} x2={padL + w} y2={yy} stroke="rgba(15,46,34,.06)" strokeDasharray={i === yTicks ? "0" : "2 3"} />
-              <text x={padL - 8} y={yy + 4} textAnchor="end" fill="var(--ink-4)" fontSize="10.5" fontFamily="var(--mono)">£{roundAmount(v).toLocaleString()}</text>
+              <text x={padL - 8} y={yy + 4} textAnchor="end" fill="var(--ink-4)" fontSize="10.5" fontFamily="var(--mono)">{valuePrefix}{roundAmount(v).toLocaleString()}</text>
             </g>
           );
         })}
@@ -81,7 +81,7 @@ export function AreaChart({ series, height = 220, dates }) {
             <div key={i} className="karea-tt-r">
               <span className="karea-tt-c" style={{ background: s.color }} />
               <span>{s.label}</span>
-              <strong className="mono">£{roundAmount(s.data[hover]).toLocaleString()}</strong>
+              <strong className="mono">{valuePrefix}{roundAmount(s.data[hover]).toLocaleString()}</strong>
             </div>
           ))}
         </div>
