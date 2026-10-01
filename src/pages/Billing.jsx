@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { fetchAll, fetchOne, insertRow, updateRow } from "../lib/db";
+import { fetchAll, fetchOne, insertRow, updateRow, deleteRow } from "../lib/db";
 import DocPreview from "../components/DocPreview";
 import KeyboardSelect from "../components/KeyboardSelect";
 import { Icons, cn } from "../components/ui";
@@ -239,6 +239,7 @@ function Billing() {
   const [payRef, setPayRef]         = useState("");
   const [paySaving, setPaySaving]   = useState(false);
   const [payHistory, setPayHistory] = useState([]);
+  const [payDeletingId, setPayDeletingId] = useState(null); // id of the payment row currently being deleted
 
   // Fix 6: PAN validation error
   const [panError, setPanError] = useState("");
@@ -715,6 +716,35 @@ function Billing() {
     } catch (err) {
       console.error("Failed to load payment history:", err);
       setPayHistory([]);
+    }
+  }
+
+  /* Undo a recorded payment — the trigger that keeps invoices.amount_paid in
+     sync (see migration 0030) fires on delete too, so removing the row is
+     enough on the database side. Status does not: it is app-owned so a
+     cancelled invoice can't be re-opened by the database deciding it's Paid,
+     which means unwinding it here is ours to do too, by the same rule
+     recordPayment uses in reverse. */
+  async function deletePayment(payment) {
+    if (!payModal || payDeletingId) return;
+    const amt = Number(payment.amountNPR || 0);
+    const when = payment.isOpening ? "opening balance" : `payment from ${fmtDate(payment.paidOn)}`;
+    if (!window.confirm(`Delete the ${fmtNPR(amt)} ${when}? This cannot be undone.`)) return;
+    setPayDeletingId(payment.id);
+    setPayError("");
+    try {
+      await deleteRow("payments", payment.id);
+      const remaining = Math.max(0, payModal.currentPaid - amt);
+      const newStatus = remaining <= 0.005 ? "Sent" : remaining >= payModal.totalNPR - 0.005 ? "Paid" : "Partial";
+      await updateRow("invoices", payModal.id, { status: newStatus });
+      setPayModal(m => m && { ...m, currentPaid: remaining });
+      await loadPayHistory(payModal.id);
+      await loadAll();
+    } catch (err) {
+      console.error("Failed to delete payment:", err);
+      setPayError("Could not delete the payment. Please try again.");
+    } finally {
+      setPayDeletingId(null);
     }
   }
 
@@ -1536,8 +1566,10 @@ function Billing() {
                             )}
 
                             {/* Record payment (invoice) — gated on actual credit due, not the
-                                status label, so a stale/mismatched status can't hide it */}
-                            {canEdit && tab === "invoice" && row.status !== "Cancelled" && creditDue > 0.005 && (
+                                status label, so a stale/mismatched status can't hide it. A
+                                settled invoice still gets the button, labelled just "Payments",
+                                so a wrongly recorded one can still be found and deleted. */}
+                            {canEdit && tab === "invoice" && row.status !== "Cancelled" && (creditDue > 0.005 || (row.amountPaid || 0) > 0) && (
                               <button
                                 className="kbil-tbl-btn kbil-tbl-btn--ok"
                                 onClick={() => {
@@ -1547,7 +1579,7 @@ function Billing() {
                                   loadPayHistory(row.id);
                                 }}
                               >
-                                {(row.amountPaid || 0) > 0 ? "Add Payment" : "Record Payment"}
+                                {creditDue > 0.005 ? ((row.amountPaid || 0) > 0 ? "Add Payment" : "Record Payment") : "Payments"}
                               </button>
                             )}
 
@@ -1673,93 +1705,125 @@ function Billing() {
       {payModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: "var(--card)", borderRadius: 14, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.22)" }}>
-            <h3 style={{ margin: "0 0 4px", fontSize: "1.05rem", fontWeight: 700 }}>Record Payment</h3>
-            <p style={{ color: "var(--ink-3)", fontSize: 13, margin: "0 0 14px" }}>
-              {payModal.docNum} · Total: <strong>{fmtNPR(payModal.totalNPR)}</strong>
-            </p>
-            {payModal.currentPaid > 0 && (
-              <div style={{ background: "var(--bg)", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12 }}>
-                <div>Already paid: <strong>{fmtNPR(payModal.currentPaid)}</strong></div>
-                <div style={{ color: "var(--terra)" }}>Credit outstanding: <strong>{fmtNPR(payModal.totalNPR - payModal.currentPaid)}</strong></div>
-              </div>
-            )}
-            <label className="kfin-label">
-              Amount Received (NPR)
-              <input
-                className="kfin-input"
-                type="number" min="1" step="any"
-                value={payAmt}
-                autoFocus
-                onChange={e => { setPayAmt(e.target.value); if (payError) setPayError(""); }}
-                placeholder={`Up to ${fmtNPR(payModal.totalNPR - payModal.currentPaid)}`}
-                style={{ marginTop: 4 }}
-              />
-            </label>
-            {/* The date is the whole point of recording payments separately —
-                without it there is no way to tell how long anyone takes to pay. */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-              <label className="kfin-label">
-                Date Received
-                <input className="kfin-input" type="date" value={payDate}
-                  max={todayDate()}
-                  onChange={e => setPayDate(e.target.value)} style={{ marginTop: 4 }} />
-              </label>
-              <label className="kfin-label">
-                Method
-                <select className="kfin-input" value={payMethod}
-                  onChange={e => setPayMethod(e.target.value)} style={{ marginTop: 4 }}>
-                  <option>Bank</option>
-                  <option>Cash</option>
-                  <option>Cheque</option>
-                  <option>Online</option>
-                  <option>Other</option>
-                </select>
-              </label>
-            </div>
-            <label className="kfin-label" style={{ display: "block", marginTop: 10 }}>
-              Reference <span style={{ fontWeight: 400, color: "var(--ink-4)" }}>(optional)</span>
-              <input className="kfin-input" type="text" value={payRef}
-                placeholder="Cheque no., transaction id…"
-                onChange={e => setPayRef(e.target.value)} style={{ marginTop: 4 }} />
-            </label>
-            {payAmt && Number(payAmt) > 0 && (
-              <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8, lineHeight: 1.6 }}>
-                Total paid after: <strong>{fmtNPR(Math.min(payModal.currentPaid + Number(payAmt), payModal.totalNPR))}</strong><br />
-                Credit remaining: <strong style={{ color: Math.max(0, payModal.totalNPR - payModal.currentPaid - Number(payAmt)) > 0 ? "var(--terra)" : "var(--mint-deep)" }}>
-                  {fmtNPR(Math.max(0, payModal.totalNPR - payModal.currentPaid - Number(payAmt)))}
-                </strong>
-              </div>
-            )}
-            {/* Fix 6: payment ceiling inline error */}
-            {payError && (
-              <div style={{ fontSize: 12, color: "var(--terra)", marginTop: 8, padding: "8px 12px", background: "var(--terra-soft, #fdf2ef)", borderRadius: 8, border: "1px solid rgba(196,101,74,.25)" }}>
-                {payError}
-              </div>
-            )}
-            {payHistory.length > 0 && (
-              <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
-                  Payments so far
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 132, overflowY: "auto" }}>
-                  {payHistory.map(p => (
-                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
-                      <span style={{ color: "var(--ink-3)" }}>
-                        {p.isOpening ? "Date unknown" : fmtDate(p.paidOn)}
-                        {p.method && !p.isOpening ? ` · ${p.method}` : ""}
-                      </span>
-                      <strong>{fmtNPR(Number(p.amountNPR || 0))}</strong>
+            {(() => {
+              const outstanding = Math.max(0, payModal.totalNPR - payModal.currentPaid);
+              return (
+                <>
+                  <h3 style={{ margin: "0 0 4px", fontSize: "1.05rem", fontWeight: 700 }}>
+                    {outstanding > 0.005 ? "Record Payment" : "Payment History"}
+                  </h3>
+                  <p style={{ color: "var(--ink-3)", fontSize: 13, margin: "0 0 14px" }}>
+                    {payModal.docNum} · Total: <strong>{fmtNPR(payModal.totalNPR)}</strong>
+                  </p>
+                  {payModal.currentPaid > 0 && (
+                    <div style={{ background: "var(--bg)", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12 }}>
+                      <div>Already paid: <strong>{fmtNPR(payModal.currentPaid)}</strong></div>
+                      {outstanding > 0.005 && (
+                        <div style={{ color: "var(--terra)" }}>Credit outstanding: <strong>{fmtNPR(outstanding)}</strong></div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-              <button className="kbil-btn-primary" onClick={recordPayment} disabled={paySaving}>
-                {paySaving ? "Saving…" : "Save Payment"}
-              </button>
-              <button className="kbil-btn-ghost" onClick={closePayModal}>Cancel</button>
-            </div>
+                  )}
+                  {/* Settled invoices skip straight to the history below — there is
+                      nothing left to collect unless a payment here gets deleted. */}
+                  {outstanding > 0.005 && (
+                    <>
+                      <label className="kfin-label">
+                        Amount Received (NPR)
+                        <input
+                          className="kfin-input"
+                          type="number" min="1" step="any"
+                          value={payAmt}
+                          autoFocus
+                          onChange={e => { setPayAmt(e.target.value); if (payError) setPayError(""); }}
+                          placeholder={`Up to ${fmtNPR(outstanding)}`}
+                          style={{ marginTop: 4 }}
+                        />
+                      </label>
+                      {/* The date is the whole point of recording payments separately —
+                          without it there is no way to tell how long anyone takes to pay. */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                        <label className="kfin-label">
+                          Date Received
+                          <input className="kfin-input" type="date" value={payDate}
+                            max={todayDate()}
+                            onChange={e => setPayDate(e.target.value)} style={{ marginTop: 4 }} />
+                        </label>
+                        <label className="kfin-label">
+                          Method
+                          <select className="kfin-input" value={payMethod}
+                            onChange={e => setPayMethod(e.target.value)} style={{ marginTop: 4 }}>
+                            <option>Bank</option>
+                            <option>Cash</option>
+                            <option>Cheque</option>
+                            <option>Online</option>
+                            <option>Other</option>
+                          </select>
+                        </label>
+                      </div>
+                      <label className="kfin-label" style={{ display: "block", marginTop: 10 }}>
+                        Reference <span style={{ fontWeight: 400, color: "var(--ink-4)" }}>(optional)</span>
+                        <input className="kfin-input" type="text" value={payRef}
+                          placeholder="Cheque no., transaction id…"
+                          onChange={e => setPayRef(e.target.value)} style={{ marginTop: 4 }} />
+                      </label>
+                      {payAmt && Number(payAmt) > 0 && (
+                        <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8, lineHeight: 1.6 }}>
+                          Total paid after: <strong>{fmtNPR(Math.min(payModal.currentPaid + Number(payAmt), payModal.totalNPR))}</strong><br />
+                          Credit remaining: <strong style={{ color: Math.max(0, outstanding - Number(payAmt)) > 0 ? "var(--terra)" : "var(--mint-deep)" }}>
+                            {fmtNPR(Math.max(0, outstanding - Number(payAmt)))}
+                          </strong>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {/* Fix 6: payment ceiling inline error — also surfaces a failed delete below */}
+                  {payError && (
+                    <div style={{ fontSize: 12, color: "var(--terra)", marginTop: 8, padding: "8px 12px", background: "var(--terra-soft, #fdf2ef)", borderRadius: 8, border: "1px solid rgba(196,101,74,.25)" }}>
+                      {payError}
+                    </div>
+                  )}
+                  {payHistory.length > 0 && (
+                    <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
+                        Payments so far
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 132, overflowY: "auto" }}>
+                        {payHistory.map(p => (
+                          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 12 }}>
+                            <span style={{ color: "var(--ink-3)" }}>
+                              {p.isOpening ? "Date unknown" : fmtDate(p.paidOn)}
+                              {p.method && !p.isOpening ? ` · ${p.method}` : ""}
+                            </span>
+                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <strong>{fmtNPR(Number(p.amountNPR || 0))}</strong>
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  className="kbil-tbl-btn kbil-tbl-btn--danger"
+                                  title="Delete this payment"
+                                  onClick={() => deletePayment(p)}
+                                  disabled={!!payDeletingId}
+                                >
+                                  {payDeletingId === p.id ? "…" : "Delete"}
+                                </button>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                    {outstanding > 0.005 && (
+                      <button className="kbil-btn-primary" onClick={recordPayment} disabled={paySaving}>
+                        {paySaving ? "Saving…" : "Save Payment"}
+                      </button>
+                    )}
+                    <button className="kbil-btn-ghost" onClick={closePayModal}>{outstanding > 0.005 ? "Cancel" : "Close"}</button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
