@@ -21,12 +21,19 @@
  * picking one files them under Customers on the spot so the order links to a real
  * row — the same thing "Add new customer" does, with their details already filled
  * in. Someone who may not add customers still gets the name on the order, unlinked.
+ *
+ * That same person still needs to be able to put a brand-new name on a document, so
+ * "+ Type a new name…" (shown instead of "Add new customer" when canCreate is false)
+ * takes just the name and skips the customers table — the unlinked treatment above,
+ * for a name nobody has typed before. Only filing a real row under Customers needs
+ * that permission; writing a name on a document does not.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { insertRow } from "../lib/db";
 import { useRegion } from "../context/RegionContext";
 
 const NEW = "__new__";
+const TYPE_NAME = "__type__";
 const UNLINKED = "__unlinked__";
 const FROM_BILLING = "__billing__:";
 
@@ -47,6 +54,7 @@ export default function CustomerPicker({
 }) {
   const { region } = useRegion();
   const [creating, setCreating] = useState(false);
+  const [nameOnly, setNameOnly] = useState(false);   // typing a name with no Customers access — skips the insert
   const [draft, setDraft] = useState({ name: "", contactPerson: "", email: "", phone: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -76,7 +84,8 @@ export default function CustomerPicker({
 
   function handleSelect(e) {
     const v = e.target.value;
-    if (v === NEW) { setDraft(d => ({ ...d, name: "" })); setError(""); setCreating(true); return; }
+    if (v === NEW) { setDraft(d => ({ ...d, name: "" })); setError(""); setNameOnly(false); setCreating(true); return; }
+    if (v === TYPE_NAME) { setDraft(d => ({ ...d, name: "" })); setError(""); setNameOnly(true); setCreating(true); return; }
     if (v === UNLINKED) return;              // already the current value
     setPickError("");
     if (!v) { onChange({ id: "", name: "" }); return; }
@@ -116,6 +125,7 @@ export default function CustomerPicker({
     const name = draft.name.trim();
     if (!name) return;
     if (clash) { onChange({ id: clash.id, name: clash.name }); closeDraft(); return; }
+    if (nameOnly) { onChange({ id: "", name }); closeDraft(); return; }
     setSaving(true);
     setError("");
     try {
@@ -142,6 +152,7 @@ export default function CustomerPicker({
 
   function closeDraft() {
     setCreating(false);
+    setNameOnly(false);
     setDraft({ name: "", contactPerson: "", email: "", phone: "" });
     setError("");
   }
@@ -159,40 +170,47 @@ export default function CustomerPicker({
     // that fills them from the signed-in person's own saved details would put
     // the wrong name, email and phone on the customer.
     return (
-      <div className="kcp-new" role="group" aria-label="New customer">
-        <p className="kcp-new-title">New customer</p>
+      <div className="kcp-new" role="group" aria-label={nameOnly ? "Client name" : "New customer"}>
+        <p className="kcp-new-title">{nameOnly ? "Client name" : "New customer"}</p>
         <input
-          ref={nameRef} id={id} type="text" value={draft.name} placeholder="Customer name *"
+          ref={nameRef} id={id} type="text" value={draft.name}
+          placeholder={nameOnly ? "Client or company name *" : "Customer name *"}
           aria-label="Customer name" autoComplete="off"
           onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
           onKeyDown={draftKeys}
         />
-        <div className="kcp-new-row">
-          <input type="text" value={draft.contactPerson} placeholder="Contact person"
-            aria-label="Contact person" autoComplete="off"
-            onChange={e => setDraft(d => ({ ...d, contactPerson: e.target.value }))}
-            onKeyDown={draftKeys} />
-          <input type="email" value={draft.email} placeholder="Email"
-            aria-label="Email" autoComplete="off"
-            onChange={e => setDraft(d => ({ ...d, email: e.target.value }))}
-            onKeyDown={draftKeys} />
-          <input type="tel" value={draft.phone} placeholder="Phone"
-            aria-label="Phone" autoComplete="off"
-            onChange={e => setDraft(d => ({ ...d, phone: e.target.value }))}
-            onKeyDown={draftKeys} />
-        </div>
+        {!nameOnly && (
+          <div className="kcp-new-row">
+            <input type="text" value={draft.contactPerson} placeholder="Contact person"
+              aria-label="Contact person" autoComplete="off"
+              onChange={e => setDraft(d => ({ ...d, contactPerson: e.target.value }))}
+              onKeyDown={draftKeys} />
+            <input type="email" value={draft.email} placeholder="Email"
+              aria-label="Email" autoComplete="off"
+              onChange={e => setDraft(d => ({ ...d, email: e.target.value }))}
+              onKeyDown={draftKeys} />
+            <input type="tel" value={draft.phone} placeholder="Phone"
+              aria-label="Phone" autoComplete="off"
+              onChange={e => setDraft(d => ({ ...d, phone: e.target.value }))}
+              onKeyDown={draftKeys} />
+          </div>
+        )}
         {clash && (
           <p className="kcp-note">
-            <strong>{clash.name}</strong> already exists — saving will use it instead of adding a second.
+            <strong>{clash.name}</strong> already exists — this will use it instead of adding a second.
           </p>
         )}
         {error && <p className="kcp-err" role="alert">{error}</p>}
         <div className="kcp-new-ft">
-          <p className="kcp-hint">Saved to Customers — you can fill in the rest there later.</p>
+          <p className="kcp-hint">
+            {nameOnly
+              ? "Not filed under Customers — ask someone with Customers access to add them there if needed."
+              : "Saved to Customers — you can fill in the rest there later."}
+          </p>
           <div className="kcp-new-actions">
             <button type="button" className="ghost-button" onClick={closeDraft} disabled={saving}>Cancel</button>
             <button type="button" className="primary-button" onClick={createCustomer} disabled={saving || !draft.name.trim()}>
-              {saving ? "Saving…" : clash ? "Use existing" : "Add customer"}
+              {saving ? "Saving…" : clash ? "Use existing" : nameOnly ? "Use this name" : "Add customer"}
             </button>
           </div>
         </div>
@@ -222,8 +240,11 @@ export default function CustomerPicker({
         )}
         {/* Creating a customer writes to the customers table, which is gated
             separately from production — offering it to someone the database will
-            refuse would just be a confusing failure. They can still pick. */}
-        {canCreate && <option value={NEW}>+ Add new customer…</option>}
+            refuse would just be a confusing failure. They can still pick, and can
+            still type a name that's never been seen before — it just stays unlinked. */}
+        {canCreate
+          ? <option value={NEW}>+ Add new customer…</option>
+          : <option value={TYPE_NAME}>+ Type a new name…</option>}
       </select>
       {picking && <p className="kcp-status" role="status">Adding to Customers…</p>}
       {pickError && <p className="kcp-err" role="alert">{pickError}</p>}
