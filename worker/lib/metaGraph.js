@@ -6,7 +6,7 @@
  * `paging.next` URL.
  */
 
-const DEFAULT_API_VERSION = "v23.0";
+const DEFAULT_API_VERSION = "v25.0";
 
 // Graph error code 17 = "user request limit reached", 32 = "page request
 // limit reached" — both are rate limits worth backing off and retrying.
