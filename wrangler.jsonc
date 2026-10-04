@@ -13,6 +13,12 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  // The production custom domain. It was only ever attached in the
+  // Cloudflare dashboard, so a `wrangler deploy` from this file proposed
+  // removing it. Declared here, every deploy keeps it.
+  "routes": [
+    { "pattern": "kazimfg.com.np", "custom_domain": true }
+  ],
   // SUPABASE_URL / SUPABASE_ANON_KEY are not secrets — both already ship
   // inside the public SPA bundle (src/supabase.js reads them from
   // VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, sourced here from .env).
