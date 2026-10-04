@@ -1,16 +1,25 @@
 /**
  * Thin PostgREST client for privileged (service-role) writes from the root
  * Worker. Same request shape as bank-webhook-worker/src/index.js's direct
- * fetch calls to PostgREST — no SDK, just apikey/Authorization headers
- * carrying SUPABASE_SERVICE_KEY, and Prefer headers for upsert semantics.
+ * fetch calls to PostgREST — no SDK, just SUPABASE_SERVICE_KEY on the
+ * apikey header (plus Authorization for a legacy key, see serviceHeaders),
+ * and Prefer headers for upsert semantics.
  * Used by metaSync.js (all of it) and index.js's /api/meta-ads/action route
  * (only to read meta_ads_settings' budget ceiling).
  */
 
+/**
+ * SUPABASE_SERVICE_KEY may be either kind of Supabase key. A legacy
+ * service_role key is a JWT and goes on both headers. A newer sb_secret_...
+ * key is not a JWT: Supabase rejects it on Authorization: Bearer ("Invalid
+ * JWT"), so it goes on apikey alone and Supabase's gateway applies the
+ * service role itself.
+ */
 function serviceHeaders(env, extra = {}) {
+  const key = env.SUPABASE_SERVICE_KEY;
   return {
-    apikey: env.SUPABASE_SERVICE_KEY,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    apikey: key,
+    ...(key?.startsWith("sb_") ? {} : { Authorization: `Bearer ${key}` }),
     ...extra,
   };
 }
