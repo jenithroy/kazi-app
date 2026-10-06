@@ -5,6 +5,7 @@ import { authClient, authRedirectUrl, createSignupClient, supabase } from "../su
 import PageHeader from "../components/PageHeader";
 import SalarySlipModal from "../components/SalarySlipModal";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { GBP_RATE, WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
@@ -196,6 +197,11 @@ function statusBadge(status) {
 
 function Employees() {
   const { profile } = useAuth();
+  const { currency, money, moneyAlt } = useCurrency();
+  // The payroll table's "Net NPR | Net GBP" pair: the chosen currency's column goes first.
+  const pair = (npr, gbp) => currency === "GBP" ? [gbp, npr] : [npr, gbp];
+  // The leading column also gets the emphasis: `strong` for the currency on the switch, `quiet` for the other.
+  const lead = (cur, strong, quiet) => currency === cur ? strong : quiet;
   const navigate = useNavigate();
   const location = useLocation();
   const canEdit = sectionCanEdit(profile, "employees");
@@ -553,8 +559,8 @@ function Employees() {
             </article>
             <article className="stat-card">
               <p className="stat-title">Total Basic Payroll</p>
-              <h3 className="stat-value">{asCurrency(totalPayroll, "NPR")}</h3>
-              <p className="stat-note">active staff only ({asCurrency(totalPayroll / GBP_RATE, "GBP")})</p>
+              <h3 className="stat-value">{money(totalPayroll)}</h3>
+              <p className="stat-note">active staff only ({moneyAlt(totalPayroll)})</p>
             </article>
           </section>
 
@@ -831,8 +837,8 @@ function Employees() {
                       <td style={{ fontFamily: "monospace" }}>
                         {emp.basicSalaryNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {roundAmount(emp.basicSalaryNPR).toLocaleString()}</span>
-                            <span style={{ fontSize: "11px", color: "var(--ink-4)" }}>({asCurrency(emp.basicSalaryNPR / GBP_RATE, "GBP")})</span>
+                            <span>{money(emp.basicSalaryNPR)}</span>
+                            <span style={{ fontSize: "11px", color: "var(--ink-4)" }}>({moneyAlt(emp.basicSalaryNPR)})</span>
                           </div>
                         ) : "—"}
                       </td>
@@ -1057,7 +1063,7 @@ function Employees() {
             <div className="table-wrap kfin-tbl-wrap" style={{ border: "none", margin: 0 }}>
               <table className="kfin-tbl">
                 <thead>
-                  <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th><th>Net NPR</th><th>Net GBP</th><th>Actions</th></tr>
+                  <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th>{pair(<th key="npr">Net NPR</th>, <th key="gbp">Net GBP</th>)}<th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {payroll.length === 0 && (
@@ -1078,16 +1084,16 @@ function Employees() {
                       <td>
                         {item.basicNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {roundAmount(item.basicNPR).toLocaleString()}</span>
-                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.basicNPR / GBP_RATE, "GBP")})</span>
+                            <span>{money(item.basicNPR)}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({moneyAlt(item.basicNPR)})</span>
                           </div>
                         ) : "—"}
                       </td>
                       <td>
                         {item.bonusNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {roundAmount(item.bonusNPR).toLocaleString()}</span>
-                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.bonusNPR / GBP_RATE, "GBP")})</span>
+                            <span>{money(item.bonusNPR)}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({moneyAlt(item.bonusNPR)})</span>
                           </div>
                         ) : "—"}
                       </td>
@@ -1095,8 +1101,8 @@ function Employees() {
                       <td style={{ color: item.lateDeductionNPR ? "var(--terra)" : undefined }}>
                         {item.lateDeductionNPR ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            <span style={{ fontWeight: 600 }}>− NPR {roundAmount(item.lateDeductionNPR).toLocaleString()}</span>
-                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.lateDeductionNPR / GBP_RATE, "GBP")})</span>
+                            <span style={{ fontWeight: 600 }}>− {money(item.lateDeductionNPR)}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({moneyAlt(item.lateDeductionNPR)})</span>
                             {item.lateCutsCount > 0 && (
                               <span style={{ fontSize: "10px", color: "var(--ink-4)", fontStyle: "italic" }}>
                                 ({item.lateCutsCount} × 25% cuts)
@@ -1104,7 +1110,7 @@ function Employees() {
                             )}
                             {item.lateAdjustmentNPR ? (
                               <span style={{ fontSize: "10px", color: "var(--amber-deep)", fontStyle: "italic" }}>
-                                (manually {item.lateAdjustmentNPR > 0 ? "+" : "−"}NPR {roundAmount(Math.abs(item.lateAdjustmentNPR)).toLocaleString()})
+                                (manually {item.lateAdjustmentNPR > 0 ? "+" : "−"}{money(Math.abs(item.lateAdjustmentNPR))})
                               </span>
                             ) : null}
                           </div>
@@ -1113,21 +1119,23 @@ function Employees() {
                       <td style={{ color: item.pfDeductionNPR ? "var(--terra)" : undefined }}>
                         {item.pfDeductionNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>− NPR {roundAmount(item.pfDeductionNPR).toLocaleString()}</span>
-                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.pfDeductionNPR / GBP_RATE, "GBP")})</span>
+                            <span>− {money(item.pfDeductionNPR)}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({moneyAlt(item.pfDeductionNPR)})</span>
                           </div>
                         ) : "—"}
                       </td>
                       <td>
                         {item.grossNPR ? (
                           <div style={{ display: "flex", flexDirection: "column" }}>
-                            <span>NPR {roundAmount(item.grossNPR).toLocaleString()}</span>
-                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({asCurrency(item.grossNPR / GBP_RATE, "GBP")})</span>
+                            <span>{money(item.grossNPR)}</span>
+                            <span style={{ fontSize: "10px", color: "var(--ink-4)" }}>({moneyAlt(item.grossNPR)})</span>
                           </div>
                         ) : "—"}
                       </td>
-                      <td style={{ fontWeight: 600, color: "var(--mint-deep)" }}>{asCurrency(item.netNPR || 0, "NPR")}</td>
-                      <td style={{ color: "var(--ink-3)" }}>{asCurrency((item.netNPR || 0) / GBP_RATE, "GBP")}</td>
+                      {pair(
+                        <td key="npr" style={lead("NPR", { fontWeight: 600, color: "var(--mint-deep)" }, { color: "var(--ink-3)" })}>{asCurrency(item.netNPR || 0, "NPR")}</td>,
+                        <td key="gbp" style={lead("GBP", { fontWeight: 600, color: "var(--mint-deep)" }, { color: "var(--ink-3)" })}>{asCurrency((item.netNPR || 0) / GBP_RATE, "GBP")}</td>
+                      )}
                       <td>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button

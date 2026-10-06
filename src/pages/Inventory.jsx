@@ -5,11 +5,11 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
 import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { uploadPublicFileAtPath } from "../lib/storage";
-import { roundAmount } from "../utils/format";
-import { cn, Pill, Icons, Card, Btn, fmt } from "../components/ui";
+import { cn, Pill, Icons, Card, Btn } from "../components/ui";
 import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
 import { COMPANY_NAME, COMPANY_ADDR } from "../utils/billing.jsx";
 import { useRegion } from "../context/RegionContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { RegionSwitch, RegionField, RegionSelect, RegionBadge } from "../components/RegionSwitch";
 import { countUntagged, countUntaggedBy, filterByRegion, filterByRegionField } from "../utils/region";
 
@@ -290,6 +290,7 @@ function TextCell({ value, onChange, disabled, width = "110px", style = {}, list
 /* ── Per-order size-run reconciliation panel (Stock tab) ── */
 /* ── Dated stock ledger — replaces the old silent stepper ── */
 function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, disabled, colSpan }) {
+  const { currency, num } = useCurrency();
   const SOURCE_LABEL = { purchase: "Purchase", sale: "Sale", manual: "Manual", opening: "Opening", production: "Production" };
   return (
     <tr className="kinv-row">
@@ -327,7 +328,7 @@ function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, 
                 <th style={{ textAlign: "left", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Source</th>
                 <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>In</th>
                 <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Out</th>
-                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Amount (NPR)</th>
+                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Amount ({currency})</th>
                 <th style={{ textAlign: "left", padding: "2px 0 6px 14px", color: "var(--ink-4)", fontWeight: 600 }}>Note</th>
               </tr>
             </thead>
@@ -343,7 +344,7 @@ function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, 
                     {m.direction === "out" ? Number(m.qty).toLocaleString() : ""}
                   </td>
                   <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                    {m.amountNPR ? roundAmount(m.amountNPR).toLocaleString() : "—"}
+                    {m.amountNPR ? num(m.amountNPR) : "—"}
                   </td>
                   <td style={{ padding: "3px 0 3px 14px", color: "var(--ink-3)" }}>{m.note || "—"}</td>
                 </tr>
@@ -389,7 +390,11 @@ function stockLedgerReportRows(rows, movements, fromDate, toDate) {
 }
 
 function StockLedgerReport({ rows, movements, fromDate, toDate, onFromChange, onToChange }) {
-  const fmtAmt = n => roundAmount(n).toLocaleString();
+  const { currency, num } = useCurrency();
+  const fmtAmt = n => num(n);
+  // The amount columns don't name a currency (in rupees that is understood). Once the
+  // switch is on pounds each one does, so a printed 617.28 can't be misread as rupees.
+  const amtCcy = currency === "NPR" ? "" : ` (${currency})`;
   const fmtQty = n => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   const reportRows = stockLedgerReportRows(rows, movements, fromDate, toDate);
@@ -442,11 +447,11 @@ function StockLedgerReport({ rows, movements, fromDate, toDate, onFromChange, on
                 <th style={thLeft}>Description</th>
                 <th style={th}>Opening Qty</th>
                 <th style={th}>In Qty</th>
-                <th style={th}>In Amount</th>
+                <th style={th}>In Amount{amtCcy}</th>
                 <th style={th}>Out Qty</th>
-                <th style={th}>Out Amount</th>
+                <th style={th}>Out Amount{amtCcy}</th>
                 <th style={th}>Balance Qty</th>
-                <th style={th}>Balance Amount</th>
+                <th style={th}>Balance Amount{amtCcy}</th>
                 <th style={thLeft}>Unit</th>
               </tr>
             </thead>
@@ -1604,7 +1609,15 @@ const specValStyle = { border: "1px solid #000", padding: "6px 8px" };
 const specGridHead = { border: "1px solid #000", padding: "3px 6px", fontSize: 11, background: "#f4f4f4" };
 const specGridCell = { border: "1px solid #000", padding: "3px 6px", fontSize: 12 };
 
+/* A price on a library card (₨/kg, ₨/unit, a sample's cost). In rupees it reads "₨ 450"
+   exactly as it always has. In pounds it keeps the pence — the headline `fmt` rounds to
+   whole pounds, which would turn a ₨15 process into "£0/unit". `cur` is useCurrency(). */
+function priceText({ currency, fmt: fmtC, money }, npr) {
+  return currency === "GBP" ? money(npr) : fmtC(npr);
+}
+
 function FabricCard({ item, onClick }) {
+  const cur = useCurrency();
   const initials = item.name
     ? item.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
@@ -1639,7 +1652,7 @@ function FabricCard({ item, onClick }) {
           )}
           {item.pricePerKg != null && (
             <Pill tone="neutral">
-              {fmt.npr(item.pricePerKg)}/kg
+              {priceText(cur, item.pricePerKg)}/kg
             </Pill>
           )}
           <span className="kazi-status-dot-wrap">
@@ -2137,6 +2150,7 @@ function AddFabricModal({ onClose, onSaved }) {
 }
 
 function ProcessCard({ item, canEdit, onEdit, onDelete }) {
+  const cur = useCurrency();
   const CATEGORY_COLORS = {
     construction:   { bg: "#e8f4f0", color: "#1f6e4c", icon: "🔨" },
     printing:       { bg: "#eae4f6", color: "#6b3fa0", icon: "🖨️" },
@@ -2166,7 +2180,7 @@ function ProcessCard({ item, canEdit, onEdit, onDelete }) {
           {item.cost_per_unit && (
             <span className="klib-meta-chip">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-              {fmt.npr(item.cost_per_unit)}/unit
+              {priceText(cur, item.cost_per_unit)}/unit
             </span>
           )}
           {item.min_quantity && (
@@ -2398,6 +2412,7 @@ function TechPackViewer({ item, onClose }) {
 }
 
 function SampleCard({ item, canEdit, onEdit, onDelete }) {
+  const cur = useCurrency();
   const STAGE_COLORS = {
     "Proto":     { bg: "#f0efed", color: "#5b6a62" },
     "Fit":       { bg: "#e3eef8", color: "#2e6da4" },
@@ -2456,7 +2471,7 @@ function SampleCard({ item, canEdit, onEdit, onDelete }) {
             {item.cost && (
               <span className="klib-meta-chip">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                {fmt.npr(item.cost)}
+                {priceText(cur, item.cost)}
               </span>
             )}
           </div>
@@ -2487,6 +2502,10 @@ function SampleCard({ item, canEdit, onEdit, onDelete }) {
 function Inventory() {
   const { profile } = useAuth();
   const { region } = useRegion();
+  const { currency, money, moneyAlt } = useCurrency();
+  // The Items Cost inputs are always typed in rupees. In rupees the headers need no unit; with the
+  // page showing pounds they say so, because the read-outs between them are in pounds.
+  const inputCcy = currency === "NPR" ? "" : " (NPR)";
   const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
   // Inventory & Library are one merged page in the UI (see Sidebar's combined nav item) —
   // granting either permission unlocks the whole page, so a partial grant (e.g. only
@@ -3246,9 +3265,9 @@ function Inventory() {
             <span className="kinv-kpi-note">{lowStockCount > 0 ? `${lowStockCount} needs attention` : "all OK"}</span>
           </div>
           <div className="kinv-kpi">
-            <span className="kinv-kpi-l">STOCK VALUE (NPR)</span>
+            <span className="kinv-kpi-l">STOCK VALUE ({currency})</span>
             <span className="kinv-kpi-v" style={{ fontSize: totalStockValue > 999999 ? 22 : 28 }}>
-              NPR {roundAmount(totalStockValue).toLocaleString()}
+              {money(totalStockValue)}
             </span>
             <span className="kinv-kpi-note">closing × unit cost</span>
           </div>
@@ -3648,13 +3667,13 @@ function Inventory() {
                       <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{row.location || "—"}</td>
                       <td>
                         <span className="kinv-mono">
-                          {row.unitCostNPR ? `NPR ${roundAmount(row.unitCostNPR).toLocaleString()}` : "—"}
+                          {row.unitCostNPR ? money(row.unitCostNPR) : "—"}
                         </span>
                       </td>
                       <td><span className="kinv-closing">{closing.toLocaleString()}</span></td>
                       <td>
                         <span className="kinv-mono" style={{ color: row.unitCostNPR ? "var(--mint-deep)" : "var(--ink-4)" }}>
-                          {row.unitCostNPR ? `NPR ${roundAmount(stockValue).toLocaleString()}` : "—"}
+                          {row.unitCostNPR ? money(stockValue) : "—"}
                         </span>
                       </td>
                       <td><span className="kinv-num">{row.minLevel || 0}</span></td>
@@ -3691,15 +3710,15 @@ function Inventory() {
                   <th>S.NO</th>
                   <th>Code</th>
                   <th>Items</th>
-                  <th style={{ textAlign: "right", minWidth: "150px" }}>Fabric</th>
-                  <th style={{ textAlign: "right" }}>Rib</th>
-                  <th style={{ textAlign: "right" }}>Trims</th>
-                  <th style={{ textAlign: "right" }}>Labour</th>
-                  <th style={{ textAlign: "right" }}>others</th>
+                  <th style={{ textAlign: "right", minWidth: "150px" }}>Fabric{inputCcy}</th>
+                  <th style={{ textAlign: "right" }}>Rib{inputCcy}</th>
+                  <th style={{ textAlign: "right" }}>Trims{inputCcy}</th>
+                  <th style={{ textAlign: "right" }}>Labour{inputCcy}</th>
+                  <th style={{ textAlign: "right" }}>others{inputCcy}</th>
                   <th style={{ textAlign: "right", minWidth: "130px" }}>total</th>
                   <th style={{ textAlign: "right" }}>Stock</th>
                   <th style={{ textAlign: "right" }}>Stock Value</th>
-                  <th style={{ textAlign: "right" }}>Target Price</th>
+                  <th style={{ textAlign: "right" }}>Target Price{inputCcy}</th>
                   <th style={{ textAlign: "right" }}>GP & Margin</th>
                   <th>Cost Driver & 50% Target</th>
                   <th>Action</th>
@@ -3734,12 +3753,8 @@ function Inventory() {
                   const targetPrice  = draftCost.targetPrice  !== undefined ? draftCost.targetPrice  : (savedCost.targetPrice  || 0);
 
                   const cogsNpr = fabric + rib + trims + directLabour + others;
-                  const cogsGbp = cogsNpr / 200;
-
-                  const targetPriceGbp = targetPrice / 200;
 
                   const gpNpr = targetPrice - cogsNpr;
-                  const gpGbp = gpNpr / 200;
 
                   const marginPct = targetPrice > 0 ? (gpNpr / targetPrice) * 100 : 0;
 
@@ -3758,7 +3773,6 @@ function Inventory() {
                     : "—";
 
                   const target50Npr = cogsNpr * 2;
-                  const target50Gbp = target50Npr / 200;
 
                   const isDirty = draftCost.fabric !== undefined ||
                                   draftCost.fabricName !== undefined ||
@@ -3862,15 +3876,15 @@ function Inventory() {
                         />
                       </td>
                       <td style={{ textAlign: "right", minWidth: "130px" }}>
-                        <div style={{ fontWeight: 600, fontSize: "15px", color: "var(--ink-1)" }}>NPR {roundAmount(cogsNpr).toLocaleString()}</div>
-                        <div style={{ fontSize: "12px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{cogsGbp.toFixed(2)}</div>
+                        <div style={{ fontWeight: 600, fontSize: "15px", color: "var(--ink-1)" }}>{money(cogsNpr)}</div>
+                        <div style={{ fontSize: "12px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>{moneyAlt(cogsNpr)}</div>
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <span className="kinv-num">{getClosing(row).toLocaleString()}</span>
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div style={{ fontWeight: 600, fontSize: "13px" }}>
-                          NPR {roundAmount(getClosing(row) * cogsNpr).toLocaleString()}
+                          {money(getClosing(row) * cogsNpr)}
                         </div>
                       </td>
                       <td style={{ textAlign: "right" }}>
@@ -3880,7 +3894,7 @@ function Inventory() {
                           disabled={!canEditUnitEconomics}
                         />
                         {targetPrice > 0 && (
-                          <div style={{ fontSize: "10px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>£{targetPriceGbp.toFixed(2)}</div>
+                          <div style={{ fontSize: "10px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>{moneyAlt(targetPrice)}</div>
                         )}
                       </td>
                       <td style={{ textAlign: "right" }}>
@@ -3888,7 +3902,7 @@ function Inventory() {
                           <>
                             <div style={{ fontWeight: 600, color: marginColor }}>{marginPct.toFixed(1)}%</div>
                             <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>
-                              GP: NPR {roundAmount(gpNpr).toLocaleString()} (£{gpGbp.toFixed(2)})
+                              GP: {money(gpNpr)} ({moneyAlt(gpNpr)})
                             </div>
                           </>
                         ) : (
@@ -3900,7 +3914,7 @@ function Inventory() {
                           <strong>Driver:</strong> {driverText}
                         </div>
                         <div style={{ fontSize: "11px", color: "var(--ink-4)", marginTop: 2 }}>
-                          <strong>50% SP:</strong> NPR {roundAmount(target50Npr).toLocaleString()} (£{target50Gbp.toFixed(2)})
+                          <strong>50% SP:</strong> {money(target50Npr)} ({moneyAlt(target50Npr)})
                         </div>
                       </td>
                       <td>

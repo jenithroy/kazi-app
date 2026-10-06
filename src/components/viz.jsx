@@ -7,17 +7,25 @@ import { cn } from "./ui";
 import { roundAmount } from "../utils/format";
 
 /* ── Area chart with hover tooltip ───────────────────── */
-export function AreaChart({ series, height = 220, dates, valuePrefix = "£" }) {
+export function AreaChart({ series, height = 220, dates, valuePrefix = "£", formatTick }) {
   const ref = useRef(null);
   const [hover, setHover] = useState(null);
   const W = 800, H = height;
-  const padL = 40, padR = 16, padT = 16, padB = 28;
-  const w = W - padL - padR;
+  const padR = 16, padT = 16, padB = 28;
   const h = H - padT - padB;
 
   const allValues = series.flatMap(s => s.data);
   const maxV = (Math.max(...allValues) || 1) * 1.15;
   const n = series[0].data.length;
+
+  const yTicks = 4;
+  const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => Math.round(maxV * (yTicks - i) / yTicks));
+  const tick = formatTick || ((v) => `${valuePrefix}${roundAmount(v).toLocaleString()}`);
+  const tickText = yLabels.map(tick);
+  // Left gutter sized to the widest axis label (~6.4px a glyph at 10.5px mono, plus the 8px gap
+  // to the axis), never under the original 40, so "₨12.5L" is not clipped at the edge.
+  const padL = Math.max(40, Math.ceil(Math.max(...tickText.map(t => t.length)) * 6.4) + 8);
+  const w = W - padL - padR;
 
   const x = (i) => padL + (n > 1 ? (i / (n - 1)) * w : w / 2);
   const y = (v) => padT + h - (v / maxV) * h;
@@ -31,9 +39,6 @@ export function AreaChart({ series, height = 220, dates, valuePrefix = "£" }) {
     const i = n > 1 ? Math.max(0, Math.min(n-1, Math.round((px - padL) / w * (n-1)))) : 0;
     setHover(i);
   };
-
-  const yTicks = 4;
-  const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => Math.round(maxV * (yTicks - i) / yTicks));
 
   return (
     <div className="karea" style={{ position: "relative" }}>
@@ -52,7 +57,7 @@ export function AreaChart({ series, height = 220, dates, valuePrefix = "£" }) {
           return (
             <g key={i}>
               <line x1={padL} y1={yy} x2={padL + w} y2={yy} stroke="rgba(15,46,34,.06)" strokeDasharray={i === yTicks ? "0" : "2 3"} />
-              <text x={padL - 8} y={yy + 4} textAnchor="end" fill="var(--ink-4)" fontSize="10.5" fontFamily="var(--mono)">{valuePrefix}{roundAmount(v).toLocaleString()}</text>
+              <text x={padL - 8} y={yy + 4} textAnchor="end" fill="var(--ink-4)" fontSize="10.5" fontFamily="var(--mono)">{tickText[i]}</text>
             </g>
           );
         })}

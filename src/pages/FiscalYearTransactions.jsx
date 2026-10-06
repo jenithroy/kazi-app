@@ -3,9 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { fetchAll, insertRow, updateRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { financeTabAllowed, financeTabCanEdit, sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE } from "../constants";
-import { asCurrency, roundAmount } from "../utils/format";
 import {
   slugToFiscalYear, fiscalYearToSlug, fiscalYearDateRangeAD,
   fiscalYearForDate, parseFiscalYearLabel, fmtDateBS,
@@ -61,6 +61,7 @@ export default function FiscalYearTransactions() {
   const { fy: fySlug } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const { money } = useCurrency();
   const { region } = useRegion();
   const fiscalYear = slugToFiscalYear(fySlug);
   const fyRange = useMemo(() => fiscalYearDateRangeAD(fiscalYear), [fiscalYear]);
@@ -405,15 +406,15 @@ export default function FiscalYearTransactions() {
             </div>
             <div className="kfin-kpi">
               <p className="kfin-kpi-label">Money In (Sales + Bank Credits)</p>
-              <p className="kfin-kpi-value" style={{ color: "var(--mint-deep)" }}>{asCurrency(totals.inflow, "NPR")}</p>
+              <p className="kfin-kpi-value" style={{ color: "var(--mint-deep)" }}>{money(totals.inflow)}</p>
             </div>
             <div className="kfin-kpi">
               <p className="kfin-kpi-label">Money Out (Expenses/Purchases/Payroll/Bank Debits)</p>
-              <p className="kfin-kpi-value" style={{ color: "var(--terra)" }}>{asCurrency(totals.outflow, "NPR")}</p>
+              <p className="kfin-kpi-value" style={{ color: "var(--terra)" }}>{money(totals.outflow)}</p>
             </div>
             <div className="kfin-kpi">
               <p className="kfin-kpi-label">Net</p>
-              <p className="kfin-kpi-value" style={{ color: totals.net >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>{asCurrency(totals.net, "NPR")}</p>
+              <p className="kfin-kpi-value" style={{ color: totals.net >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>{money(totals.net)}</p>
             </div>
           </div>
 
@@ -423,7 +424,7 @@ export default function FiscalYearTransactions() {
               {types.map(t => (
                 <div key={t} className="kfin-kpi" style={{ flex: "1 1 150px" }}>
                   <TypePill type={t} />
-                  <p className="kfin-kpi-value" style={{ marginTop: 6, fontSize: 18 }}>{asCurrency(totals.byType[t] || 0, "NPR")}</p>
+                  <p className="kfin-kpi-value" style={{ marginTop: 6, fontSize: 18 }}>{money(totals.byType[t] || 0)}</p>
                   <p className="kfin-kpi-sub">{rows.filter(r => r.type === t).length} records</p>
                 </div>
               ))}

@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
 import { todayDate, startOfWeekDate, tsMillis } from "../utils/date";
-import { roundAmount } from "../utils/format";
+import { shortAmount } from "../utils/currency";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
 import { useCurrency } from "../context/CurrencyContext";
@@ -333,7 +333,9 @@ const EMPTY_PRODUCT = { code: "", name: "", fabric: "", rib: "", trims: "", labo
 const COST_COLS = ["fabric", "rib", "trims", "labour", "others"];
 
 function ProductPnLCard({ canEdit }) {
-  const GBP = n => (n != null && n !== "" && !isNaN(n)) ? `£${(Number(n) / GBP_RATE).toFixed(2)}` : "—";
+  const { money, currency } = useCurrency();
+  // Costs are stored in NPR; this prints one in whichever currency the header is set to.
+  const cost = n => (n != null && n !== "" && !isNaN(n)) ? money(n) : "—";
   const [products, setProducts] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [editId, setEditId]     = useState(null); // doc id being edited, or "new"
@@ -427,7 +429,7 @@ function ProductPnLCard({ canEdit }) {
                   {COST_COLS.map(c => (
                     <td key={c}><input style={{ ...inp, textAlign: "right", width: 60 }} type="number" value={form[c]} onChange={e => setForm(f => ({ ...f, [c]: e.target.value }))} /></td>
                   ))}
-                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{GBP(computedTotal(form))}</td>
+                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{cost(computedTotal(form))}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     <button style={{ ...inp, background: "var(--mint-deep)", color: "#fff", border: "none", cursor: "pointer", marginRight: 4 }} onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</button>
                     <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditId(null)}>✕</button>
@@ -438,9 +440,9 @@ function ProductPnLCard({ canEdit }) {
                   <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>#{p.code}</td>
                   <td style={{ fontWeight: 500 }}>{p.name}</td>
                   {COST_COLS.map(c => (
-                    <td key={c} style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13 }}>{GBP(p[c])}</td>
+                    <td key={c} style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13 }}>{cost(p[c])}</td>
                   ))}
-                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>{GBP(p.total)}</td>
+                  <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>{cost(p.total)}</td>
                   {canEdit && (
                     <td style={{ whiteSpace: "nowrap" }}>
                       <button style={{ ...inp, cursor: "pointer", marginRight: 4, fontSize: 11 }} onClick={() => { setForm({ ...p }); setEditId(p.id); }}>Edit</button>
@@ -458,7 +460,7 @@ function ProductPnLCard({ canEdit }) {
                 {COST_COLS.map(c => (
                   <td key={c}><input style={{ ...inp, textAlign: "right", width: 60 }} type="number" value={form[c]} onChange={e => setForm(f => ({ ...f, [c]: e.target.value }))} /></td>
                 ))}
-                <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{GBP(computedTotal(form))}</td>
+                <td style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{cost(computedTotal(form))}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   <button style={{ ...inp, background: "var(--mint-deep)", color: "#fff", border: "none", cursor: "pointer", marginRight: 4 }} onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</button>
                   <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditId(null)}>✕</button>
@@ -469,7 +471,8 @@ function ProductPnLCard({ canEdit }) {
         </table>
       </div>
       <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 10 }}>
-        All values in GBP (÷{GBP_RATE} NPR) · Total auto-calculated from components
+        All values in {currency}{currency === "GBP" ? ` (÷${GBP_RATE} NPR)` : ""} · Total auto-calculated from components
+        {editId ? " · type costs in NPR" : ""}
       </div>
     </Card>
   );
@@ -1171,15 +1174,16 @@ function UKAdminDash() {
       const revData = Array.from({ length: 30 }, (_, i) => {
         const d = new Date(); d.setDate(d.getDate() - (29-i));
         const key = d.toISOString().slice(0,10);
-        return invoices.filter(inv => inv.date === key && inv.status === "Paid").reduce((s, inv) => s + Math.round(Number(inv.totalNPR||0) / GBP_RATE), 0);
+        return invoices.filter(inv => inv.date === key && inv.status === "Paid").reduce((s, inv) => s + Number(inv.totalNPR||0), 0);
       });
 
       const recentInvoices = [...invoices].sort((a,b) => (b.date||"").localeCompare(a.date||"")).slice(0, 5);
+      // The donut only draws proportions, so these stay in NPR like everything else here.
       const invoiceSegments = [
-        { v: invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--mint-2)" },
-        { v: invoices.filter(i=>i.status==="Outstanding"||i.status==="Sent").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--amber)" },
-        { v: overdueNPR / GBP_RATE, color: "var(--terra)" },
-        { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0) / GBP_RATE, color: "var(--ink-5)" },
+        { v: invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+Number(i.totalNPR||0),0), color: "var(--mint-2)" },
+        { v: invoices.filter(i=>i.status==="Outstanding"||i.status==="Sent").reduce((s,i)=>s+Number(i.totalNPR||0),0), color: "var(--amber)" },
+        { v: overdueNPR, color: "var(--terra)" },
+        { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0), color: "var(--ink-5)" },
       ];
 
       const payrollNPR = payrollIsEstimate
@@ -1230,7 +1234,7 @@ function UKAdminDash() {
     };
   }, []);
 
-  const { fmt: fmtC } = useCurrency();
+  const { fmt: fmtC, currency, prefix, fromNPR } = useCurrency();
 
   if (!data) return <Loading />;
 
@@ -1318,7 +1322,7 @@ function UKAdminDash() {
         )}
 
         {/* Revenue chart */}
-        <Card title="Revenue · 30 days" sub="Paid invoices · in GBP" accent="var(--mint-deep)"
+        <Card title="Revenue · 30 days" sub={`Paid invoices · in ${currency}`} accent="var(--mint-deep)"
           action={
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div className="kuk-leg">
@@ -1329,9 +1333,11 @@ function UKAdminDash() {
           }
         >
           <AreaChart
-            series={[{ label: "Revenue", data: data.revData, color: "var(--mint-deep)", fillOpacity: 0.3 }]}
+            series={[{ label: "Revenue", data: data.revData.map(fromNPR), color: "var(--mint-deep)", fillOpacity: 0.3 }]}
             dates={data.dates30}
             height={240}
+            valuePrefix={prefix}
+            formatTick={v => prefix.trim() + shortAmount(v, currency)}
           />
         </Card>
 
@@ -1347,7 +1353,7 @@ function UKAdminDash() {
             </div>
           </Card>
 
-          <Card title="Invoices" sub="By status · GBP" accent="var(--mint-deep)"
+          <Card title="Invoices" sub={`By status · ${currency}`} accent="var(--mint-deep)"
             action={<Btn kind="ghost" size="sm" iconRight={<Icons.ArrowRight size={13}/>} onClick={() => window.location.href='/billing'}>Billing</Btn>}>
             <div className="kuk-inv">
               <div className="kuk-inv-top">
@@ -1427,7 +1433,7 @@ function UKAdminDash() {
 function BudgetApprovalCard({ br }) {
   const [state, setState] = useState(br.status === "Approved" ? "approved" : br.status === "Rejected" ? "rejected" : null);
   const [saving, setSaving] = useState(false);
-  const { fmt: fmtC } = useCurrency();
+  const { fmt: fmtC, moneyAlt } = useCurrency();
   const amtNPR = Number(br.amountNPR || br.amount || 0);
   const urgencyTone = br.urgency === "high" ? "terra" : br.urgency === "med" || br.urgency === "medium" ? "amber" : "neutral";
 
@@ -1462,7 +1468,7 @@ function BudgetApprovalCard({ br }) {
       <div className="kbr-amt-row">
         <div>
           <div className="num-xl" style={{ fontSize: 22 }}>{fmtC(amtNPR)}</div>
-          <div className="kbr-amt-s mono">₨ {roundAmount(amtNPR).toLocaleString("en-IN")}</div>
+          <div className="kbr-amt-s mono">{moneyAlt(amtNPR)}</div>
         </div>
         {state === null && (
           <div className="kbr-actions">

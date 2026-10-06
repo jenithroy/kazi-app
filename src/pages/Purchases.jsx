@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { fetchAll, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
-import { GBP_RATE, createdAfterCutoff } from "../constants";
-import { asCurrency, roundAmount } from "../utils/format";
+import { createdAfterCutoff } from "../constants";
 import { Icons } from "../components/ui";
 import { DateModeToggle } from "../components/DualDateInput";
 import { useRegion } from "../context/RegionContext";
@@ -23,6 +23,7 @@ function Purchases() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
+  const { money, moneyAlt } = useCurrency();
   const canEdit = sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS.purchases);
 
   const { region } = useRegion();
@@ -215,8 +216,8 @@ function Purchases() {
           <div>
           <h1 className="kbil-page-title">Purchases</h1>
           <p className="kbil-page-sub">
-            {purchases.length} record{purchases.length !== 1 ? "s" : ""} · NPR {roundAmount(total).toLocaleString()}
-            <span style={{ marginLeft: 6 }}>/ {asCurrency(total / GBP_RATE, "GBP")}</span>
+            {purchases.length} record{purchases.length !== 1 ? "s" : ""} · {money(total)}
+            <span style={{ marginLeft: 6 }}>/ {moneyAlt(total)}</span>
           </p>
           </div>
           <RegionSwitch untagged={countUntagged(allPurchases)} />

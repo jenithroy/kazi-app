@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 import { useNavigate } from "react-router-dom";
-import { fmt, Icons } from "../components/ui";
+import { Icons } from "../components/ui";
 import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter, PAYMENT_TYPES } from "../components/PurchaseRowGroup";
 import { nextPurchaseNumber } from "../utils/financeRows";
 import KeyboardSelect from "../components/KeyboardSelect";
@@ -118,8 +118,6 @@ function isAdvanceEntry(f) {
   return ADVANCE_ACCOUNTS.has(f.debitAccount) || ADVANCE_ACCOUNTS.has(f.creditAccount);
 }
 
-const fmtShort = v => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v);
-
 function tabLabel(t) {
   if (t === "vat bills")     return "VAT Bills";
   if (t === "p&l")           return "P & L";
@@ -200,7 +198,12 @@ function DateField({ mode, value, onChange, style, required, dataRole, autoFocus
 function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { fmt: fmtC } = useCurrency();
+  const { currency, fmt: fmtC, money, moneyAlt, num, short } = useCurrency();
+  // The two-column tables (NPR | GBP) lead with whichever currency the header switch is on; every
+  // cell stays under its own currency's header, so an NPR <input> never ends up under a £ title.
+  const pair = (npr, gbp) => (currency === "GBP" ? [gbp, npr] : [npr, gbp]);
+  // The leading column also gets the emphasis: `strong` for the currency on the switch, `quiet` for the other.
+  const lead = (cur, strong, quiet) => (currency === cur ? strong : quiet);
   const { region } = useRegion();
   // Restored synchronously (not in an effect) so the page doesn't flash "expenses"
   // before jumping to the tab she was on when she clicked out to Purchases/Billing.
@@ -1269,8 +1272,8 @@ function Finance() {
               </svg>
             </div>
             <p className="kfin-kpi-label">{fyActive ? `Payroll · FY ${fy}` : summary.payrollMonthLabel ? `Payroll · ${summary.payrollMonthLabel}` : "Payroll This Month"}</p>
-            <p className="kfin-kpi-value">{asCurrency(summary.payrollNPR, "NPR")}</p>
-            <p className="kfin-kpi-sub">{asCurrency(summary.payrollGBP, "GBP")}</p>
+            <p className="kfin-kpi-value">{money(summary.payrollNPR)}</p>
+            <p className="kfin-kpi-sub">{moneyAlt(summary.payrollNPR)}</p>
           </div>
 
           <div className="kfin-kpi">
@@ -1280,8 +1283,8 @@ function Finance() {
               </svg>
             </div>
             <p className="kfin-kpi-label">Total Expenses</p>
-            <p className="kfin-kpi-value">{asCurrency(summary.expensesNPR, "NPR")}</p>
-            <p className="kfin-kpi-sub">{asCurrency(summary.expensesGBP, "GBP")}</p>
+            <p className="kfin-kpi-value">{money(summary.expensesNPR)}</p>
+            <p className="kfin-kpi-sub">{moneyAlt(summary.expensesNPR)}</p>
           </div>
 
           <div
@@ -1299,8 +1302,8 @@ function Finance() {
               </svg>
             </div>
             <p className="kfin-kpi-label">Total Purchases</p>
-            <p className="kfin-kpi-value">{asCurrency(summary.purchNPR, "NPR")}</p>
-            <p className="kfin-kpi-sub">{asCurrency(summary.purchGBP, "GBP")}</p>
+            <p className="kfin-kpi-value">{money(summary.purchNPR)}</p>
+            <p className="kfin-kpi-sub">{moneyAlt(summary.purchNPR)}</p>
           </div>
 
           <div className="kfin-kpi">
@@ -1314,9 +1317,9 @@ function Finance() {
             </div>
             <p className="kfin-kpi-label">Net {pl.netProfit >= 0 ? "Profit" : "Loss"}</p>
             <p className="kfin-kpi-value" style={{ color: pl.netProfit < 0 ? "var(--terra)" : undefined }}>
-              {asCurrency(Math.abs(pl.netProfit), "NPR")}
+              {money(Math.abs(pl.netProfit))}
             </p>
-            <p className="kfin-kpi-sub">{asCurrency(Math.abs(pl.netProfit) / GBP_RATE, "GBP")}</p>
+            <p className="kfin-kpi-sub">{moneyAlt(Math.abs(pl.netProfit))}</p>
           </div>
         </div>
 
@@ -1332,7 +1335,7 @@ function Finance() {
                     <Pie data={donutData} cx="50%" cy="50%" innerRadius={58} outerRadius={86} paddingAngle={3} dataKey="value">
                       {donutData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
                     </Pie>
-                    <Tooltip formatter={v => [`NPR ${roundAmount(Number(v)).toLocaleString()}`, ""]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
+                    <Tooltip formatter={v => [money(Number(v)), ""]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
                     <Legend iconType="circle" iconSize={8} formatter={v => <span style={{ fontSize: 12, color: "var(--ink-2)" }}>{v}</span>} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -1347,8 +1350,8 @@ function Finance() {
                   <BarChart data={categoryBarData} margin={{ top: 4, right: 8, left: 0, bottom: 48 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
                     <XAxis dataKey="cat" tick={{ fontSize: 10, fill: "var(--ink-3)" }} angle={-35} textAnchor="end" interval={0} />
-                    <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: "var(--ink-3)" }} width={40} />
-                    <Tooltip formatter={v => [`NPR ${roundAmount(Number(v)).toLocaleString()}`, "Amount"]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
+                    <YAxis tickFormatter={short} tick={{ fontSize: 10, fill: "var(--ink-3)" }} width={40} />
+                    <Tooltip formatter={v => [money(Number(v)), "Amount"]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
                     <Bar dataKey="total" fill="var(--mint-deep)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1457,7 +1460,7 @@ function Finance() {
               </div>
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
-                  <thead><tr><th>Category</th><th>Amount NPR</th><th>Amount GBP</th><th>Date</th><th>Payment</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
+                  <thead><tr><th>Category</th>{pair(<th key="npr">Amount NPR</th>, <th key="gbp">Amount GBP</th>)}<th>Date</th><th>Payment</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
                   <tbody>
                     {expenses.length === 0 && (
                       <tr><td colSpan={canEdit ? 10 : 9} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>
@@ -1470,8 +1473,14 @@ function Finance() {
                       return (
                         <tr key={item.id} style={{ opacity: isPaid ? 0.65 : 1 }}>
                           <td>{item.category}</td>
-                          <td style={{ fontFamily: "var(--mono)", textDecoration: isPaid ? "line-through" : "none" }}>{asCurrency(item.amountNPR || 0, "NPR")}</td>
-                          <td style={{ color: "var(--ink-3)" }}>{asCurrency((item.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                          {(() => {
+                            const strong = { fontFamily: "var(--mono)", textDecoration: isPaid ? "line-through" : "none" };
+                            const quiet = { color: "var(--ink-3)" };
+                            return pair(
+                              <td key="npr" style={lead("NPR", strong, quiet)}>{asCurrency(item.amountNPR || 0, "NPR")}</td>,
+                              <td key="gbp" style={lead("GBP", strong, quiet)}>{asCurrency((item.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                            );
+                          })()}
                           <td>{item.date}</td>
                           <td style={{ color: "var(--ink-3)" }}>{item.paymentType === "Bank" ? (item.bankName || "Bank") : item.paymentType === "Credit" ? "Credit" : "Cash"}</td>
                           <td style={{ color: "var(--ink-3)" }}>{item.note || "—"}</td>
@@ -1527,8 +1536,8 @@ function Finance() {
               </p>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  {purchases.length} saved{fyActive ? ` in FY ${fy}` : ""} · NPR {roundAmount(purchaseTotal).toLocaleString()}
-                  <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {asCurrency(purchaseTotal / GBP_RATE, "GBP")}</span>
+                  {purchases.length} saved{fyActive ? ` in FY ${fy}` : ""} · {money(purchaseTotal)}
+                  <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {moneyAlt(purchaseTotal)}</span>
                 </span>
                 <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => navigate("/purchases")}>
                   View saved purchases →
@@ -1702,7 +1711,7 @@ function Finance() {
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
-                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Customer / Supplier</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
+                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Customer / Supplier</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="gbp">Amount (GBP)</th>)}<th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
                       <tbody>
                         {entries.map(entry => {
                           const editing = journalEditId === entry.id;
@@ -1715,8 +1724,14 @@ function Finance() {
                                 <td style={{ color: "var(--mint-deep)", fontWeight: 500 }}>{entry.debitAccount}</td>
                                 <td style={{ color: "var(--terra)", fontWeight: 500 }}>{entry.creditAccount}</td>
                                 <td style={{ color: "var(--ink-3)", fontSize: 12 }}>{entry.partyName || "—"}</td>
-                                <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>
-                                <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>{asCurrency((entry.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                                {(() => {
+                                  const strong = { fontFamily: "var(--mono)", fontWeight: 600 };
+                                  const quiet = { color: "var(--ink-3)", fontFamily: "var(--mono)" };
+                                  return pair(
+                                    <td key="npr" style={lead("NPR", strong, quiet)}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>,
+                                    <td key="gbp" style={lead("GBP", strong, quiet)}>{asCurrency((entry.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                                  );
+                                })()}
                                 <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{entry.reference || "—"}</td>
                                 <td style={{ fontSize: 12 }}>{entry.createdBy}</td>
                                 {canEdit && (
@@ -1753,13 +1768,15 @@ function Finance() {
                                   placeholder={isAdvanceEntry(journalDraft) ? "Who this advance belongs to" : ""}
                                   onChange={e => setJournalDraft(d => ({ ...d, partyName: e.target.value }))} />
                               </td>
-                              <td>
-                                <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={journalDraft.amountNPR}
-                                  onChange={e => setJournalDraft(d => ({ ...d, amountNPR: e.target.value }))} />
-                              </td>
-                              <td style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                                {asCurrency((Number(journalDraft.amountNPR) || 0) / GBP_RATE, "GBP")}
-                              </td>
+                              {pair(
+                                <td key="npr">
+                                  <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={journalDraft.amountNPR}
+                                    onChange={e => setJournalDraft(d => ({ ...d, amountNPR: e.target.value }))} />
+                                </td>,
+                                <td key="gbp" style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+                                  {asCurrency((Number(journalDraft.amountNPR) || 0) / GBP_RATE, "GBP")}
+                                </td>
+                              )}
                               <td>
                                 <input className="kfin-input" style={inputStyle} value={journalDraft.reference}
                                   onChange={e => setJournalDraft(d => ({ ...d, reference: e.target.value }))} />
@@ -1873,9 +1890,9 @@ function Finance() {
                 <div className="kfin-block-hd">
                   <p className="kfin-block-title">{name}</p>
                   <span style={{ fontSize: 13, fontWeight: 700, color: data.closingBalance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                    Balance: NPR {roundAmount(data.closingBalance).toLocaleString()}
+                    Balance: {money(data.closingBalance)}
                     <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 400, marginLeft: 6 }}>
-                      ({asCurrency(data.closingBalance / GBP_RATE, "GBP")})
+                      ({moneyAlt(data.closingBalance)})
                     </span>
                   </span>
                 </div>
@@ -2037,19 +2054,19 @@ function Finance() {
                           <div style={{ textAlign: "right" }}>
                             <p className="kfin-ledger-bal-label">{fyActive ? "Net for year" : "Balance"}</p>
                             <p className="kfin-ledger-bal" style={{ color: balance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                              NPR {roundAmount(Math.abs(balance)).toLocaleString()}
+                              {money(Math.abs(balance))}
                             </p>
                             <p style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2, fontFamily: "var(--mono)" }}>
-                              ({asCurrency(Math.abs(balance) / GBP_RATE, "GBP")})
+                              ({moneyAlt(Math.abs(balance))})
                             </p>
                           </div>
                         </div>
                         <div className="kfin-ledger-footer">
                           <span style={{ color: "var(--mint-deep)" }}>
-                            Dr: {roundAmount(data.debits).toLocaleString()} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({asCurrency(data.debits / GBP_RATE, "GBP")})</span>
+                            Dr: {currency === "GBP" ? money(data.debits) : num(data.debits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.debits)})</span>
                           </span>
                           <span style={{ color: "var(--terra)" }}>
-                            Cr: {roundAmount(data.credits).toLocaleString()} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({asCurrency(data.credits / GBP_RATE, "GBP")})</span>
+                            Cr: {currency === "GBP" ? money(data.credits) : num(data.credits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.credits)})</span>
                           </span>
                           <span style={{ color: "var(--ink-4)", marginLeft: "auto" }}>{data.entryCount} entries</span>
                         </div>
@@ -2077,22 +2094,22 @@ function Finance() {
                 <div className="kfin-pl-row">
                   <span className="kfin-pl-row-label">Sales Revenue (paid invoices)</span>
                   <span className="kfin-pl-row-val">
-                    NPR {roundAmount(pl.salesRevenue).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(pl.salesRevenue / GBP_RATE, "GBP")})</span>
+                    {money(pl.salesRevenue)}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.salesRevenue)})</span>
                   </span>
                 </div>
                 <div className="kfin-pl-row">
                   <span className="kfin-pl-row-label">Other Income (journal)</span>
                   <span className="kfin-pl-row-val">
-                    NPR {roundAmount(pl.otherIncome).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(pl.otherIncome / GBP_RATE, "GBP")})</span>
+                    {money(pl.otherIncome)}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.otherIncome)})</span>
                   </span>
                 </div>
                 <div className="kfin-pl-total">
                   <span>Total Income</span>
                   <span style={{ color: "var(--mint-deep)" }}>
-                    NPR {roundAmount(pl.totalIncome).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({asCurrency(pl.totalIncome / GBP_RATE, "GBP")})</span>
+                    {money(pl.totalIncome)}
+                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(pl.totalIncome)})</span>
                   </span>
                 </div>
               </div>
@@ -2101,51 +2118,51 @@ function Finance() {
                 <div className="kfin-pl-row">
                   <span className="kfin-pl-row-label">Operating Expenses</span>
                   <span className="kfin-pl-row-val">
-                    NPR {roundAmount(pl.expensesTotal).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(pl.expensesTotal / GBP_RATE, "GBP")})</span>
+                    {money(pl.expensesTotal)}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.expensesTotal)})</span>
                   </span>
                 </div>
                 <div className="kfin-pl-row">
                   <span className="kfin-pl-row-label">Purchases</span>
                   <span className="kfin-pl-row-val">
-                    NPR {roundAmount(pl.purchasesTotal).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(pl.purchasesTotal / GBP_RATE, "GBP")})</span>
+                    {money(pl.purchasesTotal)}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.purchasesTotal)})</span>
                   </span>
                 </div>
                 <div className="kfin-pl-row">
                   <span className="kfin-pl-row-label">Payroll</span>
                   <span className="kfin-pl-row-val">
-                    NPR {roundAmount(pl.payrollTotal).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(pl.payrollTotal / GBP_RATE, "GBP")})</span>
+                    {money(pl.payrollTotal)}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.payrollTotal)})</span>
                   </span>
                 </div>
                 {pl.journalExpenses > 0 && (
                   <div className="kfin-pl-row">
                     <span className="kfin-pl-row-label">Journal Expenses</span>
                     <span className="kfin-pl-row-val">
-                      NPR {roundAmount(pl.journalExpenses).toLocaleString()}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(pl.journalExpenses / GBP_RATE, "GBP")})</span>
+                      {money(pl.journalExpenses)}
+                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.journalExpenses)})</span>
                     </span>
                   </div>
                 )}
                 <div className="kfin-pl-total">
                   <span>Total Expenses</span>
                   <span style={{ color: "var(--terra)" }}>
-                    NPR {roundAmount(pl.totalExpenses).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({asCurrency(pl.totalExpenses / GBP_RATE, "GBP")})</span>
+                    {money(pl.totalExpenses)}
+                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(pl.totalExpenses)})</span>
                   </span>
                 </div>
               </div>
               <div className="kfin-pl-net">
                 <span>Net {pl.netProfit >= 0 ? "Profit" : "Loss"}</span>
                 <span style={{ color: pl.netProfit >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                  NPR {roundAmount(Math.abs(pl.netProfit)).toLocaleString()}
+                  {money(Math.abs(pl.netProfit))}
                   <span style={{ fontSize: 13, color: pl.netProfit >= 0 ? "var(--mint-deep)" : "var(--terra)", marginLeft: 6, fontWeight: 500, opacity: 0.85 }}>
-                    ({asCurrency(Math.abs(pl.netProfit) / GBP_RATE, "GBP")})
+                    ({moneyAlt(Math.abs(pl.netProfit))})
                   </span>
                 </span>
               </div>
-              <p className="kfin-pl-net-sub">{asCurrency(Math.abs(pl.netProfit) / GBP_RATE, "GBP")}</p>
+              <p className="kfin-pl-net-sub">{moneyAlt(Math.abs(pl.netProfit))}</p>
             </div>
             <div className="kfin-block">
               <p className="kfin-block-title" style={{ marginBottom: 16 }}>Income vs Expenses</p>
@@ -2153,8 +2170,8 @@ function Finance() {
                 <BarChart data={plChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 12, fill: "var(--ink-3)" }} />
-                  <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: "var(--ink-3)" }} width={46} />
-                  <Tooltip formatter={v => [`NPR ${roundAmount(Number(v)).toLocaleString()}`, ""]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
+                  <YAxis tickFormatter={short} tick={{ fontSize: 10, fill: "var(--ink-3)" }} width={46} />
+                  <Tooltip formatter={v => [money(Number(v)), ""]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     {plChartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                   </Bar>
@@ -2179,16 +2196,16 @@ function Finance() {
                 <div key={a.id} className="kfin-bs-row">
                   <span>{a.name}</span>
                   <span style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                    NPR {roundAmount(a.balance).toLocaleString()}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(a.balance / GBP_RATE, "GBP")})</span>
+                    {money(a.balance)}
+                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(a.balance)})</span>
                   </span>
                 </div>
               ))}
               <div className="kfin-bs-total">
                 <span>Total Assets</span>
                 <span style={{ color: "var(--mint-deep)" }}>
-                  NPR {roundAmount(bs.totalAssets).toLocaleString()}
-                  <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({asCurrency(bs.totalAssets / GBP_RATE, "GBP")})</span>
+                  {money(bs.totalAssets)}
+                  <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalAssets)})</span>
                 </span>
               </div>
             </div>
@@ -2199,16 +2216,16 @@ function Finance() {
                   <div key={a.id} className="kfin-bs-row">
                     <span>{a.name}</span>
                     <span style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                      NPR {roundAmount(a.balance).toLocaleString()}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(a.balance / GBP_RATE, "GBP")})</span>
+                      {money(a.balance)}
+                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(a.balance)})</span>
                     </span>
                   </div>
                 ))}
                 <div className="kfin-bs-total">
                   <span>Total Liabilities</span>
                   <span style={{ color: "var(--terra)" }}>
-                    NPR {roundAmount(bs.totalLiabilities).toLocaleString()}
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({asCurrency(bs.totalLiabilities / GBP_RATE, "GBP")})</span>
+                    {money(bs.totalLiabilities)}
+                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalLiabilities)})</span>
                   </span>
                 </div>
               </div>
@@ -2218,23 +2235,23 @@ function Finance() {
                   <div key={a.id} className="kfin-bs-row">
                     <span>{a.name}</span>
                     <span style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                      NPR {roundAmount(a.balance).toLocaleString()}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(a.balance / GBP_RATE, "GBP")})</span>
+                      {money(a.balance)}
+                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(a.balance)})</span>
                     </span>
                   </div>
                 ))}
                 <div className="kfin-bs-total">
                   <span>Total Equity</span>
                   <span>
-                    NPR {roundAmount(bs.totalEquity).toLocaleString()}
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({asCurrency(bs.totalEquity / GBP_RATE, "GBP")})</span>
+                    {money(bs.totalEquity)}
+                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalEquity)})</span>
                   </span>
                 </div>
                 <div className="kfin-bs-check">
                   <span>Liabilities + Equity</span>
                   <span style={{ color: (bs.totalLiabilities + bs.totalEquity) === bs.totalAssets ? "var(--mint-deep)" : "var(--amber)" }}>
-                    NPR {roundAmount(bs.totalLiabilities + bs.totalEquity).toLocaleString()}
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({asCurrency((bs.totalLiabilities + bs.totalEquity) / GBP_RATE, "GBP")})</span>
+                    {money(bs.totalLiabilities + bs.totalEquity)}
+                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalLiabilities + bs.totalEquity)})</span>
                   </span>
                 </div>
               </div>
@@ -2337,8 +2354,8 @@ function Finance() {
                   ].map(({ label, value, color }) => (
                     <div key={label} className="kfin-kpi" style={{ flex: "1 1 140px" }}>
                       <p className="kfin-kpi-label">{label}</p>
-                      <p className="kfin-kpi-value" style={{ color }}>{asCurrency(value, "NPR")}</p>
-                      <p className="kfin-kpi-sub">{asCurrency(value / GBP_RATE, "GBP")}</p>
+                      <p className="kfin-kpi-value" style={{ color }}>{money(value)}</p>
+                      <p className="kfin-kpi-sub">{moneyAlt(value)}</p>
                     </div>
                   ))}
                 </div>
@@ -2352,7 +2369,7 @@ function Finance() {
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
                   <thead>
-                    <tr>{dateTh}<th>Bank</th><th>Description</th><th>Category</th><th>Type</th><th>Amount (NPR)</th><th>Amount (GBP)</th><th>Reference</th>{canEdit && <th></th>}</tr>
+                    <tr>{dateTh}<th>Bank</th><th>Description</th><th>Category</th><th>Type</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="gbp">Amount (GBP)</th>)}<th>Reference</th>{canEdit && <th></th>}</tr>
                   </thead>
                   <tbody>
                     {bankTxns.length === 0 && (
@@ -2369,10 +2386,18 @@ function Finance() {
                             {isBankCredit(t) ? "Credit" : "Debit"}
                           </span>
                         </td>
-                        <td style={{ color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 }}>
-                          {isBankCredit(t) ? "+" : "−"} NPR {roundAmount(t.amount ?? 0).toLocaleString()}
-                        </td>
-                        <td style={{ color: "var(--ink-3)" }}>{asCurrency((t.amount ?? 0) / GBP_RATE, "GBP")}</td>
+                        {(() => {
+                          const strong = { color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 };
+                          const quiet = { color: "var(--ink-3)" };
+                          // The +/− belongs to the leading amount.
+                          const sign = (cur) => (currency === cur ? `${isBankCredit(t) ? "+" : "−"} ` : "");
+                          return pair(
+                            <td key="npr" style={lead("NPR", strong, quiet)}>
+                              {sign("NPR")}NPR {roundAmount(t.amount ?? 0).toLocaleString()}
+                            </td>,
+                            <td key="gbp" style={lead("GBP", strong, quiet)}>{sign("GBP")}{asCurrency((t.amount ?? 0) / GBP_RATE, "GBP")}</td>
+                          );
+                        })()}
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{t.reference || "—"}</td>
                         {canEdit && (
                           <td>
@@ -2475,10 +2500,10 @@ function Finance() {
                     <p className="kopl-kpi-value" style={{ color }}>
                       {isMargin
                         ? (value != null ? `${value.toFixed(1)}%` : "—")
-                        : fmt.npr(value)}
+                        : fmtC(value)}
                     </p>
                     {!isMargin && (
-                      <p className="kopl-kpi-sub">{asCurrency(value / GBP_RATE, "GBP")}</p>
+                      <p className="kopl-kpi-sub">{moneyAlt(value)}</p>
                     )}
                     {isMargin && (
                       <p className="kopl-kpi-sub">{withMargin.length} orders with cost data</p>
@@ -2492,7 +2517,8 @@ function Finance() {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--mint-soft)", borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
                   <span style={{ color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Auto labour rate:</span>
                   <span style={{ color: "var(--ink-2)" }}>
-                    {fmtC(labourRatePerUnit)}/unit — based on last month's payroll ÷ units produced
+                    {/* A per-unit rate is small (₨87 is £0.44), so pounds keep their pence instead of fmtC's whole units. */}
+                    {currency === "GBP" ? money(labourRatePerUnit) : fmtC(labourRatePerUnit)}/unit — based on last month's payroll ÷ units produced
                   </span>
                   <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-4)" }}>Override per order by entering a manual labour cost</span>
                 </div>
@@ -2538,7 +2564,7 @@ function Finance() {
                         <th>Order ID</th>
                         <th>Customer</th>
                         <th>Qty</th>
-                        <th>Revenue (NPR)</th>
+                        <th>Revenue ({currency})</th>
                         <th>Material</th>
                         <th>Labour</th>
                         <th>Overhead</th>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchAll, insertRow, updateRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
+import { useCurrency } from "../context/CurrencyContext";
 import { GBP_RATE } from "../constants";
 import { cn, Avatar, Pill } from "../components/ui";
 import { roundAmount } from "../utils/format";
@@ -52,6 +53,7 @@ function UrgencyPill({ urgency }) {
 
 /* ── Budget request card ───────────────────────────────── */
 function BudgetCard({ row, canReview, onApprove, onReject }) {
+  const { fmt, moneyAlt } = useCurrency();
   const hue      = hueFromName(row.requestedBy || "");
   const gbpAmt   = row.amountGBP ?? (row.amount || 0);
   const nprAmt   = row.amountNPR ?? Math.round(gbpAmt * GBP_RATE);
@@ -92,10 +94,10 @@ function BudgetCard({ row, canReview, onApprove, onReject }) {
         <div>
           <div className="kbrf-amt-l">Amount Requested</div>
           <div style={{ fontSize: 28, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1, letterSpacing: "-.02em" }}>
-            £{Number(gbpAmt).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            {fmt(nprAmt)}
           </div>
           <div className="kbrf-amt-s">
-            ₨ {fmtNPR(nprAmt)} · 1 GBP = {GBP_RATE} NPR
+            {moneyAlt(nprAmt)} · 1 GBP = {GBP_RATE} NPR
           </div>
         </div>
 
@@ -124,6 +126,27 @@ function BudgetCard({ row, canReview, onApprove, onReject }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── Est. Cost cell of the requirements table ──────────── */
+// A requirement is stored with a rupee amount, a pound amount, or both. The header's
+// ₨/£ switch formats rupees, so each figure is handed over as rupees — the stored
+// amountNPR, and the stored pounds at the fixed rate — which keeps each one showing
+// exactly as stored (pounds worked out from rupees can land a penny off the stored
+// figure). A missing one is worked out the same way. The chosen currency is the bold
+// line; the other sits above it, small, where the rupees always were.
+function ReqCost({ row }) {
+  const { currency, money, moneyAlt } = useCurrency();
+  const npr = Number(row.amountNPR) || Math.round(Number(row.amount || 0) * GBP_RATE);
+  if (!npr) return "—";
+  const gbpAsNpr = Number(row.amount) ? Number(row.amount) * GBP_RATE : npr;
+  const [lead, follow] = currency === "GBP" ? [gbpAsNpr, npr] : [npr, gbpAsNpr];
+  return (
+    <>
+      <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)" }}>{moneyAlt(follow)}</span>
+      <span style={{ fontWeight: 600 }}>{money(lead)}</span>
+    </>
   );
 }
 
@@ -505,8 +528,7 @@ function Budget() {
                         <td>{row.category}</td>
                         <td>{row.quantity}</td>
                         <td style={{ fontFamily: "monospace" }}>
-                          {row.amountNPR ? <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)" }}>NPR {roundAmount(row.amountNPR).toLocaleString()}</span> : null}
-                          {row.amount    ? <span style={{ fontWeight: 600 }}>£{Number(row.amount).toFixed(2)}</span> : "—"}
+                          <ReqCost row={row} />
                         </td>
                         <td><span className={urgencyClass(row.urgency)}>{row.urgency}</span></td>
                         <td>{row.requestedBy}</td>

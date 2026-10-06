@@ -9,7 +9,6 @@ import { roundAmount } from "../utils/format";
 import { useRef } from "react";
 import { todayDate, tsMillis } from "../utils/date";
 import { cn, Pill, Progress, Icons } from "../components/ui";
-import { GBP_RATE } from "../constants";
 import ProductionCalendar from "../components/ProductionCalendar";
 import CustomerPicker from "../components/CustomerPicker";
 import Modal from "../components/Modal";
@@ -1026,7 +1025,7 @@ function Production() {
   // Stock rows are gated on the inventory section by the database, so deducting
   // materials needs inventory edit rights on top of production edit rights.
   const canDeductStock = canEdit && sectionCanEdit(profile, "inventory");
-  const { fmt: fmtC } = useCurrency();
+  const { fmt: fmtC, money } = useCurrency();
   const { showPointsToast } = useReward();
   const { region } = useRegion();
 
@@ -1807,7 +1806,7 @@ function Production() {
             </article>
             <article className="stat-card">
               <p className="stat-title">Total Order Value</p>
-              <h3 className="stat-value">NPR {roundAmount(orderStats.totalValue).toLocaleString()}</h3>
+              <h3 className="stat-value">{money(orderStats.totalValue)}</h3>
             </article>
           </section>
 
@@ -1851,7 +1850,7 @@ function Production() {
                         <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: 2 }}>
                           {order.quantity?.toLocaleString()} pcs · {order.styleName} · {order.fabricType}
                           {order.colorway ? ` · ${order.colorway}` : ""}
-                          {order.totalValueNPR ? ` · NPR ${roundAmount(order.totalValueNPR).toLocaleString()}` : ""}
+                          {order.totalValueNPR ? ` · ${money(order.totalValueNPR)}` : ""}
                         </p>
                         {(order.deliveryDate || order.assignedTo || order.invoiceRef) && (
                           <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginTop: 3 }}>
