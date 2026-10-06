@@ -112,7 +112,7 @@ export default function MetaAdsPage() {
 
       <div className="kmkt-metaads-body">
         {view === "overview" && <Overview range={range} onViewChange={setView} />}
-        {view === "campaigns" && <Campaigns canEdit={canEdit} />}
+        {view === "campaigns" && <Campaigns canEdit={canEdit} range={range} />}
         {view === "attribution" && <Attribution range={range} />}
         {view === "activity" && <Activity />}
         {view === "settings" && <Settings canEdit={canEdit} onSyncComplete={loadMeta} />}

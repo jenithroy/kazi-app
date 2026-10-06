@@ -2045,8 +2045,32 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   -webkit-overflow-scrolling: touch;
 }
 .kmkt-metaads-body > div { display: flex; flex-direction: column; gap: 16px; }
-.kmkt-metaads-body .kmkt-overview-head,
-.kmkt-metaads-body .kmkt-kpi-row { margin-bottom: 0; }
+.kmkt-metaads-body .kmkt-overview-head { margin-bottom: 0; }
+.kmkt-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.kmkt-leads-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.kmkt-lead-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card, 10px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.kmkt-lead-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.06);
+}
 
 /* ── Section Bar & Segmented Sub-nav ── */
 .kmkt-section-bar {

@@ -37,6 +37,23 @@ export const fetchCampaignInsights = (dateFrom, dateTo) =>
     orderBy: "date", orderDir: "asc",
   });
 
+export async function fetchEntityInsights(entityLevel, entityIds, dateFrom, dateTo) {
+  if (!entityIds || entityIds.length === 0) return [];
+  let q = supabase
+    .from("meta_ad_insights")
+    .select("entity_id, impressions, clicks, spend, conversions, currency, date")
+    .eq("entity_level", entityLevel)
+    .in("entity_id", entityIds);
+  if (dateFrom) q = q.gte("date", dateFrom);
+  if (dateTo) q = q.lte("date", dateTo);
+  const { data, error } = await q;
+  if (error) {
+    console.warn("fetchEntityInsights warning:", error);
+    return [];
+  }
+  return data || [];
+}
+
 export const fetchSyncRuns = () =>
   fetchAll("meta_sync_runs", { orderBy: "startedAt", orderDir: "desc", limit: 10 });
 

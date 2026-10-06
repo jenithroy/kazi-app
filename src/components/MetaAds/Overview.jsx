@@ -7,12 +7,23 @@ import { money } from "./money";
 import BarList from "./BarList";
 import ChartFrame from "./ChartFrame";
 import NeedsAttentionBanner from "./NeedsAttentionBanner";
+import {
+  countMessages,
+  countComments,
+  countLeads,
+  countReactions,
+  countLinkClicks,
+  summarizeEngagement,
+} from "./actions";
 
 const METRICS = [
   { id: "spend", label: "Spend" },
-  { id: "results", label: "Results" },
+  { id: "messages", label: "Messages" },
+  { id: "comments", label: "Comments" },
+  { id: "leads", label: "Leads" },
   { id: "clicks", label: "Clicks" },
   { id: "impressions", label: "Impressions" },
+  { id: "results", label: "All Results" },
 ];
 
 function formatShortDate(iso) {
@@ -55,12 +66,6 @@ function countCampaignResults(actions, objective) {
     }
   }
   return 0;
-}
-
-function countLinkClicks(actions) {
-  if (!actions || !Array.isArray(actions)) return 0;
-  const act = actions.find((a) => a.action_type === "link_click");
-  return act ? Number(act.value) || 0 : 0;
 }
 
 function getDaysList(fromStr, toStr) {
@@ -156,6 +161,11 @@ export default function Overview({ range = {}, onViewChange }) {
     };
   }, [byCurrency, activeCurrency, campaignObjective]);
 
+  const engagement = useMemo(() => {
+    const rows = byCurrency[activeCurrency] || [];
+    return summarizeEngagement(rows);
+  }, [byCurrency, activeCurrency]);
+
   // Earliest date check for "Data starts..." indicator
   const earliestInsightDate = useMemo(() => {
     if (!insights.length) return null;
@@ -180,6 +190,9 @@ export default function Overview({ range = {}, onViewChange }) {
       if (metric === "spend") val = Number(r.spend || 0);
       else if (metric === "clicks") val = Number(r.clicks || 0);
       else if (metric === "impressions") val = Number(r.impressions || 0);
+      else if (metric === "messages") val = countMessages(r.conversions);
+      else if (metric === "comments") val = countComments(r.conversions);
+      else if (metric === "leads") val = countLeads(r.conversions);
       else if (metric === "results") val = countCampaignResults(r.conversions, campaignObjective[r.campaignId]);
       byDate[r.date] = (byDate[r.date] || 0) + val;
     }
@@ -311,11 +324,104 @@ export default function Overview({ range = {}, onViewChange }) {
             <KPI label="Impressions" value={roundAmount(totals.impressions).toLocaleString()} />
           </div>
 
-          {/* 2-Column Grid on Desktop: Daily spend & Spend by campaign */}
+          {/* Leads & Engagement Inquiries Breakdown */}
+          <div className="kmkt-leads-row">
+            <div className="kmkt-lead-card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  💬 Messages (DMs)
+                </span>
+                {engagement.costPerMessage ? (
+                  <Pill tone="mint" size="sm">
+                    {money(engagement.costPerMessage, activeCurrency)} / msg
+                  </Pill>
+                ) : (
+                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Direct chats</span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                <span className="num-xl" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>
+                  {engagement.messages.toLocaleString()}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--ink-3)" }}>conversations</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 2 }}>
+                Messenger & WhatsApp conversations started
+              </div>
+            </div>
+
+            <div className="kmkt-lead-card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  ✍️ Post Comments
+                </span>
+                {engagement.costPerComment ? (
+                  <Pill tone="mint" size="sm">
+                    {money(engagement.costPerComment, activeCurrency)} / comment
+                  </Pill>
+                ) : (
+                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Ad replies</span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                <span className="num-xl" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>
+                  {engagement.comments.toLocaleString()}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--ink-3)" }}>comments</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 2 }}>
+                User comments on running ad posts
+              </div>
+            </div>
+
+            <div className="kmkt-lead-card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  📋 Instant Leads
+                </span>
+                {engagement.costPerLead ? (
+                  <Pill tone="mint" size="sm">
+                    {money(engagement.costPerLead, activeCurrency)} / lead
+                  </Pill>
+                ) : (
+                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Form submissions</span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                <span className="num-xl" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>
+                  {engagement.leads.toLocaleString()}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--ink-3)" }}>leads</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 2 }}>
+                Meta native instant lead forms completed
+              </div>
+            </div>
+
+            <div className="kmkt-lead-card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  ❤️ Reactions & Likes
+                </span>
+                <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Social proof</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                <span className="num-xl" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>
+                  {engagement.reactions.toLocaleString()}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--ink-3)" }}>reactions</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 2 }}>
+                Post likes, loves, and emoji reactions
+              </div>
+            </div>
+          </div>
+
+          {/* 2-Column Grid on Desktop: Daily trend & Spend by campaign */}
           <div className="kmkt-grid-charts">
             <Card pad={true}>
               <ChartFrame
-                title="Daily spend"
+                title="Daily trend"
                 metrics={METRICS}
                 metric={metric}
                 onMetricChange={setMetric}

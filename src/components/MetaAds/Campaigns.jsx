@@ -1,22 +1,31 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, Btn, Pill, Icons } from "../ui";
-import { fetchAdAccounts, fetchAdsets, fetchAds, fetchCampaigns, fetchSettings } from "../../lib/metaAds";
+import {
+  fetchAdAccounts,
+  fetchAdsets,
+  fetchAds,
+  fetchCampaigns,
+  fetchSettings,
+  fetchCampaignInsights,
+  fetchEntityInsights,
+} from "../../lib/metaAds";
 import { updateRow, insertRow } from "../../lib/db";
 import { runMetaAdsAction } from "../../lib/metaAdsApi";
 import BudgetEditDialog from "./BudgetEditDialog";
 import ConfirmPauseResumeModal from "./ConfirmPauseResumeModal";
 import { getMetaStatus } from "./status";
-import { moneyMinor } from "./money";
+import { money, moneyMinor } from "./money";
+import {
+  countMessages,
+  countComments,
+  countLeads,
+  countReactions,
+} from "./actions";
 
 const PAUSED_BY_PARENT = {
   CAMPAIGN_PAUSED: "Paused by campaign",
   ADSET_PAUSED: "Paused by ad set",
 };
-const COLS = 4;
-
-function money(minor, currency) {
-  return moneyMinor(minor, currency);
-}
 
 /** One row for a campaign, ad set, or ad — same shape, same controls. */
 function EntityRow({
@@ -32,6 +41,8 @@ function EntityRow({
   busy,
   onConfirmPauseResume,
   onEditBudget,
+  metrics,
+  colView = "budget",
 }) {
   const statusInfo = getMetaStatus(entity.effectiveStatus, entity.status);
   const pausedByParent = PAUSED_BY_PARENT[entity.effectiveStatus];
@@ -41,9 +52,9 @@ function EntityRow({
 
   let budgetDisplay = "—";
   if (entity.dailyBudgetMinor != null) {
-    budgetDisplay = `${money(entity.dailyBudgetMinor, currency)} / day`;
+    budgetDisplay = `${moneyMinor(entity.dailyBudgetMinor, currency)} / day`;
   } else if (entity.lifetimeBudgetMinor != null) {
-    budgetDisplay = `${money(entity.lifetimeBudgetMinor, currency)} total`;
+    budgetDisplay = `${moneyMinor(entity.lifetimeBudgetMinor, currency)} total`;
   } else if (level === "adset" && parentHasBudget) {
     budgetDisplay = <span className="kmkt-budget-inherited">Campaign budget</span>;
   }
@@ -94,7 +105,7 @@ function EntityRow({
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                maxWidth: 420,
+                maxWidth: colView === "inquiries" ? 280 : 420,
               }}
             >
               {entity.name}
@@ -112,7 +123,60 @@ function EntityRow({
           {statusInfo.label}
         </Pill>
       </td>
-      <td className="mono kmkt-num">{budgetDisplay}</td>
+
+      {colView === "budget" ? (
+        <td className="mono kmkt-num">
+          {budgetDisplay}
+          {metrics && (metrics.messages > 0 || metrics.comments > 0 || metrics.leads > 0) && (
+            <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2, display: "flex", justifyContent: "flex-end", gap: 6 }}>
+              {metrics.messages > 0 && <span title="Direct messages started">💬 {metrics.messages}</span>}
+              {metrics.comments > 0 && <span title="Post comments">✍️ {metrics.comments}</span>}
+              {metrics.leads > 0 && <span title="Instant form leads">📋 {metrics.leads}</span>}
+            </div>
+          )}
+        </td>
+      ) : (
+        <>
+          <td className="mono kmkt-num">
+            {metrics?.messages > 0 ? (
+              <Pill tone="mint" size="sm">
+                💬 {metrics.messages.toLocaleString()}
+              </Pill>
+            ) : (
+              <span className="kmkt-muted" style={{ padding: 0 }}>—</span>
+            )}
+          </td>
+          <td className="mono kmkt-num">
+            {metrics?.comments > 0 ? (
+              <Pill tone="info" size="sm">
+                ✍️ {metrics.comments.toLocaleString()}
+              </Pill>
+            ) : (
+              <span className="kmkt-muted" style={{ padding: 0 }}>—</span>
+            )}
+          </td>
+          <td className="mono kmkt-num">
+            {metrics?.leads > 0 ? (
+              <Pill tone="mint" size="sm">
+                📋 {metrics.leads.toLocaleString()}
+              </Pill>
+            ) : (
+              <span className="kmkt-muted" style={{ padding: 0 }}>—</span>
+            )}
+          </td>
+          <td className="mono kmkt-num">
+            {metrics?.spend ? money(metrics.spend, currency) : "—"}
+          </td>
+          <td className="mono kmkt-num">
+            {metrics?.costPerInquiry ? (
+              <span style={{ fontWeight: 600 }}>{money(metrics.costPerInquiry, currency)}</span>
+            ) : (
+              <span className="kmkt-muted" style={{ padding: 0 }}>—</span>
+            )}
+          </td>
+        </>
+      )}
+
       <td>
         <div className="kmkt-row-actions">
           {canEdit && pausedByParent && (
@@ -147,11 +211,11 @@ function EntityRow({
 }
 
 /** Loading / error / empty row shown under an expanded parent. */
-function ChildStateRow({ depth, state, emptyText, onRetry }) {
+function ChildStateRow({ depth, state, emptyText, onRetry, colSpan = 4 }) {
   if (state === "loading") {
     return (
       <tr>
-        <td colSpan={COLS} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 22 }}>
+        <td colSpan={colSpan} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 22 }}>
           Loading…
         </td>
       </tr>
@@ -160,7 +224,7 @@ function ChildStateRow({ depth, state, emptyText, onRetry }) {
   if (state === "error") {
     return (
       <tr>
-        <td colSpan={COLS} style={{ paddingLeft: 16 + depth * 22 }}>
+        <td colSpan={colSpan} style={{ paddingLeft: 16 + depth * 22 }}>
           <span className="form-error" role="alert">
             Couldn't load these.
           </span>{" "}
@@ -173,14 +237,14 @@ function ChildStateRow({ depth, state, emptyText, onRetry }) {
   }
   return (
     <tr>
-      <td colSpan={COLS} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 22 }}>
+      <td colSpan={colSpan} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 22 }}>
         {emptyText}
       </td>
     </tr>
   );
 }
 
-export default function Campaigns({ canEdit }) {
+export default function Campaigns({ canEdit, range = {} }) {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adsets, setAdsets] = useState({}); // campaignId -> rows
@@ -192,6 +256,11 @@ export default function Campaigns({ canEdit }) {
   const [settings, setSettings] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
+
+  // Inquiries / Leads tracking state
+  const [insights, setInsights] = useState([]);
+  const [entityMetrics, setEntityMetrics] = useState({}); // entityId -> aggregated metrics
+  const [colView, setColView] = useState("budget"); // "budget" | "inquiries"
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -223,6 +292,45 @@ export default function Campaigns({ canEdit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fetch campaign-level insights when date range changes
+  useEffect(() => {
+    fetchCampaignInsights(range.dateFrom || null, range.dateTo || null)
+      .then((rows) => setInsights(rows || []))
+      .catch(() => setInsights([]));
+  }, [range.dateFrom, range.dateTo]);
+
+  // Aggregate campaign metrics
+  const campaignMetrics = useMemo(() => {
+    const map = {};
+    for (const r of insights) {
+      if (!map[r.campaignId]) {
+        map[r.campaignId] = {
+          spend: 0,
+          clicks: 0,
+          impressions: 0,
+          messages: 0,
+          comments: 0,
+          leads: 0,
+          reactions: 0,
+        };
+      }
+      const cur = map[r.campaignId];
+      cur.spend += Number(r.spend || 0);
+      cur.clicks += Number(r.clicks || 0);
+      cur.impressions += Number(r.impressions || 0);
+      cur.messages += countMessages(r.conversions);
+      cur.comments += countComments(r.conversions);
+      cur.leads += countLeads(r.conversions);
+      cur.reactions += countReactions(r.conversions);
+    }
+    for (const id in map) {
+      const cur = map[id];
+      cur.totalInquiries = cur.messages + cur.comments + cur.leads;
+      cur.costPerInquiry = cur.totalInquiries > 0 ? cur.spend / cur.totalInquiries : null;
+    }
+    return map;
+  }, [insights]);
+
   async function loadChildren(kind, parentId) {
     const fetcher = kind === "adsets" ? fetchAdsets : fetchAds;
     const setter = kind === "adsets" ? setAdsets : setAds;
@@ -235,6 +343,51 @@ export default function Campaigns({ canEdit }) {
         delete n[parentId];
         return n;
       });
+
+      // Also fetch entity-level insights for child items in the selected date range
+      if (rows && rows.length > 0) {
+        fetchEntityInsights(
+          kind === "adsets" ? "adset" : "ad",
+          rows.map((r) => r.id),
+          range.dateFrom || null,
+          range.dateTo || null
+        )
+          .then((insightRows) => {
+            setEntityMetrics((prev) => {
+              const next = { ...prev };
+              for (const ir of insightRows) {
+                const existing = next[ir.entity_id] || {
+                  spend: 0,
+                  clicks: 0,
+                  impressions: 0,
+                  messages: 0,
+                  comments: 0,
+                  leads: 0,
+                  reactions: 0,
+                };
+                const messages = countMessages(ir.conversions);
+                const comments = countComments(ir.conversions);
+                const leads = countLeads(ir.conversions);
+                const spend = existing.spend + Number(ir.spend || 0);
+                const totalInquiries =
+                  existing.messages + messages + (existing.comments + comments) + (existing.leads + leads);
+                next[ir.entity_id] = {
+                  spend,
+                  clicks: existing.clicks + Number(ir.clicks || 0),
+                  impressions: existing.impressions + Number(ir.impressions || 0),
+                  messages: existing.messages + messages,
+                  comments: existing.comments + comments,
+                  leads: existing.leads + leads,
+                  reactions: existing.reactions + countReactions(ir.conversions),
+                  totalInquiries,
+                  costPerInquiry: totalInquiries > 0 ? spend / totalInquiries : null,
+                };
+              }
+              return next;
+            });
+          })
+          .catch(() => {});
+      }
     } catch {
       setChildState((s) => ({ ...s, [parentId]: "error" }));
     }
@@ -369,16 +522,23 @@ export default function Campaigns({ canEdit }) {
     return true;
   });
 
-  const rowProps = (entity, level, parentHasBudget = false) => ({
-    entity,
-    level,
-    currency: currencyFor(entity),
-    parentHasBudget,
-    canEdit,
-    busy: busyId === entity.id,
-    onConfirmPauseResume: (ent, lvl, act) => setConfirmTarget({ entity: ent, level: lvl, action: act }),
-    onEditBudget: (e, l, currency) => setBudgetTarget({ entity: e, level: l, currency }),
-  });
+  const rowProps = (entity, level, parentHasBudget = false) => {
+    const metrics = level === "campaign" ? campaignMetrics[entity.id] : entityMetrics[entity.id];
+    return {
+      entity,
+      level,
+      currency: currencyFor(entity),
+      parentHasBudget,
+      canEdit,
+      busy: busyId === entity.id,
+      metrics,
+      colView,
+      onConfirmPauseResume: (ent, lvl, act) => setConfirmTarget({ entity: ent, level: lvl, action: act }),
+      onEditBudget: (e, l, currency) => setBudgetTarget({ entity: e, level: l, currency }),
+    };
+  };
+
+  const colsCount = colView === "inquiries" ? 8 : 4;
 
   return (
     <div className="kmkt-campaigns">
@@ -418,6 +578,7 @@ export default function Campaigns({ canEdit }) {
             )}
           </div>
 
+          {/* Status Tabs */}
           <div
             style={{
               display: "inline-flex",
@@ -454,6 +615,24 @@ export default function Campaigns({ canEdit }) {
               </button>
             ))}
           </div>
+
+          {/* Columns View Mode Toggle: Budget vs Inquiries & Leads */}
+          <div className="kmkt-segmented" role="tablist" aria-label="Table View">
+            <button
+              type="button"
+              className={`kmkt-segmented-btn ${colView === "budget" ? "is-active" : ""}`}
+              onClick={() => setColView("budget")}
+            >
+              📋 Budget view
+            </button>
+            <button
+              type="button"
+              className={`kmkt-segmented-btn ${colView === "inquiries" ? "is-active" : ""}`}
+              onClick={() => setColView("inquiries")}
+            >
+              💬 Leads & Inquiries
+            </button>
+          </div>
         </div>
 
         <div className="kmkt-campaigns-toolbar-right">
@@ -472,12 +651,25 @@ export default function Campaigns({ canEdit }) {
         <div className="kmkt-table-scroll">
           <table className="ktable">
             <thead>
-              <tr>
-                <th>Name</th>
-                <th>Delivery</th>
-                <th className="kmkt-num">Budget</th>
-                <th></th>
-              </tr>
+              {colView === "budget" ? (
+                <tr>
+                  <th>Name</th>
+                  <th>Delivery</th>
+                  <th className="kmkt-num">Budget</th>
+                  <th></th>
+                </tr>
+              ) : (
+                <tr>
+                  <th>Name</th>
+                  <th>Delivery</th>
+                  <th className="kmkt-num" title="Messaging conversations started">💬 Messages</th>
+                  <th className="kmkt-num" title="Comments on running ad posts">✍️ Comments</th>
+                  <th className="kmkt-num" title="Instant form leads">📋 Leads</th>
+                  <th className="kmkt-num" title="Spend in selected date range">Spend</th>
+                  <th className="kmkt-num" title="Spend divided by total inquiries">Cost / Inquiry</th>
+                  <th></th>
+                </tr>
+              )}
             </thead>
             <tbody>
               {filteredCampaigns.map((c) => {
@@ -496,6 +688,7 @@ export default function Campaigns({ canEdit }) {
                         <ChildStateRow
                           depth={1}
                           state={childState[c.id]}
+                          colSpan={colsCount}
                           emptyText="No ad sets synced for this campaign."
                           onRetry={() => loadChildren("adsets", c.id)}
                         />
@@ -514,6 +707,7 @@ export default function Campaigns({ canEdit }) {
                                 <ChildStateRow
                                   depth={2}
                                   state={childState[a.id]}
+                                  colSpan={colsCount}
                                   emptyText="No ads synced for this ad set."
                                   onRetry={() => loadChildren("ads", a.id)}
                                 />
@@ -537,14 +731,14 @@ export default function Campaigns({ canEdit }) {
               })}
               {loading && campaigns.length === 0 && (
                 <tr>
-                  <td colSpan={COLS} className="kmkt-muted" style={{ padding: "20px 16px", textAlign: "center" }}>
+                  <td colSpan={colsCount} className="kmkt-muted" style={{ padding: "20px 16px", textAlign: "center" }}>
                     Loading campaigns…
                   </td>
                 </tr>
               )}
               {!loading && !error && filteredCampaigns.length === 0 && (
                 <tr>
-                  <td colSpan={COLS} className="kmkt-muted" style={{ padding: "24px 16px", textAlign: "center" }}>
+                  <td colSpan={colsCount} className="kmkt-muted" style={{ padding: "24px 16px", textAlign: "center" }}>
                     {campaigns.length === 0
                       ? "No campaigns synced yet — run a sync from Settings."
                       : "No campaigns match your current filters."}
