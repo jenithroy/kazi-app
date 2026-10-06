@@ -91,20 +91,25 @@ export default function Overview({ range = {}, onViewChange }) {
     let alive = true;
     setLoading(true);
     setError("");
-    Promise.all([
+    Promise.allSettled([
       fetchCampaignInsights(range.dateFrom || null, range.dateTo || null),
       fetchCampaigns(),
       fetchTopAds(range.dateFrom || null, range.dateTo || null, 8),
       fetchAdAccounts(),
       fetchSyncRuns(),
     ])
-      .then(([i, c, t, a, r]) => {
+      .then(([iRes, cRes, tRes, aRes, rRes]) => {
         if (!alive) return;
-        setInsights(i);
-        setCampaigns(c);
-        setTopAds(t);
-        setAccounts(a);
-        setSyncRuns(r);
+        if (iRes.status === "fulfilled") setInsights(iRes.value || []);
+        if (cRes.status === "fulfilled") setCampaigns(cRes.value || []);
+        if (tRes.status === "fulfilled") setTopAds(tRes.value || []);
+        if (aRes.status === "fulfilled") setAccounts(aRes.value || []);
+        if (rRes.status === "fulfilled") setSyncRuns(rRes.value || []);
+
+        const failed = [iRes, cRes, tRes, aRes, rRes].find((r) => r.status === "rejected");
+        if (failed && iRes.status === "rejected") {
+          setError(failed.reason?.message || "Couldn't load insights data.");
+        }
       })
       .catch((e) => alive && setError(e.message || "Couldn't load Meta Ads data."))
       .finally(() => alive && setLoading(false));
@@ -269,7 +274,7 @@ export default function Overview({ range = {}, onViewChange }) {
       )}
 
       {/* 4. Unified Honest Empty State */}
-      {!loading && insights.length === 0 && !error && (
+      {!loading && insights.length === 0 && (
         <Card>
           <div style={{ textAlign: "center", padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-2)" }}>

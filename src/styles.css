@@ -2493,6 +2493,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   .kmkt-savebar-actions { width: 100%; justify-content: flex-end; }
 }
 
+.kspin { animation: spin 0.8s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .kmkt-skel-bar,
   .kmkt-shimmer {
