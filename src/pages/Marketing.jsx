@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import MarketingCalendar from "../components/MarketingCalendar";
 import MetaAdsPage from "../components/MetaAds/MetaAdsPage";
 import { useAuth } from "../context/AuthContext";
@@ -8,14 +9,30 @@ import { cn } from "../components/ui";
 export default function Marketing() {
   const { profile } = useAuth();
   const canViewMetaAds = marketingTabAllowed(profile, "meta_ads");
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [tab, setTab] = useState("calendar");
+  const urlTab = searchParams.get("tab");
+  const tab = urlTab === "meta-ads" || urlTab === "meta_ads" ? "meta_ads" : "calendar";
 
-  // Permission can change under someone mid-session (role edited elsewhere,
-  // or this is the first render before the profile has resolved) — bounce
-  // back to Calendar rather than leaving a tab open that's no longer allowed.
+  const setTab = (nextTab) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (nextTab === "calendar") {
+        next.delete("tab");
+        next.delete("view");
+        next.delete("from");
+        next.delete("to");
+      } else {
+        next.set("tab", "meta-ads");
+      }
+      return next;
+    }, { replace: true });
+  };
+
   useEffect(() => {
-    if (tab === "meta_ads" && !canViewMetaAds) setTab("calendar");
+    if (tab === "meta_ads" && !canViewMetaAds) {
+      setTab("calendar");
+    }
   }, [tab, canViewMetaAds]);
 
   if (!canViewMetaAds) return <MarketingCalendar />;

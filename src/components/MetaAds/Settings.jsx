@@ -8,7 +8,7 @@ import { supabase } from "../../supabase";
 
 const RUN_STATUS_TONE = { success: "mint", partial: "terra", failed: "terra", running: "neutral" };
 
-export default function Settings({ canEdit }) {
+export default function Settings({ canEdit, onSyncComplete }) {
   const [accounts, setAccounts] = useState([]);
   const [runs, setRuns] = useState([]);
   const [settings, setSettings] = useState(null);
@@ -65,6 +65,7 @@ export default function Settings({ canEdit }) {
         `Synced ${res.campaignsSynced ?? "?"} campaigns, ${res.adsetsSynced ?? "?"} ad sets, ${res.adsSynced ?? "?"} ads.`
       );
       load();
+      if (typeof onSyncComplete === "function") onSyncComplete();
     } catch (e) {
       setError(e.message || "Sync failed.");
     } finally {

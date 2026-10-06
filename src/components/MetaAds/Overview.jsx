@@ -67,8 +67,10 @@ function getDaysList(fromStr, toStr) {
   return list;
 }
 
-export default function Overview() {
-  const [range, setRange] = useState({ dateFrom: isoDaysAgo(30), dateTo: isoDaysAgo(0) });
+export default function Overview({ range: propRange }) {
+  const [internalRange, setInternalRange] = useState({ dateFrom: isoDaysAgo(30), dateTo: isoDaysAgo(0) });
+  const range = propRange || internalRange;
+  const setRange = setInternalRange;
   const [insights, setInsights] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [topAds, setTopAds] = useState([]);
@@ -158,14 +160,16 @@ export default function Overview() {
 
   return (
     <div className="kmkt-overview">
-      <div className="kmkt-overview-head">
-        <DateRangePicker dateFrom={range.dateFrom} dateTo={range.dateTo} onChange={setRange} />
-        {currencies.length > 1 && (
-          <Pill tone="terra">
-            {currencies.length} currencies in this range — showing {primaryCurrency} only
-          </Pill>
-        )}
-      </div>
+      {(!propRange || currencies.length > 1) && (
+        <div className="kmkt-overview-head">
+          {!propRange && <DateRangePicker dateFrom={range.dateFrom} dateTo={range.dateTo} onChange={setRange} />}
+          {currencies.length > 1 && (
+            <Pill tone="terra">
+              {currencies.length} currencies in this range — showing {primaryCurrency} only
+            </Pill>
+          )}
+        </div>
+      )}
 
       {error && <p className="form-error" role="alert">{error}</p>}
 

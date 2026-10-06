@@ -84,7 +84,14 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
   const { currency, toggle: toggleCurrency } = useCurrency();
   const location = useLocation();
   const routeKey = location.pathname.replace("/", "") || "dashboard";
-  const routeLabel = ROUTE_LABEL[routeKey] || routeKey;
+  let routeLabel = ROUTE_LABEL[routeKey] || routeKey;
+  if (routeKey === "marketing") {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get("tab");
+    if (tab === "meta-ads" || tab === "meta_ads") {
+      routeLabel = "Marketing · Meta Ads";
+    }
+  }
   const isDashboard = routeKey === "dashboard";
   const ktmTime = useKTMTime();
 

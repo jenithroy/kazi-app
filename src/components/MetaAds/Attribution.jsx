@@ -38,8 +38,10 @@ function useNprRates(currencies) {
   return rates;
 }
 
-export default function Attribution() {
-  const [range, setRange] = useState({ dateFrom: "", dateTo: "" }); // all-time by default, per migration 0047
+export default function Attribution({ range: propRange }) {
+  const [internalRange, setInternalRange] = useState({ dateFrom: "", dateTo: "" }); // all-time by default, per migration 0047
+  const range = propRange || internalRange;
+  const setRange = setInternalRange;
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -94,12 +96,14 @@ export default function Attribution() {
       </Card>
 
       <div className="kmkt-overview-head">
-        <DateRangePicker
-          dateFrom={range.dateFrom}
-          dateTo={range.dateTo}
-          onChange={setRange}
-          allowAll
-        />
+        {!propRange && (
+          <DateRangePicker
+            dateFrom={range.dateFrom}
+            dateTo={range.dateTo}
+            onChange={setRange}
+            allowAll
+          />
+        )}
         <Pill tone="neutral">
           {range.dateFrom || range.dateTo ? "Spend is limited to this range; tagged customers/orders are all-time" : "All time"}
         </Pill>
