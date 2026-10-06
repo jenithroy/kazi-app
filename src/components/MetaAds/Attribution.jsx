@@ -3,6 +3,7 @@ import { Card, Pill } from "../ui";
 import { asCurrency, roundAmount } from "../../utils/format";
 import { fetchCampaignAttribution } from "../../lib/metaAds";
 import DateRangePicker, { isoDaysAgo } from "./DateRangePicker";
+import { money } from "./money";
 
 /**
  * ROAS needs spend (the ad account's own currency) against order value
@@ -103,12 +104,12 @@ export default function Attribution() {
               return (
                 <tr key={r.campaignId}>
                   <td>{r.campaignName}</td>
-                  <td className="mono">{asCurrency(r.spend, r.currency)}</td>
+                  <td className="mono">{money(r.spend, r.currency)}</td>
                   <td className="mono">{r.taggedCustomers}</td>
                   <td className="mono">{r.taggedOrders}</td>
                   <td className="mono">{asCurrency(r.taggedOrderValueNpr, "NPR")}</td>
                   <td className="mono">
-                    {r.taggedCustomers ? asCurrency(r.spend / r.taggedCustomers, r.currency) : "—"}
+                    {r.taggedCustomers ? money(r.spend / r.taggedCustomers, r.currency) : "—"}
                   </td>
                   <td className="mono">
                     {roas != null ? `${roas.toFixed(2)}×` : r.currency === "NPR" ? "—" : "converting…"}

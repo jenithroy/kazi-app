@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, KPI, Pill } from "../ui";
 import { AreaChart, Bars } from "../viz";
-import { asCurrency, roundAmount } from "../../utils/format";
+import { roundAmount } from "../../utils/format";
 import { fetchCampaignInsights, fetchCampaigns, fetchTopAds } from "../../lib/metaAds";
 import DateRangePicker, { isoDaysAgo } from "./DateRangePicker";
+import { money, currencySymbol } from "./money";
 
 const METRICS = [
   { id: "spend", label: "Spend" },
@@ -11,14 +12,6 @@ const METRICS = [
   { id: "impressions", label: "Impressions" },
   { id: "reach", label: "Reach" },
 ];
-
-const CURRENCY_SYMBOL = (code) => {
-  try {
-    return (0).toLocaleString(undefined, { style: "currency", currency: code, minimumFractionDigits: 0 }).replace(/\d/g, "").trim() || code;
-  } catch {
-    return code;
-  }
-};
 
 function sumConversions(rows) {
   let total = 0;
@@ -108,7 +101,7 @@ export default function Overview() {
       .map(([id, spend]) => ({ id, name: campaignName[id] || id, spend }));
   }, [byCurrency, primaryCurrency, campaignName]);
 
-  const symbol = CURRENCY_SYMBOL(primaryCurrency);
+  const symbol = currencySymbol(primaryCurrency);
 
   return (
     <div className="kmkt-overview">
@@ -132,7 +125,7 @@ export default function Overview() {
       )}
 
       <div className="kmkt-kpi-row">
-        <KPI label="Spend" value={asCurrency(totals.spend, primaryCurrency)} />
+        <KPI label="Spend" value={money(totals.spend, primaryCurrency)} />
         <KPI label="Impressions" value={roundAmount(totals.impressions).toLocaleString()} />
         <KPI label="Clicks" value={roundAmount(totals.clicks).toLocaleString()} />
         <KPI
@@ -142,7 +135,7 @@ export default function Overview() {
         <KPI label="Reach" value={roundAmount(totals.reach).toLocaleString()} />
         <KPI
           label="Cost / result"
-          value={totals.conversions ? asCurrency(totals.spend / totals.conversions, primaryCurrency) : "—"}
+          value={totals.conversions ? money(totals.spend / totals.conversions, primaryCurrency) : "—"}
           deltaLabel={`${roundAmount(totals.conversions).toLocaleString()} results (all actions)`}
         />
       </div>
@@ -203,7 +196,7 @@ export default function Overview() {
                 <tr key={a.adId}>
                   <td>{a.adName}</td>
                   <td>{a.campaignName}</td>
-                  <td className="mono">{asCurrency(a.spend, a.currency)}</td>
+                  <td className="mono">{money(a.spend, a.currency)}</td>
                   <td className="mono">{roundAmount(a.clicks).toLocaleString()}</td>
                   <td className="mono">{roundAmount(a.impressions).toLocaleString()}</td>
                 </tr>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import Modal from "../Modal";
-import { asCurrency } from "../../utils/format";
+import { moneyMinor } from "./money";
 
 /**
  * Pause/resume and budget edits are real-money actions. A hard ceiling is
@@ -26,7 +26,7 @@ export default function BudgetEditDialog({ entity, level, currency, confirmMulti
     e.preventDefault();
     setErr("");
     if (!valueMinor || valueMinor <= 0) { setErr("Enter a budget greater than zero."); return; }
-    if (overCeiling) { setErr(`That's above the ${asCurrency(ceilingMinor / 100, currency)} ceiling set in Meta Ads → Settings.`); return; }
+    if (overCeiling) { setErr(`That's above the ${moneyMinor(ceilingMinor, currency)} ceiling set in Meta Ads → Settings.`); return; }
     if (needsConfirm) return; // checkbox below handles this instead of a hard stop
     onSubmit({ entity, level, field, valueMinor, confirmedOverCeiling });
   }
@@ -57,13 +57,13 @@ export default function BudgetEditDialog({ entity, level, currency, confirmMulti
         />
       </label>
       {currentMinor != null && (
-        <p className="kmkt-muted">Currently {asCurrency(currentMinor / 100, currency)}.</p>
+        <p className="kmkt-muted">Currently {moneyMinor(currentMinor, currency)}.</p>
       )}
       {overMultiplier && (
         <div className="kmkt-warn">
           <p>
             That's more than {confirmMultiplier}× the current budget
-            {currentMinor ? ` (${asCurrency(currentMinor / 100, currency)} → ${asCurrency(valueMinor / 100, currency)})` : ""}.
+            {currentMinor ? ` (${moneyMinor(currentMinor, currency)} → ${moneyMinor(valueMinor, currency)})` : ""}.
           </p>
           <label className="kmkt-check">
             <input

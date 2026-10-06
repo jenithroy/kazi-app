@@ -1,16 +1,15 @@
 import { Fragment, useEffect, useState } from "react";
 import { Card, Btn, Pill, Icons } from "../ui";
-import { asCurrency } from "../../utils/format";
 import { fetchAdAccounts, fetchAdsets, fetchAds, fetchCampaigns, fetchSettings } from "../../lib/metaAds";
 import { updateRow, insertRow } from "../../lib/db";
 import { runMetaAdsAction } from "../../lib/metaAdsApi";
 import BudgetEditDialog from "./BudgetEditDialog";
+import { moneyMinor } from "./money";
 
 const STATUS_TONE = { ACTIVE: "mint", PAUSED: "terra" };
 
 function money(minor, currency) {
-  if (minor == null) return "—";
-  return asCurrency(minor / 100, currency || "USD");
+  return moneyMinor(minor, currency || "USD");
 }
 
 /** One row for a campaign, ad set, or ad — same shape, same controls. */
