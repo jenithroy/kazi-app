@@ -9,7 +9,7 @@ import { moneyMinor } from "./money";
 const STATUS_TONE = { ACTIVE: "mint", PAUSED: "terra" };
 
 function money(minor, currency) {
-  return moneyMinor(minor, currency || "USD");
+  return moneyMinor(minor, currency);
 }
 
 /** One row for a campaign, ad set, or ad — same shape, same controls. */
@@ -60,7 +60,7 @@ export default function Campaigns({ canEdit }) {
   const [budgetTarget, setBudgetTarget] = useState(null); // {entity, level, currency}
 
   const load = () => fetchCampaigns().then(setCampaigns).catch((e) => setError(e.message));
-  const currencyFor = (entity) => currencyByAccount[entity.adAccountId] || "USD";
+  const currencyFor = (entity) => currencyByAccount[entity.adAccountId] || "";
 
   useEffect(() => {
     load();
@@ -157,7 +157,7 @@ export default function Campaigns({ canEdit }) {
 
   return (
     <div className="kmkt-campaigns">
-      {error && <p className="form-error">{error}</p>}
+      {error && !budgetTarget && <p className="form-error" role="alert">{error}</p>}
       <Card pad={false}>
         <table className="ktable">
           <thead>
@@ -234,10 +234,12 @@ export default function Campaigns({ canEdit }) {
           entity={budgetTarget.entity}
           level={budgetTarget.level}
           currency={budgetTarget.currency}
-          confirmMultiplier={settings?.confirmMultiplier || 3}
+          confirmMultiplier={settings?.confirmMultiplier}
           ceilingMinor={settings?.budgetCeilingMinor}
+          ceilingCurrency={settings?.budgetCeilingCurrency}
+          serverError={error}
           busy={busyId === budgetTarget.entity.id}
-          onCancel={() => setBudgetTarget(null)}
+          onCancel={() => { setBudgetTarget(null); setError(""); }}
           onSubmit={handleBudgetSubmit}
         />
       )}

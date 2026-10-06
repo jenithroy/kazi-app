@@ -2129,8 +2129,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background: var(--bg); outline: none;
 }
 .kmkt-warn {
-  background: rgba(196,101,74,.08);
-  border: 1px solid var(--terra);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid var(--amber);
   border-radius: 8px;
   padding: 10px 12px;
   margin: 10px 0;

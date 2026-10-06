@@ -16,6 +16,7 @@ export default function Settings({ canEdit }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = () => {
     fetchAdAccounts().then(setAccounts).catch((e) => setError(e.message));
@@ -74,16 +75,36 @@ export default function Settings({ canEdit }) {
   async function saveSettings(e) {
     e.preventDefault();
     setError("");
+    setNotice("");
+    const multiple = Number(settings.confirmMultiplier);
+    if (settings.confirmMultiplier === "" || !Number.isFinite(multiple) || multiple < 1) {
+      setError("The confirm multiple has to be 1 or more.");
+      return;
+    }
+    const ceilingCurrency = (settings.budgetCeilingCurrency || "").trim().toUpperCase();
+    if (settings.budgetCeilingMinor != null) {
+      if (!(settings.budgetCeilingMinor > 0)) {
+        setError("The ceiling has to be more than zero, or left blank for no ceiling.");
+        return;
+      }
+      if (!/^[A-Z]{3}$/.test(ceilingCurrency)) {
+        setError("Give the ceiling a 3-letter currency code (e.g. USD) — it's only checked against ad accounts in that currency.");
+        return;
+      }
+    }
+    setSaving(true);
     try {
       await updateRow("meta_ads_settings", "default", {
         budgetCeilingMinor: settings.budgetCeilingMinor,
-        budgetCeilingCurrency: settings.budgetCeilingCurrency,
-        confirmMultiplier: settings.confirmMultiplier,
+        budgetCeilingCurrency: ceilingCurrency || null,
+        confirmMultiplier: multiple,
       });
       setNotice("Settings saved.");
       load();
     } catch (e2) {
       setError(e2.message || "Couldn't save settings.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -171,6 +192,7 @@ export default function Settings({ canEdit }) {
                 <input
                   value={settings.budgetCeilingCurrency || ""}
                   disabled={!canEdit}
+                  maxLength={3}
                   placeholder="Currency (e.g. USD)"
                   onChange={(e) => setSettings((s) => ({ ...s, budgetCeilingCurrency: e.target.value.toUpperCase() }))}
                 />
@@ -180,11 +202,11 @@ export default function Settings({ canEdit }) {
               <span>Confirm step above this multiple of the current budget</span>
               <input
                 type="number" min="1" step="0.5" disabled={!canEdit}
-                value={settings.confirmMultiplier}
-                onChange={(e) => setSettings((s) => ({ ...s, confirmMultiplier: Number(e.target.value) }))}
+                value={settings.confirmMultiplier ?? ""}
+                onChange={(e) => setSettings((s) => ({ ...s, confirmMultiplier: e.target.value }))}
               />
             </label>
-            {canEdit && <Btn kind="primary" size="sm" type="submit">Save</Btn>}
+            {canEdit && <Btn kind="primary" size="sm" type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>}
           </form>
         </Card>
       )}

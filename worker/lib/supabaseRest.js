@@ -5,7 +5,8 @@
  * apikey header (plus Authorization for a legacy key, see serviceHeaders),
  * and Prefer headers for upsert semantics.
  * Used by metaSync.js (all of it) and index.js's /api/meta-ads/action route
- * (only to read meta_ads_settings' budget ceiling).
+ * (only to read meta_ads_settings' budget ceiling and the entity's ad
+ * account currency to check it against).
  */
 
 /**

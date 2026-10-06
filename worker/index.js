@@ -118,6 +118,7 @@ async function handleMetaAdsSync(request, env) {
 
 const PAUSE_RESUME_STATUS = { pause: "PAUSED", resume: "ACTIVE" };
 const BUDGET_FIELDS = new Set(["daily_budget", "lifetime_budget"]);
+const ENTITY_TABLE = { campaign: "meta_campaigns", adset: "meta_adsets", ad: "meta_ads" };
 
 /**
  * Pauses/resumes a campaign/adset/ad, or edits its budget, by calling Meta
@@ -151,17 +152,48 @@ async function handleMetaAdsAction(request, env) {
     }
 
     // Server-side hard stop — a client confirm dialog alone is not a real
-    // guard on live ad spend.
+    // guard on live ad spend. Minor units only compare within one currency,
+    // so a ceiling in a different currency (or with none set) refuses the
+    // edit rather than guessing at a conversion.
     const settingsRows = await supabaseSelect(env, "meta_ads_settings", {
       id: "eq.default",
-      select: "budget_ceiling_minor",
+      select: "budget_ceiling_minor,budget_ceiling_currency",
     });
     const ceiling = settingsRows?.[0]?.budget_ceiling_minor;
-    if (ceiling != null && valueMinor > ceiling) {
-      return Response.json(
-        { error: `That exceeds the budget ceiling (${ceiling} minor units).` },
-        { status: 400 }
-      );
+    if (ceiling != null) {
+      const ceilingCurrency = (settingsRows?.[0]?.budget_ceiling_currency || "").toUpperCase();
+      const table = ENTITY_TABLE[entityLevel];
+      const entityRows = await supabaseSelect(env, table, {
+        id: `eq.${entityId}`,
+        select: "ad_account_id,meta_ad_accounts(currency)",
+      });
+      const accountCurrency = (entityRows?.[0]?.meta_ad_accounts?.currency || "").toUpperCase();
+      const ceilingText = `${(ceiling / 100).toFixed(2)} ${ceilingCurrency || "(no currency)"}`;
+
+      if (!ceilingCurrency) {
+        return Response.json(
+          { error: `The budget ceiling (${ceilingText}) has no currency set. Set it in Meta Ads → Settings first.` },
+          { status: 400 }
+        );
+      }
+      if (!accountCurrency) {
+        return Response.json(
+          { error: "This ad account's currency isn't known yet. Run a sync, then try again." },
+          { status: 400 }
+        );
+      }
+      if (accountCurrency !== ceilingCurrency) {
+        return Response.json(
+          { error: `The budget ceiling is in ${ceilingCurrency} but this ad account spends in ${accountCurrency}, so it can't be checked. Change the ceiling's currency in Meta Ads → Settings.` },
+          { status: 400 }
+        );
+      }
+      if (valueMinor > ceiling) {
+        return Response.json(
+          { error: `That's above the budget ceiling of ${ceilingText}.` },
+          { status: 400 }
+        );
+      }
     }
 
     const result = await metaPost(`/${entityId}`, { [field]: valueMinor }, env);
