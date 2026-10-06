@@ -10,15 +10,61 @@ const METRICS = [
   { id: "spend", label: "Spend" },
   { id: "clicks", label: "Clicks" },
   { id: "impressions", label: "Impressions" },
-  { id: "reach", label: "Reach" },
 ];
 
-function sumConversions(rows) {
-  let total = 0;
-  for (const r of rows) {
-    for (const a of r.conversions || []) total += Number(a.value) || 0;
+/**
+ * Objective-based result counting: matches the campaign's stated goal to the
+ * right action in Meta's actions array, rather than summing all overlapping
+ * events (which double-counted link clicks inside post engagements).
+ */
+function countCampaignResults(actions, objective) {
+  if (!actions || !Array.isArray(actions) || actions.length === 0) return 0;
+  const obj = (objective || "").toUpperCase();
+
+  let targetTypes = [];
+  if (obj.includes("MESSAG") || obj.includes("ENGAGEMENT")) {
+    targetTypes = [
+      "onsite_conversion.messaging_conversation_started_7d",
+      "onsite_conversion.messaging_first_reply",
+      "messaging_conversation_started_7d",
+    ];
+  } else if (obj.includes("LEAD")) {
+    targetTypes = ["lead", "onsite_conversion.lead_grouped"];
+  } else if (obj.includes("TRAFFIC") || obj.includes("LINK_CLICK")) {
+    targetTypes = ["link_click"];
+  } else if (obj.includes("SALES") || obj.includes("CONVERSION")) {
+    targetTypes = ["purchase", "omni_purchase", "lead"];
+  } else if (obj.includes("AWARENESS") || obj.includes("REACH")) {
+    // Awareness campaigns aim for impressions, not a discrete conversion result
+    return 0;
+  } else {
+    // Fallback: search standard high-intent conversion types in priority order
+    targetTypes = [
+      "onsite_conversion.messaging_conversation_started_7d",
+      "lead",
+      "link_click",
+    ];
   }
-  return total;
+
+  for (const t of targetTypes) {
+    const act = actions.find((a) => a.action_type === t);
+    if (act && Number(act.value) > 0) {
+      return Number(act.value);
+    }
+  }
+  return 0;
+}
+
+function getDaysList(fromStr, toStr) {
+  if (!fromStr || !toStr) return [];
+  const list = [];
+  const cur = new Date(fromStr + "T00:00:00");
+  const end = new Date(toStr + "T00:00:00");
+  while (cur <= end) {
+    list.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return list;
 }
 
 export default function Overview() {
@@ -50,6 +96,19 @@ export default function Overview() {
     return () => { alive = false; };
   }, [range.dateFrom, range.dateTo]);
 
+  // Campaign objective map for result attribution
+  const campaignObjective = useMemo(() => {
+    const map = {};
+    for (const c of campaigns) map[c.id] = c.objective;
+    return map;
+  }, [campaigns]);
+
+  const campaignName = useMemo(() => {
+    const map = {};
+    for (const c of campaigns) map[c.id] = c.name;
+    return map;
+  }, [campaigns]);
+
   // Ad spend can only ever be summed within one currency — Meta doesn't
   // convert across ad accounts. Group by currency rather than silently
   // blending; in practice there is almost always exactly one group.
@@ -70,25 +129,19 @@ export default function Overview() {
       spend: rows.reduce((s, r) => s + Number(r.spend || 0), 0),
       clicks: rows.reduce((s, r) => s + Number(r.clicks || 0), 0),
       impressions: rows.reduce((s, r) => s + Number(r.impressions || 0), 0),
-      reach: rows.reduce((s, r) => s + Number(r.reach || 0), 0),
-      conversions: sumConversions(rows),
+      results: rows.reduce((s, r) => s + countCampaignResults(r.conversions, campaignObjective[r.campaignId]), 0),
     };
-  }, [byCurrency, primaryCurrency]);
+  }, [byCurrency, primaryCurrency, campaignObjective]);
 
-  const campaignName = useMemo(() => {
-    const map = {};
-    for (const c of campaigns) map[c.id] = c.name;
-    return map;
-  }, [campaigns]);
-
-  // Per-day trend for the picked metric, primary currency only.
+  // Per-day trend for the picked metric, zero-filling missing dates evenly.
   const trend = useMemo(() => {
     const rows = byCurrency[primaryCurrency] || [];
     const byDate = {};
     for (const r of rows) byDate[r.date] = (byDate[r.date] || 0) + Number(r[metric] || 0);
-    const dates = Object.keys(byDate).sort();
-    return { dates, data: dates.map((d) => byDate[d]) };
-  }, [byCurrency, primaryCurrency, metric]);
+    const dateRangeList = getDaysList(range.dateFrom, range.dateTo);
+    const dates = dateRangeList.length > 0 ? dateRangeList : Object.keys(byDate).sort();
+    return { dates, data: dates.map((d) => byDate[d] || 0) };
+  }, [byCurrency, primaryCurrency, metric, range.dateFrom, range.dateTo]);
 
   // Spend by campaign, primary currency only, top 8.
   const spendByCampaign = useMemo(() => {
@@ -114,7 +167,13 @@ export default function Overview() {
         )}
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+
+      {loading && insights.length === 0 && (
+        <Card>
+          <p className="kmkt-muted">Loading overview data…</p>
+        </Card>
+      )}
 
       {!loading && insights.length === 0 && !error && (
         <Card>
@@ -124,89 +183,94 @@ export default function Overview() {
         </Card>
       )}
 
-      <div className="kmkt-kpi-row">
-        <KPI label="Spend" value={money(totals.spend, primaryCurrency)} />
-        <KPI label="Impressions" value={roundAmount(totals.impressions).toLocaleString()} />
-        <KPI label="Clicks" value={roundAmount(totals.clicks).toLocaleString()} />
-        <KPI
-          label="CTR"
-          value={totals.impressions ? ((totals.clicks / totals.impressions) * 100).toFixed(2) + "%" : "—"}
-        />
-        <KPI label="Reach" value={roundAmount(totals.reach).toLocaleString()} />
-        <KPI
-          label="Cost / result"
-          value={totals.conversions ? money(totals.spend / totals.conversions, primaryCurrency) : "—"}
-          deltaLabel={`${roundAmount(totals.conversions).toLocaleString()} results (all actions)`}
-        />
-      </div>
-
-      <Card
-        title="Trend"
-        action={
-          <div className="kmkt-metric-pick">
-            {METRICS.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                className={m.id === metric ? "is-on" : ""}
-                onClick={() => setMetric(m.id)}
-              >
-                {m.label}
-              </button>
-            ))}
+      {insights.length > 0 && (
+        <>
+          <div className="kmkt-kpi-row">
+            <KPI label="Spend" value={money(totals.spend, primaryCurrency)} />
+            <KPI label="Impressions" value={roundAmount(totals.impressions).toLocaleString()} />
+            <KPI label="Clicks" value={roundAmount(totals.clicks).toLocaleString()} />
+            <KPI
+              label="CTR (all)"
+              value={totals.impressions ? ((totals.clicks / totals.impressions) * 100).toFixed(2) + "%" : "—"}
+            />
+            <KPI
+              label="Cost / result"
+              value={totals.results > 0 ? money(totals.spend / totals.results, primaryCurrency) : "—"}
+              deltaLabel={totals.results > 0 ? `${roundAmount(totals.results).toLocaleString()} results` : undefined}
+            />
           </div>
-        }
-      >
-        {trend.dates.length > 0 ? (
-          <AreaChart
-            series={[{ label: METRICS.find((m) => m.id === metric)?.label, data: trend.data, color: "var(--mint-deep)" }]}
-            dates={trend.dates}
-            valuePrefix={metric === "spend" ? symbol : ""}
-          />
-        ) : (
-          <p className="kmkt-muted">Nothing to chart yet.</p>
-        )}
-      </Card>
 
-      <Card title="Spend by campaign">
-        {spendByCampaign.length > 0 ? (
-          <Bars
-            data={spendByCampaign.map((c) => roundAmount(c.spend))}
-            labels={spendByCampaign.map((c) => c.name)}
-          />
-        ) : (
-          <p className="kmkt-muted">Nothing to chart yet.</p>
-        )}
-      </Card>
+          <Card
+            title="Trend"
+            action={
+              <div className="kmkt-metric-pick">
+                {METRICS.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={m.id === metric ? "is-on" : ""}
+                    onClick={() => setMetric(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            {trend.dates.length > 0 ? (
+              <AreaChart
+                series={[{ label: METRICS.find((m) => m.id === metric)?.label, data: trend.data, color: "var(--mint-deep)" }]}
+                dates={trend.dates}
+                valuePrefix={metric === "spend" ? symbol : ""}
+              />
+            ) : (
+              <p className="kmkt-muted">Nothing to chart yet.</p>
+            )}
+          </Card>
 
-      <Card title="Top ads" sub="Ranked by spend in this range">
-        {topAds.length > 0 ? (
-          <table className="ktable">
-            <thead>
-              <tr>
-                <th>Ad</th>
-                <th>Campaign</th>
-                <th>Spend</th>
-                <th>Clicks</th>
-                <th>Impressions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topAds.map((a) => (
-                <tr key={a.adId}>
-                  <td>{a.adName}</td>
-                  <td>{a.campaignName}</td>
-                  <td className="mono">{money(a.spend, a.currency)}</td>
-                  <td className="mono">{roundAmount(a.clicks).toLocaleString()}</td>
-                  <td className="mono">{roundAmount(a.impressions).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="kmkt-muted">Nothing synced for this range yet.</p>
-        )}
-      </Card>
+          <Card title="Spend by campaign">
+            {spendByCampaign.length > 0 ? (
+              <Bars
+                data={spendByCampaign.map((c) => roundAmount(c.spend))}
+                labels={spendByCampaign.map((c) => c.name)}
+              />
+            ) : (
+              <p className="kmkt-muted">Nothing to chart yet.</p>
+            )}
+          </Card>
+
+          <Card title="Top ads" sub="Ranked by spend in this range">
+            {topAds.length > 0 ? (
+              <div className="kmkt-table-scroll">
+                <table className="ktable">
+                  <thead>
+                    <tr>
+                      <th>Ad</th>
+                      <th>Campaign</th>
+                      <th className="kmkt-num">Spend</th>
+                      <th className="kmkt-num">Clicks</th>
+                      <th className="kmkt-num">Impressions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topAds.map((a) => (
+                      <tr key={a.adId}>
+                        <td>{a.adName}</td>
+                        <td>{a.campaignName}</td>
+                        <td className="mono kmkt-num">{money(a.spend, a.currency)}</td>
+                        <td className="mono kmkt-num">{roundAmount(a.clicks).toLocaleString()}</td>
+                        <td className="mono kmkt-num">{roundAmount(a.impressions).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="kmkt-muted">Nothing synced for this range yet.</p>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 }

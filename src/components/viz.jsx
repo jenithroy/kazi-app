@@ -19,16 +19,16 @@ export function AreaChart({ series, height = 220, dates, valuePrefix = "£" }) {
   const maxV = (Math.max(...allValues) || 1) * 1.15;
   const n = series[0].data.length;
 
-  const x = (i) => padL + (i / (n - 1)) * w;
+  const x = (i) => padL + (n > 1 ? (i / (n - 1)) * w : w / 2);
   const y = (v) => padT + h - (v / maxV) * h;
   const path = (data) => data.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
   const area = (data) => path(data) + ` L${x(n-1).toFixed(1)} ${padT+h} L${x(0).toFixed(1)} ${padT+h} Z`;
 
   const onMove = (e) => {
-    if (!ref.current) return;
+    if (!ref.current || n <= 0) return;
     const r = ref.current.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * W;
-    const i = Math.max(0, Math.min(n-1, Math.round((px - padL) / w * (n-1))));
+    const i = n > 1 ? Math.max(0, Math.min(n-1, Math.round((px - padL) / w * (n-1)))) : 0;
     setHover(i);
   };
 
