@@ -33,34 +33,37 @@ function formatShortDate(iso) {
 }
 
 function countCampaignResults(actions, objective) {
-  if (!actions || !Array.isArray(actions) || actions.length === 0) return 0;
+  if (!actions) return 0;
   const obj = (objective || "").toUpperCase();
 
-  let targetTypes = [];
   if (obj.includes("MESSAG") || obj.includes("ENGAGEMENT")) {
-    targetTypes = [
-      "onsite_conversion.messaging_conversation_started_7d",
-      "onsite_conversion.messaging_first_reply",
-      "messaging_conversation_started_7d",
-    ];
+    const msgs = countMessages(actions);
+    if (msgs > 0) return msgs;
   } else if (obj.includes("LEAD")) {
-    targetTypes = ["lead", "onsite_conversion.lead_grouped"];
+    const leads = countLeads(actions);
+    if (leads > 0) return leads;
   } else if (obj.includes("TRAFFIC") || obj.includes("LINK_CLICK")) {
-    targetTypes = ["link_click"];
-  } else if (obj.includes("SALES") || obj.includes("CONVERSION")) {
-    targetTypes = ["purchase", "omni_purchase", "lead"];
-  } else if (obj.includes("AWARENESS") || obj.includes("REACH")) {
-    return 0;
-  } else {
-    targetTypes = [
-      "onsite_conversion.messaging_conversation_started_7d",
-      "lead",
-      "link_click",
-    ];
+    const clicks = countLinkClicks(actions);
+    if (clicks > 0) return clicks;
   }
 
+  let targetTypes = [
+    "onsite_conversion.messaging_conversation_started_7d",
+    "onsite_conversion.messaging_conversation_started",
+    "onsite_conversion.total_messaging_connection",
+    "contact",
+    "lead",
+    "link_click",
+  ];
+
+  let list = actions;
+  if (typeof actions === "string") {
+    try { list = JSON.parse(actions); } catch { return 0; }
+  }
+  if (!Array.isArray(list)) return 0;
+
   for (const t of targetTypes) {
-    const act = actions.find((a) => a.action_type === t);
+    const act = list.find((a) => a && a.action_type === t);
     if (act && Number(act.value) > 0) {
       return Number(act.value);
     }

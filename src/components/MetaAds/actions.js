@@ -10,8 +10,16 @@
 const MESSAGE_ACTION_TYPES = [
   "onsite_conversion.messaging_conversation_started_7d",
   "messaging_conversation_started_7d",
+  "onsite_conversion.messaging_conversation_started",
+  "messaging_conversation_started",
+  "onsite_conversion.total_messaging_connection",
+  "total_messaging_connection",
   "onsite_conversion.messaging_first_reply",
+  "messaging_first_reply",
   "onsite_conversion.messaging_welcome_message_view",
+  "onsite_conversion.messaging_user_depth_2_message_send",
+  "contact",
+  "onsite_conversion.contact",
 ];
 
 const COMMENT_ACTION_TYPES = ["comment", "post_comment"];
@@ -43,7 +51,32 @@ export function getActionValue(actions, targetTypes) {
 }
 
 export function countMessages(actions) {
-  return getActionValue(actions, MESSAGE_ACTION_TYPES);
+  const direct = getActionValue(actions, MESSAGE_ACTION_TYPES);
+  if (direct > 0) return direct;
+
+  if (!actions) return 0;
+  let list = actions;
+  if (typeof actions === "string") {
+    try {
+      list = JSON.parse(actions);
+    } catch {
+      return 0;
+    }
+  }
+  if (!Array.isArray(list)) return 0;
+
+  for (const item of list) {
+    if (!item || !item.action_type) continue;
+    const type = item.action_type.toLowerCase();
+    if (
+      (type.includes("messaging") || type.includes("conversation_started") || type.includes("contact")) &&
+      !type.includes("block") &&
+      Number(item.value) > 0
+    ) {
+      return Number(item.value);
+    }
+  }
+  return 0;
 }
 
 export function countComments(actions) {
