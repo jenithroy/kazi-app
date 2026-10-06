@@ -2340,9 +2340,123 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background-size: 200% 100%;
   animation: kmkt-shimmer 1.5s infinite;
 }
-@keyframes kmkt-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+/* ── Phase D: Campaigns Toolbar & Form Controls ── */
+.kmkt-campaigns-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.kmkt-campaigns-toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.kmkt-campaigns-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 7px);
+  padding: 5px 10px;
+  font-size: 12.5px;
+  color: var(--ink);
+  min-width: 200px;
+}
+.kmkt-campaigns-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: var(--font);
+  font-size: 12.5px;
+  color: var(--ink);
+  width: 100%;
+}
+.kmkt-campaigns-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.kmkt-archived-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  cursor: pointer;
+  user-select: none;
+}
+.kmkt-entity-sub {
+  font-size: 11.5px;
+  color: var(--ink-4);
+  margin-top: 2px;
+}
+.kmkt-budget-inherited {
+  color: var(--ink-4);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ── Currency Input Group & Budget Delta ── */
+.kmkt-input-currency-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.kmkt-currency-tag {
+  padding: 7px 12px;
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+}
+.kmkt-currency-input {
+  flex: 1;
+  border: none;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-family: var(--mono);
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+}
+.kmkt-budget-delta {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 4px 0 10px;
+}
+.kmkt-budget-delta--up {
+  color: var(--mint-deep);
+}
+.kmkt-budget-delta--down {
+  color: var(--ink-3);
+}
+.kmkt-err-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--terra) 10%, transparent);
+  border: 1px solid var(--terra);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.kmkt-err-box svg {
+  color: var(--terra);
+  flex-shrink: 0;
 }
 
 /* Wide tables scroll sideways inside their card instead of being crushed

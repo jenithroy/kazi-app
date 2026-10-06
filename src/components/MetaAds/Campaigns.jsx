@@ -4,54 +4,139 @@ import { fetchAdAccounts, fetchAdsets, fetchAds, fetchCampaigns, fetchSettings }
 import { updateRow, insertRow } from "../../lib/db";
 import { runMetaAdsAction } from "../../lib/metaAdsApi";
 import BudgetEditDialog from "./BudgetEditDialog";
+import ConfirmPauseResumeModal from "./ConfirmPauseResumeModal";
+import { getMetaStatus } from "./status";
 import { moneyMinor } from "./money";
 
-const STATUS_TONE = { ACTIVE: "mint", PAUSED: "terra" };
-// Paused because a parent is paused — the entity's own status may still be
-// ACTIVE, so its own Pause/Resume button would be misleading.
-const PAUSED_BY_PARENT = { CAMPAIGN_PAUSED: "Paused by its campaign", ADSET_PAUSED: "Paused by its ad set" };
-const COLS = 5;
+const PAUSED_BY_PARENT = {
+  CAMPAIGN_PAUSED: "Paused by campaign",
+  ADSET_PAUSED: "Paused by ad set",
+};
+const COLS = 4;
 
 function money(minor, currency) {
   return moneyMinor(minor, currency);
 }
 
-function statusLabel(s) {
-  if (!s) return "—";
-  const t = s.toLowerCase().replace(/_/g, " ");
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
-
 /** One row for a campaign, ad set, or ad — same shape, same controls. */
-function EntityRow({ entity, level, currency, canEdit, depth, expanded, onToggle, hasChildren, busy, onPauseResume, onEditBudget }) {
-  const status = entity.effectiveStatus || entity.status;
+function EntityRow({
+  entity,
+  level,
+  currency,
+  parentHasBudget,
+  canEdit,
+  depth,
+  expanded,
+  onToggle,
+  hasChildren,
+  busy,
+  onConfirmPauseResume,
+  onEditBudget,
+}) {
+  const statusInfo = getMetaStatus(entity.effectiveStatus, entity.status);
   const pausedByParent = PAUSED_BY_PARENT[entity.effectiveStatus];
   const isPaused = entity.status === "PAUSED";
   const canToggle = canEdit && !pausedByParent && (entity.status === "ACTIVE" || entity.status === "PAUSED");
+  const hasOwnBudget = entity.dailyBudgetMinor != null || entity.lifetimeBudgetMinor != null;
+
+  let budgetDisplay = "—";
+  if (entity.dailyBudgetMinor != null) {
+    budgetDisplay = `${money(entity.dailyBudgetMinor, currency)} / day`;
+  } else if (entity.lifetimeBudgetMinor != null) {
+    budgetDisplay = `${money(entity.lifetimeBudgetMinor, currency)} total`;
+  } else if (level === "adset" && parentHasBudget) {
+    budgetDisplay = <span className="kmkt-budget-inherited">Campaign budget</span>;
+  }
+
   return (
     <tr>
-      <td style={{ paddingLeft: 16 + depth * 20 }}>
-        {hasChildren && (
-          <button type="button" className="kmkt-expand" onClick={onToggle} aria-label={expanded ? "Collapse" : "Expand"} aria-expanded={expanded}>
-            <Icons.ChevronRight size={13} style={{ transform: expanded ? "rotate(90deg)" : "none" }} />
-          </button>
-        )}
-        {entity.name}
+      <td style={{ paddingLeft: 16 + depth * 22 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {hasChildren ? (
+            <button
+              type="button"
+              className="kmkt-expand"
+              onClick={onToggle}
+              aria-label={expanded ? "Collapse" : "Expand"}
+              aria-expanded={expanded}
+            >
+              <Icons.ChevronRight
+                size={13}
+                style={{
+                  transform: expanded ? "rotate(90deg)" : "none",
+                  transition: "transform 0.15s ease",
+                }}
+              />
+            </button>
+          ) : (
+            <span style={{ width: 16, display: "inline-block" }} />
+          )}
+
+          {level === "ad" && entity.creativeThumbnailUrl && (
+            <img
+              src={entity.creativeThumbnailUrl}
+              alt=""
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 4,
+                objectFit: "cover",
+                flexShrink: 0,
+                background: "var(--bg-2)",
+              }}
+            />
+          )}
+
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontWeight: level === "campaign" ? 600 : level === "adset" ? 500 : 400,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: 420,
+              }}
+            >
+              {entity.name}
+            </div>
+            {level === "campaign" && entity.objective && (
+              <div className="kmkt-entity-sub">
+                {entity.objective.toLowerCase().replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase())}
+              </div>
+            )}
+          </div>
+        </div>
       </td>
-      <td><Pill tone={STATUS_TONE[status] || "neutral"}>{statusLabel(status)}</Pill></td>
-      <td className="mono kmkt-num">{money(entity.dailyBudgetMinor, currency)}{entity.dailyBudgetMinor != null ? "/day" : ""}</td>
-      <td className="mono kmkt-num">{money(entity.lifetimeBudgetMinor, currency)}</td>
+      <td>
+        <Pill tone={statusInfo.tone} dot>
+          {statusInfo.label}
+        </Pill>
+      </td>
+      <td className="mono kmkt-num">{budgetDisplay}</td>
       <td>
         <div className="kmkt-row-actions">
-          {canEdit && pausedByParent && <span className="kmkt-muted">{pausedByParent}</span>}
+          {canEdit && pausedByParent && (
+            <span className="kmkt-muted" style={{ fontSize: 12 }}>
+              {pausedByParent}
+            </span>
+          )}
           {canToggle && (
-            <Btn kind="ghost" size="sm" disabled={busy}
-              onClick={() => onPauseResume(entity, level, isPaused ? "resume" : "pause")}>
+            <Btn
+              kind="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => onConfirmPauseResume(entity, level, isPaused ? "resume" : "pause")}
+            >
               {isPaused ? "Resume" : "Pause"}
             </Btn>
           )}
-          {canEdit && (entity.dailyBudgetMinor != null || entity.lifetimeBudgetMinor != null) && (
-            <Btn kind="ghost" size="sm" disabled={busy} onClick={() => onEditBudget(entity, level, currency)}>
+          {canEdit && hasOwnBudget && (
+            <Btn
+              kind="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => onEditBudget(entity, level, currency)}
+            >
               Edit budget
             </Btn>
           )}
@@ -64,26 +149,42 @@ function EntityRow({ entity, level, currency, canEdit, depth, expanded, onToggle
 /** Loading / error / empty row shown under an expanded parent. */
 function ChildStateRow({ depth, state, emptyText, onRetry }) {
   if (state === "loading") {
-    return <tr><td colSpan={COLS} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 20 }}>Loading…</td></tr>;
-  }
-  if (state === "error") {
     return (
       <tr>
-        <td colSpan={COLS} style={{ paddingLeft: 16 + depth * 20 }}>
-          <span className="form-error" role="alert">Couldn't load these.</span>{" "}
-          <Btn kind="ghost" size="sm" onClick={onRetry}>Retry</Btn>
+        <td colSpan={COLS} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 22 }}>
+          Loading…
         </td>
       </tr>
     );
   }
-  return <tr><td colSpan={COLS} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 20 }}>{emptyText}</td></tr>;
+  if (state === "error") {
+    return (
+      <tr>
+        <td colSpan={COLS} style={{ paddingLeft: 16 + depth * 22 }}>
+          <span className="form-error" role="alert">
+            Couldn't load these.
+          </span>{" "}
+          <Btn kind="ghost" size="sm" onClick={onRetry}>
+            Retry
+          </Btn>
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr>
+      <td colSpan={COLS} className="kmkt-muted" style={{ paddingLeft: 16 + depth * 22 }}>
+        {emptyText}
+      </td>
+    </tr>
+  );
 }
 
 export default function Campaigns({ canEdit }) {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [adsets, setAdsets] = useState({});   // campaignId -> rows
-  const [ads, setAds] = useState({});         // adsetId -> rows
+  const [adsets, setAdsets] = useState({}); // campaignId -> rows
+  const [ads, setAds] = useState({}); // adsetId -> rows
   const [childState, setChildState] = useState({}); // id -> "loading" | "error"
   const [currencyByAccount, setCurrencyByAccount] = useState({});
   const [expandedC, setExpandedC] = useState(new Set());
@@ -91,23 +192,34 @@ export default function Campaigns({ canEdit }) {
   const [settings, setSettings] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
-  const [budgetTarget, setBudgetTarget] = useState(null); // {entity, level, currency}
+
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "active" | "paused" | "issues"
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Modals
+  const [budgetTarget, setBudgetTarget] = useState(null); // { entity, level, currency }
+  const [confirmTarget, setConfirmTarget] = useState(null); // { entity, level, action }
 
   const load = () =>
     fetchCampaigns()
       .then(setCampaigns)
       .catch((e) => setError(e.message || "Couldn't load campaigns."))
       .finally(() => setLoading(false));
+
   const currencyFor = (entity) => currencyByAccount[entity.adAccountId] || "";
 
   useEffect(() => {
     load();
     fetchSettings().then(setSettings).catch(() => {});
-    fetchAdAccounts().then((rows) => {
-      const map = {};
-      for (const a of rows) map[a.id] = a.currency;
-      setCurrencyByAccount(map);
-    }).catch(() => {});
+    fetchAdAccounts()
+      .then((rows) => {
+        const map = {};
+        for (const a of rows) map[a.id] = a.currency;
+        setCurrencyByAccount(map);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -118,7 +230,11 @@ export default function Campaigns({ canEdit }) {
     try {
       const rows = await fetcher(parentId);
       setter((s) => ({ ...s, [parentId]: rows }));
-      setChildState((s) => { const n = { ...s }; delete n[parentId]; return n; });
+      setChildState((s) => {
+        const n = { ...s };
+        delete n[parentId];
+        return n;
+      });
     } catch {
       setChildState((s) => ({ ...s, [parentId]: "error" }));
     }
@@ -175,7 +291,10 @@ export default function Campaigns({ canEdit }) {
     try {
       const res = await runMetaAdsAction({ entityLevel: level, entityId: entity.id, action });
       const newStatus = action === "pause" ? "PAUSED" : "ACTIVE";
-      await updateRow(collectionFor(level), entity.id, { status: newStatus, effectiveStatus: res?.newState?.effective_status || newStatus });
+      await updateRow(collectionFor(level), entity.id, {
+        status: newStatus,
+        effectiveStatus: res?.newState?.effective_status || newStatus,
+      });
       await logAction(entity, level, action, null, { status: entity.status }, { status: newStatus });
       load();
       refreshLoadedChildren();
@@ -191,9 +310,14 @@ export default function Campaigns({ canEdit }) {
     setBusyId(entity.id);
     try {
       await runMetaAdsAction({ entityLevel: level, entityId: entity.id, action: "budget_edit", field, valueMinor });
-      await updateRow(collectionFor(level), entity.id, { [field === "daily_budget" ? "dailyBudgetMinor" : "lifetimeBudgetMinor"]: valueMinor });
+      await updateRow(collectionFor(level), entity.id, {
+        [field === "daily_budget" ? "dailyBudgetMinor" : "lifetimeBudgetMinor"]: valueMinor,
+      });
       await logAction(
-        entity, level, "budget_edit", field,
+        entity,
+        level,
+        "budget_edit",
+        field,
         { [field]: field === "daily_budget" ? entity.dailyBudgetMinor : entity.lifetimeBudgetMinor },
         { [field]: valueMinor },
         confirmedOverCeiling
@@ -208,97 +332,231 @@ export default function Campaigns({ canEdit }) {
     }
   }
 
-  const rowProps = (entity, level) => ({
+  const isArchived = (c) => {
+    const s = (c.effectiveStatus || c.status || "").toUpperCase();
+    return s === "ARCHIVED" || s === "DELETED";
+  };
+  const archivedCount = campaigns.filter(isArchived).length;
+
+  const filteredCampaigns = campaigns.filter((c) => {
+    if (!showArchived && isArchived(c)) {
+      return false;
+    }
+
+    const eff = (c.effectiveStatus || c.status || "").toUpperCase();
+    if (statusFilter === "active" && eff !== "ACTIVE") {
+      return false;
+    }
+    if (statusFilter === "paused" && eff !== "PAUSED" && eff !== "CAMPAIGN_PAUSED") {
+      return false;
+    }
+    if (statusFilter === "issues") {
+      const issueStatuses = ["WITH_ISSUES", "PENDING_BILLING_INFO", "DISAPPROVED"];
+      if (!issueStatuses.includes(eff)) {
+        return false;
+      }
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesName = c.name?.toLowerCase().includes(q);
+      const matchesObjective = c.objective?.toLowerCase().includes(q);
+      if (!matchesName && !matchesObjective) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const rowProps = (entity, level, parentHasBudget = false) => ({
     entity,
     level,
     currency: currencyFor(entity),
+    parentHasBudget,
     canEdit,
     busy: busyId === entity.id,
-    onPauseResume: handlePauseResume,
+    onConfirmPauseResume: (ent, lvl, act) => setConfirmTarget({ entity: ent, level: lvl, action: act }),
     onEditBudget: (e, l, currency) => setBudgetTarget({ entity: e, level: l, currency }),
   });
 
   return (
     <div className="kmkt-campaigns">
-      {error && !budgetTarget && <p className="form-error" role="alert">{error}</p>}
+      {error && !budgetTarget && !confirmTarget && (
+        <p className="form-error" role="alert" style={{ marginBottom: 12 }}>
+          {error}
+        </p>
+      )}
+
+      {/* Toolbar */}
+      <div className="kmkt-campaigns-toolbar">
+        <div className="kmkt-campaigns-toolbar-left">
+          <div className="kmkt-campaigns-search">
+            <Icons.Search size={14} style={{ color: "var(--ink-4)", flexShrink: 0 }} />
+            <input
+              type="text"
+              placeholder="Search campaigns…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                  color: "var(--ink-3)",
+                  display: "flex",
+                }}
+                aria-label="Clear search"
+              >
+                <Icons.X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div
+            style={{
+              display: "inline-flex",
+              background: "var(--bg-2)",
+              padding: 2,
+              borderRadius: "var(--r-sm, 7px)",
+              gap: 2,
+            }}
+          >
+            {[
+              { id: "all", label: "All" },
+              { id: "active", label: "Active" },
+              { id: "paused", label: "Paused" },
+              { id: "issues", label: "Needs attention" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setStatusFilter(tab.id)}
+                style={{
+                  border: "none",
+                  background: statusFilter === tab.id ? "var(--card)" : "transparent",
+                  color: statusFilter === tab.id ? "var(--ink)" : "var(--ink-3)",
+                  fontWeight: statusFilter === tab.id ? 600 : 500,
+                  fontSize: 12.5,
+                  padding: "5px 11px",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  boxShadow: statusFilter === tab.id ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="kmkt-campaigns-toolbar-right">
+          <label className="kmkt-archived-toggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            <span>Show archived {archivedCount > 0 ? `(${archivedCount})` : ""}</span>
+          </label>
+        </div>
+      </div>
+
       <Card pad={false}>
         <div className="kmkt-table-scroll">
           <table className="ktable">
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Status</th>
-                <th className="kmkt-num">Daily budget</th>
-                <th className="kmkt-num">Lifetime budget</th>
+                <th>Delivery</th>
+                <th className="kmkt-num">Budget</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((c) => (
-                <Fragment key={c.id}>
-                  <EntityRow
-                    {...rowProps(c, "campaign")}
-                    depth={0}
-                    expanded={expandedC.has(c.id)}
-                    onToggle={() => toggleCampaign(c)}
-                    hasChildren
-                  />
-                  {expandedC.has(c.id) && (
-                    childState[c.id] || (adsets[c.id] || []).length === 0 ? (
-                      <ChildStateRow
-                        depth={1}
-                        state={childState[c.id]}
-                        emptyText="No ad sets synced for this campaign."
-                        onRetry={() => loadChildren("adsets", c.id)}
-                      />
-                    ) : (
-                      adsets[c.id].map((a) => (
-                        <Fragment key={a.id}>
-                          <EntityRow
-                            {...rowProps(a, "adset")}
-                            depth={1}
-                            expanded={expandedA.has(a.id)}
-                            onToggle={() => toggleAdset(a)}
-                            hasChildren
-                          />
-                          {expandedA.has(a.id) && (
-                            childState[a.id] || (ads[a.id] || []).length === 0 ? (
-                              <ChildStateRow
-                                depth={2}
-                                state={childState[a.id]}
-                                emptyText="No ads synced for this ad set."
-                                onRetry={() => loadChildren("ads", a.id)}
-                              />
-                            ) : (
-                              ads[a.id].map((ad) => (
-                                <EntityRow
-                                  key={ad.id}
-                                  {...rowProps(ad, "ad")}
+              {filteredCampaigns.map((c) => {
+                const campaignHasBudget = c.dailyBudgetMinor != null || c.lifetimeBudgetMinor != null;
+                return (
+                  <Fragment key={c.id}>
+                    <EntityRow
+                      {...rowProps(c, "campaign")}
+                      depth={0}
+                      expanded={expandedC.has(c.id)}
+                      onToggle={() => toggleCampaign(c)}
+                      hasChildren
+                    />
+                    {expandedC.has(c.id) &&
+                      (childState[c.id] || (adsets[c.id] || []).length === 0 ? (
+                        <ChildStateRow
+                          depth={1}
+                          state={childState[c.id]}
+                          emptyText="No ad sets synced for this campaign."
+                          onRetry={() => loadChildren("adsets", c.id)}
+                        />
+                      ) : (
+                        adsets[c.id].map((a) => (
+                          <Fragment key={a.id}>
+                            <EntityRow
+                              {...rowProps(a, "adset", campaignHasBudget)}
+                              depth={1}
+                              expanded={expandedA.has(a.id)}
+                              onToggle={() => toggleAdset(a)}
+                              hasChildren
+                            />
+                            {expandedA.has(a.id) &&
+                              (childState[a.id] || (ads[a.id] || []).length === 0 ? (
+                                <ChildStateRow
                                   depth={2}
-                                  expanded={false}
-                                  onToggle={() => {}}
-                                  hasChildren={false}
+                                  state={childState[a.id]}
+                                  emptyText="No ads synced for this ad set."
+                                  onRetry={() => loadChildren("ads", a.id)}
                                 />
-                              ))
-                            )
-                          )}
-                        </Fragment>
-                      ))
-                    )
-                  )}
-                </Fragment>
-              ))}
+                              ) : (
+                                ads[a.id].map((ad) => (
+                                  <EntityRow
+                                    key={ad.id}
+                                    {...rowProps(ad, "ad")}
+                                    depth={2}
+                                    expanded={false}
+                                    onToggle={() => {}}
+                                    hasChildren={false}
+                                  />
+                                ))
+                              ))}
+                          </Fragment>
+                        ))
+                      ))}
+                  </Fragment>
+                );
+              })}
               {loading && campaigns.length === 0 && (
-                <tr><td colSpan={COLS} className="kmkt-muted">Loading campaigns…</td></tr>
+                <tr>
+                  <td colSpan={COLS} className="kmkt-muted" style={{ padding: "20px 16px", textAlign: "center" }}>
+                    Loading campaigns…
+                  </td>
+                </tr>
               )}
-              {!loading && !error && campaigns.length === 0 && (
-                <tr><td colSpan={COLS} className="kmkt-muted">No campaigns synced yet — run a sync from Settings.</td></tr>
+              {!loading && !error && filteredCampaigns.length === 0 && (
+                <tr>
+                  <td colSpan={COLS} className="kmkt-muted" style={{ padding: "24px 16px", textAlign: "center" }}>
+                    {campaigns.length === 0
+                      ? "No campaigns synced yet — run a sync from Settings."
+                      : "No campaigns match your current filters."}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
       </Card>
 
+      {/* Budget Editor Modal */}
       {budgetTarget && (
         <BudgetEditDialog
           entity={budgetTarget.entity}
@@ -309,8 +567,26 @@ export default function Campaigns({ canEdit }) {
           ceilingCurrency={settings?.budgetCeilingCurrency}
           serverError={error}
           busy={busyId === budgetTarget.entity.id}
-          onCancel={() => { setBudgetTarget(null); setError(""); }}
+          onCancel={() => {
+            setBudgetTarget(null);
+            setError("");
+          }}
           onSubmit={handleBudgetSubmit}
+        />
+      )}
+
+      {/* Pause / Resume Confirmation Modal */}
+      {confirmTarget && (
+        <ConfirmPauseResumeModal
+          entity={confirmTarget.entity}
+          level={confirmTarget.level}
+          action={confirmTarget.action}
+          busy={busyId === confirmTarget.entity.id}
+          onClose={() => setConfirmTarget(null)}
+          onConfirm={async (entity, level, action) => {
+            await handlePauseResume(entity, level, action);
+            setConfirmTarget(null);
+          }}
         />
       )}
     </div>

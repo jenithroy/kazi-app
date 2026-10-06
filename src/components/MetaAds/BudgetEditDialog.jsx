@@ -1,23 +1,29 @@
 import { useState } from "react";
 import Modal from "../Modal";
-import { Btn } from "../ui";
+import { Btn, Icons } from "../ui";
 import { moneyMinor } from "./money";
 
 /**
- * Pause/resume and budget edits are real-money actions. A hard ceiling is
- * enforced server-side (the Worker checks meta_ads_settings.budget_ceiling_minor
- * and its currency before ever calling Meta — this dialog's own check is a
- * courtesy, not the real guard). The over-multiple confirm step here IS the
- * real guard for that specific case, since nothing server-side blocks a
- * merely-large-but-under-ceiling jump.
- *
- * Checks run live, in order: positive amount → ceiling currency → ceiling →
- * multiple. The multiple's confirm only shows once nothing harder blocks the
- * save, so ticking it can never lead to a refusal.
+ * Budget Editor per REDESIGN §4.4:
+ * - Checks run live: amount > 0 -> over ceiling (hard stop, Save off) -> over multiple (amber confirm)
+ * - Real-time delta display (+/- vs now)
+ * - Save button displays the exact amount to be set
  */
-export default function BudgetEditDialog({ entity, level, currency, confirmMultiplier, ceilingMinor, ceilingCurrency, serverError, busy, onCancel, onSubmit }) {
-  const field = entity.dailyBudgetMinor != null || entity.lifetimeBudgetMinor == null ? "daily_budget" : "lifetime_budget";
-  const currentMinor = field === "daily_budget" ? entity.dailyBudgetMinor : entity.lifetimeBudgetMinor;
+export default function BudgetEditDialog({
+  entity,
+  level = "campaign",
+  currency = "USD",
+  confirmMultiplier,
+  ceilingMinor,
+  ceilingCurrency,
+  serverError,
+  busy,
+  onCancel,
+  onSubmit,
+}) {
+  const isDaily = entity.dailyBudgetMinor != null || entity.lifetimeBudgetMinor == null;
+  const field = isDaily ? "daily_budget" : "lifetime_budget";
+  const currentMinor = isDaily ? entity.dailyBudgetMinor : entity.lifetimeBudgetMinor;
   const [amount, setAmount] = useState(currentMinor != null ? (currentMinor / 100).toString() : "");
   const [confirmedBigJump, setConfirmedBigJump] = useState(false);
 
@@ -31,58 +37,95 @@ export default function BudgetEditDialog({ entity, level, currency, confirmMulti
   if (amount !== "" && valueMinor <= 0) {
     blocker = "Enter a budget greater than zero.";
   } else if (hasCeiling && !ceilingCur) {
-    blocker = "The budget ceiling has no currency set, so it can't be checked. Set it in Meta Ads → Settings first.";
+    blocker = "The budget ceiling has no currency set. Set it in Meta Ads → Settings first.";
   } else if (hasCeiling && ceilingCur !== accountCur) {
-    blocker = `The budget ceiling is in ${ceilingCur} but this ad account spends in ${accountCur || "an unknown currency"}, so it can't be checked. Change the ceiling's currency in Meta Ads → Settings.`;
+    blocker = `The budget ceiling is in ${ceilingCur} but this ad account spends in ${accountCur || "an unknown currency"}. Change the ceiling's currency in Meta Ads → Settings.`;
   } else if (hasCeiling && valueMinor > ceilingMinor) {
-    blocker = `That's above the ${moneyMinor(ceilingMinor, ceilingCur)} ceiling set in Meta Ads → Settings.`;
+    blocker = `Above your ${moneyMinor(ceilingMinor, ceilingCur)} ceiling. Meta Ads → Settings`;
   }
 
   const overMultiplier = !blocker && currentMinor ? valueMinor > currentMinor * multiple : false;
   const canSave = !busy && !blocker && valueMinor > 0 && (!overMultiplier || confirmedBigJump);
 
+  const deltaMinor = currentMinor != null && valueMinor > 0 ? valueMinor - currentMinor : 0;
+  const ratio = currentMinor ? (valueMinor / currentMinor).toFixed(1) : 0;
+
   function submit(e) {
     e.preventDefault();
     if (!canSave) return;
-    // The audit column is still named confirmed_over_ceiling; it records the
-    // over-the-multiple confirm.
     onSubmit({ entity, level, field, valueMinor, confirmedOverCeiling: overMultiplier && confirmedBigJump });
   }
+
+  const saveLabel = busy
+    ? "Saving…"
+    : valueMinor > 0
+    ? `Save ${moneyMinor(valueMinor, currency)}${isDaily ? " / day" : ""}`
+    : "Save";
 
   return (
     <Modal
       size="sm"
-      title={`Edit budget — ${entity.name}`}
-      subtitle={field === "daily_budget" ? "Daily budget" : "Lifetime budget"}
+      title={`Edit ${isDaily ? "daily" : "lifetime"} budget`}
+      subtitle={`${entity.name} · ${level} · currently ${moneyMinor(currentMinor, currency)}${isDaily ? " / day" : ""}`}
       onClose={onCancel}
       onSubmit={submit}
       footer={
         <>
-          <Btn kind="ghost" type="button" onClick={onCancel}>Cancel</Btn>
+          <Btn kind="ghost" type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Btn>
           <Btn kind="primary" type="submit" disabled={!canSave}>
-            {busy ? "Saving…" : "Save"}
+            {saveLabel}
           </Btn>
         </>
       }
     >
-      <label className="kmkt-field">
-        <span>New {field === "daily_budget" ? "daily" : "lifetime"} budget ({currency})</span>
-        <input
-          type="number" min="0.01" step="0.01" autoFocus
-          value={amount}
-          onChange={(e) => { setAmount(e.target.value); setConfirmedBigJump(false); }}
-        />
-      </label>
-      {currentMinor != null && (
-        <p className="kmkt-muted">Currently {moneyMinor(currentMinor, currency)}.</p>
+      <div className="kmkt-field">
+        <span>New {isDaily ? "daily" : "lifetime"} budget</span>
+        <div className="kmkt-input-currency-group">
+          <span className="kmkt-currency-tag">{currency}</span>
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            autoFocus
+            value={amount}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              setConfirmedBigJump(false);
+            }}
+            placeholder="0.00"
+            className="kmkt-currency-input"
+          />
+        </div>
+      </div>
+
+      {currentMinor != null && valueMinor > 0 && deltaMinor !== 0 && (
+        <p className={`kmkt-budget-delta ${deltaMinor > 0 ? "kmkt-budget-delta--up" : "kmkt-budget-delta--down"}`}>
+          {deltaMinor > 0 ? "+" : "−"}
+          {moneyMinor(Math.abs(deltaMinor), currency)}
+          {isDaily ? " / day" : " total"} vs now
+        </p>
       )}
-      {blocker && <p className="kmodal-msg kmodal-msg--err" role="alert">{blocker}</p>}
-      {!blocker && serverError && <p className="kmodal-msg kmodal-msg--err" role="alert">{serverError}</p>}
+
+      {blocker && (
+        <div className="kmkt-err-box" role="alert">
+          <Icons.AlertTriangle size={15} />
+          <span>{blocker}</span>
+        </div>
+      )}
+
+      {!blocker && serverError && (
+        <div className="kmkt-err-box" role="alert">
+          <Icons.AlertTriangle size={15} />
+          <span>{serverError}</span>
+        </div>
+      )}
+
       {overMultiplier && (
         <div className="kmkt-warn">
           <p>
-            That's more than {multiple}× the current budget
-            {` (${moneyMinor(currentMinor, currency)} → ${moneyMinor(valueMinor, currency)})`}.
+            That's {ratio}× the current budget.
           </p>
           <label className="kmkt-check">
             <input
@@ -90,7 +133,7 @@ export default function BudgetEditDialog({ entity, level, currency, confirmMulti
               checked={confirmedBigJump}
               onChange={(e) => setConfirmedBigJump(e.target.checked)}
             />
-            <span>Yes, I meant to increase it this much</span>
+            <span>Yes, I meant to raise it this much</span>
           </label>
         </div>
       )}
