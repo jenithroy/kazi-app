@@ -45,3 +45,6 @@ export const runMetaAdsSync = () => call("/api/meta-ads/sync", { method: "POST" 
  */
 export const runMetaAdsAction = (payload) =>
   call("/api/meta-ads/action", { method: "POST", body: JSON.stringify(payload) });
+
+/** Pull any new leads from active lead gen ads. Needs View. */
+export const runMetaLeadsSync = () => call("/api/meta-ads/sync-leads", { method: "POST" });

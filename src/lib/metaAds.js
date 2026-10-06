@@ -60,6 +60,9 @@ export const fetchSyncRuns = () =>
 export const fetchRecentActions = (limit = 25) =>
   fetchAll("meta_ads_actions", { orderBy: "createdAt", orderDir: "desc", limit });
 
+export const fetchMetaLeads = () =>
+  fetchAll("meta_leads", { orderBy: "leadCreatedAt", orderDir: "desc" });
+
 export async function fetchSettings() {
   const rows = await fetchAll("meta_ads_settings");
   return rows[0] || null;

@@ -7,6 +7,7 @@ import { runMetaAdsSync } from "../../lib/metaAdsApi";
 import MetaSectionBar from "./MetaSectionBar";
 import Overview from "./Overview";
 import Campaigns from "./Campaigns";
+import Leads from "./Leads";
 import Attribution from "./Attribution";
 import Activity from "./Activity";
 import Settings from "./Settings";
@@ -113,6 +114,7 @@ export default function MetaAdsPage() {
       <div className="kmkt-metaads-body">
         {view === "overview" && <Overview range={range} onViewChange={setView} />}
         {view === "campaigns" && <Campaigns canEdit={canEdit} range={range} />}
+        {view === "leads" && <Leads canEdit={canEdit} />}
         {view === "attribution" && <Attribution range={range} />}
         {view === "activity" && <Activity />}
         {view === "settings" && <Settings canEdit={canEdit} onSyncComplete={loadMeta} />}

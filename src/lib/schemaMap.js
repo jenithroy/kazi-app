@@ -2003,6 +2003,57 @@ export const SCHEMA_MAP = {
       "position_id",
       "tab_id"
     ]
+  },
+  "meta_leads": {
+    "view": "fs_meta_leads",
+    "table": "meta_leads",
+    "fields": {
+      "id": "id",
+      "adAccountId": "ad_account_id",
+      "campaignId": "campaign_id",
+      "campaignName": "campaign_name",
+      "adsetId": "adset_id",
+      "adsetName": "adset_name",
+      "adId": "ad_id",
+      "adName": "ad_name",
+      "formId": "form_id",
+      "formName": "form_name",
+      "fullName": "full_name",
+      "phoneNumber": "phone_number",
+      "email": "email",
+      "city": "city",
+      "rawData": "raw_data",
+      "status": "status",
+      "customerId": "customer_id",
+      "notes": "notes",
+      "leadCreatedAt": "lead_created_at",
+      "createdAt": "created_at",
+      "updatedAt": "updated_at"
+    },
+    "derived": [],
+    "columns": [
+      "ad_account_id",
+      "ad_id",
+      "ad_name",
+      "adset_id",
+      "adset_name",
+      "campaign_id",
+      "campaign_name",
+      "city",
+      "created_at",
+      "customer_id",
+      "email",
+      "form_id",
+      "form_name",
+      "full_name",
+      "id",
+      "lead_created_at",
+      "notes",
+      "phone_number",
+      "raw_data",
+      "status",
+      "updated_at"
+    ]
   }
 };
 

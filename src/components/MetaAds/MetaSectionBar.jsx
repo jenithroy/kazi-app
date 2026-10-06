@@ -6,6 +6,7 @@ import { timeAgo } from "./time";
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "campaigns", label: "Campaigns" },
+  { id: "leads", label: "Leads" },
   { id: "attribution", label: "Attribution" },
   { id: "activity", label: "Activity" },
   { id: "settings", label: "Settings" },

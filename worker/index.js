@@ -2,6 +2,11 @@ import { AuthError, checkMarketingTabPermission, fetchCallerIdentity } from "./l
 import { metaPost } from "./lib/metaGraph.js";
 import { runMetaAdsSync } from "./lib/metaSync.js";
 import { select as supabaseSelect } from "./lib/supabaseRest.js";
+import {
+  handleLeadgenWebhookVerify,
+  handleLeadgenWebhookEvent,
+  syncLeadGenAds,
+} from "./lib/metaLeads.js";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -226,6 +231,34 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/meta-ads/action") {
       try {
         return await handleMetaAdsAction(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    // Meta Webhook Verification (GET)
+    if (request.method === "GET" && url.pathname === "/api/meta-ads/webhook") {
+      return handleLeadgenWebhookVerify(request, env);
+    }
+
+    // Meta Real-Time Lead Event (POST)
+    if (request.method === "POST" && url.pathname === "/api/meta-ads/webhook") {
+      try {
+        return await handleLeadgenWebhookEvent(request, env);
+      } catch (err) {
+        return Response.json({ error: err.message || "Failed to process leadgen webhook." }, { status: 500 });
+      }
+    }
+
+    // On-demand Lead Gen sync
+    if (request.method === "POST" && url.pathname === "/api/meta-ads/sync-leads") {
+      try {
+        const permission = await checkMarketingTabPermission(request, env);
+        if (!permission.view) {
+          return Response.json({ error: "Your role doesn't include Meta Ads." }, { status: 403 });
+        }
+        const res = await syncLeadGenAds(env);
+        return Response.json({ ok: true, ...res });
       } catch (err) {
         return errorResponse(err);
       }
