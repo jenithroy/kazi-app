@@ -2481,6 +2481,31 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   .kmkt-metaads > .kmkt-banner--viewonly { margin: 8px 12px 0; }
   .kmkt-metaads-body { padding: 12px 12px 24px; gap: 12px; overflow: visible; }
 }
+@media (max-width: 480px) {
+  .kmkt-page > .kmkt-tabs { margin: 0 8px; }
+  .kmkt-metaads > .kmkt-tabs { margin: 8px 8px 0; }
+  .kmkt-metaads > .kmkt-section-bar { margin: 8px 8px 0; padding: 10px; }
+  .kmkt-metaads > .kmkt-banner--viewonly { margin: 6px 8px 0; }
+  .kmkt-metaads-body { padding: 10px 8px 24px; gap: 10px; }
+  .kmkt-campaigns-search,
+  .kmkt-activity-search { min-width: 100%; }
+  .kmkt-savebar { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .kmkt-savebar-actions { width: 100%; justify-content: flex-end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kmkt-skel-bar,
+  .kmkt-shimmer {
+    animation: none !important;
+    background: var(--bg-2) !important;
+  }
+  .kmkt-expand svg,
+  .kmkt-attr-disclosure-btn svg,
+  .kmkt-segmented-btn,
+  .kmkt-tab {
+    transition: none !important;
+  }
+}
 
 .kmkt-daterange {
   display: flex;
@@ -2509,25 +2534,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   gap: 10px;
   margin-bottom: 14px;
 }
-.kmkt-kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.kmkt-metric-pick { display: flex; gap: 2px; }
-.kmkt-metric-pick button {
-  font-family: var(--font);
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.kmkt-metric-pick button.is-on { background: var(--mint-soft); color: var(--mint-deep); font-weight: 650; }
 
 .kmkt-expand {
   background: none; border: none; cursor: pointer; padding: 2px;
