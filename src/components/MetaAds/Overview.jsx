@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, KPI, Pill } from "../ui";
-import { AreaChart, Bars } from "../viz";
+import { Card, KPI, Pill, Icons, Btn } from "../ui";
 import { roundAmount } from "../../utils/format";
-import { fetchCampaignInsights, fetchCampaigns, fetchTopAds } from "../../lib/metaAds";
-import DateRangePicker, { isoDaysAgo } from "./DateRangePicker";
-import { money, currencySymbol } from "./money";
+import { fetchCampaignInsights, fetchCampaigns, fetchTopAds, fetchAdAccounts, fetchSyncRuns } from "../../lib/metaAds";
+import { runMetaAdsSync } from "../../lib/metaAdsApi";
+import { money } from "./money";
+import BarList from "./BarList";
+import ChartFrame from "./ChartFrame";
+import NeedsAttentionBanner from "./NeedsAttentionBanner";
 
 const METRICS = [
   { id: "spend", label: "Spend" },
+  { id: "results", label: "Results" },
   { id: "clicks", label: "Clicks" },
   { id: "impressions", label: "Impressions" },
 ];
 
-/**
- * Objective-based result counting: matches the campaign's stated goal to the
- * right action in Meta's actions array, rather than summing all overlapping
- * events (which double-counted link clicks inside post engagements).
- */
+function formatShortDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
 function countCampaignResults(actions, objective) {
   if (!actions || !Array.isArray(actions) || actions.length === 0) return 0;
   const obj = (objective || "").toUpperCase();
@@ -35,10 +39,8 @@ function countCampaignResults(actions, objective) {
   } else if (obj.includes("SALES") || obj.includes("CONVERSION")) {
     targetTypes = ["purchase", "omni_purchase", "lead"];
   } else if (obj.includes("AWARENESS") || obj.includes("REACH")) {
-    // Awareness campaigns aim for impressions, not a discrete conversion result
     return 0;
   } else {
-    // Fallback: search standard high-intent conversion types in priority order
     targetTypes = [
       "onsite_conversion.messaging_conversation_started_7d",
       "lead",
@@ -55,6 +57,12 @@ function countCampaignResults(actions, objective) {
   return 0;
 }
 
+function countLinkClicks(actions) {
+  if (!actions || !Array.isArray(actions)) return 0;
+  const act = actions.find((a) => a.action_type === "link_click");
+  return act ? Number(act.value) || 0 : 0;
+}
+
 function getDaysList(fromStr, toStr) {
   if (!fromStr || !toStr) return [];
   const list = [];
@@ -67,38 +75,45 @@ function getDaysList(fromStr, toStr) {
   return list;
 }
 
-export default function Overview({ range: propRange }) {
-  const [internalRange, setInternalRange] = useState({ dateFrom: isoDaysAgo(30), dateTo: isoDaysAgo(0) });
-  const range = propRange || internalRange;
-  const setRange = setInternalRange;
+export default function Overview({ range = {}, onViewChange }) {
   const [insights, setInsights] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [topAds, setTopAds] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [syncRuns, setSyncRuns] = useState([]);
   const [metric, setMetric] = useState("spend");
+  const [selectedCurrency, setSelectedCurrency] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadData = () => {
     let alive = true;
     setLoading(true);
     setError("");
     Promise.all([
-      fetchCampaignInsights(range.dateFrom, range.dateTo),
+      fetchCampaignInsights(range.dateFrom || null, range.dateTo || null),
       fetchCampaigns(),
-      fetchTopAds(range.dateFrom, range.dateTo, 8),
+      fetchTopAds(range.dateFrom || null, range.dateTo || null, 8),
+      fetchAdAccounts(),
+      fetchSyncRuns(),
     ])
-      .then(([i, c, t]) => {
+      .then(([i, c, t, a, r]) => {
         if (!alive) return;
         setInsights(i);
         setCampaigns(c);
         setTopAds(t);
+        setAccounts(a);
+        setSyncRuns(r);
       })
       .catch((e) => alive && setError(e.message || "Couldn't load Meta Ads data."))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [range.dateFrom, range.dateTo]);
+  };
 
-  // Campaign objective map for result attribution
+  useEffect(loadData, [range.dateFrom, range.dateTo]);
+
+  // Campaign objective map
   const campaignObjective = useMemo(() => {
     const map = {};
     for (const c of campaigns) map[c.id] = c.objective;
@@ -111,9 +126,7 @@ export default function Overview({ range: propRange }) {
     return map;
   }, [campaigns]);
 
-  // Ad spend can only ever be summed within one currency — Meta doesn't
-  // convert across ad accounts. Group by currency rather than silently
-  // blending; in practice there is almost always exactly one group.
+  // Group rows by currency
   const byCurrency = useMemo(() => {
     const groups = {};
     for (const r of insights) {
@@ -123,126 +136,201 @@ export default function Overview({ range: propRange }) {
     return groups;
   }, [insights]);
   const currencies = Object.keys(byCurrency);
-  const primaryCurrency = currencies[0] || "USD";
+  const activeCurrency = selectedCurrency && currencies.includes(selectedCurrency) ? selectedCurrency : currencies[0] || "USD";
 
   const totals = useMemo(() => {
-    const rows = byCurrency[primaryCurrency] || [];
+    const rows = byCurrency[activeCurrency] || [];
+    const linkClicks = rows.reduce((s, r) => s + countLinkClicks(r.conversions), 0);
+    const impressions = rows.reduce((s, r) => s + Number(r.impressions || 0), 0);
     return {
       spend: rows.reduce((s, r) => s + Number(r.spend || 0), 0),
       clicks: rows.reduce((s, r) => s + Number(r.clicks || 0), 0),
-      impressions: rows.reduce((s, r) => s + Number(r.impressions || 0), 0),
+      linkClicks,
+      impressions,
       results: rows.reduce((s, r) => s + countCampaignResults(r.conversions, campaignObjective[r.campaignId]), 0),
     };
-  }, [byCurrency, primaryCurrency, campaignObjective]);
+  }, [byCurrency, activeCurrency, campaignObjective]);
 
-  // Per-day trend for the picked metric, zero-filling missing dates evenly.
+  // Earliest date check for "Data starts..." indicator
+  const earliestInsightDate = useMemo(() => {
+    if (!insights.length) return null;
+    const sorted = [...insights].map((r) => r.date).filter(Boolean).sort();
+    return sorted[0] || null;
+  }, [insights]);
+
+  const dataStartsNotice = useMemo(() => {
+    if (!earliestInsightDate || !range.dateFrom) return null;
+    if (earliestInsightDate > range.dateFrom) {
+      return `Data starts ${formatShortDate(earliestInsightDate)}`;
+    }
+    return null;
+  }, [earliestInsightDate, range.dateFrom]);
+
+  // Trend data
   const trend = useMemo(() => {
-    const rows = byCurrency[primaryCurrency] || [];
+    const rows = byCurrency[activeCurrency] || [];
     const byDate = {};
-    for (const r of rows) byDate[r.date] = (byDate[r.date] || 0) + Number(r[metric] || 0);
+    for (const r of rows) {
+      let val = 0;
+      if (metric === "spend") val = Number(r.spend || 0);
+      else if (metric === "clicks") val = Number(r.clicks || 0);
+      else if (metric === "impressions") val = Number(r.impressions || 0);
+      else if (metric === "results") val = countCampaignResults(r.conversions, campaignObjective[r.campaignId]);
+      byDate[r.date] = (byDate[r.date] || 0) + val;
+    }
     const dateRangeList = getDaysList(range.dateFrom, range.dateTo);
     const dates = dateRangeList.length > 0 ? dateRangeList : Object.keys(byDate).sort();
     return { dates, data: dates.map((d) => byDate[d] || 0) };
-  }, [byCurrency, primaryCurrency, metric, range.dateFrom, range.dateTo]);
+  }, [byCurrency, activeCurrency, metric, range.dateFrom, range.dateTo, campaignObjective]);
 
-  // Spend by campaign, primary currency only, top 8.
-  const spendByCampaign = useMemo(() => {
-    const rows = byCurrency[primaryCurrency] || [];
+  // Spend by campaign
+  const spendByCampaignRows = useMemo(() => {
+    const rows = byCurrency[activeCurrency] || [];
     const totalsByCampaign = {};
     for (const r of rows) totalsByCampaign[r.campaignId] = (totalsByCampaign[r.campaignId] || 0) + Number(r.spend || 0);
     return Object.entries(totalsByCampaign)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
-      .map(([id, spend]) => ({ id, name: campaignName[id] || id, spend }));
-  }, [byCurrency, primaryCurrency, campaignName]);
+      .map(([id, spend]) => ({
+        key: id,
+        label: campaignName[id] || id,
+        fullLabel: campaignName[id] || id,
+        value: spend,
+        display: money(spend, activeCurrency),
+      }));
+  }, [byCurrency, activeCurrency, campaignName]);
 
-  const symbol = currencySymbol(primaryCurrency);
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      await runMetaAdsSync();
+      loadData();
+    } catch {
+      // Handled in loadData
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const hasLinkClicks = totals.linkClicks > 0;
+  const ctrLabel = hasLinkClicks ? "CTR (link)" : "CTR (all)";
+  const ctrValue = totals.impressions
+    ? `${(((hasLinkClicks ? totals.linkClicks : totals.clicks) / totals.impressions) * 100).toFixed(2)}%`
+    : "—";
 
   return (
     <div className="kmkt-overview">
-      {(!propRange || currencies.length > 1) && (
-        <div className="kmkt-overview-head">
-          {!propRange && <DateRangePicker dateFrom={range.dateFrom} dateTo={range.dateTo} onChange={setRange} />}
-          {currencies.length > 1 && (
-            <Pill tone="terra">
-              {currencies.length} currencies in this range — showing {primaryCurrency} only
-            </Pill>
-          )}
+      {/* 1. Needs Attention Banner */}
+      <NeedsAttentionBanner
+        campaigns={campaigns}
+        accounts={accounts}
+        latestSync={syncRuns[0] || null}
+        onReview={onViewChange}
+      />
+
+      {/* 2. Multi-currency selector if more than 1 currency */}
+      {currencies.length > 1 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "2px 0 6px" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--ink-3)" }}>Currency:</span>
+          <div className="kmkt-segmented" role="tablist" aria-label="Currencies">
+            {currencies.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`kmkt-segmented-btn ${activeCurrency === c ? "is-active" : ""}`}
+                onClick={() => setSelectedCurrency(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {error && <p className="form-error" role="alert">{error}</p>}
 
+      {/* 3. Loading Skeletons */}
       {loading && insights.length === 0 && (
-        <Card>
-          <p className="kmkt-muted">Loading overview data…</p>
-        </Card>
-      )}
-
-      {!loading && insights.length === 0 && !error && (
-        <Card>
-          <p className="kmkt-muted">
-            No synced data for this range yet. Run a sync from the Settings tab, or widen the date range.
-          </p>
-        </Card>
-      )}
-
-      {insights.length > 0 && (
         <>
           <div className="kmkt-kpi-row">
-            <KPI label="Spend" value={money(totals.spend, primaryCurrency)} />
-            <KPI label="Impressions" value={roundAmount(totals.impressions).toLocaleString()} />
-            <KPI label="Clicks" value={roundAmount(totals.clicks).toLocaleString()} />
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="kmkt-skel-kpi">
+                <div className="kmkt-skel-bar" style={{ width: "45%", height: 10 }} />
+                <div className="kmkt-skel-bar" style={{ width: "75%", height: 22 }} />
+              </div>
+            ))}
+          </div>
+          <Card>
+            <div style={{ padding: "40px 0", textAlign: "center" }} className="kmkt-muted">
+              Loading Meta Ads overview…
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* 4. Unified Honest Empty State */}
+      {!loading && insights.length === 0 && !error && (
+        <Card>
+          <div style={{ textAlign: "center", padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-2)" }}>
+              No Meta Ads data for {range.dateFrom ? `${formatShortDate(range.dateFrom)} – ${formatShortDate(range.dateTo)}` : "the selected range"}.
+              {dataStartsNotice ? ` (${dataStartsNotice})` : ""}
+            </p>
+            <Btn kind="outline" size="sm" onClick={handleSyncNow} disabled={syncing}>
+              {syncing ? "Syncing…" : "Sync now"}
+            </Btn>
+          </div>
+        </Card>
+      )}
+
+      {/* 5. Loaded Content */}
+      {insights.length > 0 && (
+        <>
+          {/* StatStrip KPI Row */}
+          <div className="kmkt-kpi-row">
+            <KPI label="Spend" value={money(totals.spend, activeCurrency)} />
             <KPI
-              label="CTR (all)"
-              value={totals.impressions ? ((totals.clicks / totals.impressions) * 100).toFixed(2) + "%" : "—"}
+              label="Results"
+              value={roundAmount(totals.results).toLocaleString()}
+              deltaLabel={totals.results > 0 ? "per campaign objective" : undefined}
             />
             <KPI
               label="Cost / result"
-              value={totals.results > 0 ? money(totals.spend / totals.results, primaryCurrency) : "—"}
-              deltaLabel={totals.results > 0 ? `${roundAmount(totals.results).toLocaleString()} results` : undefined}
+              value={totals.results > 0 ? money(totals.spend / totals.results, activeCurrency) : "—"}
             />
+            <KPI
+              label={hasLinkClicks ? "Link clicks" : "Clicks"}
+              value={roundAmount(hasLinkClicks ? totals.linkClicks : totals.clicks).toLocaleString()}
+            />
+            <KPI label={ctrLabel} value={ctrValue} />
+            <KPI label="Impressions" value={roundAmount(totals.impressions).toLocaleString()} />
           </div>
 
-          <Card
-            title="Trend"
-            action={
-              <div className="kmkt-metric-pick">
-                {METRICS.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={m.id === metric ? "is-on" : ""}
-                    onClick={() => setMetric(m.id)}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            {trend.dates.length > 0 ? (
-              <AreaChart
-                series={[{ label: METRICS.find((m) => m.id === metric)?.label, data: trend.data, color: "var(--mint-deep)" }]}
+          {/* 2-Column Grid on Desktop: Daily spend & Spend by campaign */}
+          <div className="kmkt-grid-charts">
+            <Card pad={true}>
+              <ChartFrame
+                title="Daily spend"
+                metrics={METRICS}
+                metric={metric}
+                onMetricChange={setMetric}
                 dates={trend.dates}
-                valuePrefix={metric === "spend" ? symbol : ""}
+                data={trend.data}
+                currency={activeCurrency}
+                dataStartsNotice={dataStartsNotice}
               />
-            ) : (
-              <p className="kmkt-muted">Nothing to chart yet.</p>
-            )}
-          </Card>
+            </Card>
 
-          <Card title="Spend by campaign">
-            {spendByCampaign.length > 0 ? (
-              <Bars
-                data={spendByCampaign.map((c) => roundAmount(c.spend))}
-                labels={spendByCampaign.map((c) => c.name)}
+            <Card title="Spend by campaign" pad={true}>
+              <BarList
+                rows={spendByCampaignRows}
+                rank
+                empty="No campaign spend in this range."
               />
-            ) : (
-              <p className="kmkt-muted">Nothing to chart yet.</p>
-            )}
-          </Card>
+            </Card>
+          </div>
 
+          {/* Top Ads with Creative Thumbnails */}
           <Card title="Top ads" sub="Ranked by spend in this range">
             {topAds.length > 0 ? (
               <div className="kmkt-table-scroll">
@@ -259,8 +347,30 @@ export default function Overview({ range: propRange }) {
                   <tbody>
                     {topAds.map((a) => (
                       <tr key={a.adId}>
-                        <td>{a.adName}</td>
-                        <td>{a.campaignName}</td>
+                        <td>
+                          <div className="kmkt-topad-cell">
+                            {a.creativeThumbnailUrl ? (
+                              <img
+                                src={a.creativeThumbnailUrl}
+                                alt=""
+                                className="kmkt-ad-thumb"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="kmkt-ad-thumb-placeholder">
+                                <Icons.Image size={15} />
+                              </div>
+                            )}
+                            <span className="kmkt-topad-name" title={a.adName}>
+                              {a.adName}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="kmkt-topad-campaign" title={a.campaignName}>
+                            {a.campaignName}
+                          </span>
+                        </td>
                         <td className="mono kmkt-num">{money(a.spend, a.currency)}</td>
                         <td className="mono kmkt-num">{roundAmount(a.clicks).toLocaleString()}</td>
                         <td className="mono kmkt-num">{roundAmount(a.impressions).toLocaleString()}</td>

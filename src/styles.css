@@ -2149,6 +2149,202 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   color: var(--ink-2);
 }
 
+/* ── Needs Attention Banner ── */
+.kmkt-attention-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid var(--amber);
+  border-radius: var(--r-sm, 8px);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.kmkt-attention-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.kmkt-attention-icon {
+  color: var(--amber);
+  flex-shrink: 0;
+}
+.kmkt-attention-text strong {
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+/* ── Charts 2-column grid on desktop ── */
+.kmkt-grid-charts {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+@media (max-width: 1024px) {
+  .kmkt-grid-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── ChartFrame ── */
+.kmkt-chartframe {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kmkt-chartframe-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.kmkt-chartframe-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kmkt-chartframe-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.kmkt-chartframe-notice {
+  font-size: 11px;
+  color: var(--ink-4);
+  background: var(--bg-2);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+/* ── BarList ── */
+.kmkt-barlist {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 6px 0;
+}
+.kmkt-barlist-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.kmkt-barlist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.kmkt-barlist-label {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.kmkt-barlist-rank {
+  color: var(--ink-4);
+  font-size: 11.5px;
+  margin-right: 2px;
+}
+.kmkt-barlist-val {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+.kmkt-barlist-track {
+  height: 6px;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.kmkt-barlist-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.3s ease;
+}
+
+/* ── Top ads table thumbnail ── */
+.kmkt-topad-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.kmkt-ad-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.kmkt-ad-thumb-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.kmkt-topad-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.kmkt-topad-name {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kmkt-topad-campaign {
+  font-size: 11.5px;
+  color: var(--ink-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Skeletons ── */
+.kmkt-skel-kpi {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card, 10px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kmkt-skel-bar {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--line) 50%, var(--bg-2) 75%);
+  background-size: 200% 100%;
+  animation: kmkt-shimmer 1.5s infinite;
+}
+@keyframes kmkt-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Wide tables scroll sideways inside their card instead of being crushed
    one letter per line (.kscroll sets overflow-wrap: anywhere on phones). */
 .kmkt-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
