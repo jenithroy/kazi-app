@@ -12,12 +12,23 @@ const PRESETS = [
   { label: "90d", days: 90 },
 ];
 
-/** dateFrom/dateTo are "yyyy-mm-dd" strings, or "" for no bound. */
-export default function DateRangePicker({ dateFrom, dateTo, onChange }) {
+/** dateFrom/dateTo are "yyyy-mm-dd" strings, or "" for no bound. `allowAll` adds an "All" preset (both bounds empty). */
+export default function DateRangePicker({ dateFrom, dateTo, onChange, allowAll = false }) {
   const today = isoDaysAgo(0);
+  const isAll = !dateFrom && !dateTo;
 
   return (
     <div className="kmkt-daterange">
+      {allowAll && (
+        <Btn
+          kind={isAll ? "secondary" : "ghost"}
+          size="sm"
+          aria-pressed={isAll}
+          onClick={() => onChange({ dateFrom: "", dateTo: "" })}
+        >
+          All
+        </Btn>
+      )}
       {PRESETS.map((p) => {
         const from = isoDaysAgo(p.days);
         const active = dateFrom === from && dateTo === today;
@@ -26,6 +37,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }) {
             key={p.label}
             kind={active ? "secondary" : "ghost"}
             size="sm"
+            aria-pressed={active}
             onClick={() => onChange({ dateFrom: from, dateTo: today })}
           >
             {p.label}

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Card, Pill } from "../ui";
-import { asCurrency, roundAmount } from "../../utils/format";
+import { asCurrency } from "../../utils/format";
 import { fetchCampaignAttribution } from "../../lib/metaAds";
-import DateRangePicker, { isoDaysAgo } from "./DateRangePicker";
+import DateRangePicker from "./DateRangePicker";
 import { money } from "./money";
 
 /**
@@ -11,8 +11,9 @@ import { money } from "./money";
  * cannot just be divided. This fetches today's rate for whichever
  * currencies actually showed up, scoped to this component only (not the
  * shared CurrencyContext, which is a GBP<->NPR display toggle for the rest
- * of the app, a different job). A failed fetch just leaves that campaign's
- * ROAS as "—" rather than showing a wrong number.
+ * of the app, a different job). A failed fetch is stored as null so that
+ * campaign's ROAS shows "—" (rate unavailable) rather than a wrong number
+ * or a "converting…" that never ends.
  */
 function useNprRates(currencies) {
   const [rates, setRates] = useState({});
@@ -46,6 +47,7 @@ export default function Attribution() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setError("");
     fetchCampaignAttribution(range.dateFrom || null, range.dateTo || null)
       .then((r) => alive && setRows(r))
       .catch((e) => alive && setError(e.message || "Couldn't load attribution."))
@@ -55,10 +57,28 @@ export default function Attribution() {
 
   const currencies = [...new Set(rows.map((r) => r.currency).filter(Boolean))];
   const npr = useNprRates(currencies);
-  const nprValue = (spend, currency) => {
-    if (currency === "NPR") return spend;
-    const rate = npr[currency];
-    return rate ? spend * rate : null;
+  const foreign = currencies.filter((c) => c !== "NPR");
+
+  /**
+   * ROAS is only a number when there is something to measure: spend > 0,
+   * at least one tagged order, and a known rate. Otherwise say why, rather
+   * than "0.00×" (reads as a measured failure) or an endless "converting…".
+   */
+  const roasCell = (r) => {
+    if (!(Number(r.spend) > 0)) return { text: "—", title: "No spend in this range" };
+    if (!(Number(r.taggedOrders) > 0)) return { text: "—", title: "No tagged orders yet" };
+    let spendNpr = null;
+    if (r.currency === "NPR") spendNpr = Number(r.spend);
+    else if (!(r.currency in npr)) return { text: "…", title: "Fetching exchange rate" };
+    else if (npr[r.currency]) spendNpr = Number(r.spend) * npr[r.currency];
+    else return { text: "—", title: `No ${r.currency}→NPR rate available` };
+    return { text: `${(Number(r.taggedOrderValueNpr) / spendNpr).toFixed(2)}×`, title: "" };
+  };
+
+  const rateText = (c) => {
+    if (!(c in npr)) return `1 ${c} ≈ … NPR (fetching)`;
+    if (!npr[c]) return `${c} rate unavailable`;
+    return `1 ${c} ≈ ${npr[c].toFixed(2)} NPR`;
   };
 
   return (
@@ -75,57 +95,62 @@ export default function Attribution() {
 
       <div className="kmkt-overview-head">
         <DateRangePicker
-          dateFrom={range.dateFrom || isoDaysAgo(90)}
-          dateTo={range.dateTo || isoDaysAgo(0)}
+          dateFrom={range.dateFrom}
+          dateTo={range.dateTo}
           onChange={setRange}
+          allowAll
         />
-        <Pill tone="neutral">Spend is limited to this range; tagged customers/orders are all-time</Pill>
+        <Pill tone="neutral">
+          {range.dateFrom || range.dateTo ? "Spend is limited to this range; tagged customers/orders are all-time" : "All time"}
+        </Pill>
       </div>
 
-      {error && <p className="form-error">{error}</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
 
       <Card pad={false}>
-        <table className="ktable">
-          <thead>
-            <tr>
-              <th>Campaign</th>
-              <th>Spend</th>
-              <th>Tagged customers</th>
-              <th>Tagged orders</th>
-              <th>Order value (NPR)</th>
-              <th>Cost / tagged customer</th>
-              <th>ROAS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const spendNpr = nprValue(r.spend, r.currency);
-              const roas = spendNpr ? r.taggedOrderValueNpr / spendNpr : null;
-              return (
-                <tr key={r.campaignId}>
-                  <td>{r.campaignName}</td>
-                  <td className="mono">{money(r.spend, r.currency)}</td>
-                  <td className="mono">{r.taggedCustomers}</td>
-                  <td className="mono">{r.taggedOrders}</td>
-                  <td className="mono">{asCurrency(r.taggedOrderValueNpr, "NPR")}</td>
-                  <td className="mono">
-                    {r.taggedCustomers ? money(r.spend / r.taggedCustomers, r.currency) : "—"}
-                  </td>
-                  <td className="mono">
-                    {roas != null ? `${roas.toFixed(2)}×` : r.currency === "NPR" ? "—" : "converting…"}
-                  </td>
-                </tr>
-              );
-            })}
-            {!loading && rows.length === 0 && (
-              <tr><td colSpan={7} className="kmkt-muted">No campaigns synced yet.</td></tr>
-            )}
-          </tbody>
-        </table>
+        <div className="kmkt-table-scroll">
+          <table className="ktable">
+            <thead>
+              <tr>
+                <th>Campaign</th>
+                <th className="kmkt-num">Spend</th>
+                <th className="kmkt-num">Tagged customers</th>
+                <th className="kmkt-num">Tagged orders</th>
+                <th className="kmkt-num">Order value (NPR)</th>
+                <th className="kmkt-num">Cost / tagged customer</th>
+                <th className="kmkt-num">ROAS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const roas = roasCell(r);
+                return (
+                  <tr key={r.campaignId}>
+                    <td>{r.campaignName}</td>
+                    <td className="mono kmkt-num">{money(r.spend, r.currency)}</td>
+                    <td className="mono kmkt-num">{r.taggedCustomers}</td>
+                    <td className="mono kmkt-num">{r.taggedOrders}</td>
+                    <td className="mono kmkt-num">{asCurrency(r.taggedOrderValueNpr, "NPR")}</td>
+                    <td className="mono kmkt-num">
+                      {r.taggedCustomers ? money(r.spend / r.taggedCustomers, r.currency) : "—"}
+                    </td>
+                    <td className="mono kmkt-num" title={roas.title || undefined}>{roas.text}</td>
+                  </tr>
+                );
+              })}
+              {loading && rows.length === 0 && (
+                <tr><td colSpan={7} className="kmkt-muted">Loading…</td></tr>
+              )}
+              {!loading && !error && rows.length === 0 && (
+                <tr><td colSpan={7} className="kmkt-muted">No campaigns synced yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
-      {currencies.some((c) => c !== "NPR") && (
+      {foreign.length > 0 && (
         <p className="kmkt-muted">
-          ROAS converts spend to NPR at today's rate ({[...currencies].filter(c => c !== "NPR").map(c => `1 ${c} ≈ ${roundAmount(npr[c] || 0)} NPR`).join(", ") || "fetching…"}) — approximate, not the rate at the time each ad ran.
+          ROAS converts spend to NPR at today's rate ({foreign.map(rateText).join(", ")}) — approximate, not the rate at the time each ad ran.
         </p>
       )}
     </div>
