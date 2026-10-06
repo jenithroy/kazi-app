@@ -1,6 +1,6 @@
 import { Btn } from "../ui";
 
-function isoDaysAgo(n) {
+export function isoDaysAgo(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
@@ -61,5 +61,3 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange, allowAll =
     </div>
   );
 }
-
-export { isoDaysAgo };

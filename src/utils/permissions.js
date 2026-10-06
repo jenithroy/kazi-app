@@ -102,10 +102,12 @@ export function messengerTabCanEdit(profile, key) {
  * budget are different levels of trust.
  */
 export function marketingTabAllowed(profile, key) {
+  if (profile?.tier >= 4) return true;
   return profile?.marketingTabs?.[key]?.canView === true;
 }
 
 export function marketingTabCanEdit(profile, key) {
+  if (profile?.tier >= 4) return true;
   return sectionCanEdit(profile, "marketing") && profile?.marketingTabs?.[key]?.canEdit === true;
 }
 

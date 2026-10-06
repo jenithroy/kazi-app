@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import AppLayout from "./AppLayout";
+import ErrorBoundary from "./ErrorBoundary";
 
 /**
  * The signed-in gate.
@@ -28,7 +29,9 @@ function ProtectedRoute() {
 
   return (
     <AppLayout>
-      <Outlet />
+      <ErrorBoundary>
+        <Outlet />
+      </ErrorBoundary>
     </AppLayout>
   );
 }
