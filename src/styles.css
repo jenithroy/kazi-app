@@ -8359,3 +8359,41 @@ textarea.kmkt-input { resize: none; line-height: 1.55; }
   .kmkt-weekday { font-size: 9px; }
   .kmkt-nav-label b, .kmkt-nav-label span { font-size: 12px; }
 }
+
+/* ══════════════════════════════════════════════════════
+   CURRENCY PICKER (header, and anywhere a page needs one)
+══════════════════════════════════════════════════════ */
+.kcur { position: relative; display: inline-block; flex-shrink: 0; }
+.kcur-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px;
+  border: 1.5px solid var(--line); background: transparent; color: var(--ink-3);
+  font: 600 12px/1 var(--mono); cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+}
+.kcur-btn:hover { border-color: var(--ink-4); }
+.kcur-btn--on { background: var(--mint-soft); color: var(--mint-deep); }
+.kcur-sym { font-weight: 700; }
+.kcur-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+  width: min(320px, calc(100vw - 24px)); background: #fff; border: 1px solid var(--line-strong);
+  border-radius: 12px; box-shadow: var(--shadow-pop); overflow: hidden;
+}
+.kcur-search {
+  width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid var(--line); outline: 0;
+  padding: 11px 14px; font: 14px var(--font); color: var(--ink); background: transparent;
+}
+.kcur-list { list-style: none; margin: 0; padding: 4px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.kcur-sep { border-bottom: 1px solid var(--line); margin-bottom: 4px; padding-bottom: 4px; }
+.kcur-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
+  background: transparent; text-align: left; cursor: pointer; font: 13px var(--font); color: var(--ink-2);
+}
+.kcur-item--active { background: var(--bg-2); }
+.kcur-item--on { color: var(--mint-deep); font-weight: 600; }
+.kcur-code { font: 600 12px var(--mono); min-width: 34px; }
+.kcur-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.kcur-mark { font: 12px var(--mono); color: var(--ink-4); }
+.kcur-empty { padding: 14px; font-size: 13px; color: var(--ink-4); }
+.kcur-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-4); }
+@media (max-width: 480px) {
+  .kcur-pop { position: fixed; left: 12px; right: 12px; top: 56px; width: auto; }
+}

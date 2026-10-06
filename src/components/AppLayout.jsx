@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation, NavLink } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../context/AuthContext";
-import { useCurrency } from "../context/CurrencyContext";
+import { CurrencyPicker } from "./CurrencyPicker";
 import { cn, Icons, Avatar } from "./ui";
 import { isNative } from "../utils/native";
 import useActivityLog from "../hooks/useActivityLog";
@@ -81,7 +81,6 @@ function useKTMTime() {
 
 function Topbar({ collapsed, onMobileMenuToggle }) {
   const { profile } = useAuth();
-  const { currency, toggle: toggleCurrency } = useCurrency();
   const location = useLocation();
   const routeKey = location.pathname.replace("/", "") || "dashboard";
   let routeLabel = ROUTE_LABEL[routeKey] || routeKey;
@@ -128,22 +127,8 @@ function Topbar({ collapsed, onMobileMenuToggle }) {
 
       {/* Right */}
       <div className="ktop-r">
-        {/* Currency toggle */}
-        <button
-          onClick={toggleCurrency}
-          title={`Switch to ${currency === "NPR" ? "GBP" : "NPR"}`}
-          style={{
-            display: "flex", alignItems: "center", gap: 4,
-            padding: "4px 10px", borderRadius: 8,
-            border: "1.5px solid var(--line)",
-            background: currency === "GBP" ? "var(--mint-soft)" : "transparent",
-            color: currency === "GBP" ? "var(--mint-deep)" : "var(--ink-3)",
-            fontSize: 12, fontWeight: 600, fontFamily: "var(--mono)",
-            cursor: "pointer", transition: "all 0.15s",
-          }}
-        >
-          {currency === "NPR" ? "₨ NPR" : "£ GBP"}
-        </button>
+        {/* Currency: every amount in the app follows this */}
+        <CurrencyPicker />
 
         {/* User */}
         {profile && (

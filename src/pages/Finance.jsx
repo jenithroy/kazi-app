@@ -10,12 +10,13 @@ import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, apply
 import { nextPurchaseNumber } from "../utils/financeRows";
 import KeyboardSelect from "../components/KeyboardSelect";
 import { BANK_NAMES } from "../utils/billing.jsx";
-import { GBP_RATE, createdAfterCutoff } from "../constants";
+import { createdAfterCutoff } from "../constants";
 import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { uploadPublicFile, deletePublicFile } from "../lib/storage";
 import { asCurrency, roundAmount } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
+import { toNPR } from "../utils/currency";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { postPurchaseStockIn } from "../utils/stockLedger";
 import { tsMillis, tsDate, todayDate } from "../utils/date";
@@ -198,12 +199,13 @@ function DateField({ mode, value, onChange, style, required, dataRole, autoFocus
 function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { currency, fmt: fmtC, money, moneyAlt, num, short } = useCurrency();
-  // The two-column tables (NPR | GBP) lead with whichever currency the header switch is on; every
+  const { currency, foreign, fmt: fmtC, money, moneyAlt, moneyForeign, num, short, ratesVersion } = useCurrency();
+  // The two-column tables (NPR | foreign) lead with whichever currency the header picker is on; every
   // cell stays under its own currency's header, so an NPR <input> never ends up under a £ title.
-  const pair = (npr, gbp) => (currency === "GBP" ? [gbp, npr] : [npr, gbp]);
-  // The leading column also gets the emphasis: `strong` for the currency on the switch, `quiet` for the other.
-  const lead = (cur, strong, quiet) => (currency === cur ? strong : quiet);
+  const pair = (nprCell, foreignCell) => (currency !== "NPR" ? [foreignCell, nprCell] : [nprCell, foreignCell]);
+  // The leading column also gets the emphasis: `strong` for the currency on the picker, `quiet` for the other.
+  // `cur` is "NPR" or "foreign" (the other column of the pair).
+  const lead = (cur, strong, quiet) => ((cur === "NPR") === (currency === "NPR") ? strong : quiet);
   const { region } = useRegion();
   // Restored synchronously (not in an effect) so the page doesn't flash "expenses"
   // before jumping to the tab she was on when she clicked out to Purchases/Billing.
@@ -958,11 +960,7 @@ function Finance() {
     const expensesNPR = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const purchNPR    = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
     const totalNPR    = payrollNPR + expensesNPR + purchNPR;
-    return { payrollNPR, expensesNPR, purchNPR, totalNPR, payrollMonthLabel,
-      payrollGBP:  payrollNPR  / GBP_RATE,
-      expensesGBP: expensesNPR / GBP_RATE,
-      purchGBP:    purchNPR    / GBP_RATE,
-      totalGBP:    totalNPR    / GBP_RATE };
+    return { payrollNPR, expensesNPR, purchNPR, totalNPR, payrollMonthLabel };
   }, [payroll, expenses, purchases, fyActive]);
 
   // The "Other Accounts" cards: journal activity in the selected year (all of it with "all").
@@ -1032,8 +1030,7 @@ function Finance() {
     // `payments` rows) is what actually arrived, so it's used for both rather
     // than totalNPR, which a Partial invoice hasn't fully collected yet.
     regionInvoices.filter(i => i.status === "Paid" || i.status === "Partial").forEach(i => {
-      const val = Number(i.amountPaid || 0);
-      const amt = i.currency === "GBP" ? val * GBP_RATE : val;
+      const amt = toNPR(Number(i.amountPaid || 0), i.currency);
       // defaults to Cash for older invoices with no paymentType set; a Credit
       // sale (terms, not yet banked) has no cash/bank movement to post, same
       // as a Credit purchase.
@@ -1107,7 +1104,7 @@ function Finance() {
       result[name] = { accountId, openingBalanceNPR: opening, baseOpeningNPR: baseOpening, openingBalanceDate, rows, closingBalance: balance, totalRows: sorted.length };
     }
     return result;
-  }, [regionPurchases, regionInvoices, regionExpenses, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange]);
+  }, [regionPurchases, regionInvoices, regionExpenses, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange, ratesVersion]);
 
   // Day Book — every purchase, paid/partial sale, paid expense, bank
   // transaction and journal entry in one chronological list, the way a Nepali
@@ -1139,8 +1136,7 @@ function Finance() {
 
     // Paid and Partial both carry real receipts — see cashBankLedger above.
     invoices.filter(i => i.status === "Paid" || i.status === "Partial").forEach(i => {
-      const val = Number(i.amountPaid || 0);
-      const amt = i.currency === "GBP" ? val * GBP_RATE : val;
+      const amt = toNPR(Number(i.amountPaid || 0), i.currency);
       const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : i.paymentType === "Credit" ? null : "Cash";
       if (!acct) return;
       rows.push({
@@ -1178,16 +1174,13 @@ function Finance() {
     });
 
     return rows.sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
-  }, [purchases, invoices, expenses, bankTxns, entries]);
+  }, [purchases, invoices, expenses, bankTxns, entries, ratesVersion]);
 
   const pl = useMemo(() => {
-    // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert GBP-currency invoices to NPR
+    // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert foreign-currency invoices to NPR
     const salesRevenue = invoices
       .filter(i => i.status === "Paid")
-      .reduce((s, i) => {
-        const val = Number(i.totalNPR || 0);
-        return s + (i.currency === "GBP" ? val * GBP_RATE : val);
-      }, 0);
+      .reduce((s, i) => s + toNPR(Number(i.totalNPR || 0), i.currency), 0);
     const otherIncome   = entries.filter(e => accounts.find(a => a.name === e.creditAccount && a.type === "Income")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
     const totalIncome   = salesRevenue + otherIncome;
     const expensesTotal = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
@@ -1201,7 +1194,7 @@ function Finance() {
     const journalExpenses = entries.filter(e => accounts.find(a => a.name === e.debitAccount && a.type === "Expense")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
     const totalExpenses = expensesTotal + purchasesTotal + payrollTotal + journalExpenses;
     return { salesRevenue, otherIncome, totalIncome, expensesTotal, purchasesTotal, payrollTotal, journalExpenses, totalExpenses, netProfit: totalIncome - totalExpenses };
-  }, [entries, accounts, expenses, purchases, payroll, invoices, fyActive]);
+  }, [entries, accounts, expenses, purchases, payroll, invoices, fyActive, ratesVersion]);
 
   const bs = useMemo(() => {
     const balance = (name, type) => { const d = ledgerAsOf[name] || { debits: 0, credits: 0 }; return type === "Asset" ? d.debits - d.credits : d.credits - d.debits; };
@@ -1460,7 +1453,7 @@ function Finance() {
               </div>
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
-                  <thead><tr><th>Category</th>{pair(<th key="npr">Amount NPR</th>, <th key="gbp">Amount GBP</th>)}<th>Date</th><th>Payment</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
+                  <thead><tr><th>Category</th>{pair(<th key="npr">Amount NPR</th>, <th key="foreign">Amount {foreign}</th>)}<th>Date</th><th>Payment</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
                   <tbody>
                     {expenses.length === 0 && (
                       <tr><td colSpan={canEdit ? 10 : 9} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>
@@ -1478,7 +1471,7 @@ function Finance() {
                             const quiet = { color: "var(--ink-3)" };
                             return pair(
                               <td key="npr" style={lead("NPR", strong, quiet)}>{asCurrency(item.amountNPR || 0, "NPR")}</td>,
-                              <td key="gbp" style={lead("GBP", strong, quiet)}>{asCurrency((item.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                              <td key="foreign" style={lead("foreign", strong, quiet)}>{moneyForeign(item.amountNPR || 0)}</td>
                             );
                           })()}
                           <td>{item.date}</td>
@@ -1711,7 +1704,7 @@ function Finance() {
                 : (
                   <div className="kfin-tbl-wrap">
                     <table className="kfin-tbl">
-                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Customer / Supplier</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="gbp">Amount (GBP)</th>)}<th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
+                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Customer / Supplier</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="foreign">Amount ({foreign})</th>)}<th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
                       <tbody>
                         {entries.map(entry => {
                           const editing = journalEditId === entry.id;
@@ -1729,7 +1722,7 @@ function Finance() {
                                   const quiet = { color: "var(--ink-3)", fontFamily: "var(--mono)" };
                                   return pair(
                                     <td key="npr" style={lead("NPR", strong, quiet)}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>,
-                                    <td key="gbp" style={lead("GBP", strong, quiet)}>{asCurrency((entry.amountNPR || 0) / GBP_RATE, "GBP")}</td>
+                                    <td key="foreign" style={lead("foreign", strong, quiet)}>{moneyForeign(entry.amountNPR || 0)}</td>
                                   );
                                 })()}
                                 <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{entry.reference || "—"}</td>
@@ -1773,8 +1766,8 @@ function Finance() {
                                   <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={journalDraft.amountNPR}
                                     onChange={e => setJournalDraft(d => ({ ...d, amountNPR: e.target.value }))} />
                                 </td>,
-                                <td key="gbp" style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                                  {asCurrency((Number(journalDraft.amountNPR) || 0) / GBP_RATE, "GBP")}
+                                <td key="foreign" style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
+                                  {moneyForeign(Number(journalDraft.amountNPR) || 0)}
                                 </td>
                               )}
                               <td>
@@ -2063,10 +2056,10 @@ function Finance() {
                         </div>
                         <div className="kfin-ledger-footer">
                           <span style={{ color: "var(--mint-deep)" }}>
-                            Dr: {currency === "GBP" ? money(data.debits) : num(data.debits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.debits)})</span>
+                            Dr: {currency !== "NPR" ? money(data.debits) : num(data.debits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.debits)})</span>
                           </span>
                           <span style={{ color: "var(--terra)" }}>
-                            Cr: {currency === "GBP" ? money(data.credits) : num(data.credits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.credits)})</span>
+                            Cr: {currency !== "NPR" ? money(data.credits) : num(data.credits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.credits)})</span>
                           </span>
                           <span style={{ color: "var(--ink-4)", marginLeft: "auto" }}>{data.entryCount} entries</span>
                         </div>
@@ -2369,7 +2362,7 @@ function Finance() {
               <div className="kfin-tbl-wrap">
                 <table className="kfin-tbl">
                   <thead>
-                    <tr>{dateTh}<th>Bank</th><th>Description</th><th>Category</th><th>Type</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="gbp">Amount (GBP)</th>)}<th>Reference</th>{canEdit && <th></th>}</tr>
+                    <tr>{dateTh}<th>Bank</th><th>Description</th><th>Category</th><th>Type</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="foreign">Amount ({foreign})</th>)}<th>Reference</th>{canEdit && <th></th>}</tr>
                   </thead>
                   <tbody>
                     {bankTxns.length === 0 && (
@@ -2390,12 +2383,12 @@ function Finance() {
                           const strong = { color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 };
                           const quiet = { color: "var(--ink-3)" };
                           // The +/− belongs to the leading amount.
-                          const sign = (cur) => (currency === cur ? `${isBankCredit(t) ? "+" : "−"} ` : "");
+                          const sign = (cur) => ((cur === "NPR") === (currency === "NPR") ? `${isBankCredit(t) ? "+" : "−"} ` : "");
                           return pair(
                             <td key="npr" style={lead("NPR", strong, quiet)}>
                               {sign("NPR")}NPR {roundAmount(t.amount ?? 0).toLocaleString()}
                             </td>,
-                            <td key="gbp" style={lead("GBP", strong, quiet)}>{sign("GBP")}{asCurrency((t.amount ?? 0) / GBP_RATE, "GBP")}</td>
+                            <td key="foreign" style={lead("foreign", strong, quiet)}>{sign("foreign")}{moneyForeign(t.amount ?? 0)}</td>
                           );
                         })()}
                         <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{t.reference || "—"}</td>
@@ -2518,7 +2511,7 @@ function Finance() {
                   <span style={{ color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Auto labour rate:</span>
                   <span style={{ color: "var(--ink-2)" }}>
                     {/* A per-unit rate is small (₨87 is £0.44), so pounds keep their pence instead of fmtC's whole units. */}
-                    {currency === "GBP" ? money(labourRatePerUnit) : fmtC(labourRatePerUnit)}/unit — based on last month's payroll ÷ units produced
+                    {currency !== "NPR" ? money(labourRatePerUnit) : fmtC(labourRatePerUnit)}/unit — based on last month's payroll ÷ units produced
                   </span>
                   <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-4)" }}>Override per order by entering a manual labour cost</span>
                 </div>

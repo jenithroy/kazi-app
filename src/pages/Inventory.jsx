@@ -1610,10 +1610,10 @@ const specGridHead = { border: "1px solid #000", padding: "3px 6px", fontSize: 1
 const specGridCell = { border: "1px solid #000", padding: "3px 6px", fontSize: 12 };
 
 /* A price on a library card (₨/kg, ₨/unit, a sample's cost). In rupees it reads "₨ 450"
-   exactly as it always has. In pounds it keeps the pence — the headline `fmt` rounds to
-   whole pounds, which would turn a ₨15 process into "£0/unit". `cur` is useCurrency(). */
+   exactly as it always has. In any other currency it keeps the pence — the headline `fmt` rounds to
+   whole units, which would turn a ₨15 process into "£0/unit". `cur` is useCurrency(). */
 function priceText({ currency, fmt: fmtC, money }, npr) {
-  return currency === "GBP" ? money(npr) : fmtC(npr);
+  return currency !== "NPR" ? money(npr) : fmtC(npr);
 }
 
 function FabricCard({ item, onClick }) {

@@ -1,4 +1,5 @@
 import { supabase } from "../lib/db";
+import { currencyDigits, currencyName } from "./currency";
 import { roundAmount } from "./format";
 import { currentFiscalYear, fiscalYearForDate, fmtDateBS } from "./fiscalYear";
 import { tsMillis } from "./date";
@@ -82,6 +83,9 @@ export function makeEmptyForm(type) {
 }
 
 /* ── Formatting ── */
+// NPR and GBP print exactly as they always have. Any other currency prints with its ISO code,
+// like "USD 1,234.50", which cannot be misread the way "$" or "¥" can on a filed document.
+const isOtherCurrency = (c) => !!c && c !== "NPR" && c !== "GBP";
 export function fmtNPR(n) {
   if (isNaN(n)) n = 0;
   return "NPR " + new Intl.NumberFormat("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(roundAmount(n));
@@ -92,6 +96,10 @@ export function fmtNPR(n) {
 // Grand Total itself rounds (fmtCurrency below) — per Deepa's request.
 export function fmtCurrencyExact(n, currency = "NPR") {
   if (isNaN(n)) n = 0;
+  if (isOtherCurrency(currency)) {
+    const d = currencyDigits(currency);
+    return currency + " " + new Intl.NumberFormat("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+  }
   const locale = currency === "GBP" ? "en-GB" : "en-IN";
   const symbol = currency === "GBP" ? "£" : "NPR ";
   return symbol + new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -99,6 +107,7 @@ export function fmtCurrencyExact(n, currency = "NPR") {
 
 export function fmtCurrency(n, currency = "NPR") {
   if (isNaN(n)) n = 0;
+  if (isOtherCurrency(currency)) return fmtCurrencyExact(n, currency);
   if (currency === "GBP") {
     return "£" + new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
   }
@@ -122,6 +131,14 @@ export function fmtDateBSLabel(s) {
   const bs = fmtDateBS(s);
   return bs === "—" ? null : `${bs} B.S.`;
 }
+
+// What the hundredth of a currency is called, for the "…and Fifty Cents" on a printed total.
+const MINOR_UNIT = {
+  USD: "Cents", EUR: "Cents", AUD: "Cents", CAD: "Cents", NZD: "Cents", SGD: "Cents", HKD: "Cents",
+  INR: "Paise", PKR: "Paisa", LKR: "Cents", AED: "Fils", SAR: "Halalas", QAR: "Dirhams", KWD: "Fils",
+  CNY: "Fen", CHF: "Rappen", SEK: "Öre", NOK: "Øre", DKK: "Øre", MYR: "Sen", THB: "Satang",
+  ZAR: "Cents", TRY: "Kuruş", BDT: "Poisha", IDR: "Sen", PHP: "Centavos", MXN: "Centavos",
+};
 
 export function numWords(num, currency = "NPR") {
   num = Math.round(num * 100) / 100;
@@ -147,6 +164,25 @@ export function numWords(num, currency = "NPR") {
     if (decPart > 0) {
       res += " and " + h(decPart).trim() + " Pence";
     }
+    return res.trim() + " Only";
+  }
+
+  if (isOtherCurrency(currency)) {
+    const name = currencyName(currency);
+    const dec = currencyDigits(currency) > 0 ? decPart : 0;
+    if (intPart === 0 && dec === 0) return "Zero " + name + " Only";
+    let r = "", tmp = intPart;
+    if (currency === "INR") {
+      if (tmp >= 10000000) { r += h(Math.floor(tmp / 10000000)) + "Crore "; tmp %= 10000000; }
+      if (tmp >= 100000)   { r += h(Math.floor(tmp / 100000))   + "Lakh ";  tmp %= 100000; }
+    } else {
+      if (tmp >= 1000000000) { r += h(Math.floor(tmp / 1000000000)) + "Billion "; tmp %= 1000000000; }
+      if (tmp >= 1000000)    { r += h(Math.floor(tmp / 1000000))    + "Million "; tmp %= 1000000; }
+    }
+    if (tmp >= 1000) { r += h(Math.floor(tmp / 1000)) + "Thousand "; tmp %= 1000; }
+    if (tmp > 0)     { r += h(tmp); }
+    let res = name + " " + r.trim();
+    if (dec > 0) res += " and " + (MINOR_UNIT[currency] ? h(dec).trim() + " " + MINOR_UNIT[currency] : dec + "/100");
     return res.trim() + " Only";
   }
 

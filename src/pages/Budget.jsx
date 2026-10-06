@@ -3,7 +3,7 @@ import { fetchAll, insertRow, updateRow } from "../lib/db";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
-import { GBP_RATE } from "../constants";
+import { toNPR, fromNPR } from "../utils/currency";
 import { cn, Avatar, Pill } from "../components/ui";
 import { roundAmount } from "../utils/format";
 import { tsMillis, tsDate } from "../utils/date";
@@ -19,9 +19,10 @@ const emptyBudgetForm = { title: "", category: "Equipment", amountGBP: "", notes
 const emptyReqForm    = { title: "", category: "Raw Materials", quantity: "", amountNPR: "", amount: "", urgency: "Medium", notes: "", region: "" };
 
 /* ── Helpers ───────────────────────────────────────────── */
+// Pounds and rupees are converted at the live rate (utils/currency), never a fixed one.
 function nprToGbp(npr) {
   const v = parseFloat(npr);
-  return (!npr || isNaN(v) || v <= 0) ? "" : (v / GBP_RATE).toFixed(2);
+  return (!npr || isNaN(v) || v <= 0) ? "" : fromNPR(v, "GBP").toFixed(2);
 }
 
 function hueFromName(name = "") {
@@ -53,10 +54,10 @@ function UrgencyPill({ urgency }) {
 
 /* ── Budget request card ───────────────────────────────── */
 function BudgetCard({ row, canReview, onApprove, onReject }) {
-  const { fmt, moneyAlt } = useCurrency();
+  const { fmt, moneyAlt, foreign } = useCurrency();
   const hue      = hueFromName(row.requestedBy || "");
   const gbpAmt   = row.amountGBP ?? (row.amount || 0);
-  const nprAmt   = row.amountNPR ?? Math.round(gbpAmt * GBP_RATE);
+  const nprAmt   = row.amountNPR ?? Math.round(toNPR(gbpAmt, "GBP"));
   const isPending  = row.status === "Pending";
   const isApproved = row.status === "Approved";
   const isRejected = row.status === "Rejected";
@@ -97,7 +98,7 @@ function BudgetCard({ row, canReview, onApprove, onReject }) {
             {fmt(nprAmt)}
           </div>
           <div className="kbrf-amt-s">
-            {moneyAlt(nprAmt)} · 1 GBP = {GBP_RATE} NPR
+            {moneyAlt(nprAmt)} · 1 {foreign} = {Number(toNPR(1, foreign).toFixed(2))} NPR
           </div>
         </div>
 
@@ -131,17 +132,18 @@ function BudgetCard({ row, canReview, onApprove, onReject }) {
 
 /* ── Est. Cost cell of the requirements table ──────────── */
 // A requirement is stored with a rupee amount, a pound amount, or both. The header's
-// ₨/£ switch formats rupees, so each figure is handed over as rupees — the stored
-// amountNPR, and the stored pounds at the fixed rate — which keeps each one showing
+// currency picker formats rupees, so each figure is handed over as rupees — the stored
+// amountNPR, and the stored pounds at the live rate — which keeps each one showing
 // exactly as stored (pounds worked out from rupees can land a penny off the stored
 // figure). A missing one is worked out the same way. The chosen currency is the bold
-// line; the other sits above it, small, where the rupees always were.
+// line; the other sits above it, small, where the rupees always were. Away from rupees
+// the stored pounds lead: a currency other than GBP is worked out from them.
 function ReqCost({ row }) {
   const { currency, money, moneyAlt } = useCurrency();
-  const npr = Number(row.amountNPR) || Math.round(Number(row.amount || 0) * GBP_RATE);
+  const npr = Number(row.amountNPR) || Math.round(toNPR(Number(row.amount || 0), "GBP"));
   if (!npr) return "—";
-  const gbpAsNpr = Number(row.amount) ? Number(row.amount) * GBP_RATE : npr;
-  const [lead, follow] = currency === "GBP" ? [gbpAsNpr, npr] : [npr, gbpAsNpr];
+  const gbpAsNpr = Number(row.amount) ? toNPR(Number(row.amount), "GBP") : npr;
+  const [lead, follow] = currency !== "NPR" ? [gbpAsNpr, npr] : [npr, gbpAsNpr];
   return (
     <>
       <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)" }}>{moneyAlt(follow)}</span>
@@ -193,7 +195,7 @@ function NewRequestModal({ onClose, onSubmit, submitting }) {
             />
             {form.amountGBP && (
               <span style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 3 }}>
-                ≈ NPR {fmtNPR(Math.round(Number(form.amountGBP) * GBP_RATE))}
+                ≈ NPR {fmtNPR(Math.round(toNPR(Number(form.amountGBP), "GBP")))}
               </span>
             )}
           </label>
@@ -272,7 +274,7 @@ function Budget() {
       title:            form.title,
       category:         form.category,
       amountGBP:        gbp,
-      amountNPR:        Math.round(gbp * GBP_RATE),
+      amountNPR:        Math.round(toNPR(gbp, "GBP")),
       amount:           gbp,
       urgency:          form.urgency,
       notes:            form.notes,

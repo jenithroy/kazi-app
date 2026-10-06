@@ -2,9 +2,9 @@ import { useEffect, useState, useMemo } from "react";
 import { deleteRow, fetchAll, fetchOne, loadCollections, subscribe, updateRow, upsertRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
-import { GBP_RATE, WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
+import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, createdAfterCutoff } from "../constants";
 import { todayDate, startOfWeekDate, tsMillis } from "../utils/date";
-import { shortAmount } from "../utils/currency";
+import { shortAmount, toNPR } from "../utils/currency";
 import { haversineDistance } from "../utils/geo";
 import { Card, KPI, Pill, Btn, Avatar, Progress, Spark, Divider, Icons, fmt, cn } from "../components/ui";
 import { useCurrency } from "../context/CurrencyContext";
@@ -45,8 +45,7 @@ function Loading() {
 
 /* ── Sales Target Helper & Card ──────────────────────── */
 function getSalesTargetInfo(invoices) {
-  const targetGBP = 2000;
-  const targetNPR = targetGBP * GBP_RATE;
+  const targetNPR = toNPR(2000, "GBP"); // the monthly target is £2,000, at the live rate
   const thisMonth = new Date().toISOString().slice(0, 7);
   const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
 
@@ -58,7 +57,7 @@ function getSalesTargetInfo(invoices) {
     monthInvoices = invoices.filter(inv => (inv.date || "").slice(0, 7) === lastMonth && inv.status !== "Cancelled");
   }
 
-  const currentSalesNPR = monthInvoices.reduce((sum, inv) => sum + Number(inv.totalNPR || 0), 0);
+  const currentSalesNPR = monthInvoices.reduce((sum, inv) => sum + toNPR(inv.totalNPR, inv.currency), 0);
   const pct = Math.min(Math.round((currentSalesNPR / targetNPR) * 100), 100);
   const isLastMonth = monthKey === lastMonth && monthKey !== thisMonth;
 
@@ -471,7 +470,7 @@ function ProductPnLCard({ canEdit }) {
         </table>
       </div>
       <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 10 }}>
-        All values in {currency}{currency === "GBP" ? ` (÷${GBP_RATE} NPR)` : ""} · Total auto-calculated from components
+        All values in {currency} · Total auto-calculated from components
         {editId ? " · type costs in NPR" : ""}
       </div>
     </Card>
@@ -607,6 +606,7 @@ function NepalAdminDash() {
   const [data, setData]       = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [trigger, setTrigger] = useState(0);
+  const { ratesVersion } = useCurrency(); // invoice sums convert at the live rate: redo them when it lands
 
   useEffect(() => {
     async function load() {
@@ -717,7 +717,7 @@ function NepalAdminDash() {
       const totalRevNPR = orders.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0);
       const thisMonthRevNPR = invoices
         .filter(inv => (inv.date || "").slice(0, 7) === thisMonth && inv.status !== "Cancelled" && inv.status !== "Draft")
-        .reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+        .reduce((s, inv) => s + toNPR(inv.totalNPR, inv.currency), 0);
       const totalCostNPR = orderCosts.reduce((s, c) => s + Number(c.material || 0) + Number(c.labour || 0) + Number(c.overhead || 0) + Number(c.shipping || 0), 0);
       const totalProfitNPR = totalRevNPR - totalCostNPR;
       const avgMargin = totalRevNPR > 0 ? ((totalProfitNPR / totalRevNPR) * 100).toFixed(1) : "0.0";
@@ -740,7 +740,7 @@ function NepalAdminDash() {
       // Ops alerts
       const todayStr = today;
       const overdueInvoices = invoices.filter(inv => inv.dueDate && inv.dueDate < todayStr && inv.status !== "Paid" && inv.status !== "Cancelled");
-      const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+      const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + toNPR(inv.totalNPR, inv.currency), 0);
       const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < todayStr && t.status !== "Done");
       const lowInventoryCount = inventory.filter(item => {
         const qty = Number(item.quantity ?? (Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0)));
@@ -764,7 +764,7 @@ function NepalAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setLoadErr(e.message || "Failed to load."); });
-  }, [trigger, region]);
+  }, [trigger, region, ratesVersion]);
 
   // Live listeners to trigger reload on database changes
   useEffect(() => {
@@ -1096,6 +1096,7 @@ function UKAdminDash() {
   const { region } = useRegion();
   const [data, setData] = useState(null);
   const [trigger, setTrigger] = useState(0);
+  const { ratesVersion } = useCurrency(); // invoice sums convert at the live rate: redo them when it lands
 
   useEffect(() => {
     async function load() {
@@ -1136,11 +1137,11 @@ function UKAdminDash() {
         revMonth = lastMonth;
         paidInvoices = invoices.filter(i => i.status === "Paid" && (i.date || "").slice(0, 7) === lastMonth);
       }
-      const totalPaidNPR = paidInvoices.reduce((s, i) => s + Number(i.totalNPR || 0), 0);
-      const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+      const totalPaidNPR = paidInvoices.reduce((s, i) => s + toNPR(i.totalNPR, i.currency), 0);
+      const outstandingNPR = invoices.filter(i => !["Paid","Cancelled"].includes(i.status)).reduce((s, i) => s + toNPR(i.totalNPR, i.currency), 0);
       const overdueNPR = invoices
         .filter(i => i.dueDate && i.dueDate < today && i.status !== "Paid" && i.status !== "Cancelled")
-        .reduce((s, i) => s + Number(i.totalNPR || 0), 0);
+        .reduce((s, i) => s + toNPR(i.totalNPR, i.currency), 0);
 
       // Payroll — current month first, then employee base salaries as estimate
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -1174,16 +1175,16 @@ function UKAdminDash() {
       const revData = Array.from({ length: 30 }, (_, i) => {
         const d = new Date(); d.setDate(d.getDate() - (29-i));
         const key = d.toISOString().slice(0,10);
-        return invoices.filter(inv => inv.date === key && inv.status === "Paid").reduce((s, inv) => s + Number(inv.totalNPR||0), 0);
+        return invoices.filter(inv => inv.date === key && inv.status === "Paid").reduce((s, inv) => s + toNPR(inv.totalNPR, inv.currency), 0);
       });
 
       const recentInvoices = [...invoices].sort((a,b) => (b.date||"").localeCompare(a.date||"")).slice(0, 5);
       // The donut only draws proportions, so these stay in NPR like everything else here.
       const invoiceSegments = [
-        { v: invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+Number(i.totalNPR||0),0), color: "var(--mint-2)" },
-        { v: invoices.filter(i=>i.status==="Outstanding"||i.status==="Sent").reduce((s,i)=>s+Number(i.totalNPR||0),0), color: "var(--amber)" },
+        { v: invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+toNPR(i.totalNPR, i.currency),0), color: "var(--mint-2)" },
+        { v: invoices.filter(i=>i.status==="Outstanding"||i.status==="Sent").reduce((s,i)=>s+toNPR(i.totalNPR, i.currency),0), color: "var(--amber)" },
         { v: overdueNPR, color: "var(--terra)" },
-        { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+Number(i.totalNPR||0),0), color: "var(--ink-5)" },
+        { v: invoices.filter(i=>i.status==="Draft").reduce((s,i)=>s+toNPR(i.totalNPR, i.currency),0), color: "var(--ink-5)" },
       ];
 
       const payrollNPR = payrollIsEstimate
@@ -1195,7 +1196,7 @@ function UKAdminDash() {
       const tasks = tasksSnap;
       const inventory = inventorySnap;
       const overdueInvoices = invoices.filter(inv => inv.dueDate && inv.dueDate < today && inv.status !== "Paid" && inv.status !== "Cancelled");
-      const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + Number(inv.totalNPR || 0), 0);
+      const overdueInvoiceTotalNPR = overdueInvoices.reduce((s, inv) => s + toNPR(inv.totalNPR, inv.currency), 0);
       const overdueTasks = tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== "Done");
       const lowInventoryCount = inventory.filter(item => {
         const qty = Number(item.quantity ?? (Number(item.openingStock || 0) + Number(item.stockIn || 0) - Number(item.stockUsed || 0)));
@@ -1217,7 +1218,7 @@ function UKAdminDash() {
       });
     }
     load().catch(e => { console.error(e); setData({}); });
-  }, [trigger, region]);
+  }, [trigger, region, ratesVersion]);
 
   // Live listeners to trigger reload on database changes
   useEffect(() => {
@@ -1383,7 +1384,7 @@ function UKAdminDash() {
                         <div className="kuk-inv-c">{i.clientName || "—"}</div>
                       </div>
                       <div className="kuk-inv-end">
-                        <div className="num-xl mono" style={{ fontSize: 15 }}>{fmtC(Number(i.totalNPR||0))}</div>
+                        <div className="num-xl mono" style={{ fontSize: 15 }}>{fmtC(toNPR(i.totalNPR, i.currency))}</div>
                         <Pill tone={tone}>{i.status || "Draft"}</Pill>
                       </div>
                     </div>
@@ -1489,6 +1490,7 @@ function BudgetApprovalCard({ br }) {
 function EmployeeDash() {
   const { profile } = useAuth();
   const [data, setData] = useState(null);
+  const { ratesVersion } = useCurrency(); // the sales target converts at the live rate
 
   async function load() {
     const today = todayDate();
@@ -1526,7 +1528,7 @@ function EmployeeDash() {
 
   useEffect(() => {
     load().catch(console.error);
-  }, [profile]);
+  }, [profile, ratesVersion]);
 
   if (!data) return <Loading />;
 

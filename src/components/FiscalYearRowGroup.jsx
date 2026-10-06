@@ -289,7 +289,9 @@ export function salesSettlement(type, d, src, { recordedBy } = {}) {
 
 /* ── Small shared pieces ─────────────────────────────────────────────────── */
 
-function TotalLine({ label, value, strong, tone }) {
+// `currency` is the code printed before the figure: NPR for everything but a Sales row, whose
+// amounts are in the invoice's own currency.
+function TotalLine({ label, value, strong, tone, currency = "NPR" }) {
   return (
     <div style={{
       fontSize: strong ? 12 : 11,
@@ -298,7 +300,7 @@ function TotalLine({ label, value, strong, tone }) {
       fontFamily: strong ? "var(--mono)" : undefined,
       fontVariantNumeric: strong ? "tabular-nums" : undefined,
     }}>
-      {label}: <span style={strong ? undefined : { fontWeight: 600, color: "var(--ink)" }}>NPR {money(value)}</span>
+      {label}: <span style={strong ? undefined : { fontWeight: 600, color: "var(--ink)" }}>{currency} {money(value)}</span>
     </div>
   );
 }
@@ -485,16 +487,17 @@ export function FiscalYearRowGroup({
       }
       case "Sales": {
         const t = invoiceTotals(data);
+        const cur = data.currency || "NPR";
         return (
           <>
-            <TotalLine label="Subtotal" value={t.subtotal} />
+            <TotalLine label="Subtotal" value={t.subtotal} currency={cur} />
             {!ro && (
-              <NumField label={data.discountMode === "amount" ? "Disc. NPR" : "Disc. %"} width={58}
+              <NumField label={data.discountMode === "amount" ? `Disc. ${cur}` : "Disc. %"} width={58}
                 value={data.discountMode === "amount" ? (data.discountFlatAmt || "") : (data.discountPct || "")}
                 onChange={v => set(data.discountMode === "amount" ? { discountFlatAmt: Number(v || 0) } : { discountPct: Number(v || 0) })} />
             )}
-            {data.applyVAT && <TotalLine label="VAT 13%" value={t.vatAmt} />}
-            <TotalLine label="Total" value={t.total} strong />
+            {data.applyVAT && <TotalLine label="VAT 13%" value={t.vatAmt} currency={cur} />}
+            <TotalLine label="Total" value={t.total} strong currency={cur} />
           </>
         );
       }

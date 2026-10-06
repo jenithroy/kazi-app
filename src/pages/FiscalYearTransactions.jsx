@@ -5,7 +5,7 @@ import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { financeTabAllowed, financeTabCanEdit, sectionCanEdit } from "../utils/permissions";
-import { GBP_RATE } from "../constants";
+import { toNPR } from "../utils/currency";
 import {
   slugToFiscalYear, fiscalYearToSlug, fiscalYearDateRangeAD,
   fiscalYearForDate, parseFiscalYearLabel, fmtDateBS,
@@ -61,7 +61,7 @@ export default function FiscalYearTransactions() {
   const { fy: fySlug } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { money } = useCurrency();
+  const { money, ratesVersion } = useCurrency();
   const { region } = useRegion();
   const fiscalYear = slugToFiscalYear(fySlug);
   const fyRange = useMemo(() => fiscalYearDateRangeAD(fiscalYear), [fiscalYear]);
@@ -88,7 +88,13 @@ export default function FiscalYearTransactions() {
   // them rather than only the year on screen is what lets the Prev/Next buttons
   // know which years actually contain anything — and it means changing year is
   // a re-filter rather than another six round trips.
-  const [allRows, setAllRows] = useState([]);
+  const [loadedRows, setLoadedRows] = useState([]);
+  // An invoice's amount is in its own currency; it is turned into NPR here so a rate that arrives
+  // after the data (or a refreshed one) is picked up without reloading.
+  const allRows = useMemo(
+    () => loadedRows.map(r => (r.docCurrency ? { ...r, amountNPR: toNPR(r.docAmount, r.docCurrency) } : r)),
+    [loadedRows, ratesVersion]
+  );
   const [accountNames, setAccountNames] = useState([]);
   const [typeFilter, setTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -182,7 +188,8 @@ export default function FiscalYearTransactions() {
         push(r.date, {
           key: `inv-${r.id}`, type: "Sales", src: r, region: r.region,
           description: `${r.clientName || ""}${r.invoiceNumber ? " — " + r.invoiceNumber : ""}`,
-          amountNPR: r.currency === "GBP" ? val * GBP_RATE : val,
+          // amountNPR is filled in from docAmount/docCurrency once the live rates are known (see allRows).
+          amountNPR: toNPR(val, r.currency), docAmount: val, docCurrency: r.currency,
           sign: paid ? 1 : 0, counts: paid,
         });
       });
@@ -201,7 +208,7 @@ export default function FiscalYearTransactions() {
         return m ? parseInt(m[1], 10) : -1;
       };
       out.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (seqNum(b) - seqNum(a)));
-      setAllRows(out);
+      setLoadedRows(out);
       setAccountNames([...new Set(accRows.map(a => a.name).filter(Boolean))]);
     } finally {
       if (!quiet) setLoading(false);
@@ -284,7 +291,7 @@ export default function FiscalYearTransactions() {
     removingRef.current.add(entry.key);
     try {
       clearDraft(entry.key);
-      setAllRows(prev => prev.filter(r => r.key !== entry.key));
+      setLoadedRows(prev => prev.filter(r => r.key !== entry.key));
       await deleteTransaction(entry.type, entry.src);
       await load({ quiet: true });
     } catch (err) {

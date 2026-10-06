@@ -7,7 +7,7 @@ import SalarySlipModal from "../components/SalarySlipModal";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
-import { GBP_RATE, WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
+import { WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
 import { tsMillis } from "../utils/date";
@@ -197,11 +197,13 @@ function statusBadge(status) {
 
 function Employees() {
   const { profile } = useAuth();
-  const { currency, money, moneyAlt } = useCurrency();
-  // The payroll table's "Net NPR | Net GBP" pair: the chosen currency's column goes first.
-  const pair = (npr, gbp) => currency === "GBP" ? [gbp, npr] : [npr, gbp];
-  // The leading column also gets the emphasis: `strong` for the currency on the switch, `quiet` for the other.
-  const lead = (cur, strong, quiet) => currency === cur ? strong : quiet;
+  const { currency, foreign, money, moneyAlt, moneyForeign } = useCurrency();
+  // The payroll table's "Net NPR | Net <foreign>" pair: the chosen currency's column goes first.
+  // `foreign` is the chosen currency, or GBP while NPR is chosen.
+  const foreignLeads = currency !== "NPR";
+  const pair = (nprCell, foreignCell) => foreignLeads ? [foreignCell, nprCell] : [nprCell, foreignCell];
+  // The leading column also gets the emphasis: `strong` for the one on the switch, `quiet` for the other.
+  const lead = (isNprCell, strong, quiet) => (isNprCell !== foreignLeads) ? strong : quiet;
   const navigate = useNavigate();
   const location = useLocation();
   const canEdit = sectionCanEdit(profile, "employees");
@@ -615,7 +617,7 @@ function Employees() {
                     onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} />
                 </label>
                 <label>
-                  Basic Salary (NPR) {form.basicSalaryNPR ? <span style={{ fontWeight: 400, color: "var(--ink-4)", fontSize: 11 }}>≈ {asCurrency(Number(form.basicSalaryNPR) / GBP_RATE, "GBP")}</span> : null}
+                  Basic Salary (NPR) {form.basicSalaryNPR ? <span style={{ fontWeight: 400, color: "var(--ink-4)", fontSize: 11 }}>≈ {moneyForeign(Number(form.basicSalaryNPR))}</span> : null}
                   <input type="number" min="0" value={form.basicSalaryNPR} placeholder="0"
                     onChange={e => setForm(f => ({ ...f, basicSalaryNPR: e.target.value }))} />
                 </label>
@@ -1012,34 +1014,34 @@ function Employees() {
                         <span className="kfin-calc-key">Basic Salary</span>
                         <span className="kfin-calc-val">
                           NPR {roundAmount(payrollForm.basicNPR || 0).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.basicNPR || 0) / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({moneyForeign(Number(payrollForm.basicNPR || 0))})</span>
                         </span>
                         <span className="kfin-calc-key">Bonus</span>
                         <span className="kfin-calc-val">
                           NPR {roundAmount(payrollForm.bonusNPR || 0).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(Number(payrollForm.bonusNPR || 0) / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({moneyForeign(Number(payrollForm.bonusNPR || 0))})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-bold">Gross Pay</span>
                         <span className="kfin-calc-val kfin-calc-bold">
                           NPR {roundAmount(calc.gross).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({asCurrency(calc.gross / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyForeign(calc.gross)})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-deduct">
                           Late Deduction ({payrollForm.lateCutsCount} × 25% cuts{calc.adjustment !== 0 ? `, ${calc.adjustment > 0 ? "+" : "−"} NPR ${roundAmount(Math.abs(calc.adjustment)).toLocaleString()} adj.` : ""})
                         </span>
                         <span className="kfin-calc-val kfin-calc-deduct">
                           − NPR {roundAmount(calc.late).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(calc.late / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({moneyForeign(calc.late)})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-deduct">PF / Other</span>
                         <span className="kfin-calc-val kfin-calc-deduct">
                           − NPR {roundAmount(calc.pf).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({asCurrency(calc.pf / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--ink-4)", marginLeft: 6 }}>({moneyForeign(calc.pf)})</span>
                         </span>
                         <span className="kfin-calc-key kfin-calc-total">Net Pay</span>
                         <span className="kfin-calc-val kfin-calc-total">
                           NPR {roundAmount(calc.net).toLocaleString()}
-                          <span style={{ fontSize: "11px", color: "var(--mint-deep)", marginLeft: 6, fontWeight: 700 }}>({asCurrency(calc.net / GBP_RATE, "GBP")})</span>
+                          <span style={{ fontSize: "11px", color: "var(--mint-deep)", marginLeft: 6, fontWeight: 700 }}>({moneyForeign(calc.net)})</span>
                         </span>
                       </div>
                       {calc.deductionsExceedGross && (
@@ -1063,7 +1065,7 @@ function Employees() {
             <div className="table-wrap kfin-tbl-wrap" style={{ border: "none", margin: 0 }}>
               <table className="kfin-tbl">
                 <thead>
-                  <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th>{pair(<th key="npr">Net NPR</th>, <th key="gbp">Net GBP</th>)}<th>Actions</th></tr>
+                  <tr><th>Staff</th><th>Role</th><th>Month</th><th>Year</th><th>Basic</th><th>Bonus</th><th>Late Days</th><th>Late Ded.</th><th>PF/Other</th><th>Gross</th>{pair(<th key="npr">Net NPR</th>, <th key="gbp">Net {foreign}</th>)}<th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {payroll.length === 0 && (
@@ -1133,8 +1135,8 @@ function Employees() {
                         ) : "—"}
                       </td>
                       {pair(
-                        <td key="npr" style={lead("NPR", { fontWeight: 600, color: "var(--mint-deep)" }, { color: "var(--ink-3)" })}>{asCurrency(item.netNPR || 0, "NPR")}</td>,
-                        <td key="gbp" style={lead("GBP", { fontWeight: 600, color: "var(--mint-deep)" }, { color: "var(--ink-3)" })}>{asCurrency((item.netNPR || 0) / GBP_RATE, "GBP")}</td>
+                        <td key="npr" style={lead(true, { fontWeight: 600, color: "var(--mint-deep)" }, { color: "var(--ink-3)" })}>{asCurrency(item.netNPR || 0, "NPR")}</td>,
+                        <td key="gbp" style={lead(false, { fontWeight: 600, color: "var(--mint-deep)" }, { color: "var(--ink-3)" })}>{moneyForeign(item.netNPR || 0)}</td>
                       )}
                       <td>
                         <div style={{ display: "flex", gap: 6 }}>

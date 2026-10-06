@@ -7,7 +7,8 @@ import { Icons, cn } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit } from "../utils/permissions";
-import { GBP_RATE } from "../constants";
+import { toNPR, fromNPR, currencyDigits } from "../utils/currency";
+import { CurrencySelect } from "../components/CurrencyPicker";
 import { scrollAppToTop } from "../utils/scroll";
 import { todayDate } from "../utils/date";
 import {
@@ -176,14 +177,11 @@ function Billing() {
   // same rule Production's order form uses, so a role that cannot add customers
   // there cannot back-door it by adding one from an invoice either.
   const canAddCustomers = sectionCanEdit(profile, "customers");
-  const { fmt: fmtC } = useCurrency();
+  const { fmt: fmtC, ratesVersion } = useCurrency();
   const { region } = useRegion();
 
-  // Convert a stored value to NPR for use with fmtC.
-  // GBP-denominated documents store amounts in GBP (not NPR), so multiply up.
-  function toNPR(val, currency) {
-    return currency === "GBP" ? Number(val || 0) * GBP_RATE : Number(val || 0);
-  }
+  // A document's amounts are stored in the document's own currency (`doc.currency`),
+  // so toNPR(val, doc.currency) (imported above) brings one to NPR for use with fmtC.
 
   const [tab, setTab]               = useState("invoice");
   const [dateMode, setDateMode]     = useState("ad"); // "ad" | "bs" — one switch for every date on the page, shown and entered
@@ -491,11 +489,11 @@ function Billing() {
       alert("Pick a client, or finish adding the new one, before saving.");
       return;
     }
-    // Fix 6: PAN required if invoice total > 50000 NPR
+    // Fix 6: PAN required if invoice total > 50000 NPR (judged by its NPR equivalent)
     if (tab === "invoice") {
       const applyVATPreview = form.applyVAT;
       const { total: previewTotal } = calcTotals(form.items, applyVATPreview, form.discountPct || 0, form.discountMode, form.discountFlatAmt || 0);
-      if (previewTotal > 50000 && !form.clientPAN?.trim()) {
+      if (toNPR(previewTotal, form.currency || "NPR") > 50000 && !form.clientPAN?.trim()) {
         setPanError("PAN number is required for invoices exceeding NPR 50,000 (Nepal IRD regulation).");
         return;
       }
@@ -532,7 +530,7 @@ function Billing() {
           // already be taken there — and given its real one by the renumber below.
           fiscalYear:     plan.run ? plan.newFY : form.fiscalYear,
           ...(plan.fyChanged ? { [meta.numberField]: `RENUM:${editingId}` } : {}),
-          currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
+          currency:       form.currency || "NPR",
           subtotalNPR:    subtotal,
           discountMode:    form.discountMode || "pct",
           discountPct:    Number(form.discountPct) || 0,
@@ -584,7 +582,7 @@ function Billing() {
         const record = {
           ...form,
           fiscalYear,
-          currency:       tab === "quotation" ? (form.currency || "NPR") : "NPR",
+          currency:       form.currency || "NPR",
           [meta.numberField]: docNumber,
           subtotalNPR:    subtotal,
           discountMode:    form.discountMode || "pct",
@@ -675,11 +673,24 @@ function Billing() {
 
       // The modal works in rupees; the row is stored in the invoice's own
       // currency so the trigger's sum stays comparable with total_npr.
+      // A payment that clears the balance books the exact balance left, so
+      // rounding to the currency's digits can never strand a sliver of credit.
+      const payCur = payModal.currency || "NPR";
+      let rowAmount = newAmt;
+      if (payCur !== "NPR") {
+        const docLeft = payModal.docTotal - payModal.docPaid;
+        if (newAmt >= outstanding - 0.005 && docLeft > 0) {
+          rowAmount = docLeft;
+        } else {
+          const pow = 10 ** currencyDigits(payCur);
+          rowAmount = Math.round(fromNPR(newAmt, payCur) * pow) / pow;
+        }
+      }
       await insertRow("payments", {
         invoiceId:  payModal.id,
         customerId: payModal.customerId || null,
         paidOn:     payDate || todayDate(),
-        amount:     payModal.isGBP ? newAmt / GBP_RATE : newAmt,
+        amount:     rowAmount,
         method:     payMethod || null,
         bankName:   payMethod === "Bank" ? (payModal.bankName || null) : null,
         reference:  payRef.trim() || null,
@@ -727,7 +738,8 @@ function Billing() {
      recordPayment uses in reverse. */
   async function deletePayment(payment) {
     if (!payModal || payDeletingId) return;
-    const amt = Number(payment.amountNPR || 0);
+    // Never payment.amountNPR: the view only knows GBP. amount is in the invoice's currency.
+    const amt = toNPR(payment.amount, payment.invoiceCurrency || payModal.currency);
     const when = payment.isOpening ? "opening balance" : `payment from ${fmtDate(payment.paidOn)}`;
     if (!window.confirm(`Delete the ${fmtNPR(amt)} ${when}? This cannot be undone.`)) return;
     setPayDeletingId(payment.id);
@@ -737,7 +749,7 @@ function Billing() {
       const remaining = Math.max(0, payModal.currentPaid - amt);
       const newStatus = remaining <= 0.005 ? "Sent" : remaining >= payModal.totalNPR - 0.005 ? "Paid" : "Partial";
       await updateRow("invoices", payModal.id, { status: newStatus });
-      setPayModal(m => m && { ...m, currentPaid: remaining });
+      setPayModal(m => m && { ...m, currentPaid: remaining, docPaid: Math.max(0, m.docPaid - Number(payment.amount || 0)) });
       await loadPayHistory(payModal.id);
       await loadAll();
     } catch (err) {
@@ -752,20 +764,15 @@ function Billing() {
   async function convertToInvoice(qt) {
     if (converting === qt.id) return;
     setConverting(qt.id);
-    const isGBP = qt.currency === "GBP";
-    const confirmMsg = isGBP
-      ? `Convert ${qt.quotationNumber} to a VAT Invoice? Since the quotation is in GBP, the rates will be converted to NPR using the rate of 1 GBP = 200 NPR.`
+    const qtCurrency = qt.currency || "NPR";
+    // The invoice keeps the quotation's currency, so no amount is converted.
+    const confirmMsg = qtCurrency !== "NPR"
+      ? `Convert ${qt.quotationNumber} to a VAT Invoice? The invoice will stay in ${qtCurrency}, with the same rates.`
       : `Convert ${qt.quotationNumber} to a VAT Invoice?`;
     if (!window.confirm(confirmMsg)) { setConverting(null); return; }
     setSubmitting(true);
     try {
-      // Convert items rates to NPR if GBP
-      const items = (qt.items || []).map(it => {
-        if (isGBP) {
-          return { ...it, rate: Number(it.rate || 0) * GBP_RATE };
-        }
-        return it;
-      });
+      const items = qt.items || [];
 
       const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(items, true, qt.discountPct || 0, qt.discountMode, qt.discountFlatAmt || 0);
       // The invoice is raised today, so its fiscal year — and number series —
@@ -808,7 +815,7 @@ function Billing() {
         vatAmountNPR:     vatAmt,
         totalNPR:         total,
         amountPaid:       0,
-        currency:         "NPR",
+        currency:         qtCurrency,
         createdBy:        profile?.name || "Unknown",
       });
 
@@ -841,7 +848,8 @@ function Billing() {
   function exportCSV() {
     const rows = activeDocs; // already filtered by searchQuery via activeDocs
     const numField = meta.numberField;
-    const header = ["Invoice #", "Client", "Date", "Amount (NPR)", "Status"];
+    // Amounts are in each document's own currency (last column), not always NPR.
+    const header = ["Invoice #", "Client", "Date", "Amount (NPR)", "Status", "Currency"];
     const lines = [
       header.join(","),
       ...rows.map(r => [
@@ -850,6 +858,7 @@ function Billing() {
         `"${r.date || ""}"`,
         r.totalNPR != null ? r.totalNPR : "",
         `"${r.status || ""}"`,
+        `"${r.currency || "NPR"}"`,
       ].join(","))
     ];
     const csv = lines.join("\n");
@@ -871,13 +880,7 @@ function Billing() {
   /* ── KPI Summary ── */
   const summary = useMemo(() => {
     const list = activeList.filter(d => d.status !== "Cancelled");
-    const getValInNPR = (d, key) => {
-      const val = Number(d[key] || 0);
-      if (d.currency === "GBP") {
-        return val * GBP_RATE;
-      }
-      return val;
-    };
+    const getValInNPR = (d, key) => toNPR(d[key], d.currency);
     const total = list.reduce((s, d) => s + getValInNPR(d, "totalNPR"), 0);
     const paid  = list.filter(d => ["Paid", "Delivered", "Accepted"].includes(d.status)).reduce((s, d) => s + getValInNPR(d, "totalNPR"), 0);
     const partialPaid = list.filter(d => d.status === "Partial").reduce((s, d) => s + getValInNPR(d, "amountPaid"), 0);
@@ -895,7 +898,7 @@ function Billing() {
         }, 0)
       : 0;
     return { total, paid: paid + partialPaid, pending, vatCollected, count: list.length };
-  }, [activeList, tab]);
+  }, [activeList, tab, ratesVersion]);
 
   const numField = meta.numberField;
 
@@ -1028,15 +1031,10 @@ function Billing() {
                     <DualDateInput value={form.validUntil} mode={dateMode} onModeChange={setDateMode} onChange={v => setF("validUntil", v)} />
                   </label>
                 )}
-                {tab === "quotation" && (
-                  <label className="kfin-label">
-                    Currency
-                    <select className="kfin-select" value={form.currency || "NPR"} onChange={e => setF("currency", e.target.value)}>
-                      <option value="NPR">NPR (Nepalese Rupee)</option>
-                      <option value="GBP">GBP (British Pound)</option>
-                    </select>
-                  </label>
-                )}
+                <label className="kfin-label">
+                  Currency
+                  <CurrencySelect className="kfin-select" value={form.currency || "NPR"} onChange={v => setF("currency", v)} />
+                </label>
 
                 {/* Status */}
                 <label className="kfin-label">
@@ -1505,8 +1503,8 @@ function Billing() {
                 </thead>
                 <tbody>
                   {activeDocs.map(row => {
-                    const rowTotalNPR = row.currency === "GBP" ? (row.totalNPR || 0) * GBP_RATE : (row.totalNPR || 0);
-                    const rowPaidNPR  = row.currency === "GBP" ? (row.amountPaid || 0) * GBP_RATE : (row.amountPaid || 0);
+                    const rowTotalNPR = toNPR(row.totalNPR, row.currency);
+                    const rowPaidNPR  = toNPR(row.amountPaid, row.currency);
                     const creditDue = Math.max(0, rowTotalNPR - rowPaidNPR);
                     return (
                       <tr key={row.id}>
@@ -1548,7 +1546,7 @@ function Billing() {
                             {row.status === "Cancelled" ? (
                               <span style={{ color: "var(--ink-4)", fontSize: 12 }}>—</span>
                             ) : creditDue > 0 ? (
-                              <span style={{ color: "var(--terra)", fontWeight: 700, fontSize: 12 }}>{fmtC(toNPR(creditDue, row.currency))}</span>
+                              <span style={{ color: "var(--terra)", fontWeight: 700, fontSize: 12 }}>{fmtC(creditDue)}</span>
                             ) : (
                               <span style={{ color: "var(--mint-deep)", fontSize: 12 }}>Settled</span>
                             )}
@@ -1573,7 +1571,7 @@ function Billing() {
                               <button
                                 className="kbil-tbl-btn kbil-tbl-btn--ok"
                                 onClick={() => {
-                                  setPayModal({ id: row.id, docNum: row.invoiceNumber, totalNPR: row.currency === "GBP" ? (row.totalNPR || 0) * GBP_RATE : (row.totalNPR || 0), currentPaid: row.currency === "GBP" ? (row.amountPaid || 0) * GBP_RATE : (row.amountPaid || 0), coll: meta.coll, customerId: row.customerId || null, region: row.region || null, bankName: row.bankName || null, isGBP: row.currency === "GBP" });
+                                  setPayModal({ id: row.id, docNum: row.invoiceNumber, totalNPR: rowTotalNPR, currentPaid: rowPaidNPR, currency: row.currency || "NPR", docTotal: Number(row.totalNPR || 0), docPaid: Number(row.amountPaid || 0), coll: meta.coll, customerId: row.customerId || null, region: row.region || null, bankName: row.bankName || null });
                                   setPayAmt(""); setPayError(""); setPayRef("");
                                   setPayDate(todayDate()); setPayMethod(row.paymentType || "Bank");
                                   loadPayHistory(row.id);
@@ -1795,7 +1793,7 @@ function Billing() {
                               {p.method && !p.isOpening ? ` · ${p.method}` : ""}
                             </span>
                             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <strong>{fmtNPR(Number(p.amountNPR || 0))}</strong>
+                              <strong>{fmtNPR(toNPR(p.amount, p.invoiceCurrency || payModal.currency))}</strong>
                               {canEdit && (
                                 <button
                                   type="button"

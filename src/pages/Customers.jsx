@@ -30,7 +30,8 @@ import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { sectionCanEdit } from "../utils/permissions";
 import { Icons, KPI, Progress, SegBar, Pill } from "../components/ui";
-import { GBP_RATE } from "../constants";
+import { CurrencyPicker } from "../components/CurrencyPicker";
+import { toNPR } from "../utils/currency";
 
 const EMPTY = {
   name: "", city: "", address: "",
@@ -40,9 +41,9 @@ const EMPTY = {
 
 /* Invoice money is stored in the invoice's own currency — total_npr holds
    pounds on a GBP invoice. Everything on this page is compared across
-   customers, so it all gets normalised to rupees first. */
-const toNPR = (amount, currency) =>
-  Number(amount || 0) * (currency === "GBP" ? GBP_RATE : 1);
+   customers, so it all gets normalised to rupees first (toNPR, at the live
+   rate). A payment's own amountNPR is not used: the database view assumes
+   GBP or NPR only, so a payment is converted from its invoice's currency. */
 
 const DAY = 86400000;
 const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / DAY);
@@ -121,7 +122,7 @@ function rollUp({ customers, orders, invoices, payments, orderCosts }) {
     const c = byId.get(p.customerId);
     if (!c) continue;
     c.payments.push(p);
-    c.collectedNPR += Number(p.amountNPR || 0);
+    c.collectedNPR += toNPR(p.amount, p.invoiceCurrency);
     if (p.isOpening) continue;               // no real date to learn from
     if (!c.lastPaidOn || p.paidOn > c.lastPaidOn) c.lastPaidOn = p.paidOn;
     const inv = invById.get(p.invoiceId);
@@ -279,7 +280,7 @@ function CustomerDetail({ c, fmt }) {
                       {p.reference ? ` · ${p.reference}` : ""}
                     </div>
                   </div>
-                  <strong className="mono">{fmt(Number(p.amountNPR || 0))}</strong>
+                  <strong className="mono">{fmt(toNPR(p.amount, p.invoiceCurrency))}</strong>
                 </div>
               ))}
             </div>
@@ -463,7 +464,7 @@ function Customers() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "customers");
   const { region } = useRegion();
-  const { fmt, currency, toggle } = useCurrency();
+  const { fmt, ratesVersion } = useCurrency();
 
   const [raw, setRaw] = useState({ customers: [], orders: [], invoices: [], payments: [], orderCosts: [] });
   const [loading, setLoading] = useState(true);
@@ -510,7 +511,7 @@ function Customers() {
       payments: raw.payments,
       orderCosts: costs,
     });
-  }, [raw, region]);
+  }, [raw, region, ratesVersion]);
 
   const totals = useMemo(() => {
     const t = rows.reduce((a, c) => ({
@@ -621,9 +622,7 @@ function Customers() {
           </p>
         </div>
         <div className="kph-a" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <button className="ghost-button" onClick={toggle} title="Switch display currency">
-            {currency === "NPR" ? "₨ NPR" : "£ GBP"}
-          </button>
+          <CurrencyPicker />
           <RegionSwitch untagged={countUntagged(raw.customers)} />
           {canEdit && (
             <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }}
