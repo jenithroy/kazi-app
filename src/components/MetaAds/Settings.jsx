@@ -1,52 +1,111 @@
 import { useEffect, useState } from "react";
-import { Card, Btn, Pill } from "../ui";
-import { asCurrency } from "../../utils/format";
+import { useNavigate } from "react-router-dom";
+import { Card, Btn, Pill, Icons } from "../ui";
 import { fetchAdAccounts, fetchSettings, fetchSyncRuns } from "../../lib/metaAds";
 import { updateRow } from "../../lib/db";
 import { runMetaAdsSync } from "../../lib/metaAdsApi";
 import { supabase } from "../../supabase";
-
-const RUN_STATUS_TONE = { success: "mint", partial: "terra", failed: "terra", running: "neutral" };
+import { timeAgo } from "./time";
+import { SYNC_STATUS_MAP } from "./status";
 
 export default function Settings({ canEdit, onSyncComplete }) {
+  const navigate = useNavigate();
   const [accounts, setAccounts] = useState([]);
-  const [runs, setRuns] = useState([]);
+  const [latestSync, setLatestSync] = useState(null);
   const [settings, setSettings] = useState(null);
+
+  // Add Account State
   const [newAccountId, setNewAccountId] = useState("");
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [addAccountError, setAddAccountError] = useState("");
+
+  // Guard Rails Draft State
+  const [draftCeiling, setDraftCeiling] = useState("");
+  const [draftCurrency, setDraftCurrency] = useState("USD");
+  const [draftMultiplier, setDraftMultiplier] = useState("3");
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Sync state
   const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState("");
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [saving, setSaving] = useState(false);
 
   const load = () => {
-    fetchAdAccounts().then(setAccounts).catch((e) => setError(e.message));
-    fetchSyncRuns().then(setRuns).catch(() => {});
-    fetchSettings().then(setSettings).catch(() => {});
+    fetchAdAccounts()
+      .then((accs) => {
+        setAccounts(accs || []);
+      })
+      .catch((e) => setError(e.message || "Couldn't load ad accounts."));
+
+    fetchSyncRuns()
+      .then((runs) => setLatestSync(runs?.[0] || null))
+      .catch(() => {});
+
+    fetchSettings()
+      .then((s) => {
+        setSettings(s);
+        if (s) {
+          setDraftCeiling(s.budgetCeilingMinor != null ? (s.budgetCeilingMinor / 100).toString() : "");
+          setDraftCurrency(s.budgetCeilingCurrency || "USD");
+          setDraftMultiplier((s.confirmMultiplier ?? 3).toString());
+        }
+      })
+      .catch(() => {});
   };
 
   useEffect(load, []);
 
+  // Compute tracked currencies for the select
+  const trackedCurrencies = [
+    ...new Set(accounts.filter((a) => a.isActive).map((a) => a.currency).filter(Boolean)),
+  ];
+  const availableCurrencies =
+    trackedCurrencies.length > 0 ? trackedCurrencies : ["USD", "GBP", "EUR", "NPR"];
+
+  // Normalize ad account id input: only digits after 'act_'
+  const handleAccountIdChange = (e) => {
+    setAddAccountError("");
+    const rawDigits = e.target.value.replace(/[^0-9]/g, "");
+    setNewAccountId(rawDigits ? `act_${rawDigits}` : "");
+  };
+
   async function addAccount(e) {
     e.preventDefault();
     const id = newAccountId.trim();
-    if (!id) return;
-    setError("");
+    if (!id || id === "act_") return;
+    setAddAccountError("");
+    setAddingAccount(true);
+
     try {
-      // Straight to the table, not insertRow: toRow() drops `id` (right for
-      // uuid-keyed tables), but this id is Meta's own act_... string with no
-      // default, so it has to be sent — same as AdminPanel's positions insert.
       const { error: err } = await supabase
         .from("meta_ad_accounts")
-        .insert({ id: id.startsWith("act_") ? id : `act_${id}`, is_active: true });
-      if (err) throw err;
+        .insert({ id, is_active: true });
+
+      if (err) {
+        if (
+          err.code === "23505" ||
+          err.message?.includes("duplicate") ||
+          err.message?.includes("already exists")
+        ) {
+          throw new Error("That account is already added.");
+        }
+        throw err;
+      }
+
       setNewAccountId("");
+      setNotice(`Added account ${id}. Run a sync to fetch its campaigns.`);
       load();
     } catch (e2) {
-      setError(e2.message || "Couldn't add that ad account.");
+      setAddAccountError(e2.message || "Couldn't add that ad account.");
+    } finally {
+      setAddingAccount(false);
     }
   }
 
   async function toggleActive(account) {
+    setError("");
     try {
       await updateRow("meta_ad_accounts", account.id, { isActive: !account.isActive });
       load();
@@ -58,10 +117,10 @@ export default function Settings({ canEdit, onSyncComplete }) {
   async function doSync() {
     setSyncing(true);
     setError("");
-    setNotice("");
+    setSyncNotice("");
     try {
       const res = await runMetaAdsSync();
-      setNotice(
+      setSyncNotice(
         `Synced ${res.campaignsSynced ?? "?"} campaigns, ${res.adsetsSynced ?? "?"} ad sets, ${res.adsSynced ?? "?"} ads.`
       );
       load();
@@ -73,148 +132,268 @@ export default function Settings({ canEdit, onSyncComplete }) {
     }
   }
 
-  async function saveSettings(e) {
+  // Dirty check for guard rails
+  const savedCeilingStr =
+    settings?.budgetCeilingMinor != null ? (settings.budgetCeilingMinor / 100).toString() : "";
+  const savedCurrencyStr = settings?.budgetCeilingCurrency || "USD";
+  const savedMultiplierStr = (settings?.confirmMultiplier ?? 3).toString();
+
+  const isDirty =
+    draftCeiling !== savedCeilingStr ||
+    draftCurrency !== savedCurrencyStr ||
+    draftMultiplier !== savedMultiplierStr;
+
+  function resetDraft() {
+    setDraftCeiling(savedCeilingStr);
+    setDraftCurrency(savedCurrencyStr);
+    setDraftMultiplier(savedMultiplierStr);
+    setError("");
+  }
+
+  async function saveGuardRails(e) {
     e.preventDefault();
     setError("");
     setNotice("");
-    const multiple = Number(settings.confirmMultiplier);
-    if (settings.confirmMultiplier === "" || !Number.isFinite(multiple) || multiple < 1) {
+
+    const mult = Number(draftMultiplier);
+    if (!Number.isFinite(mult) || mult < 1) {
       setError("The confirm multiple has to be 1 or more.");
       return;
     }
-    const ceilingCurrency = (settings.budgetCeilingCurrency || "").trim().toUpperCase();
-    if (settings.budgetCeilingMinor != null) {
-      if (!(settings.budgetCeilingMinor > 0)) {
+
+    let ceilingMinor = null;
+    if (draftCeiling.trim() !== "") {
+      const cNum = Number(draftCeiling);
+      if (!Number.isFinite(cNum) || cNum <= 0) {
         setError("The ceiling has to be more than zero, or left blank for no ceiling.");
         return;
       }
-      if (!/^[A-Z]{3}$/.test(ceilingCurrency)) {
-        setError("Give the ceiling a 3-letter currency code (e.g. USD) — it's only checked against ad accounts in that currency.");
-        return;
-      }
+      ceilingMinor = Math.round(cNum * 100);
     }
-    setSaving(true);
+
+    setSavingSettings(true);
     try {
       await updateRow("meta_ads_settings", "default", {
-        budgetCeilingMinor: settings.budgetCeilingMinor,
-        budgetCeilingCurrency: ceilingCurrency || null,
-        confirmMultiplier: multiple,
+        budgetCeilingMinor: ceilingMinor,
+        budgetCeilingCurrency: ceilingMinor != null ? draftCurrency : null,
+        confirmMultiplier: mult,
       });
-      setNotice("Settings saved.");
+      setNotice("Budget guard rails saved successfully.");
       load();
     } catch (e2) {
       setError(e2.message || "Couldn't save settings.");
     } finally {
-      setSaving(false);
+      setSavingSettings(false);
     }
   }
 
   return (
     <div className="kmkt-settings">
-      {error && <p className="form-error">{error}</p>}
-      {notice && <p className="kmkt-notice">{notice}</p>}
+      {error && (
+        <p className="form-error" role="alert" style={{ marginBottom: 12 }}>
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="kmkt-notice" style={{ marginBottom: 12 }}>
+          {notice}
+        </p>
+      )}
 
-      <Card title="Ad accounts" sub="Which of your Facebook/Instagram ad accounts to track">
+      {/* Ad Accounts Card */}
+      <Card
+        title="Ad accounts"
+        sub="Connected Facebook & Instagram ad accounts for this organisation"
+      >
         <div className="kmkt-table-scroll">
-        <table className="ktable">
-          <thead>
-            <tr><th>Account</th><th>Currency</th><th>Status</th><th>Last synced</th><th></th></tr>
-          </thead>
-          <tbody>
-            {accounts.map((a) => (
-              <tr key={a.id}>
-                <td>{a.name || <span className="kmkt-muted">{a.id} — run a sync to fetch its name</span>}</td>
-                <td className="mono">{a.currency || "—"}</td>
-                <td><Pill tone={a.isActive ? "mint" : "neutral"}>{a.isActive ? "Tracking" : "Paused"}</Pill></td>
-                <td className="mono">{a.lastSyncedAt ? new Date(a.lastSyncedAt).toLocaleString() : "Never"}</td>
-                <td>
-                  {canEdit && (
-                    <Btn kind="ghost" size="sm" onClick={() => toggleActive(a)}>
-                      {a.isActive ? "Stop tracking" : "Resume tracking"}
-                    </Btn>
-                  )}
-                </td>
+          <table className="ktable">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Account ID</th>
+                <th>Currency</th>
+                <th>Time zone</th>
+                <th>Status</th>
+                <th>Last synced</th>
+                <th></th>
               </tr>
-            ))}
-            {accounts.length === 0 && (
-              <tr><td colSpan={5} className="kmkt-muted">No ad accounts added yet.</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {accounts.map((a) => (
+                <tr key={a.id}>
+                  <td style={{ fontWeight: 500 }}>
+                    {a.name || <span className="kmkt-muted">{a.id} (name pending sync)</span>}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {a.id}
+                  </td>
+                  <td className="mono">{a.currency || "—"}</td>
+                  <td style={{ fontSize: 12, color: "var(--ink-2)" }}>{a.timezoneName || "—"}</td>
+                  <td>
+                    <Pill tone={a.isActive ? "mint" : "neutral"} dot>
+                      {a.isActive ? "Tracking" : "Paused"}
+                    </Pill>
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {timeAgo(a.lastSyncedAt)}
+                  </td>
+                  <td>
+                    {canEdit && (
+                      <Btn kind="ghost" size="sm" onClick={() => toggleActive(a)}>
+                        {a.isActive ? "Stop tracking" : "Resume tracking"}
+                      </Btn>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {accounts.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="kmkt-muted" style={{ textAlign: "center", padding: "18px 0" }}>
+                    No ad accounts added yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+
         {canEdit && (
           <form className="kmkt-add-account" onSubmit={addAccount}>
-            <input
-              value={newAccountId}
-              onChange={(e) => setNewAccountId(e.target.value)}
-              placeholder="Ad account id (act_1234567890)"
-            />
-            <Btn kind="outline" size="sm" type="submit">Add</Btn>
+            <div style={{ flex: 1 }}>
+              <input
+                value={newAccountId}
+                onChange={handleAccountIdChange}
+                placeholder="Add account: enter digits or act_123456789"
+                disabled={addingAccount}
+              />
+              {addAccountError && (
+                <span className="form-error" style={{ display: "block", marginTop: 4, fontSize: 12 }}>
+                  {addAccountError}
+                </span>
+              )}
+            </div>
+            <Btn kind="primary" size="sm" type="submit" disabled={addingAccount || !newAccountId || newAccountId === "act_"}>
+              {addingAccount ? "Adding…" : "Add account"}
+            </Btn>
           </form>
         )}
       </Card>
 
+      {/* Sync Card */}
       <Card
-        title="Sync"
-        action={canEdit && <Btn kind="primary" size="sm" onClick={doSync} disabled={syncing}>{syncing ? "Syncing…" : "Sync now"}</Btn>}
+        title="Sync status"
+        sub="Latest background sync with Meta Graph API"
+        action={
+          canEdit && (
+            <Btn kind="ghost" size="sm" onClick={doSync} disabled={syncing}>
+              {syncing ? "Syncing…" : "Sync now"}
+            </Btn>
+          )
+        }
       >
-        <div className="kmkt-table-scroll">
-        <table className="ktable">
-          <thead>
-            <tr><th>Started</th><th>Trigger</th><th>Status</th><th>Campaigns</th><th>Ad sets</th><th>Ads</th><th>Error</th></tr>
-          </thead>
-          <tbody>
-            {runs.map((r) => (
-              <tr key={r.id}>
-                <td className="mono">{new Date(r.startedAt).toLocaleString()}</td>
-                <td>{r.triggerType === "manual" ? (r.triggeredByName || "Manual") : "Scheduled"}</td>
-                <td><Pill tone={RUN_STATUS_TONE[r.status] || "neutral"}>{r.status}</Pill></td>
-                <td className="mono">{r.campaignsSynced}</td>
-                <td className="mono">{r.adsetsSynced}</td>
-                <td className="mono">{r.adsSynced}</td>
-                <td className="kmkt-muted">{r.errorMessage || ""}</td>
-              </tr>
-            ))}
-            {runs.length === 0 && (
-              <tr><td colSpan={7} className="kmkt-muted">No syncs yet.</td></tr>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, padding: "4px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {latestSync ? (
+              <>
+                <Pill tone={SYNC_STATUS_MAP[latestSync.status]?.tone || "neutral"} dot>
+                  {SYNC_STATUS_MAP[latestSync.status]?.label || latestSync.status}
+                </Pill>
+                <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
+                  Last run: <strong>{timeAgo(latestSync.startedAt)}</strong> (
+                  {latestSync.campaignsSynced} campaigns, {latestSync.adsetsSynced} ad sets, {latestSync.adsSynced} ads)
+                </span>
+              </>
+            ) : (
+              <span className="kmkt-muted">No sync runs recorded yet.</span>
             )}
-          </tbody>
-        </table>
+          </div>
+          <button
+            type="button"
+            className="kmkt-attr-link"
+            onClick={() => {
+              navigate({ search: "?tab=meta-ads&view=activity" });
+            }}
+          >
+            View full sync history in Activity →
+          </button>
         </div>
+        {syncNotice && (
+          <p className="kmkt-notice" style={{ marginTop: 8 }}>
+            {syncNotice}
+          </p>
+        )}
       </Card>
 
-      {settings && (
-        <Card title="Budget guard rails">
-          <form className="kmkt-settings-form" onSubmit={saveSettings}>
-            <label className="kmkt-field">
-              <span>Hard ceiling — no budget edit above this is ever sent to Meta</span>
-              <div className="kmkt-inline-fields">
-                <input
-                  type="number" min="0" step="0.01" disabled={!canEdit}
-                  value={settings.budgetCeilingMinor != null ? settings.budgetCeilingMinor / 100 : ""}
-                  onChange={(e) => setSettings((s) => ({ ...s, budgetCeilingMinor: e.target.value === "" ? null : Math.round(Number(e.target.value) * 100) }))}
-                />
-                <input
-                  value={settings.budgetCeilingCurrency || ""}
-                  disabled={!canEdit}
-                  maxLength={3}
-                  placeholder="Currency (e.g. USD)"
-                  onChange={(e) => setSettings((s) => ({ ...s, budgetCeilingCurrency: e.target.value.toUpperCase() }))}
-                />
-              </div>
-            </label>
-            <label className="kmkt-field">
-              <span>Confirm step above this multiple of the current budget</span>
+      {/* Budget Guard Rails Card */}
+      <Card
+        title="Budget guard rails"
+        sub="Protections against accidental overspending on real money ad edits"
+      >
+        <form className="kmkt-settings-form" onSubmit={saveGuardRails}>
+          <div className="kmkt-field">
+            <span>Hard ceiling</span>
+            <div className="kmkt-inline-fields">
               <input
-                type="number" min="1" step="0.5" disabled={!canEdit}
-                value={settings.confirmMultiplier ?? ""}
-                onChange={(e) => setSettings((s) => ({ ...s, confirmMultiplier: e.target.value }))}
+                type="number"
+                min="0"
+                step="0.01"
+                disabled={!canEdit}
+                value={draftCeiling}
+                placeholder="e.g. 50.00"
+                onChange={(e) => setDraftCeiling(e.target.value)}
               />
-            </label>
-            {canEdit && <Btn kind="primary" size="sm" type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>}
-          </form>
-        </Card>
-      )}
+              <select
+                className="kmkt-field-select"
+                disabled={!canEdit || !draftCeiling}
+                value={draftCurrency}
+                onChange={(e) => setDraftCurrency(e.target.value)}
+              >
+                {availableCurrencies.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <span className="kmkt-field-helper">
+              No budget above this is ever sent to Meta, whoever asks. Restricted to currencies used by your tracked accounts.
+            </span>
+          </div>
+
+          <div className="kmkt-field">
+            <span>Ask to confirm above multiple</span>
+            <div className="kmkt-inline-fields">
+              <input
+                type="number"
+                min="1"
+                step="0.5"
+                disabled={!canEdit}
+                value={draftMultiplier}
+                placeholder="3"
+                onChange={(e) => setDraftMultiplier(e.target.value)}
+              />
+              <span style={{ fontSize: 13, color: "var(--ink-3)", fontWeight: 600 }}>× current budget</span>
+            </div>
+            <span className="kmkt-field-helper">
+              e.g. at 3×, raising a $10/day budget to more than $30/day prompts an amber confirmation step before sending.
+            </span>
+          </div>
+
+          {canEdit && isDirty && (
+            <div className="kmkt-savebar">
+              <span className="kmkt-savebar-text">You have unsaved changes to guard rails.</span>
+              <div className="kmkt-savebar-actions">
+                <Btn kind="ghost" size="sm" type="button" onClick={resetDraft} disabled={savingSettings}>
+                  Reset
+                </Btn>
+                <Btn kind="primary" size="sm" type="submit" disabled={savingSettings}>
+                  {savingSettings ? "Saving…" : "Save changes"}
+                </Btn>
+              </div>
+            </div>
+          )}
+        </form>
+      </Card>
     </div>
   );
 }
