@@ -114,6 +114,7 @@ export default function Settings({ canEdit }) {
       {notice && <p className="kmkt-notice">{notice}</p>}
 
       <Card title="Ad accounts" sub="Which of your Facebook/Instagram ad accounts to track">
+        <div className="kmkt-table-scroll">
         <table className="ktable">
           <thead>
             <tr><th>Account</th><th>Currency</th><th>Status</th><th>Last synced</th><th></th></tr>
@@ -139,6 +140,7 @@ export default function Settings({ canEdit }) {
             )}
           </tbody>
         </table>
+        </div>
         {canEdit && (
           <form className="kmkt-add-account" onSubmit={addAccount}>
             <input
@@ -146,7 +148,7 @@ export default function Settings({ canEdit }) {
               onChange={(e) => setNewAccountId(e.target.value)}
               placeholder="Ad account id (act_1234567890)"
             />
-            <Btn kind="secondary" size="sm" type="submit">Add</Btn>
+            <Btn kind="outline" size="sm" type="submit">Add</Btn>
           </form>
         )}
       </Card>
@@ -155,6 +157,7 @@ export default function Settings({ canEdit }) {
         title="Sync"
         action={canEdit && <Btn kind="primary" size="sm" onClick={doSync} disabled={syncing}>{syncing ? "Syncing…" : "Sync now"}</Btn>}
       >
+        <div className="kmkt-table-scroll">
         <table className="ktable">
           <thead>
             <tr><th>Started</th><th>Trigger</th><th>Status</th><th>Campaigns</th><th>Ad sets</th><th>Ads</th><th>Error</th></tr>
@@ -176,6 +179,7 @@ export default function Settings({ canEdit }) {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {settings && (

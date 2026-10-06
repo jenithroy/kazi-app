@@ -21,7 +21,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange, allowAll =
     <div className="kmkt-daterange">
       {allowAll && (
         <Btn
-          kind={isAll ? "secondary" : "ghost"}
+          kind={isAll ? "outline" : "ghost"}
           size="sm"
           aria-pressed={isAll}
           onClick={() => onChange({ dateFrom: "", dateTo: "" })}
@@ -35,7 +35,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange, allowAll =
         return (
           <Btn
             key={p.label}
-            kind={active ? "secondary" : "ghost"}
+            kind={active ? "outline" : "ghost"}
             size="sm"
             aria-pressed={active}
             onClick={() => onChange({ dateFrom: from, dateTo: today })}
