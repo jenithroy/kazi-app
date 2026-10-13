@@ -27,6 +27,7 @@ const NAV_ITEMS = [
   { to: "/customers",  label: "Customers",      Icon: Icons.Customers,  group: "people" },
   // ── Marketing & Comms ──────────────────────────────────
   { to: "/marketing",  label: "Marketing",      Icon: Icons.Marketing,  group: "marketing" },
+  { to: "/outreach",   label: "Outreach",       Icon: Icons.Crosshair,  group: "marketing" },
   { to: "/messenger",  label: "Messenger",      Icon: Icons.Message,    group: "marketing" },
   // ── System ─────────────────────────────────────────────
   { to: "/admin",      label: "Admin",          Icon: Icons.Admin,      group: "system" },

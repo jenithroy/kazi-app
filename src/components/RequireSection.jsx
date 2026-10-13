@@ -33,6 +33,7 @@ const SECTION_ROUTES = {
   directors: "/roles",
   customers: "/customers",
   marketing: "/marketing",
+  outreach: "/outreach",
   messenger: "/messenger",
   admin: "/admin",
   usage_analytics: "/usage",
