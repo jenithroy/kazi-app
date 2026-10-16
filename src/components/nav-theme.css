@@ -1,0 +1,206 @@
+/* ══════════════════════════════════════════════════════════════════
+   TOP BAR — LIGHT AND DARK
+
+   The bar was written for one look (forest green, light text). Rather than
+   rewrite its rules, the theme redefines the few tokens those rules already read,
+   on the bar and on the drawer, and overrides only the colours that were
+   written out literally (a white hover text, a mint hairline).
+
+   light   a white bar with ink text; the logo goes dark
+   dark    the same near-black as the Dashboard's page, so the two read as one
+
+   `data-theme` is on <html> for every signed-in page (AppLayout), so the bar
+   follows the saved choice everywhere, including pages that are not themed yet.
+══════════════════════════════════════════════════════════════════ */
+
+.kn-bar { transition: background-color .22s ease; }
+
+/* ── Light: white ─────────────────────────────────────────────── */
+:root[data-theme="light"] :is(.kn-bar, .kn-drawer-root) {
+  --dark: #fff;
+  --dark-on: var(--ink-2);
+  --dark-on-2: var(--ink-3);
+  --dark-2: rgba(15, 46, 34, .06);
+  --dark-3: var(--mint-soft);
+  --mint: var(--mint-deep);
+}
+:root[data-theme="light"] .kn-bar { box-shadow: inset 0 -1px 0 var(--line-strong); }
+
+/* the logo is white on transparent; on white it needs to be ink */
+:root[data-theme="light"] :is(.kn-logo, .kn-d-logo) img { filter: brightness(0); }
+
+/* hover text was literally white */
+:root[data-theme="light"] .kn-trigger:not(.kn-trigger--on):is(:hover, [aria-expanded="true"]),
+:root[data-theme="light"] .kn-burger:hover,
+:root[data-theme="light"] .kn-iconbtn:not(.kn-iconbtn--on):hover,
+:root[data-theme="light"] .kn-d-x:hover,
+:root[data-theme="light"] .kn-d-item:not(.kn-d-item--on):hover { color: var(--ink); }
+:root[data-theme="light"] .kn-acc:not(.kn-acc--on) .kn-acc-btn,
+:root[data-theme="light"] .kn-d-name { color: var(--ink); }
+
+/* currency button */
+:root[data-theme="light"] .kn-bar .kcur-btn { border-color: var(--line-strong); color: var(--ink-2); }
+:root[data-theme="light"] .kn-bar .kcur-btn:hover { border-color: var(--ink-4); color: var(--ink); }
+:root[data-theme="light"] .kn-bar .kcur-btn--on { background: var(--mint-soft); border-color: rgba(31, 110, 76, .35); color: var(--mint-deep); }
+
+/* the drawer's hairlines were mint on dark */
+:root[data-theme="light"] .kn-d-hd,
+:root[data-theme="light"] .kn-d-ft { border-color: var(--line); }
+:root[data-theme="light"] .kn-acc + .kn-acc { border-top-color: var(--line); }
+:root[data-theme="light"] .kn-d-out { border-color: var(--line-strong); }
+:root[data-theme="light"] .kn-d-years .kn-chip { border-color: var(--line-strong); }
+:root[data-theme="light"] .kn-drawer { box-shadow: 18px 0 48px rgba(10, 28, 20, .18); }
+
+/* ── Dark: near-black, the Dashboard's page colour ────────────── */
+:root[data-theme="dark"] :is(.kn-bar, .kn-drawer-root) {
+  --dark: #0b100e;
+  --dark-on: #c8d0cc;
+  --dark-on-2: #98a39e;
+  --dark-2: rgba(255, 255, 255, .07);
+  --dark-3: rgba(125, 211, 168, .14);
+}
+:root[data-theme="dark"] .kn-bar { box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .kn-d-hd,
+:root[data-theme="dark"] .kn-d-ft { border-color: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .kn-acc + .kn-acc { border-top-color: rgba(255, 255, 255, .07); }
+:root[data-theme="dark"] .kn-d-out,
+:root[data-theme="dark"] .kn-d-years .kn-chip,
+:root[data-theme="dark"] .kn-bar .kcur-btn { border-color: rgba(255, 255, 255, .16); }
+:root[data-theme="dark"] .kn-bar .kcur-btn:hover { border-color: rgba(255, 255, 255, .34); }
+:root[data-theme="dark"] .kn-bar .kcur-btn--on { background: rgba(125, 211, 168, .12); border-color: rgba(125, 211, 168, .4); }
+
+/* the dropdown panel and the currency list are white cards in the light bar; in the dark bar they are dark ones */
+:root[data-theme="dark"] .kn-panel {
+  background: #141b18; color: #edf1ef; border-color: rgba(255, 255, 255, .12);
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .4);
+}
+:root[data-theme="dark"] .kn-item { color: #edf1ef; }
+:root[data-theme="dark"] .kn-item:hover { background: rgba(255, 255, 255, .06); }
+:root[data-theme="dark"] .kn-item--on,
+:root[data-theme="dark"] .kn-item--on:hover { background: rgba(125, 211, 168, .13); }
+:root[data-theme="dark"] .kn-item-ico { background: rgba(125, 211, 168, .12); color: var(--mint); }
+:root[data-theme="dark"] .kn-item:hover .kn-item-ico { background: rgba(125, 211, 168, .2); }
+:root[data-theme="dark"] .kn-item--on .kn-item-ico,
+:root[data-theme="dark"] .kn-item--on:hover .kn-item-ico { background: var(--mint); color: #0b100e; }
+:root[data-theme="dark"] .kn-item-d,
+:root[data-theme="dark"] .kn-foot-l { color: #98a39e; }
+:root[data-theme="dark"] .kn-foot { border-top-color: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .kn-panel .kn-chip { border-color: rgba(255, 255, 255, .16); color: #c8d0cc; }
+:root[data-theme="dark"] .kn-panel .kn-chip:hover { background: rgba(255, 255, 255, .06); }
+:root[data-theme="dark"] .kn-chip--on,
+:root[data-theme="dark"] .kn-chip--on:hover { background: var(--mint); border-color: var(--mint); color: #0b100e; }
+:root[data-theme="dark"] .kn-panel :is(a, button):focus-visible { box-shadow: 0 0 0 2px #141b18, 0 0 0 4px var(--mint); }
+
+:root[data-theme="dark"] .kn-bar .kcur-pop { background: #141b18; border-color: rgba(255, 255, 255, .12); }
+:root[data-theme="dark"] .kn-bar .kcur-search { color: #edf1ef; border-bottom-color: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .kn-bar .kcur-item { color: #c8d0cc; }
+:root[data-theme="dark"] .kn-bar .kcur-item--active { background: rgba(255, 255, 255, .07); }
+:root[data-theme="dark"] .kn-bar .kcur-item--on { color: var(--mint); }
+:root[data-theme="dark"] .kn-bar .kcur-name { color: #98a39e; }
+:root[data-theme="dark"] .kn-bar :is(.kcur-mark, .kcur-empty, .kcur-foot) { color: #68746f; }
+:root[data-theme="dark"] .kn-bar :is(.kcur-sep, .kcur-foot) { border-color: rgba(255, 255, 255, .08); }
+
+/* ══════════════════════════════════════════════════════════════════
+   TOP BAR — GLASS
+
+   While a bento page is on screen the bar, the menus that drop from it, the currency
+   list and the phone drawer are panes of frosted glass over the page's light (glass.css).
+   On every other page they keep the flat colours above: those pages have no light
+   behind them yet, and a see-through dark bar over a flat light page just looks grey.
+
+   The bar's glass is its own layer (::before), not the bar's background. The menus are
+   children of the bar, and a child's backdrop-filter cannot see past an ancestor that
+   has one itself, so the bar must not.
+
+   Where backdrop-filter is missing, or the system asks for less transparency (see
+   glass.css), the same tokens turn into the old opaque colours and the blur is dropped.
+══════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="light"] {
+  --nav-glass: rgba(255, 255, 255, .62);                    /* the bar */
+  --nav-edge: rgba(15, 46, 34, .1);                         /* its hairline underneath */
+  --nav-pop: rgba(255, 255, 255, .86);                      /* menus and the currency list */
+  --nav-drawer: rgba(255, 255, 255, .93);                   /* the phone drawer, which sits on a dark scrim and so needs more body */
+  --nav-pop-edge: rgba(255, 255, 255, .85);
+  --nav-pop-shadow: 0 18px 44px -14px rgba(10, 28, 20, .3), 0 2px 8px rgba(10, 28, 20, .08), inset 0 1px 0 rgba(255, 255, 255, .9);
+  --nav-hover: rgba(15, 46, 34, .06);
+}
+:root[data-theme="dark"] {
+  --nav-glass: rgba(11, 16, 14, .62);
+  --nav-edge: rgba(255, 255, 255, .09);
+  --nav-pop: rgba(16, 23, 20, .86);
+  --nav-drawer: rgba(13, 19, 16, .88);
+  --nav-pop-edge: rgba(255, 255, 255, .12);
+  --nav-pop-shadow: 0 18px 44px -12px rgba(0, 0, 0, .75), 0 2px 8px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .07);
+  --nav-hover: rgba(255, 255, 255, .07);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root:has(.kb) .kn-bar {
+    background: transparent; box-shadow: none;
+    --mx: -999px; --my: -999px;     /* the pointer's light; hooks/useReveal.js writes these */
+    transition: --in .3s ease, --near .22s ease;
+  }
+  :root:has(.kb) .kn-bar::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background-color: var(--nav-glass);
+    background-image:
+      radial-gradient(circle 300px at var(--mx) var(--my), color-mix(in srgb, var(--glass-lit) calc(var(--in) * 100%), transparent), transparent 72%),
+      var(--glass-grain);
+    box-shadow: inset 0 -1px 0 var(--nav-edge);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.45);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.45);
+  }
+  /* the bar's edge, lit by how near the pointer is: only the lower edge is ever in view */
+  :root:has(.kb) .kn-bar::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; padding: 1.5px; pointer-events: none;
+    background: radial-gradient(circle 210px at var(--mx) var(--my), color-mix(in srgb, var(--glass-ring) calc(var(--near) * 100%), transparent), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  :root:has(.kb) .kn-panel,
+  :root:has(.kb) .kn-bar .kcur-pop,
+  :root:has(.kb) .kn-drawer {
+    background-color: var(--nav-pop);
+    background-image: var(--glass-grain);
+    border-color: var(--nav-pop-edge);
+    -webkit-backdrop-filter: blur(22px) saturate(1.5);
+    backdrop-filter: blur(22px) saturate(1.5);
+  }
+  :root:has(.kb) .kn-drawer { background-color: var(--nav-drawer); }
+  :root:has(.kb) .kn-panel,
+  :root:has(.kb) .kn-bar .kcur-pop { box-shadow: var(--nav-pop-shadow); }
+  /* the currency list's faint text (symbols, the note at the foot, the names): it must not get fainter on glass */
+  :root[data-theme="light"]:has(.kb) .kn-bar :is(.kcur-mark, .kcur-empty, .kcur-foot) { color: var(--ink-3); }
+  :root[data-theme="dark"]:has(.kb) .kn-bar :is(.kcur-mark, .kcur-empty, .kcur-foot, .kcur-name) { color: #aab5b0; }
+  /* the light menu's hover patch was an opaque pale green; on glass it is a veil */
+  :root[data-theme="light"]:has(.kb) .kn-item:hover:not(.kn-item--on) { background: var(--nav-hover); }
+
+  /* an operating-system setting asking for less see-through UI: the old opaque colours */
+  @media (prefers-reduced-transparency: reduce) {
+    :root[data-theme="light"] {
+      --nav-glass: #fff; --nav-edge: var(--line-strong);
+      --nav-pop: #fff; --nav-drawer: #fff; --nav-pop-edge: var(--line-strong); --nav-pop-shadow: var(--shadow-pop); --nav-hover: var(--bg);
+    }
+    :root[data-theme="dark"] {
+      --nav-glass: #0b100e; --nav-edge: rgba(255, 255, 255, .08);
+      --nav-pop: #141b18; --nav-drawer: #0b100e; --nav-pop-edge: rgba(255, 255, 255, .12);
+      --nav-pop-shadow: 0 18px 44px -12px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .4);
+    }
+    :root:has(.kb) .kn-bar::before,
+    :root:has(.kb) .kn-panel,
+    :root:has(.kb) .kn-bar .kcur-pop,
+    :root:has(.kb) .kn-drawer { background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+    /* the pointer's light still plays on the opaque bar, as it does on the opaque tiles */
+    :root:has(.kb) .kn-bar::before {
+      background-image: radial-gradient(circle 300px at var(--mx) var(--my), color-mix(in srgb, var(--glass-lit) calc(var(--in) * 100%), transparent), transparent 72%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kn-bar, :root:has(.kb) .kn-bar { transition: none; }
+}

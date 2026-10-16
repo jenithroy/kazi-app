@@ -236,6 +236,8 @@ export const Icons = {
   Directors:  (p) => <Ico {...p} s={<><path d="M3 21V7a2 2 0 012-2h14a2 2 0 012 2v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h2M13 10h2M9 14h2"/></>}/>,
   Customers:  (p) => <Ico {...p} s={<><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>}/>,
   Message:    (p) => <Ico {...p} s={<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>}/>,
+  // The solid version of Message, for the top bar: a filled bubble with two lines cut out of it.
+  ChatFill:   (p) => <Ico {...p} fill="currentColor" sw={0} s={<path fillRule="evenodd" d="M6.5 3h11A4.5 4.5 0 0 1 22 7.5v6A4.5 4.5 0 0 1 17.5 18H11.6L7.4 21.6Q6.5 22.3 6.5 21.2V18A4.5 4.5 0 0 1 2 13.5v-6A4.5 4.5 0 0 1 6.5 3zM17 8.2H7a.8.8 0 0 0 0 1.6h10a.8.8 0 0 0 0-1.6zM13 11.7H7a.8.8 0 0 0 0 1.6h6a.8.8 0 0 0 0-1.6z"/>}/>,
   Marketing:  (p) => <Ico {...p} s={<><path d="M22 4L12 14.01l-4-4"/><path d="M22 4L15 22l-3-7-7-3 17-8z"/></>}/>,
   Changelog:  (p) => <Ico {...p} s={<><path d="M3 12a9 9 0 109-9 9 9 0 00-8 5"/><path d="M3 4v4h4"/><path d="M12 7v5l3.5 2"/></>}/>,
   Pulse:      (p) => <Ico {...p} d="M2.5 12.5h4l2.5-6 4 12 2.5-6h6"/>,

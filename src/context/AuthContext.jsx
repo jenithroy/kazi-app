@@ -254,7 +254,7 @@ export function AuthProvider({ children }) {
       loading,
       error,
       signOut,
-      logout: signOut, // the name Sidebar has always called it
+      logout: signOut, // the name the app's nav has always called it
       reloadProfile: () => refresh(user),
     }),
     [user, profile, loading, error, signOut, refresh]

@@ -42,7 +42,7 @@ Built for exactly one company's two-country operation. NPR is the stored currenc
 
 ## Brand Commitments
 
-- Name: Kazi (Kazi Manufacturing Pvt. Ltd.). White wordmark logo on the dark forest sidebar (`public/kazi - logo - white-01.png`); "Kathmandu HQ" tag.
+- Name: Kazi (Kazi Manufacturing Pvt. Ltd.). White wordmark logo (`public/kazi-logo-trimmed.png`) centred in the dark forest top bar, with the menu groups either side of it as dropdowns; "Kathmandu HQ" in the Dashboard greeting. The sign-in screen still uses `public/kazi - logo - white-01.png`.
 - The newer pages (Roles, Usage & Activity, Admin Panel, Messenger) are the confirmed reference for how the whole app should look and behave.
 - Voice in the UI is plain, specific and honest about state: it says what a control does and why something is empty or restricted, rather than generic filler.
 

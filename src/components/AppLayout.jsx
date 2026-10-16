@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect } from "react";
 import { useLocation, NavLink } from "react-router-dom";
-import Sidebar from "./Sidebar";
+import TopNav from "./TopNav";
 import { useAuth } from "../context/AuthContext";
-import { CurrencyPicker } from "./CurrencyPicker";
-import { cn, Icons, Avatar } from "./ui";
+import { cn, Icons } from "./ui";
 import { isNative } from "../utils/native";
 import useActivityLog from "../hooks/useActivityLog";
+import { useApplyTheme } from "../hooks/useTheme";
 import Spotlight from "./Spotlight";
+import "./glass.css";
+import "./nav-theme.css";
 
 // Bottom nav shown on mobile/native for workers — replaces sidebar hamburger
 function BottomNav({ profile }) {
@@ -42,113 +43,7 @@ function BottomNav({ profile }) {
   );
 }
 
-const ROUTE_LABEL = {
-  dashboard:  "Dashboard",
-  tasks:      "Tasks",
-  attendance: "Attendance",
-  production: "Production",
-  qc:         "Quality Control",
-  inventory:  "Inventory",
-  finance:    "Finance",
-  purchases:  "Purchases",
-  billing:    "Billing",
-  content:    "Budget Requests",
-  employees:  "Employee and HR",
-  admin:      "Admin Panel",
-  usage:      "Usage & Activity",
-  messenger:  "Messenger Chat",
-  marketing:  "Marketing Calendar",
-  "bug-report": "Bug Report",
-  roles:      "Roles & Duties",
-  changelog:  "Changelog",
-};
-
-function useKTMTime() {
-  const [time, setTime] = useState(() => {
-    const now = new Date();
-    return now.toLocaleTimeString("en-GB", { timeZone: "Asia/Kathmandu", hour: "2-digit", minute: "2-digit" });
-  });
-  useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      setTime(now.toLocaleTimeString("en-GB", { timeZone: "Asia/Kathmandu", hour: "2-digit", minute: "2-digit" }));
-    };
-    const id = setInterval(tick, 10000);
-    return () => clearInterval(id);
-  }, []);
-  return time;
-}
-
-function Topbar({ collapsed, onMobileMenuToggle }) {
-  const { profile } = useAuth();
-  const location = useLocation();
-  const routeKey = location.pathname.replace("/", "") || "dashboard";
-  let routeLabel = ROUTE_LABEL[routeKey] || routeKey;
-  if (routeKey === "marketing") {
-    const params = new URLSearchParams(location.search);
-    const tab = params.get("tab");
-    if (tab === "meta-ads" || tab === "meta_ads") {
-      routeLabel = "Marketing · Meta Ads";
-    }
-  }
-  const isDashboard = routeKey === "dashboard";
-  const ktmTime = useKTMTime();
-
-  const greeting = useMemo(() => {
-    const h = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kathmandu" })).getHours();
-    return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-  }, []);
-
-  const dateStr = new Date().toLocaleDateString("en-GB", {
-    timeZone: "Asia/Kathmandu", weekday: "long", day: "numeric", month: "long",
-  });
-
-  return (
-    <header className="ktop">
-      {/* Mobile hamburger */}
-      <button className="ktop-hamburger" onClick={onMobileMenuToggle} aria-label="Open menu">
-        <Icons.Menu size={20} sw={2} />
-      </button>
-
-      {/* Left */}
-      <div className="ktop-l">
-        <div className="ktop-bread">
-          <NavLink to="/dashboard" className="ktop-bread-l" style={{ textDecoration: "none", color: "inherit" }}>Kazi</NavLink>
-          <Icons.ChevronRight size={12} />
-          <span className="ktop-bread-c">{routeLabel}</span>
-        </div>
-        {isDashboard && profile && (
-          <div className="ktop-greet">
-            <h1>{greeting}, {profile.name?.split(" ")[0]}</h1>
-            <span className="ktop-greet-sub">{dateStr} · Kathmandu HQ · 🕐 {ktmTime} KTM</span>
-          </div>
-        )}
-      </div>
-
-      {/* Right */}
-      <div className="ktop-r">
-        {/* Currency: every amount in the app follows this */}
-        <CurrencyPicker />
-
-        {/* User */}
-        {profile && (
-          <div className="ktop-user-btn">
-            <Avatar name={profile.name} hue={145} size={26} />
-            <div className="ktop-user-meta">
-              <span className="ktop-user-name">{profile.name}</span>
-              <span className="ktop-user-role">{profile.role || profile.appRole}</span>
-            </div>
-            <Icons.ChevronDown size={14} />
-          </div>
-        )}
-      </div>
-    </header>
-  );
-}
-
 function AppLayout({ children }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { profile } = useAuth();
 
@@ -156,42 +51,22 @@ function AppLayout({ children }) {
   // in each page, so nothing has to be remembered when a page is added.
   useActivityLog();
 
+  // Light or dark, from the saved choice, for the whole shell. The top bar follows it on
+  // every page; a page darkens its own content only once it has been written for it.
+  useApplyTheme();
+
   // Full-bleed surfaces: these pages manage their own scrolling and need to
   // reach the bottom of the window, so the shell must not pad or scroll them.
-  // Messenger in particular pins a composer to the bottom edge.
+  // Chat in particular pins a composer to the bottom edge.
   const noPadding =
     location.pathname.startsWith("/marketing") || location.pathname.startsWith("/messenger");
 
-  // Close mobile sidebar on route change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname]);
-
-  // Prevent body scroll when mobile sidebar is open
-  useEffect(() => {
-    if (mobileOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => { document.body.style.overflow = ""; };
-  }, [mobileOpen]);
-
   return (
     <div className="kapp">
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div className="kside-overlay" onClick={() => setMobileOpen(false)} />
-      )}
-
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(c => !c)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
+      {/* The native app already has its bottom tab bar for everyday pages, so it
+          keeps the menu button hidden, as the old hamburger was. */}
+      <TopNav showMenuButton={!isNative} />
       <main className={cn("kmain", isNative && "kmain--native")}>
-        <Topbar collapsed={collapsed} onMobileMenuToggle={() => setMobileOpen(o => !o)} />
         <div className="kscroll" style={noPadding ? { padding: 0, gap: 0, overflow: 'hidden' } : undefined}>
           {children}
         </div>

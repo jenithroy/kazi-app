@@ -10,6 +10,7 @@ import { sectionCanEdit, financeTabAllowed } from "../utils/permissions";
 import { WEEKDAYS, setEmployeeScheduleOverrides } from "../constants";
 import { asCurrency, roundAmount } from "../utils/format";
 import { scrollAppToTop } from "../utils/scroll";
+import useUrlTab from "../hooks/useUrlTab";
 import { tsMillis } from "../utils/date";
 import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
 import { filterByFiscalYear, fiscalYearsIn, isFiscalYearLabel, payrollPeriodDate } from "../utils/fiscalYear";
@@ -210,9 +211,17 @@ function Employees() {
   const canViewPayroll = financeTabAllowed(profile, "payroll");
   const canEditPayroll = canEdit && canViewPayroll;
 
-  // Arrived from Finance's "Payroll This Month" KPI — land straight on the Payroll tab
+  // Arrived from Finance's "Payroll This Month" KPI (it passes router state) —
+  // land straight on the Payroll tab and offer the way back.
   const fromFinance = location.state?.tab === "payroll";
-  const [activeTab, setActiveTab] = useState(fromFinance && canViewPayroll ? "payroll" : "directory");
+  // The tab lives in the address (?tab=payroll) so the top menu can link straight
+  // to Payroll and the menu's highlight follows the tab. Arriving from Finance is
+  // written into the address once, on arrival.
+  const [activeTab, setActiveTab] = useUrlTab(["directory", "org", ...(canViewPayroll ? ["payroll"] : [])]);
+  useEffect(() => {
+    if (fromFinance && canViewPayroll) setActiveTab("payroll");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- arrival only
+  }, []);
 
   /* ── Points map: email → totalPoints ── */
   const [pointsMap, setPointsMap] = useState({});

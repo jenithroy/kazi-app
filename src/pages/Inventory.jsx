@@ -2507,7 +2507,7 @@ function Inventory() {
   // page showing pounds they say so, because the read-outs between them are in pounds.
   const inputCcy = currency === "NPR" ? "" : " (NPR)";
   const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
-  // Inventory & Library are one merged page in the UI (see Sidebar's combined nav item) —
+  // Inventory & Library are one merged page in the UI (see the combined nav item in constants/nav.js) —
   // granting either permission unlocks the whole page, so a partial grant (e.g. only
   // "Inventory" ticked in the Admin Panel) never hides tabs like Tech Packs from someone
   // who was clearly meant to have full access here.

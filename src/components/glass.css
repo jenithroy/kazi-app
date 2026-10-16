@@ -1,0 +1,66 @@
+/* ══════════════════════════════════════════════════════════════════
+   GLASS — what the shell shares
+
+   The Dashboard's tiles, the top bar and the profile card are panes of frosted
+   glass (Fluent's "acrylic": blur, tint, a little grain) over one soft light that
+   sits behind the whole page. That light and the grain live here; each pane's own
+   tint and edge live with it (bento.css, nav-theme.css, profile-theme.css).
+
+   Where backdrop-filter is missing, or the system asks for less transparency, every
+   pane falls back to the plain opaque surface it had before. The "less transparency"
+   case is the OS setting: on Windows, Settings > Personalization > Colors >
+   Transparency effects switched off, which Chrome and Edge pass to pages as
+   prefers-reduced-transparency: reduce. It is written as an override rather than as
+   `not (…)`, because a browser that does not know the feature would then skip the
+   whole block instead of showing the glass.
+
+   The light only exists while a bento page is on screen (:has(.kb)): the other pages
+   are not written for it yet and keep their flat background.
+══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --glass-blur: 18px;
+  /* the pointer's light (hooks/useReveal.js): on a pane's surface, and along its edge */
+  --glass-lit: rgba(255, 255, 255, .85);
+  --glass-ring: rgba(31, 110, 76, .8);
+  /* a fine grain over the tint, so a pane reads as a material and not as a flat see-through colour */
+  --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .06 0 0 0 0 .18 0 0 0 0 .13 0 0 0 .1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-theme="dark"] {
+  --glass-lit: rgba(255, 255, 255, .085);
+  --glass-ring: rgba(176, 238, 208, .85);
+  --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .12 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  /* The light behind the page: five soft pools of colour, so the glass has something to be see-through to.
+     It sits on the whole shell, not on <main>, so the top bar is glass over it too. */
+  .kapp:has(.kb) {
+    background:
+      radial-gradient(circle clamp(380px, 46vw, 900px) at 3% -8%,  rgba(88, 196, 146, .4),  transparent 70%),
+      radial-gradient(circle clamp(320px, 38vw, 780px) at 100% 8%, rgba(240, 192, 112, .36), transparent 70%),
+      radial-gradient(circle clamp(420px, 50vw, 980px) at 84% 114%, rgba(112, 166, 214, .34), transparent 70%),
+      radial-gradient(circle clamp(300px, 32vw, 640px) at 12% 110%, rgba(232, 146, 118, .26), transparent 70%),
+      radial-gradient(circle clamp(260px, 30vw, 620px) at 44% 50%, rgba(128, 176, 228, .24), transparent 70%),
+      var(--bg);
+  }
+  :root[data-theme="dark"] .kapp:has(.kb) {
+    background:
+      radial-gradient(circle clamp(380px, 46vw, 900px) at 3% -8%,  rgba(62, 160, 120, .36), transparent 70%),
+      radial-gradient(circle clamp(320px, 38vw, 780px) at 100% 8%, rgba(196, 146, 70, .3),  transparent 70%),
+      radial-gradient(circle clamp(420px, 50vw, 980px) at 84% 114%, rgba(76, 124, 176, .36), transparent 70%),
+      radial-gradient(circle clamp(300px, 32vw, 640px) at 12% 110%, rgba(190, 104, 84, .26), transparent 70%),
+      radial-gradient(circle clamp(260px, 30vw, 620px) at 44% 50%, rgba(84, 140, 190, .2), transparent 70%),
+      #0b100e;
+  }
+  /* <main> lets the light through (the dark rule in bento.css is one step less specific than this) */
+  .kapp:has(.kb) .kmain,
+  :root[data-theme="dark"] .kapp:has(.kb) .kmain { background: transparent; }
+
+  /* an operating-system setting asking for less see-through UI: a plain page */
+  @media (prefers-reduced-transparency: reduce) {
+    .kapp:has(.kb) { background: none; }
+    .kapp:has(.kb) .kmain { background: var(--bg); }
+    :root[data-theme="dark"] .kapp:has(.kb) .kmain { background: #0b100e; }
+  }
+}
