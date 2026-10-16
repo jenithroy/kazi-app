@@ -21,6 +21,11 @@
  * It renders into <body> rather than in place: the page underneath scrolls
  * inside its own container, and a portal is what stops a wheel or touch that
  * runs off the end of the modal from dragging that page along behind it.
+ *
+ * `aside` is for something that belongs to the card but sits outside its edge
+ * (the profile card's Sign out tab). The panel clips what overflows it, so the
+ * aside is a sibling, in a wrapper the width of the panel that it positions itself
+ * against (and sits behind). Tab cycles through the aside as well as the panel.
  */
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -42,9 +47,11 @@ export default function Modal({
   footer,
   size = "md",              // "sm" 480px · "md" 640px · "lg" 760px
   dismissOnBackdrop = true,
+  aside,
   children,
 }) {
   const panelRef = useRef(null);
+  const scopeRef = useRef(null);   // what Tab cycles inside: the panel, and the aside if there is one
   const titleId = useId();
   const pressStartedOnBackdrop = useRef(false);
 
@@ -76,7 +83,8 @@ export default function Modal({
     // Keep Tab inside the dialog. The page behind is still in the DOM, so
     // without this the third Tab lands on a button the overlay is covering.
     const panel = panelRef.current;
-    const nodes = [...panel.querySelectorAll(FOCUSABLE)].filter(n => n.offsetParent !== null);
+    const scope = scopeRef.current || panel;
+    const nodes = [...scope.querySelectorAll(FOCUSABLE)].filter(n => n.offsetParent !== null);
     if (nodes.length === 0) { e.preventDefault(); return; }
     const first = nodes[0];
     const last = nodes[nodes.length - 1];
@@ -100,31 +108,40 @@ export default function Modal({
 
   const Inner = onSubmit ? "form" : "div";
 
+  const panel = (
+    <div
+      ref={panelRef}
+      className={`kmodal kmodal--${size}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+    >
+      <header className="kmodal-hd">
+        <div className="kmodal-hd-text">
+          <h2 className="kmodal-title" id={titleId}>{title}</h2>
+          {subtitle ? <p className="kmodal-sub">{subtitle}</p> : null}
+        </div>
+        <button type="button" className="kmodal-x" onClick={onClose} aria-label="Close">
+          <Icons.X size={18} />
+        </button>
+      </header>
+
+      <Inner className="kmodal-inner" {...(onSubmit ? { onSubmit } : {})}>
+        <div className="kmodal-body">{children}</div>
+        {footer ? <footer className="kmodal-ft">{footer}</footer> : null}
+      </Inner>
+    </div>
+  );
+
   return createPortal(
     <div className="kmodal-overlay" onKeyDown={handleKeyDown} {...backdrop}>
-      <div
-        ref={panelRef}
-        className={`kmodal kmodal--${size}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-      >
-        <header className="kmodal-hd">
-          <div className="kmodal-hd-text">
-            <h2 className="kmodal-title" id={titleId}>{title}</h2>
-            {subtitle ? <p className="kmodal-sub">{subtitle}</p> : null}
-          </div>
-          <button type="button" className="kmodal-x" onClick={onClose} aria-label="Close">
-            <Icons.X size={18} />
-          </button>
-        </header>
-
-        <Inner className="kmodal-inner" {...(onSubmit ? { onSubmit } : {})}>
-          <div className="kmodal-body">{children}</div>
-          {footer ? <footer className="kmodal-ft">{footer}</footer> : null}
-        </Inner>
-      </div>
+      {aside ? (
+        <div ref={scopeRef} className={`kmodal-wrap kmodal--${size}`}>
+          {panel}
+          {aside}
+        </div>
+      ) : panel}
     </div>,
     document.body,
   );

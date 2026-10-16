@@ -8137,3 +8137,179 @@ textarea.kmkt-input { resize: none; line-height: 1.55; }
 @media (max-width: 480px) {
   .kcur-pop { position: fixed; left: 12px; right: 12px; top: 56px; width: auto; }
 }
+
+/* ══════════════════════════════════════════════════════
+   PROFILE CARD — components/ProfileModal.jsx, inside <Modal size="card">
+   Two panes in a roughly square card: who you are on the left, your details on
+   the right. A plain white card: nothing in it is coloured by the person's
+   avatar. On a phone the panes stack inside the usual bottom sheet.
+══════════════════════════════════════════════════════ */
+.kmodal--card { --kmodal-w: 620px; }
+.kmodal--card .kmodal-body { padding: 0; display: flex; flex-direction: column; }
+
+/* With no footer in view mode the card would be short; keep it squarish on a tall enough screen. */
+@media (min-height: 700px) {
+  .kmodal--card .kmodal-body { min-height: 456px; }
+}
+
+.kprof { display: grid; grid-template-columns: 216px minmax(0, 1fr); flex: 1 0 auto; }   /* fills the body, so the grey pane reaches the bottom */
+
+/* Left pane: the person, and the one thing about the account that is not a detail */
+.kprof-side {
+  display: flex; flex-direction: column; gap: 20px; padding: 28px 18px 20px;
+  background: var(--bg); border-right: 1px solid var(--line);
+}
+.kprof-id { display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+/* The avatar is the way into editing. A dark, see-through cover with a pencil comes up
+   over it on hover or keyboard focus; on a touch screen, which has no hover, a small
+   pencil badge sits on its corner instead so the way in is not invisible. */
+.kprof-avbtn {
+  position: relative; display: inline-flex; flex: none; padding: 0;
+  border: 0; border-radius: 50%; background: none; cursor: pointer;
+}
+.kprof-avbtn:focus-visible { border-radius: 50%; }
+.kprof-avcover {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  border-radius: 50%; background: rgba(0, 0, 0, .4); color: #fff;
+  opacity: 0; transition: opacity .15s ease;
+}
+.kprof-avbtn:hover .kprof-avcover,
+.kprof-avbtn:focus-visible .kprof-avcover { opacity: 1; }
+.kprof-avbtn--off { cursor: default; }
+.kprof-avbtn--off:hover .kprof-avcover,
+.kprof-avbtn--off:focus-visible .kprof-avcover { opacity: 0; }
+@media (hover: none) {
+  .kprof-avbtn:not(.kprof-avbtn--off) .kprof-avcover {
+    inset: auto 0 0 auto; width: 30px; height: 30px; opacity: 1;
+    background: rgba(0, 0, 0, .66); box-shadow: 0 0 0 2px var(--bg);
+  }
+  .kprof-avcover svg { width: 15px; height: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kprof-avcover { transition: none; }
+}
+.kprof-who { min-width: 0; }
+.kprof-name {
+  margin: 14px 0 0; font: 700 19px/1.25 var(--font); letter-spacing: -.01em;
+  color: var(--ink); overflow-wrap: anywhere;
+}
+.kprof-mail { margin: 3px 0 0; font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
+.kprof-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 14px; }
+.kprof-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-pill);
+  background: var(--card); color: var(--ink-2); font: 500 12px/1.3 var(--font); text-align: left;
+}
+.kprof-chip i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mint-deep); }
+.kprof-pwbox { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line-strong); }
+.kprof-pwbox .kprof-h { margin-bottom: 4px; }
+.kprof-pwbox .kprof-note { margin-bottom: 10px; }
+.kprof-pwbox .ghost-button { width: 100%; }
+.kprof-pwnote { margin: 10px 0 0; }
+
+/* Right pane: the details, in sections */
+.kprof-main { min-width: 0; }
+.kprof-sec { padding: 14px 24px; }
+.kprof-sec + .kprof-sec { border-top: 1px solid var(--line); }
+.kprof-sech { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.kprof-sech .kprof-h { margin: 0; }
+.kprof-flash {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 12px/1 var(--font); color: var(--mint-deep);
+  animation: kprof-flash-in .2s ease-out;
+}
+@keyframes kprof-flash-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+.kprof-h {
+  margin: 0 0 6px; font: 600 11.5px/1.2 var(--font); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.kprof-row {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: baseline;
+  gap: 2px 12px; padding: 4px 0;
+}
+.kprof-k { font-size: 13px; color: var(--ink-3); }
+.kprof-v { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.kprof-v--empty { color: var(--ink-3); }
+.kprof-skel {
+  display: block; height: 14px; width: 62%; border-radius: 6px;
+  background: var(--line-strong); animation: pulse-soft 1.4s ease-in-out infinite;
+}
+.kprof-form { margin-top: 6px; }
+@media (min-width: 641px) {            /* phone and address share a row where there is room */
+  .kprof-form > .kprof-c5 { grid-column: span 5; }
+  .kprof-form > .kprof-c7 { grid-column: span 7; }
+}
+.kprof-form input[aria-invalid="true"] { border-color: var(--terra); }
+.kprof-ferr { font-size: 12px; font-weight: 500; color: #b42318; }
+.kprof-warn { margin: 0 0 10px; font-size: 13px; line-height: 1.45; color: #b42318; }
+
+/* Access chips: the pages a position opens; a pencil marks the ones it can also change */
+.kprof-note { margin: 0 0 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.kprof-note--err { color: #b42318; }
+.kprof-access { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.kprof-access .kprof-chip { padding: 3px 9px; font-size: 11.5px; }
+.kprof-chip--edit { background: var(--mint-soft); border-color: rgba(90, 185, 138, .4); color: var(--mint-deep); }
+.kprof-chip svg { flex: none; }
+.kprof-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The password button looks unavailable while it works, but stays focusable (see ProfileModal) */
+.kprof-busy, .kprof-busy:hover { opacity: .55; cursor: default; background: transparent; border-color: var(--line-strong); }
+
+/* Sign out, where there is room: one fixed-size container, text then icon, tucked behind
+   the card's top-right edge and level with the header. At rest only its icon end peeks out
+   past the card. Pointing at it, or focusing it, slides the whole container to the right,
+   so the text comes out from behind the card. The card does not move. Narrower screens
+   keep a plain button in the footer (.kprof-out). */
+.kmodal-wrap {
+  position: relative; isolation: isolate;
+  width: 100%; max-width: var(--kmodal-w, 640px);
+}
+.kprof-tab {
+  --peek: 44px;          /* how much shows at rest: the icon and the room round it */
+  --tuck: 14px;          /* how much stays behind the card once it is out */
+  /* top: the header is 64px tall, so 10px puts the 44px container on the same centre line as the title and the X */
+  position: absolute; z-index: -1; left: 100%; top: 10px;
+  display: flex; align-items: center; gap: 14px;   /* gap + icon 20 + padding 12 = 46, 2px more than --peek: at rest the text ends just behind the card's edge */
+  height: 44px; padding: 0 12px 0 calc(var(--tuck) + 12px);
+  border: 0; border-radius: 14px; background: var(--card); color: var(--ink-3);
+  box-shadow: var(--shadow-2); white-space: nowrap; cursor: pointer;
+  transform: translateX(calc(-100% + var(--peek)));   /* % is of the container's own width, whatever the text */
+  transition: transform .3s cubic-bezier(.16, 1, .3, 1), background .15s, color .15s;
+  animation: kprof-tab-in .32s .1s cubic-bezier(.16, 1, .3, 1) both;
+}
+.kprof-tab svg { flex: none; }
+.kprof-tab-l { font: 600 13.5px/1 var(--font); }
+.kprof-tab--out { transform: translateX(calc(var(--tuck) * -1)); }
+.kprof-tab:hover, .kprof-tab:focus-visible { background: var(--terra-soft); color: #8a3a22; }
+.kprof-tab:focus-visible { border-radius: 14px; box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--mint-2), var(--shadow-2); }
+/* opening: it comes out from behind the card a little (the separate translate property, so it never fights the transform above) */
+@keyframes kprof-tab-in { from { opacity: 0; translate: -18px 0; } to { opacity: 1; translate: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .kprof-tab { transition: none; animation: none; }
+}
+
+/* The footer button for screens too narrow for the tab */
+.kprof-out:hover { background: var(--terra-soft); border-color: rgba(196, 101, 74, .35); color: #8a3a22; }
+
+/* Phone: the panes stack — who you are, then the details, then the password */
+@media (max-width: 640px) {
+  .kprof { display: flex; flex-direction: column; }
+  .kprof-side { display: contents; }
+  .kprof-id {
+    order: 0; flex-direction: row; align-items: center; text-align: left; gap: 14px;
+    padding: 16px; background: var(--bg); border-bottom: 1px solid var(--line);
+  }
+  .kprof-id .kavatar { width: 72px !important; height: 72px !important; font-size: 29px !important; }   /* Avatar sizes itself inline */
+  .kprof-name { margin-top: 0; }
+  .kprof-chips { justify-content: flex-start; margin-top: 10px; }
+  .kprof-main { order: 1; }
+  .kprof-sec { padding: 14px 16px; }
+  .kprof-pwbox { order: 2; margin: 0; padding: 14px 16px 18px; border-top: 1px solid var(--line); background: var(--bg); }
+}
+@media (max-width: 380px) {
+  .kprof-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .kprof-id { gap: 12px; padding: 14px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kprof-skel { animation: none; }
+}

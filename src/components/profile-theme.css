@@ -1,0 +1,178 @@
+/* ══════════════════════════════════════════════════════════════════
+   PROFILE CARD — LIGHT, DARK AND GLASS
+
+   styles.css draws the card (components/ProfileModal.jsx, <Modal size="card">) for one
+   look: white. This file lets it follow the theme and makes it glass in both.
+
+   Dark does not rewrite the card's rules. They already read the app's tokens (--ink,
+   --card, --line …), so inside the card those tokens are simply given their dark values;
+   only the few colours written out literally are overridden below.
+
+   Glass is the same recipe as the Dashboard's tiles and the top bar (glass.css): a
+   translucent tint over a blurred backdrop, a fine grain, a light edge. Where
+   backdrop-filter is missing, or the system asks for less transparency, the card is the
+   opaque surface it always was.
+
+   This sheet is loaded before styles.css (see main.jsx), so on equal specificity styles.css
+   wins; every selector here is one step more specific than the rule it changes.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The scrim ────────────────────────────────────────────────────
+   Its blur used to sit on the overlay itself. A backdrop-filter makes its element a
+   "backdrop root": nothing inside it can see what is behind it. So the card's glass would
+   have blurred the flat scrim and nothing else. The tint and the blur move to a layer
+   behind the card instead (:has keeps every other modal exactly as it was). */
+.kmodal-overlay:has(.kmodal--card) {
+  background: none; animation: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.kmodal-overlay:has(.kmodal--card)::before {
+  content: ""; position: absolute; inset: 0;
+  background: rgba(10, 28, 20, .45);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);   /* what the overlay itself had */
+  animation: kmodal-fade .18s ease-out;
+}
+:root[data-theme="dark"] .kmodal-overlay:has(.kmodal--card)::before { background: rgba(0, 0, 0, .56); }
+@media (prefers-reduced-motion: reduce) {
+  .kmodal-overlay:has(.kmodal--card)::before { animation: none; }
+}
+
+/* ── Tokens ───────────────────────────────────────────────────────
+   --pf-glass   the card's tint            --pf-side    the left pane's veil
+   --pf-edge    its light edge             --pf-input   a field's fill
+   --pf-tab     the tabs behind its edge   --pf-tab-warn / --pf-tab-mint   a tab under the pointer */
+.kmodal--card {
+  --pf-glass: rgba(255, 255, 255, .82);
+  --pf-edge: rgba(255, 255, 255, .75);
+  --pf-side: rgba(15, 46, 34, .045);
+  --pf-input: #fff;
+  --pf-tab: rgba(255, 255, 255, .8);
+  --pf-tab-warn: rgba(245, 223, 214, .96);
+  --pf-tab-mint: rgba(230, 243, 236, .96);
+  --pf-mint-ink: #185a3e;     /* the switch's text under the pointer: --mint-deep is only 4.5:1 here */
+  --pf-shadow: 0 30px 70px -20px rgba(10, 28, 20, .5), 0 6px 18px -6px rgba(10, 28, 20, .22), inset 0 1px 0 rgba(255, 255, 255, .9);
+  --ink-3: #4f5e56;     /* the card is tinted glass, not white: the secondary ink goes a touch deeper */
+}
+
+:root[data-theme="dark"] .kmodal--card {
+  color-scheme: dark;
+  --ink: #edf1ef; --ink-2: #c8d0cc; --ink-3: #aab5b0; --ink-4: #8a968f; --ink-5: rgba(255, 255, 255, .3);
+  --bg: #111815; --bg-2: #19221e; --card: #16201b;
+  --line: rgba(255, 255, 255, .08); --line-strong: rgba(255, 255, 255, .16);
+  --mint-soft: rgba(125, 211, 168, .16); --mint-wash: rgba(125, 211, 168, .08);
+  --terra-soft: rgba(224, 123, 95, .2);
+  --shadow-2: 0 8px 22px -8px rgba(0, 0, 0, .7);
+
+  --pf-glass: rgba(17, 24, 21, .74);
+  --pf-edge: rgba(255, 255, 255, .13);
+  --pf-side: rgba(255, 255, 255, .035);
+  --pf-input: rgba(255, 255, 255, .06);
+  --pf-tab: rgba(22, 32, 27, .8);
+  --pf-tab-warn: rgba(74, 40, 32, .96);
+  --pf-tab-mint: rgba(24, 56, 42, .96);
+  --pf-mint-ink: var(--mint);
+  --pf-shadow: 0 34px 80px -22px rgba(0, 0, 0, .85), 0 6px 18px -6px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+/* a field's fill and the colours styles.css wrote out literally */
+.kmodal--card .kof input:not([type="checkbox"]):not([type="radio"]) { background-color: var(--pf-input); }
+:root[data-theme="dark"] .kmodal--card :is(.kmodal-msg--err, .kprof-ferr, .kprof-warn, .kprof-note--err) { color: #f4ae98; }
+:root[data-theme="dark"] .kmodal--card .kof input::placeholder { color: var(--ink-4); }
+:root[data-theme="dark"] .kmodal--card :is(.kprof-flash, .kprof-chip--edit) { color: var(--mint); }
+:root[data-theme="dark"] .kmodal--card .kprof-chip--edit { border-color: rgba(125, 211, 168, .4); }
+:root[data-theme="dark"] .kmodal--card .kprof-chip i { background: var(--mint); }
+:root[data-theme="dark"] .kmodal--card .kmodal-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .2); background-clip: content-box; }
+:root[data-theme="dark"] .kmodal--card .kmodal-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .34); background-clip: content-box; }
+
+/* ── The tabs behind the card's edge ──────────────────────────────
+   styles.css slides them with a transform. The part of a tab that is tucked behind the
+   card is also clipped away here: the card is see-through now, and a tab behind it would
+   show through as a ghost rectangle. --hide is how much of the tab is behind the card
+   (everything but the icon at rest, a 14px tuck once it is out); the clip and the
+   transform use it together and move on the same curve. The clip leaves room on the other
+   three sides so the shadow and the focus ring are not cut. */
+.kmodal--card .kprof-tab {
+  --hide: calc(100% - var(--peek));
+  background: var(--pf-tab);
+  box-shadow: var(--shadow-2), inset 0 0 0 1px var(--pf-edge);
+  transform: translateX(calc(var(--hide) * -1));
+  clip-path: inset(-28px -28px -28px var(--hide));
+  transition: transform .3s cubic-bezier(.16, 1, .3, 1), clip-path .3s cubic-bezier(.16, 1, .3, 1), background .15s, color .15s;
+}
+.kmodal--card .kprof-tab--out { --hide: var(--tuck); }
+.kmodal--card .kprof-tab--theme { top: 64px; animation-delay: .18s; }   /* under Sign out: 10px + its 44px + 10px */
+
+.kmodal--card .kprof-tab:hover,
+.kmodal--card .kprof-tab:focus-visible { background: var(--pf-tab-warn); color: #8a3a22; }
+.kmodal--card .kprof-tab--theme:hover,
+.kmodal--card .kprof-tab--theme:focus-visible { background: var(--pf-tab-mint); color: var(--pf-mint-ink); }
+:root[data-theme="dark"] .kmodal--card .kprof-tab:hover,
+:root[data-theme="dark"] .kmodal--card .kprof-tab:focus-visible { color: #f4ae98; }
+.kmodal--card .kprof-tab:focus-visible { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--mint-2), var(--shadow-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kmodal--card .kprof-tab, .kmodal.kmodal--card { transition: none; }
+}
+
+/* The footer buttons for screens too narrow for the tabs */
+.kmodal--card .kprof-theme:hover { background: var(--mint-soft); border-color: rgba(31, 110, 76, .3); color: var(--pf-mint-ink); }
+:root[data-theme="dark"] .kmodal--card .kprof-theme:hover { border-color: rgba(125, 211, 168, .35); }
+:root[data-theme="dark"] .kmodal--card .kprof-out:hover { border-color: rgba(240, 164, 141, .4); color: #f4ae98; }
+
+/* ── Glass ──────────────────────────────────────────────────────── */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .kmodal--card { --pf-input: rgba(255, 255, 255, .72); }
+  :root[data-theme="dark"] .kmodal--card { --pf-input: rgba(255, 255, 255, .06); }
+
+  .kmodal.kmodal--card {
+    background-color: var(--pf-glass);
+    background-image:
+      radial-gradient(circle 300px at var(--mx) var(--my), color-mix(in srgb, var(--glass-lit) calc(var(--in) * 100%), transparent), transparent 72%),
+      var(--glass-grain);
+    border: 1px solid var(--pf-edge);
+    box-shadow: var(--pf-shadow);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    backdrop-filter: blur(24px) saturate(1.5);
+    --mx: -999px; --my: -999px;     /* the pointer's light; hooks/useReveal.js writes these */
+    transition: --in .3s ease, --near .22s ease;
+  }
+  /* the card's edge, lit by how near the pointer is (the same ring the tiles have) */
+  .kmodal.kmodal--card::after {
+    content: ""; position: absolute; inset: 0; padding: 1.5px; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(circle 210px at var(--mx) var(--my), color-mix(in srgb, var(--glass-ring) calc(var(--near) * 100%), transparent), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+  /* panes and bars that were opaque become veils, so the glass shows through them too */
+  .kmodal--card .kmodal-ft { background: transparent; }
+  .kmodal--card .kprof-side { background: var(--pf-side); }
+  .kmodal--card .kprof-tab {
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    backdrop-filter: blur(20px) saturate(1.4);
+  }
+  @media (max-width: 640px) {
+    .kmodal--card .kprof-id, .kmodal--card .kprof-pwbox { background: var(--pf-side); }
+  }
+
+  /* an operating-system setting asking for less see-through UI: the card is opaque again */
+  @media (prefers-reduced-transparency: reduce) {
+    .kmodal--card { --pf-input: #fff; --pf-edge: var(--line); }
+    :root[data-theme="dark"] .kmodal--card { --pf-input: rgba(255, 255, 255, .06); }
+    .kmodal.kmodal--card {
+      background-color: var(--card);
+      background-image: radial-gradient(circle 300px at var(--mx) var(--my), color-mix(in srgb, var(--glass-lit) calc(var(--in) * 100%), transparent), transparent 72%);   /* the pointer's light stays; the grain goes */
+      box-shadow: var(--shadow-pop);
+      -webkit-backdrop-filter: none; backdrop-filter: none;
+    }
+    :root[data-theme="dark"] .kmodal.kmodal--card { box-shadow: 0 34px 80px -22px rgba(0, 0, 0, .85), 0 6px 18px -6px rgba(0, 0, 0, .5); }
+    .kmodal--card .kmodal-ft { background: var(--card); }
+    .kmodal--card .kprof-side { background: var(--bg); }
+    .kmodal--card .kprof-tab { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .kmodal-overlay:has(.kmodal--card)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    @media (max-width: 640px) {
+      .kmodal--card .kprof-id, .kmodal--card .kprof-pwbox { background: var(--bg); }
+    }
+  }
+}
