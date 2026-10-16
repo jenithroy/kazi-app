@@ -484,209 +484,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kbars-bar span { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--ink-3); }
 .kbars-l { font-size: 10.5px; color: var(--ink-4); text-align: center; }
 
-/* ══════════════════════════════════════════════════════
-   DASHBOARD GRIDS
-══════════════════════════════════════════════════════ */
-.kdash { display: flex; flex-direction: column; gap: 16px; }
-.kgrid { display: grid; gap: 16px; }
-.kgrid--2    { grid-template-columns: 1fr 1fr; }
-.kgrid--3    { grid-template-columns: 1fr 1fr 1fr; }
-.kgrid--4    { grid-template-columns: repeat(4, 1fr); }
-.kgrid--3-2  { grid-template-columns: 3fr 2fr; }
-.kgrid--2-3  { grid-template-columns: 2fr 3fr; }
-@media (max-width: 1280px) {
-  .kgrid--4   { grid-template-columns: repeat(2, 1fr); }
-  .kgrid--3   { grid-template-columns: 1fr 1fr; }
-  .kgrid--3-2,.kgrid--2-3 { grid-template-columns: 1fr; }
-}
-
-.kdot { color: var(--ink-5); padding: 0 2px; }
-
-/* ── Quick Actions bar ── */
-.kdash-qa {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: var(--shadow-1);
-}
-.kdash-qa-label {
-  font-size: 11px; font-weight: 600; color: var(--ink-4);
-  letter-spacing: .08em; text-transform: uppercase; margin-right: 4px;
-}
-.kdash-qa .kbtn--ghost {
-  border: 1px solid var(--line-strong);
-}
-
-/* ── Ops Alerts Strip ── */
-.kops-alerts {
-  display: flex; gap: 10px; flex-wrap: wrap;
-}
-.kops-alert-card {
-  display: flex; align-items: center; gap: 10px;
-  flex: 1; min-width: 200px;
-  padding: 10px 14px; border-radius: var(--r-card);
-  border: 1px solid transparent;
-  cursor: pointer; font-family: var(--font); font-size: 13px;
-  text-align: left; transition: filter .15s;
-}
-.kops-alert-card:hover { filter: brightness(.96); }
-.kops-alert-ico {
-  display: inline-flex; padding: 7px; border-radius: 8px; flex-shrink: 0;
-}
-.kops-alert-body {
-  display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px;
-}
-.kops-alert-val {
-  font-size: 20px; font-weight: 700; line-height: 1;
-  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
-}
-.kops-alert-lbl {
-  font-size: 11.5px; font-weight: 500; line-height: 1.3;
-}
-.kops-alert-sub {
-  font-size: 11px; opacity: .75; white-space: nowrap; flex-shrink: 0;
-  font-family: var(--mono);
-}
-.kops-alert-card svg { flex-shrink: 0; opacity: .6; }
-
-/* ── Active Orders Row ── */
-.kactive-orders {
-  display: flex; flex-direction: column; gap: 2px;
-}
-.kactive-orders-hd {
-  display: grid; grid-template-columns: 150px 1fr 130px 90px 140px;
-  gap: 12px; padding: 4px 8px 8px;
-  font-size: 10.5px; font-weight: 600; color: var(--ink-4);
-  letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--line);
-}
-.kactive-order-row {
-  display: grid; grid-template-columns: 150px 1fr 130px 90px 140px;
-  gap: 12px; padding: 8px 8px; border-radius: 6px; align-items: center; cursor: pointer;
-  transition: background .12s;
-}
-.kactive-order-row:hover { background: var(--bg-2); }
-.kactive-order-ref { font-size: 12px; color: var(--ink-3); font-weight: 600; }
-.kactive-order-client { font-size: 13px; color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kactive-order-due { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-family: var(--mono); color: var(--ink-3); }
-
-/* Nepal admin attendance section */
-.kna-att { display: grid; grid-template-columns: 180px 1fr; gap: 16px; align-items: center; }
-.kna-att-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
-.kna-att-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
-.kna-att-row:hover { background: var(--bg-2); }
-.kna-att-meta { flex: 1; min-width: 0; }
-.kna-att-n { font-size: 13px; font-weight: 500; color: var(--ink); }
-.kna-att-r { font-size: 11px; color: var(--ink-4); }
-.kna-att-end { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
-.kna-att-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.kna-att-dot--present { background: var(--mint-2); }
-.kna-att-dot--late    { background: var(--amber); }
-.kna-att-dot--leave   { background: var(--blue); }
-.kna-att-dot--absent  { background: var(--ink-5); }
-.kna-att-s { font-size: 11px; color: var(--ink-4); font-style: italic; }
-
-/* Nepal admin tasks */
-.kna-tasks { display: flex; flex-direction: column; gap: 12px; }
-.kna-task-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.kna-stat { display: flex; flex-direction: column; padding: 8px 10px; background: var(--bg-2); border-radius: 8px; gap: 2px; }
-.kna-stat-n { font-size: 22px; }
-.kna-stat-l { font-size: 10.5px; color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; }
-.kna-task-list { display: flex; flex-direction: column; gap: 2px; }
-.kna-task { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 6px; }
-.kna-task:hover { background: var(--bg-2); }
-.kna-task-prio { width: 3px; height: 28px; border-radius: 2px; background: var(--ink-5); flex-shrink: 0; }
-.kna-task-prio--high { background: var(--terra); }
-.kna-task-prio--med  { background: var(--amber); }
-.kna-task-prio--low  { background: var(--ink-5); }
-.kna-task-t { flex: 1; min-width: 0; }
-.kna-task-title { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kna-task-sub { font-size: 11px; color: var(--ink-4); }
-
-/* Nepal admin inventory */
-.kna-inv { display: flex; flex-direction: column; gap: 10px; }
-.kna-inv-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 6px 0; }
-.kna-inv-n { font-size: 13px; font-weight: 500; }
-.kna-inv-s { font-size: 11px; color: var(--ink-4); }
-.kna-inv-r { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; min-width: 100px; }
-.kna-inv-q { display: flex; align-items: baseline; gap: 3px; }
-.kna-inv-u { font-size: 11px; color: var(--ink-4); }
-
-/* Nepal admin finance */
-.kna-fin { display: flex; flex-direction: column; gap: 12px; }
-.kna-fin-top { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; }
-.kna-fin-l { font-size: 11px; color: var(--ink-4); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
-.kna-fin-sub { font-size: 12px; color: var(--ink-4); margin-top: 2px; font-family: var(--mono); }
-.kna-fin-bar { padding-top: 4px; }
-.kna-fin-br { display: flex; flex-direction: column; gap: 8px; }
-.kna-fin-br-h { display: flex; justify-content: space-between; align-items: center; }
-.kna-fin-br-l { font-size: 13px; font-weight: 600; }
-.kna-fin-br-s { font-size: 11px; color: var(--ink-4); }
-.kna-br-row { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 6px; }
-.kna-br-row:hover { background: var(--bg-2); }
-.kna-br-t { flex: 1; min-width: 0; }
-.kna-br-t > div:first-child { font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kna-br-s { font-size: 11px; color: var(--ink-4); }
-.kna-br-amt { font-size: 14px; font-weight: 600; }
-
-/* Nepal admin QC */
-.kna-qc { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
-.kna-qc-list { display: flex; flex-direction: column; gap: 8px; }
-.kna-qc-l-h { font-size: 11px; color: var(--ink-4); letter-spacing: .08em; text-transform: uppercase; font-weight: 600; margin-bottom: 2px; }
-.kna-qc-row { display: grid; grid-template-columns: 56px 1fr 50px 60px; gap: 8px; align-items: center; padding: 4px 0; }
-.kna-qc-id { font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
-.kna-qc-d { font-size: 11px; color: var(--ink-4); text-align: right; }
-
-/* UK Director */
-.kuk-leg { display: flex; gap: 14px; font-size: 12px; color: var(--ink-3); }
-.kuk-leg-d { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-.kuk-br { display: flex; flex-direction: column; gap: 10px; }
-.kbr { background: var(--bg-2); border: 1px solid transparent; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; transition: all .2s ease; }
-.kbr:hover { background: #fff; border-color: var(--line-strong); }
-.kbr--approved { background: var(--mint-soft); border-color: rgba(125,211,168,.4); }
-.kbr--rejected { background: var(--terra-soft); border-color: rgba(196,101,74,.3); opacity: .65; }
-.kbr-h { display: flex; align-items: center; gap: 8px; }
-.kbr-h-t { flex: 1; min-width: 0; }
-.kbr-h-n { font-size: 13px; font-weight: 600; }
-.kbr-h-r { font-size: 11px; color: var(--ink-4); }
-.kbr-what { font-size: 13.5px; color: var(--ink); font-weight: 500; }
-.kbr-reason { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
-.kbr-amt-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 4px; border-top: 1px dashed var(--line-strong); }
-.kbr-amt-s { font-size: 11px; color: var(--ink-4); }
-.kbr-actions { display: flex; gap: 6px; }
-.kuk-inv { display: flex; flex-direction: column; gap: 12px; }
-.kuk-inv-top { display: grid; grid-template-columns: 140px 1fr; gap: 14px; align-items: center; }
-.kuk-inv-leg { display: flex; flex-direction: column; gap: 6px; }
-.klegrow { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.klegrow-d { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-.klegrow span { flex: 1; color: var(--ink-3); }
-.klegrow strong { font-weight: 600; color: var(--ink); }
-.kuk-inv-list { display: flex; flex-direction: column; gap: 4px; }
-.kuk-inv-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px; border-radius: 6px; }
-.kuk-inv-row:hover { background: var(--bg-2); }
-.kuk-inv-id { font-size: 11px; color: var(--ink-4); }
-.kuk-inv-c { font-size: 13px; font-weight: 500; }
-.kuk-inv-end { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.kuk-floor { display: flex; flex-direction: column; gap: 14px; }
-.kuk-floor-h { display: flex; justify-content: space-between; align-items: center; }
-.kuk-floor-l { font-size: 12px; color: var(--ink-4); margin-top: 2px; letter-spacing: .04em; text-transform: uppercase; }
-.kuk-floor-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.kuk-floor-meta-l { font-size: 11px; color: var(--ink-4); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
-
-/* Employee dashboard */
-.kem-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; color: var(--ink-4); text-align: center; gap: 6px; }
-.kem-empty > div { font-size: 14px; color: var(--ink-2); font-weight: 500; }
-.kem-empty > span { font-size: 12px; color: var(--ink-4); }
-.kem-tasks { display: flex; flex-direction: column; gap: 4px; }
-.kem-task { display: grid; grid-template-columns: 4px 1fr auto auto; gap: 10px; align-items: center; padding: 10px 8px; border-radius: 8px; transition: background .15s; }
-.kem-task:hover { background: var(--bg-2); }
-.kem-task-prio { width: 3px; height: 36px; border-radius: 2px; background: var(--ink-5); }
-.kem-task-prio--high { background: var(--terra); }
-.kem-task-prio--med  { background: var(--amber); }
-.kem-task-t { min-width: 0; }
-.kem-task-title { font-size: 13.5px; color: var(--ink); font-weight: 500; }
-.kem-task-sub { font-size: 11.5px; color: var(--ink-4); margin-top: 2px; }
-.kem-task-due { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink-4); font-family: var(--mono); }
-
 /* Employee clock-in */
 .kem-clock { background: linear-gradient(135deg, #ffffff 0%, var(--mint-soft) 100%) !important; }
 .kem-clock-grid { display: grid; grid-template-columns: 280px 1fr; gap: 4px; padding: 20px 28px; align-items: center; }
@@ -707,22 +504,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kem-clock-banner--err { background: var(--terra-soft); color: #6a2e1c; }
 .kem-clock-banner > div > div { font-weight: 600; font-size: 14px; }
 .kem-clock-banner > div > span { font-size: 12.5px; opacity: .85; display: block; margin-top: 2px; }
-
-/* My attendance calendar */
-.kem-att { display: flex; flex-direction: column; gap: 14px; }
-.kem-att-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.kem-att-stat { display: flex; flex-direction: column; padding: 10px 12px; background: var(--bg-2); border-radius: 8px; }
-.kem-att-stat > span:first-child { font-size: 22px; }
-.kem-att-stat > span:last-child { font-size: 11px; color: var(--ink-4); letter-spacing: .04em; text-transform: uppercase; }
-.kem-att-cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
-.kem-att-cal-dow span { text-align: center; font-size: 10.5px; color: var(--ink-4); font-weight: 600; }
-.kem-att-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.kem-att-day { aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11.5px; color: var(--ink-3); background: var(--bg-2); }
-.kem-att-day--present { background: var(--mint-soft); color: var(--mint-deep); font-weight: 600; }
-.kem-att-day--late    { background: var(--amber-soft); color: #7a5418; font-weight: 600; }
-.kem-att-day--leave   { background: var(--blue-soft); color: #2a4f6f; }
-.kem-att-day--weekend { background: transparent; color: var(--ink-5); }
-.kem-att-day--today   { box-shadow: inset 0 0 0 2px var(--mint-deep); }
 
 /* ══════════════════════════════════════════════════════
    SUB-SCREENS
@@ -3527,10 +3308,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
 
 /* ═══ TABLET ≤ 1024px ═══ */
 @media (max-width: 1024px) {
-  .kgrid--4   { grid-template-columns: repeat(2, 1fr); }
-  .kgrid--3   { grid-template-columns: 1fr 1fr; }
-  .kgrid--3-2,.kgrid--2-3 { grid-template-columns: 1fr; }
-
   .kprod-board { grid-template-columns: repeat(3, 1fr); }
   .ktasks-board { grid-template-columns: repeat(2, 1fr); }
   .kpipe-rail { grid-template-columns: repeat(3, 1fr); }
@@ -3624,17 +3401,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* ── Stats grid ── */
   .stats-grid { grid-template-columns: 1fr 1fr; }
 
-  /* ── Dashboard sections ── */
-  .kna-att { grid-template-columns: 1fr; }
-  .kna-att .kring { display: flex; justify-content: center; }
-  .kna-qc { grid-template-columns: 1fr; }
-  .kna-qc .kqcd { margin-bottom: 12px; }
-  .kna-fin-top { grid-template-columns: 1fr; }
-  .kna-task-stats { grid-template-columns: repeat(2, 1fr); }
-  .kuk-inv-top { grid-template-columns: 1fr; }
-  .kuk-inv-top .kring { display: flex; justify-content: center; }
-  .kuk-floor-meta { grid-template-columns: 1fr; }
-
   /* ── Employee clock-in card ── */
   .kem-clock-grid { grid-template-columns: 1fr; padding: 20px 16px; gap: 16px; }
   .kem-clock-ring { order: 1; }
@@ -3643,11 +3409,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .kem-clock-rings svg { width: 160px; height: 160px; }
   .kem-clock-msg { font-size: 13px; }
   .kem-clock-actions { flex-wrap: wrap; }
-
-  /* ── Employee attendance ── */
-  .kem-att-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .kem-att-stat { padding: 8px 10px; }
-  .kem-att-stat > span:first-child { font-size: 18px; }
 
   /* ── Kanban boards ── */
   .kprod-board { grid-template-columns: 1fr; }
@@ -3688,17 +3449,11 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .invoice-page { padding: 18px 16px; max-width: 100vw; }
   .inv-modal-bg { padding: 8px; }
 
-  /* ── Budget request cards ── */
-  .kbr-amt-row { flex-direction: column; gap: 10px; align-items: flex-start; }
-  .kbr-actions { width: 100%; }
   .kbrf-amt { flex-direction: column; gap: 8px; align-items: flex-start; }
   .kbrf-actions { width: 100%; }
 
   /* ── Login page ── */
   .login-card { padding: 28px 20px; max-width: 100vw; }
-
-  /* ── QC dial ── */
-  .kna-qc-row { grid-template-columns: 40px 1fr 40px 50px; gap: 6px; }
 
   /* ── Production mini-stats strip ── */
   .kprod-ministat {
@@ -3805,15 +3560,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
     max-width: 100%;
   }
 
-  /* ── Active Orders Row (max-width: 768px) ── */
-  .kactive-orders {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .kactive-orders-hd,
-  .kactive-order-row {
-    min-width: 620px;
-  }
 }
 
 /* ═══ SMALL PHONE ≤ 480px ═══ */
@@ -3845,12 +3591,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   .kem-clock-banner { padding: 10px 12px; }
   .kem-clock-banner > div > div { font-size: 13px; }
   .kem-clock-banner > div > span { font-size: 11.5px; }
-
-  /* Attendance calendar */
-  .kem-att-cal-grid { gap: 3px; }
-  .kem-att-day { font-size: 10.5px; }
-  .kem-att-stats { grid-template-columns: repeat(3, 1fr); gap: 4px; }
-  .kem-att-stat { padding: 6px 8px; }
 
   /* Pipeline */
   .kpipe-rail { grid-template-columns: 1fr; }

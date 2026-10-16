@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus, setEmployeeScheduleOverrides } from "../constants";
@@ -20,7 +20,13 @@ function fmtElapsed(ms) {
   return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
 }
 
-export default function ClockInCard({ profile, onClockChange }) {
+/**
+ * `variant` picks how it is drawn; what it does is the same in all three.
+ *   card   the full card (Attendance page)
+ *   strip  one compact line at the foot of another tile (managers, beside the team's attendance)
+ *   ring   one circle: press it and it clocks you in (no separate confirm step)
+ */
+export default function ClockInCard({ profile, onClockChange, variant = "card" }) {
   const today = todayDate();
   const isOfficeClosedToday = isSaturday(today);
   // Attendance and clock-ins are keyed by the person's row in `people`, not by
@@ -92,6 +98,20 @@ export default function ClockInCard({ profile, onClockChange }) {
 
   const RADIUS = GEOFENCE_RADIUS_M;
   const ringPct = clockDist == null ? 0 : Math.max(0, Math.min(100, (1 - clockDist / RADIUS) * 100));
+
+  // The ring clocks in on one press: once the GPS check has passed there is nothing left to confirm.
+  // Waiting for the state to land (rather than calling confirm inside startClock) keeps the distance
+  // and coordinates it saves the real ones.
+  const autoConfirmed = useRef(false);
+  useEffect(() => {
+    if (variant !== "ring") return;
+    if (status === "success" && !autoConfirmed.current) {
+      autoConfirmed.current = true;
+      confirmClockIn(false);
+    } else if (status !== "success" && status !== "saving") {
+      autoConfirmed.current = false;
+    }
+  }, [variant, status]);
 
   const startClock = async () => {
     setStatus("locating");
@@ -259,6 +279,159 @@ export default function ClockInCard({ profile, onClockChange }) {
       setStatus("clocked_out");
     }
   };
+
+  // One circle. Same state and handlers; drawn for a tile (see .kb-clockring in bento.css).
+  if (variant === "ring") {
+    const C = 2 * Math.PI * 45;
+    const elapsed = clockInDate ? Math.max(0, clockTime - clockInDate) : 0;
+    const retry = () => { setClockDist(null); startClock(); };
+    const act = (kind, label, onClick) => (
+      <button type="button" className={`kb-btn kb-btn--${kind} kb-act`} onClick={onClick}>{label}</button>
+    );
+
+    let tone = "";      // "" | "ok" | "err"
+    let pct = 0;        // how much of the circle is drawn
+    let busy = false;   // spinning: something is in flight
+    let main = <Icons.MapPin size={28} sw={1.7} />;
+    let label = "";
+    let note = "";
+    let press = null;   // what the circle does when pressed
+    let extra = null;
+
+    if (status === "checking_status") {
+      busy = true; main = <Icons.Clock size={28} sw={1.7} />; label = "Checking";
+    } else if (isOfficeClosedToday && status === "idle") {
+      tone = "ok"; pct = 100; main = <Icons.Check size={28} sw={1.9} />; label = "Closed today";
+      note = "Saturday is the company holiday.";
+    } else if (status === "idle") {
+      label = "Clock in"; press = startClock; note = `We check you are within ${RADIUS} m of the workshop.`;
+    } else if (status === "locating") {
+      busy = true; main = <Icons.Crosshair size={28} sw={1.7} />; label = "Locating"; note = "Finding your position…";
+    } else if (status === "success" || status === "saving") {
+      busy = true; main = <Icons.Check size={28} sw={1.9} />; label = "Clocking in"; note = "Saving your clock-in…";
+    } else if (status === "far") {
+      tone = "err"; pct = 100; press = retry;
+      main = <span>{clockDist && clockDist !== 9999 ? `${(clockDist / 1000).toFixed(1)} km` : "Far"}</span>; label = "Too far";
+      note = `Move within ${RADIUS} m of the workshop, then press to try again.`;
+    } else if (status === "low-accuracy" || status === "gps-error") {
+      tone = "err"; pct = 100; press = retry; main = <Icons.Alert size={28} sw={1.7} />;
+      label = status === "gps-error" ? "No location" : "Weak GPS";
+      note = status === "gps-error"
+        ? "Check the location permission for this browser or phone."
+        : `Accuracy ${clockCoords?.accuracy} m; it needs to be under ${GPS_ACCURACY_THRESHOLD_M} m.`;
+      extra = act("ghost", "Clock in anyway", () => confirmClockIn(true));
+    } else if (status === "clocked") {
+      tone = "ok"; pct = Math.min(100, (elapsed / (8 * 3600000)) * 100);
+      main = <span>{clockInDate ? fmtElapsed(elapsed) : "In"}</span>; label = "on the clock";
+      note = `In at ${clockedAtStr || "—"}`;
+      extra = confirmingOut
+        ? <>{act("ghost", "Cancel", () => setConfirmingOut(false))}{act("primary", "Confirm clock-out", handleClockOut)}</>
+        : act("ghost", "Clock out", () => setConfirmingOut(true));
+    } else if (status === "clocked_out") {
+      tone = "ok"; pct = 100; main = <span>{workedHours != null ? `${workedHours}h` : "Done"}</span>; label = "day complete";
+      note = `${clockedAtStr || "—"} to ${clockedOutAtStr || "—"}`;
+      extra = act("ghost", "Clock back in", handleClockBackIn);
+    }
+
+    return (
+      <div className="kb-clockring" data-tour="clock-in">
+        <button
+          type="button"
+          className={`kb-ringbtn${tone ? ` kb-ringbtn--${tone}` : ""}${press ? " is-press" : ""}`}
+          onClick={press && !busy ? press : undefined}
+          aria-disabled={!press || busy || undefined}
+          aria-label={`${label}. ${note}`}
+        >
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" className="kb-ring-track" />
+            {pct > 0 && (
+              <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" strokeLinecap="round" className="kb-ringbtn-arc"
+                strokeDasharray={`${(pct / 100) * C} ${C}`} transform="rotate(-90 50 50)" />
+            )}
+            {busy && <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" strokeLinecap="round" className="kb-ringbtn-spin" strokeDasharray={`${C * 0.22} ${C}`} />}
+          </svg>
+          <span className="kb-ringbtn-c">
+            <span className="kb-ringbtn-main">{main}</span>
+            <span className="kb-ringbtn-l">{label}</span>
+          </span>
+        </button>
+        <div className="kb-clockring-side">
+          <p className="kb-clockring-note" role={tone === "err" ? "alert" : "status"}>{note}</p>
+          {extra && <div className="kb-clockring-acts">{extra}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // The strip. Same state, same handlers, drawn for a tile (see .kb-clock in bento.css).
+  if (variant !== "card") {
+    const btn = (kind, label, onClick, disabled) => (
+      <button type="button" className={`kb-btn kb-btn--${kind} kb-act`} onClick={onClick} disabled={disabled}>{label}</button>
+    );
+    const away = clockDist && clockDist !== 9999 ? `${(clockDist / 1000).toFixed(2)} km` : "too far";
+    const retry = () => { setStatus("idle"); setClockDist(null); };
+    const anyway = [
+      btn("ghost", "Try again", startClock),
+      btn("primary", "Clock in anyway", () => confirmClockIn(true)),
+    ];
+
+    let tone = "";
+    let Icon = Icons.MapPin;
+    let headline = "";
+    let detail = "";
+    let acts = null;
+
+    if (status === "checking_status") {
+      Icon = Icons.Clock; headline = "Checking attendance…";
+    } else if (isOfficeClosedToday && status === "idle") {
+      Icon = Icons.Check; tone = "ok"; headline = "Office closed today"; detail = "Saturdays are a company holiday. No clock-in needed.";
+    } else if (status === "idle") {
+      headline = "Ready to clock in"; detail = `GPS-checked within ${RADIUS} m of the workshop.`;
+      acts = btn("primary", "Clock in", startClock);
+    } else if (status === "locating") {
+      Icon = Icons.Crosshair; headline = "Finding you…"; acts = btn("ghost", "Locating…", undefined, true);
+    } else if (status === "saving") {
+      Icon = Icons.Crosshair; headline = "Saving…"; acts = btn("ghost", "Saving…", undefined, true);
+    } else if (status === "success") {
+      Icon = Icons.Check; tone = "ok"; headline = "You're at the workshop";
+      detail = `${clockDist} m from the office, inside the ${RADIUS} m geofence.`;
+      acts = [btn("ghost", "Cancel", retry), btn("primary", "Confirm clock-in", () => confirmClockIn(false))];
+    } else if (status === "far") {
+      Icon = Icons.Alert; tone = "err"; headline = "Outside the workshop geofence";
+      detail = `You are ${away} away. Move within ${RADIUS} m to clock in.`;
+      acts = btn("ghost", "Try again", retry);
+    } else if (status === "low-accuracy") {
+      Icon = Icons.Alert; tone = "err"; headline = "GPS signal too weak";
+      detail = `Accuracy ${clockCoords?.accuracy} m; it needs to be under ${GPS_ACCURACY_THRESHOLD_M} m. Move outdoors, or clock in anyway.`;
+      acts = anyway;
+    } else if (status === "gps-error") {
+      Icon = Icons.Alert; tone = "err"; headline = "Location unavailable";
+      detail = "Check the location permission for this browser or phone, or clock in anyway.";
+      acts = anyway;
+    } else if (status === "clocked") {
+      Icon = Icons.Check; tone = "ok"; headline = `Clocked in at ${clockedAtStr || "—"}`;
+      detail = confirmingOut
+        ? "Clocking out records the end of your work day."
+        : clockInDate ? `${fmtElapsed(clockTime - clockInDate)} on the clock` : "";
+      acts = confirmingOut
+        ? [btn("ghost", "Cancel", () => setConfirmingOut(false)), btn("primary", "Confirm clock-out", handleClockOut)]
+        : btn("ghost", "Clock out", () => setConfirmingOut(true));
+    } else if (status === "clocked_out") {
+      Icon = Icons.Check; tone = "ok"; headline = `Day complete · ${clockedAtStr || "—"} to ${clockedOutAtStr || "—"}`;
+      detail = workedHours != null ? `${workedHours} h logged today.` : "";
+      acts = btn("ghost", "Clock back in", handleClockBackIn);
+    }
+
+    return (
+      <div className={`kb-clock kb-clock--${variant}`} data-tour="clock-in">
+        <div className={`kb-clock-msg${tone ? ` kb-clock-msg--${tone}` : ""}`} role={tone === "err" ? "alert" : undefined}>
+          <Icon size={16} sw={1.9} />
+          <div><b>{headline}</b>{detail ? <span>{detail}</span> : null}</div>
+        </div>
+        {acts && <div className="kb-clock-acts">{acts}</div>}
+      </div>
+    );
+  }
 
   if (status === "checking_status") {
     return (

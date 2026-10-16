@@ -75,6 +75,13 @@ export function Pill({ tone = "neutral", children, dot, icon }) {
 }
 
 /* ── Avatar ───────────────────────────────────────────── */
+/** A stable colour for a person, 0–359, so their avatar and profile card agree everywhere. */
+export function hueFromName(name = "") {
+  let h = 0;
+  for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return h % 360;
+}
+
 export function Avatar({ name, hue, size = 28, ring }) {
   const initials = name
     ? name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
@@ -194,6 +201,8 @@ export const Icons = {
   Finance:    (p) => <Ico {...p} s={<><circle cx="12" cy="12" r="9"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1.1-3 2.5 1.3 2 3 2.5 3 1.1 3 2.5-1.3 2.5-3 2.5-3-1.1-3-2.5M12 5v2M12 17v2"/></>}/>,
   Billing:    (p) => <Ico {...p} s={<><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6M9 16h4"/></>}/>,
   Budget:     (p) => <Ico {...p} s={<><path d="M4 7h16v12a2 2 0 01-2 2H6a2 2 0 01-2-2V7z"/><path d="M9 11l2 2 4-4"/><path d="M4 7l2-3h12l2 3"/></>}/>,
+  Cart:       (p) => <Ico {...p} s={<><path d="M3 4h2.4l2.1 10.2a1.6 1.6 0 001.6 1.3h8.1a1.6 1.6 0 001.6-1.2L20.4 8H6.2"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></>}/>,
+  Wallet:     (p) => <Ico {...p} s={<><path d="M19.5 8V6.5A1.5 1.5 0 0018 5H6a2 2 0 00-2 2v10a2 2 0 002 2h12a1.5 1.5 0 001.5-1.5V15"/><path d="M20.5 8H16a2.5 2.5 0 000 5h4.5a.5.5 0 00.5-.5v-4a.5.5 0 00-.5-.5z"/><circle cx="16.5" cy="10.5" r=".7" fill="currentColor" stroke="none"/></>}/>,
   Employees:  (p) => <Ico {...p} s={<><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3.1-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.7.4 4.4 2.2 5 5.3"/></>}/>,
   Admin:      (p) => <Ico {...p} s={<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></>}/>,
   Search:     (p) => <Ico {...p} s={<><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-3.5-3.5"/></>}/>,
