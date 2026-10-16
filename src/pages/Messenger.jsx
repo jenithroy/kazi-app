@@ -1,5 +1,7 @@
 /**
- * Messenger.
+ * Chat. (It was called Messenger; the file, the /messenger route and the
+ * `messenger` permission id keep that name because links, push notifications
+ * and the permission matrix point at it.)
  *
  * Two inboxes behind one page, because they are two different jobs that happen
  * to both be chat:

@@ -1149,14 +1149,15 @@ export default function AdminPanel() {
                 )}
               </div>
 
-              {/* Messenger tabs — Leads is split out from Team chat here so a
+              {/* Chat tabs (the page was called Messenger; the permission id
+                  still is) — Leads is split out from Team chat here so a
                   role can read customer DMs (or not) independently of the
-                  wider Messenger permission. */}
+                  wider Chat permission. */}
               <div className="kap-card kap-card--fin">
                 <button className="kap-card-hd kap-card-hd--btn" onClick={() => setMsgOpen((v) => !v)}>
-                  <span className="kap-card-title">Messenger tabs</span>
+                  <span className="kap-card-title">Chat tabs</span>
                   <span className="kap-card-note">
-                    Inside the Messenger page — {msgTabs.length} {msgTabs.length === 1 ? "tab" : "tabs"}
+                    Inside the Chat page — {msgTabs.length} {msgTabs.length === 1 ? "tab" : "tabs"}
                     <span className={cn("kap-chev", msgOpen && "is-open")}><Icons.ChevronDown size={15} /></span>
                   </span>
                 </button>
@@ -1179,7 +1180,7 @@ export default function AdminPanel() {
 
               {/* Marketing tabs — Meta Ads is split out from the wider
                   Marketing permission here, the same way Leads is split out
-                  from Messenger above. */}
+                  from Chat above. */}
               <div className="kap-card kap-card--fin">
                 <button className="kap-card-hd kap-card-hd--btn" onClick={() => setMktOpen((v) => !v)}>
                   <span className="kap-card-title">Marketing tabs</span>

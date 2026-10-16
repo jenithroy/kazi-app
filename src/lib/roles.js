@@ -205,7 +205,7 @@ export const SECTION_LABEL = {
   customers: "Customers",
   employees: "Employees & HR",
   marketing: "Marketing",
-  messenger: "Messenger",
+  messenger: "Chat",
   admin: "Roles & Permissions",
   usage_analytics: "Usage & Activity",
   directors: "Company Overview",
