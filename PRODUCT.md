@@ -38,12 +38,12 @@ Built for exactly one company's two-country operation. NPR is the stored currenc
 - Stack: React 18 + Vite SPA, React Router 6, Recharts, Supabase (auth, Postgres with RLS, storage, realtime), deployed on Cloudflare Workers, wrapped by Capacitor.
 - Printed and PDF documents (tax invoices, challans, quotations, salary slips, stock-ledger and tech-pack spec print sheets) are compliance artefacts. Their output stays exactly as it is; only the app UI around them may change.
 - Business logic (VAT, fiscal-year numbering, stock balances, payroll maths, double-entry validation, region filtering, permission checks) must not change as a side effect of UI work.
-- Some product docs in the repo (DESIGN.md, PERMISSIONS.md, README.md, PRODUCT_BRIEF.md) still describe the older Firebase / hard-coded-role version of the app and are stale.
+- Some product docs in the repo (PERMISSIONS.md, README.md, PRODUCT_BRIEF.md) still describe the older Firebase / hard-coded-role version of the app and are stale. DESIGN.md was rewritten on 2026-10-17 and is current.
 
 ## Brand Commitments
 
-- Name: Kazi (Kazi Manufacturing Pvt. Ltd.). White wordmark logo (`public/kazi-logo-trimmed.png`) centred in the dark forest top bar, with the menu groups either side of it as dropdowns; "Kathmandu HQ" in the Dashboard greeting. The sign-in screen still uses `public/kazi - logo - white-01.png`.
-- The newer pages (Roles, Usage & Activity, Admin Panel, Messenger) are the confirmed reference for how the whole app should look and behave.
+- Name: Kazi (Kazi Manufacturing Pvt. Ltd.). Wordmark logo (`public/kazi-logo-trimmed.png`) centred in the top bar (a white bar with the logo drawn dark in the light theme, near-black with the white logo in the dark theme, frosted glass on redone pages), with the menu groups either side of it as dropdowns; "Kathmandu HQ" in the Dashboard greeting. The sign-in screen still uses `public/kazi - logo - white-01.png`.
+- The Dashboard, the top bar and the profile card (frosted glass, light and dark; see [DESIGN.md](DESIGN.md)) are the confirmed reference for how the whole app should look and behave. The earlier "newer pages" (Roles, Usage & Activity, Admin Panel, Chat) were the reference until 2026-10-16 and are no longer the target.
 - Voice in the UI is plain, specific and honest about state: it says what a control does and why something is empty or restricted, rather than generic filler.
 
 ## Evidence on Hand

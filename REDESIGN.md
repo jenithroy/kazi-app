@@ -1,6 +1,8 @@
 # Kazi ERP — Redesign Plan
 
-> Status: **plan only, nothing built yet.** Review this, answer the open decisions in §12, then we build it phase by phase.
+> **Superseded in part (2026-10-17).** The visual direction changed after this was written: the site is being rebuilt to the Dashboard / top bar / profile card look (frosted glass, light and dark), documented in [DESIGN.md](DESIGN.md). **Use DESIGN.md for how things look.** This plan still holds for its ground rules (§2), the problem inventory (§3), the responsive rules (§5), the per-page notes on what to preserve (§8) and the bugs found (§11). Check DESIGN.md before following §4 (it keeps the dark sidebar, rules out dark mode and keeps the region flags), §6 (the component kit has to be built in glass) or §7 (the CSS layout was not followed): the sidebar is gone (a top bar replaced it), dark mode exists, and the flags were removed on 2026-10-17.
+>
+> Original status: **plan only, nothing built yet.** Review this, answer the open decisions in §12, then we build it phase by phase.
 > Written 2026-09-11 from a full read of every page and shared component (~28,900 lines of JSX plus the 6,743-line `styles.css`).
 
 ---
