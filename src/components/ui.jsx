@@ -2,7 +2,9 @@
  * Kazi UI Primitives
  * Shared components: Card, Btn, Pill, Avatar, KPI, Progress, Spark, Divider, SegBar
  */
+import { useState } from "react";
 import { roundAmount } from "../utils/format";
+import { useAvatars } from "../context/AvatarContext";
 
 export const cn = (...xs) => xs.filter(Boolean).join(" ");
 
@@ -82,13 +84,38 @@ export function hueFromName(name = "") {
   return h % 360;
 }
 
-export function Avatar({ name, hue, size = 28, ring }) {
+/**
+ * A person's circle: their picture when they have one, their initials on a colour of
+ * their own when they don't. Give it `personId` when you have it; with only a `name`
+ * it still finds the picture (see AvatarContext). `src` forces a picture, or `null`
+ * forces initials.
+ */
+export function Avatar({ name, hue, size = 28, ring, personId, src }) {
+  const { urlFor } = useAvatars();
+  const url = src === undefined ? urlFor({ personId, name }) : src;
+  const [failed, setFailed] = useState(null);   // the address that would not load: back to initials
+
   const initials = name
     ? name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
   const h = hue ?? 145;
   const bg = `oklch(0.78 0.08 ${h})`;
   const fg = `oklch(0.28 0.08 ${h})`;
+
+  if (url && failed !== url) {
+    return (
+      <img
+        className="kavatar kavatar--photo"
+        src={url}
+        alt=""
+        width={size}
+        height={size}
+        decoding="async"
+        onError={() => setFailed(url)}
+        style={{ width: size, height: size, boxShadow: ring ? `0 0 0 2px ${ring}` : undefined }}
+      />
+    );
+  }
   return (
     <span
       className="kavatar"

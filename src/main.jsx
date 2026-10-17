@@ -9,6 +9,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { RewardProvider } from "./context/RewardContext";
 import { RegionProvider } from "./context/RegionContext";
+import { AvatarProvider } from "./context/AvatarContext";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -18,7 +19,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <CurrencyProvider>
           <RewardProvider>
             <RegionProvider>
-              <App />
+              <AvatarProvider>
+                <App />
+              </AvatarProvider>
             </RegionProvider>
           </RewardProvider>
         </CurrencyProvider>

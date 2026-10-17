@@ -7,7 +7,10 @@ import { authClient, authRedirectUrl } from "../supabase";
 import useMedia from "../hooks/useMedia";
 import { useTheme } from "../hooks/useTheme";
 import { useReveal } from "../hooks/useReveal";
-import { Moon, Sun } from "./bento/icons";
+import { Camera, Moon, Sun } from "./bento/icons";
+import PhotoCropper from "./PhotoCropper";
+import { useAvatars } from "../context/AvatarContext";
+import { friendlyPhotoError, removeAvatar, saveAvatar } from "../lib/avatars";
 import { SECTION_LABEL } from "../lib/roles";
 import { WEEKDAYS } from "../constants";
 import { fmtDateBS } from "../utils/fiscalYear";
@@ -31,10 +34,12 @@ import "./profile-theme.css";
  * The card follows the theme and is glass in both (profile-theme.css). It is the one
  * place the theme is changed from: the switch used to sit in the Dashboard's header.
  *
- * Editable: phone and address. Not editable here: name, position, department,
- * schedule and pay. Attendance and payroll still match records on the name, and
- * a position is a permission, so those stay with HR. The database enforces the
- * same line (migration 0055) — the card only reflects it.
+ * Editable: phone, address and your own picture. Not editable here: name, position,
+ * department, schedule and pay. Attendance and payroll still match records on the
+ * name, and a position is a permission, so those stay with HR. The database enforces
+ * the same line (migration 0055) — the card only reflects it. The picture is not part
+ * of that: it has its own table and storage folder (migration 0056) and saves on its
+ * own, the moment "Use photo" is pressed, not with the Save button.
  *
  * The details come from the same directory view the Employees page reads. Phone
  * and address are masked in it for everyone but the person themselves and HR,
@@ -169,8 +174,57 @@ export default function ProfileModal({ onClose }) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState({ kind: "", text: "" });   // kind: "ok" | "err"
   const phoneRef = useRef(null);
-  const avatarBtnRef = useRef(null);   // the avatar is what starts an edit
+  const avatarBtnRef = useRef(null);   // the avatar starts an edit, and while editing it picks a photo
   const refocusEdit = useRef(false);   // the control that had focus is about to disappear
+
+  /* ── the picture ── */
+  const { urlFor, refresh: refreshAvatars } = useAvatars();
+  const hasPhoto = Boolean(urlFor({ personId }));
+  const fileRef = useRef(null);
+  const [photoFile, setPhotoFile] = useState(null);   // a chosen photo being cropped
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState("");
+  const hadCropper = useRef(false);
+
+  const pickPhoto = () => fileRef.current?.click();
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";   // so choosing the same file again still counts
+    if (!file) return;
+    setPhotoErr("");
+    setPhotoFile(file);
+  };
+  async function savePhoto(blob) {
+    if (!personId || photoBusy) return;
+    setPhotoBusy(true);
+    setPhotoErr("");
+    try {
+      await saveAvatar(personId, blob);
+      await refreshAvatars();
+      if (!alive.current) return;
+      setPhotoFile(null);
+      setMsg({ kind: "ok", text: "Photo updated." });
+    } catch (err) {
+      if (alive.current) setPhotoErr(friendlyPhotoError(err));
+    } finally {
+      if (alive.current) setPhotoBusy(false);
+    }
+  }
+  async function dropPhoto() {
+    if (!personId || !window.confirm("Remove your photo? Your initials will show instead.")) return;
+    try {
+      await removeAvatar(personId);
+      await refreshAvatars();
+      if (alive.current) setMsg({ kind: "ok", text: "Photo removed." });
+    } catch (err) {
+      if (alive.current) setMsg({ kind: "err", text: friendlyPhotoError(err) });
+    }
+  }
+  // When the cropper closes, its buttons go; put focus back on the picture.
+  useEffect(() => {
+    if (photoFile) { hadCropper.current = true; return; }
+    if (hadCropper.current) { hadCropper.current = false; avatarBtnRef.current?.focus(); }
+  }, [photoFile]);
 
   const dirty = editing && !!row
     && (form.phone.trim() !== (row.phone || "") || form.address.trim() !== (row.address || ""));
@@ -184,6 +238,7 @@ export default function ProfileModal({ onClose }) {
   const cancelEdit = () => {
     refocusEdit.current = true;
     setEditing(false);
+    setPhotoFile(null);
     setFieldErr({});
     setMsg({ kind: "", text: "" });
   };
@@ -243,9 +298,16 @@ export default function ProfileModal({ onClose }) {
   const confirmDiscard = () => !dirty || window.confirm("Discard your changes?");
   const requestClose = () => { if (confirmDiscard()) onClose(); };
 
-  // Escape backs out of editing first; only a second one closes the card.
+  // Escape backs out one step at a time: the photo being cropped, then editing; only
+  // after that does it close the card. (Nothing closes mid-upload.)
   const onKeyDown = (e) => {
-    if (e.key !== "Escape" || !editing) return;
+    if (e.key !== "Escape") return;
+    if (photoFile) {
+      e.preventDefault();
+      if (!photoBusy) setPhotoFile(null);
+      return;
+    }
+    if (!editing) return;
     e.preventDefault();
     if (confirmDiscard()) cancelEdit();
   };
@@ -343,29 +405,56 @@ export default function ProfileModal({ onClose }) {
       <div className="kprof" onKeyDown={onKeyDown}>
         <aside className="kprof-side">
           <div className="kprof-id">
-            {/* aria-disabled rather than disabled while there is nothing to edit yet, or you are
-                already editing: a disabled button that holds focus swallows the keyboard. */}
-            <button
-              type="button"
-              className={cn("kprof-avbtn", (!row || editing) && "kprof-avbtn--off")}
-              ref={avatarBtnRef}
-              onClick={() => { if (row && !editing) startEdit(); }}
-              aria-disabled={!row || editing || undefined}
-              aria-label="Edit your profile"
-              title={row && !editing ? "Edit profile" : undefined}
-            >
-              <Avatar name={name} hue={hue} size={96} ring="var(--card)" />
-              <span className="kprof-avcover" aria-hidden="true"><Icons.Edit size={24} sw={1.7} /></span>
-            </button>
-            <div className="kprof-who">
-              <h3 className="kprof-name">{name}</h3>
-              <p className="kprof-mail">{profile?.email}</p>
-              <div className="kprof-chips">
-                {profile?.positionLabel && <span className="kprof-chip"><i aria-hidden="true" />{profile.positionLabel}</span>}
-                {LOCATION[profile?.location] && <span className="kprof-chip">{LOCATION[profile.location]}</span>}
-                {row?.department && <span className="kprof-chip">{row.department}</span>}
-              </div>
-            </div>
+            {photoFile ? (
+              <PhotoCropper
+                file={photoFile}
+                busy={photoBusy}
+                error={photoErr}
+                onCancel={() => setPhotoFile(null)}
+                onSave={savePhoto}
+              />
+            ) : (
+              <>
+                {/* aria-disabled rather than disabled while there is nothing to edit yet: a disabled
+                    button that holds focus swallows the keyboard. Not editing, the picture starts an
+                    edit; editing, it chooses a photo. */}
+                <button
+                  type="button"
+                  className={cn("kprof-avbtn", !row && "kprof-avbtn--off")}
+                  ref={avatarBtnRef}
+                  onClick={() => { if (!row) return; if (editing) pickPhoto(); else startEdit(); }}
+                  aria-disabled={!row || undefined}
+                  aria-label={editing ? "Change your photo" : "Edit your profile"}
+                  title={row ? (editing ? "Change photo" : "Edit profile") : undefined}
+                >
+                  <Avatar name={name} hue={hue} size={96} ring="var(--card)" personId={personId} />
+                  <span className="kprof-avcover" aria-hidden="true">
+                    {editing ? <Camera size={24} sw={1.7} /> : <Icons.Edit size={24} sw={1.7} />}
+                  </span>
+                </button>
+                {row && editing && (
+                  <div className="kprof-photo-acts">
+                    <button type="button" className="kprof-linkbtn" onClick={pickPhoto}>{hasPhoto ? "Change photo" : "Add a photo"}</button>
+                    {hasPhoto && <button type="button" className="kprof-linkbtn kprof-linkbtn--danger" onClick={dropPhoto}>Remove</button>}
+                  </div>
+                )}
+                {row && !editing && !hasPhoto && (
+                  <div className="kprof-photo-acts">
+                    <button type="button" className="kprof-linkbtn" onClick={() => { startEdit(); pickPhoto(); }}>Add a photo</button>
+                  </div>
+                )}
+                <div className="kprof-who">
+                  <h3 className="kprof-name">{name}</h3>
+                  <p className="kprof-mail">{profile?.email}</p>
+                  <div className="kprof-chips">
+                    {profile?.positionLabel && <span className="kprof-chip"><i aria-hidden="true" />{profile.positionLabel}</span>}
+                    {LOCATION[profile?.location] && <span className="kprof-chip">{LOCATION[profile.location]}</span>}
+                    {row?.department && <span className="kprof-chip">{row.department}</span>}
+                  </div>
+                </div>
+              </>
+            )}
+            <input ref={fileRef} type="file" accept="image/*" hidden tabIndex={-1} onChange={onFile} />
           </div>
 
           <section className="kprof-pwbox">

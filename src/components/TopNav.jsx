@@ -384,7 +384,7 @@ export default function TopNav({ showMenuButton = true }) {
       onKeyDown={(e) => onLinkKey(e, USER)}
       onPointerEnter={onLinkEnter}
     >
-      <Avatar name={name} hue={hue} size={32} ring="rgba(125,211,168,.3)" />
+      <Avatar name={name} hue={hue} size={32} ring="rgba(125,211,168,.3)" personId={profile.personId} />
     </button>
   );
 
@@ -506,7 +506,7 @@ export default function TopNav({ showMenuButton = true }) {
             {profile && (
               <div className="kn-d-ft">
                 <button type="button" className="kn-d-me" onClick={() => { closeDrawer(); setProfileOpen(true); }}>
-                  <Avatar name={name} hue={hue} size={36} ring="rgba(125,211,168,.3)" />
+                  <Avatar name={name} hue={hue} size={36} ring="rgba(125,211,168,.3)" personId={profile.personId} />
                   <span className="kn-d-who">
                     <span className="kn-d-name">{name}</span>
                     <span className="kn-d-role">{roleLabel(profile)}</span>

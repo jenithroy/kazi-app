@@ -484,6 +484,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   border-radius: 50%; font-weight: 600; letter-spacing: -.01em;
   font-family: var(--font); flex: 0 0 auto; flex-shrink: 0;
 }
+/* a profile picture in the same circle; the tint shows for the instant before it loads */
+.kavatar--photo { object-fit: cover; background: var(--bg-2); }
 .kstack { display: inline-flex; }
 .kstack-more {
   display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
 import { authClient, authRedirectUrl, createSignupClient, supabase } from "../supabase";
 import PageHeader from "../components/PageHeader";
+import { Avatar } from "../components/ui";
 import SalarySlipModal from "../components/SalarySlipModal";
 import { useAuth } from "../context/AuthContext";
 import { useCurrency } from "../context/CurrencyContext";
@@ -117,12 +118,11 @@ const HUE_MAP = { Management: 145, Operations: 200, Production: 35, Finance: 260
 
 function OrgCard({ emp, points }) {
   const hue = HUE_MAP[emp.department] ?? 145;
-  const bg = `oklch(0.78 0.08 ${hue})`;
-  const fg = `oklch(0.28 0.08 ${hue})`;
-  const initials = (emp.name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   return (
     <div className={`korg-card${emp.isProductionWorker ? " korg-card--prod" : ""}`}>
-      <div className="korg-avatar" style={{ background: bg, color: fg }}>{initials}</div>
+      {/* The same circle as before (initials on the department's colour); a person who has
+          set a picture shows that instead. */}
+      <div className="korg-avatar"><Avatar name={emp.name} hue={hue} size={38} personId={emp.id} /></div>
       <div className="korg-name">{emp.name}</div>
       <div className="korg-role">{emp.role}</div>
       <div className="korg-tags">

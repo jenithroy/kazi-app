@@ -23,7 +23,7 @@ export function PersonAvatar({ personId, size = 38, showPresence = true }) {
   const person = personFor(personId);
   return (
     <span className="kchat-av" style={{ width: size, height: size }}>
-      <Avatar name={person.name} hue={hueFor(personId)} size={size} />
+      <Avatar name={person.name} hue={hueFor(personId)} size={size} personId={personId} />
       {showPresence && person.online && (
         <span className="kchat-av-dot" style={{ width: size * 0.28, height: size * 0.28 }} title={person.status} />
       )}

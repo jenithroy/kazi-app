@@ -28,6 +28,10 @@ export const Layers = (p) => (
 
 export const TrendUp = (p) => <Ico {...p} d="M3.5 16.5l5.5-5.5 4 4 7.5-8M15 7h5.5v5.5" />;
 
+export const Camera = (p) => (
+  <Ico {...p} s={<><path d="M4 8.5A1.5 1.5 0 015.5 7h2l1.2-2h6.6l1.2 2h2A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5v-9z" /><circle cx="12" cy="13" r="3.4" /></>} />
+);
+
 export const Package = (p) => (
   <Ico {...p} s={<><path d="M3.5 7.8L12 3.5l8.5 4.3v8.4L12 20.5l-8.5-4.3V7.8z" /><path d="M3.8 8l8.2 4.2L20.2 8M12 12.2v8" /></>} />
 );
