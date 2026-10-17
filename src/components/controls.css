@@ -1,0 +1,240 @@
+/* ══════════════════════════════════════════════════════════════════
+   CONTROLS — the dropdown (Select.jsx) and the date picker (DatePicker.jsx)
+
+   Two kinds of piece:
+     the button that sits in a form or a page's filter row   (.ksel--field, .ksel--pill, .kdp)
+     the frosted-glass list or month that opens under it     (.ksel-pop, .kdp-pop)
+
+   A button takes the tokens of the place it sits: a form field uses the app's base tokens
+   (which a glass dialog remaps for dark), a filter pill uses the page's `--kb-*` tokens.
+   The list is portalled to <body>, outside both, so it carries its own tokens and follows
+   the theme on its own, the way the card's options menu does.
+
+   Loaded before styles.css (see main.jsx), so selectors here are one step more specific
+   than the global `button:focus-visible` rule they replace.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The button, as a form field ───────────────────────────────────── */
+
+.ksel--field,
+.kdp-trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 40px; padding: 0 10px 0 12px;
+  border: 1.5px solid var(--line-strong); border-radius: 10px;
+  background-color: var(--mg-input, #fff); color: var(--ink);
+  font: 400 14px/1.3 var(--font); letter-spacing: 0; text-align: left; cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.ksel--field:hover:not(:disabled):not(.is-open),
+.kdp-trigger:hover:not(:disabled) { border-color: var(--ink-5); }
+.ksel--field:focus-visible,
+.ksel--field.is-open,
+.kdp-trigger:focus-visible,
+.kdp.is-open .kdp-trigger {
+  outline: none; border-color: var(--mint-2); border-radius: 10px; box-shadow: 0 0 0 3px rgba(90, 185, 138, .25);
+}
+.ksel--field:disabled,
+.kdp-trigger:disabled { background-color: var(--bg); color: var(--ink-4); cursor: not-allowed; }
+
+.ksel-val, .kdp-val { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ksel-val.is-ph, .kdp-val.is-ph { color: var(--ink-4); }
+.ksel-chev { flex: none; margin-left: auto; color: var(--ink-3); transition: transform .18s cubic-bezier(.22, .8, .24, 1); }
+.ksel.is-open .ksel-chev { transform: rotate(180deg); }
+.ksel-ico { flex: none; display: inline-grid; place-items: center; line-height: 0; }
+.ksel-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--ink-4)); }
+.kdp-trigger > svg { flex: none; color: var(--ink-3); }
+
+.kdp { position: relative; display: block; width: 100%; min-width: 0; }
+.kdp:has(.kdp-clear) .kdp-trigger { padding-right: 38px; }
+.kdp-clear {
+  position: absolute; top: 50%; right: 8px; transform: translateY(-50%); width: 26px; height: 26px;
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-3); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.kdp-clear:hover { background: var(--bg-2); color: var(--ink); }
+.kdp-clear:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; border-radius: 8px; }
+
+/* ── The button, as a filter in a page's header row ─────────────────── */
+
+.ksel--pill {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; max-width: 200px; padding: 0 9px 0 13px;
+  border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
+  font: 500 12.5px/1 var(--font); cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.ksel--pill:hover:not(:disabled) { background: var(--kb-well); }
+.ksel--pill.is-on { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+.ksel--pill .ksel-chev { margin-left: 0; color: currentColor; opacity: .7; }
+.ksel--pill.is-open { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+.ksel--pill:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.ksel--pill:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── The list and the month: frosted glass under the button ─────────── */
+
+.ksel-pop, .kdp-pop {
+  --pop-bg: rgba(255, 255, 255, .9);
+  --pop-solid: #fff;
+  --pop-edge: rgba(15, 46, 34, .13);
+  --pop-shadow: 0 20px 48px -14px rgba(10, 28, 20, .34), 0 3px 10px rgba(10, 28, 20, .1), inset 0 1px 0 rgba(255, 255, 255, .9);
+  --pop-hover: rgba(31, 110, 76, .09);
+  --pop-sel: var(--mint-deep);          /* text and rings that mean "chosen" */
+  --pop-sel-bg: var(--mint-deep);       /* a chosen day */
+  --pop-sel-on: #fff;
+  --pop-scroll: rgba(15, 46, 34, .24);
+  --pop-scroll-hi: rgba(15, 46, 34, .44);
+  position: fixed; z-index: 1000; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  background-color: var(--pop-solid); border: 1px solid var(--pop-edge); border-radius: 14px; box-shadow: var(--pop-shadow);
+  color: var(--ink); font: 400 13.5px/1.3 var(--font);
+  animation: ksel-in .14s cubic-bezier(.2, .8, .2, 1) both; transform-origin: top center;
+}
+.ksel-pop.is-up, .kdp-pop.is-up { animation-name: ksel-in-up; transform-origin: bottom center; }
+:root[data-theme="dark"]:has(.kb) :is(.ksel-pop, .kdp-pop) {
+  --pop-bg: rgba(16, 23, 20, .88);
+  --pop-solid: #141b18;
+  --pop-edge: rgba(255, 255, 255, .13);
+  --pop-shadow: 0 20px 48px -12px rgba(0, 0, 0, .78), 0 3px 10px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .07);
+  --pop-hover: rgba(125, 211, 168, .13);
+  --pop-sel: #7dd3a8;
+  --pop-sel-bg: #7dd3a8;
+  --pop-sel-on: #0b1a12;
+  --pop-scroll: rgba(255, 255, 255, .22);
+  --pop-scroll-hi: rgba(255, 255, 255, .42);
+  --ink: #edf1ef; --ink-2: #c8d0cc; --ink-3: #aab5b0; --ink-4: #8a968f; --ink-5: rgba(255, 255, 255, .3);
+  --line: rgba(255, 255, 255, .08); --line-strong: rgba(255, 255, 255, .16);
+  --bg-2: #19221e; --terra: #e07b5f;
+  color-scheme: dark;
+}
+@keyframes ksel-in { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes ksel-in-up { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* the glass, only where the browser can blur */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ksel-pop, .kdp-pop {
+    background-color: var(--pop-bg);
+    -webkit-backdrop-filter: blur(22px) saturate(1.5); backdrop-filter: blur(22px) saturate(1.5);
+  }
+  /* the system asks for less see-through UI: opaque again */
+  @media (prefers-reduced-transparency: reduce) {
+    .ksel-pop, .kdp-pop { background-color: var(--pop-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+}
+
+/* ── The dropdown's list ────────────────────────────────────────────── */
+
+.ksel-search {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); color: var(--ink-3);
+}
+.ksel-search svg { flex: none; }
+.ksel-search input {
+  flex: 1 1 auto; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent;
+  color: var(--ink); font: 400 13.5px/1 var(--font); outline: none; box-shadow: none;
+}
+.ksel-search input:focus-visible { outline: none; box-shadow: none; border-radius: 0; }
+.ksel-search input::placeholder { color: var(--ink-4); opacity: 1; }
+
+.ksel-list { flex: 1 1 auto; min-height: 0; margin: 0; padding: 5px; list-style: none; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.ksel-opt {
+  display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 0 10px; border-radius: 9px;
+  color: var(--ink-2); cursor: pointer; user-select: none;
+}
+.ksel-opt.is-active { background: var(--pop-hover); color: var(--ink); }
+.ksel-opt.is-sel { color: var(--pop-sel); font-weight: 600; }
+.ksel-opt.is-off { opacity: .45; cursor: default; }
+.ksel-lbl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ksel-hint { flex: none; font-size: 12px; color: var(--ink-4); }
+.ksel-tick { flex: none; color: var(--pop-sel); }
+.ksel-empty { margin: 0; padding: 16px 12px 18px; text-align: center; font-size: 13px; color: var(--ink-3); }
+
+/* ── The date picker's month ────────────────────────────────────────── */
+
+.kdp-pop { padding: 10px 12px 12px; gap: 6px; }
+.kdp-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.kdp-title {
+  flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 8px;
+  border: 0; border-radius: 9px; background: transparent; color: var(--ink);
+  font: 600 14px/1 var(--font); letter-spacing: -.005em; cursor: pointer; transition: background-color .15s;
+}
+.kdp-title:hover { background: var(--pop-hover); }
+.kdp-title-chev { color: var(--ink-3); transition: transform .18s cubic-bezier(.22, .8, .24, 1); }
+.kdp-title-chev.is-up { transform: rotate(180deg); }
+.kdp-nav {
+  flex: none; display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.kdp-nav:hover { background: var(--pop-hover); color: var(--ink); }
+.kdp-title:focus-visible, .kdp-nav:focus-visible, .kdp-chip:focus-visible, .kdp-mon:focus-visible {
+  outline: 2px solid var(--pop-sel); outline-offset: 1px; box-shadow: none; border-radius: 9px;
+}
+
+.kdp-cal { flex: none; display: grid; gap: 2px; }
+.kdp-dow, .kdp-week { display: grid; grid-template-columns: repeat(7, 1fr); }
+.kdp-dow span { display: grid; place-items: center; height: 26px; font: 600 11px/1 var(--font); letter-spacing: .04em; color: var(--ink-4); }
+.kdp-week [role="gridcell"] { display: grid; place-items: center; }
+.kdp-dow .is-off { color: color-mix(in srgb, var(--terra) 78%, var(--ink-4)); }   /* Saturday, the day off */
+
+.kdp-day {
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-2); font: 500 13px/1 var(--font); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.kdp-day:hover { background: var(--pop-hover); color: var(--ink); }
+.kdp-day.is-out { color: var(--ink-4); opacity: .7; }
+.kdp-day.is-off { color: color-mix(in srgb, var(--terra) 72%, var(--ink-3)); }
+.kdp-day.is-today { box-shadow: inset 0 0 0 1.5px var(--pop-sel); color: var(--pop-sel); font-weight: 700; }
+.kdp-day.is-sel, .kdp-day.is-sel:hover { background: var(--pop-sel-bg); color: var(--pop-sel-on); box-shadow: none; font-weight: 700; }
+.kdp-day:focus-visible { outline: 2px solid var(--pop-sel); outline-offset: 1px; box-shadow: none; border-radius: 8px; }
+.kdp-day.is-sel:focus-visible { outline-color: var(--ink); }
+
+.kdp-months { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px 0 6px; }
+.kdp-mon {
+  height: 46px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--ink-2);
+  font: 500 13.5px/1 var(--font); cursor: pointer; transition: background-color .12s, color .12s;
+}
+.kdp-mon:hover { background: var(--pop-hover); color: var(--ink); }
+.kdp-mon.is-today { box-shadow: inset 0 0 0 1.5px var(--pop-sel); color: var(--pop-sel); font-weight: 600; }
+.kdp-mon.is-sel { background: var(--pop-sel-bg); color: var(--pop-sel-on); box-shadow: none; font-weight: 700; }
+
+.kdp-foot { flex: none; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.kdp-chip {
+  height: 28px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent;
+  color: var(--ink-2); font: 500 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.kdp-chip:hover { background: var(--pop-hover); color: var(--ink); }
+.kdp-chip--quiet { margin-left: auto; border-color: transparent; color: var(--ink-3); }
+
+/* ── Scrollbar of the list: a slim pill, no arrow buttons ───────────── */
+
+@media (pointer: fine) {
+  .ksel-list::-webkit-scrollbar { width: 10px; }
+  .ksel-list::-webkit-scrollbar-track { background: transparent; }
+  .ksel-list::-webkit-scrollbar-thumb { background: var(--pop-scroll); border: 3px solid transparent; background-clip: content-box; border-radius: 999px; }
+  .ksel-list::-webkit-scrollbar-thumb:hover { background: var(--pop-scroll-hi); background-clip: content-box; }
+}
+@supports not selector(::-webkit-scrollbar) {
+  .ksel-list { scrollbar-width: thin; scrollbar-color: var(--pop-scroll) transparent; }
+}
+
+/* ── Touch: bigger rows, 16px text so a phone does not zoom in ───────── */
+
+@media (pointer: coarse) {
+  .ksel-opt { min-height: 44px; }
+  .ksel-search { height: 48px; }
+  .ksel-search input { font-size: 16px; }
+  .kdp-day { width: 40px; height: 40px; }
+  .kdp-chip { height: 34px; }
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .ksel--field, .kdp-trigger { height: 44px; font-size: 16px; }
+}
+
+/* ── High contrast, less motion ─────────────────────────────────────── */
+
+@media (forced-colors: active) {
+  .ksel-pop, .kdp-pop { background: Canvas; border-color: CanvasText; }
+  .ksel-opt.is-active, .kdp-day:hover, .kdp-day.is-sel { outline: 2px solid Highlight; }
+  .ksel--field, .kdp-trigger, .ksel--pill { border-color: ButtonText; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ksel-pop, .kdp-pop { animation: none; }
+  .ksel-chev, .kdp-title-chev, .ksel--field, .kdp-trigger, .kdp-day, .kdp-mon { transition: none; }
+}
