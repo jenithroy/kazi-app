@@ -9,6 +9,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useReveal } from "../hooks/useReveal";
 import { Camera, Moon, Sun } from "./bento/icons";
 import PhotoCropper from "./PhotoCropper";
+import PointsPanel from "./PointsPanel";
 import { useAvatars } from "../context/AvatarContext";
 import { friendlyPhotoError, removeAvatar, saveAvatar } from "../lib/avatars";
 import { SECTION_LABEL } from "../lib/roles";
@@ -532,6 +533,8 @@ export default function ProfileModal({ onClose }) {
               </>
             )}
           </section>
+
+          <PointsPanel />
 
           <section className="kprof-sec">
             <h4 className="kprof-h">Work</h4>

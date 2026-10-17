@@ -1,0 +1,47 @@
+/* ══════════════════════════════════════════════════════════════════
+   POINTS — the profile card's section (components/PointsPanel.jsx)
+
+   Lives in the profile card, so its tokens apply: in the dark card --ink, --card and
+   --line are already remapped (profile-theme.css), and only the green is chosen here.
+══════════════════════════════════════════════════════════════════ */
+
+.kpts-week { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.kpts-week b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--mint-deep); }
+
+.kpts-main { display: flex; align-items: center; gap: 16px; margin: 4px 0 6px; }
+.kpts-total { display: flex; align-items: baseline; gap: 6px; flex: none; }
+.kpts-total b { font-size: 30px; font-weight: 600; letter-spacing: -.035em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpts-total span { font-size: 12px; color: var(--ink-3); }
+
+.kpts-level { flex: 1 1 0; min-width: 0; display: grid; gap: 6px; }
+.kpts-level-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.kpts-level-name { font-weight: 600; color: var(--ink); }
+.kpts-level-next { color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kpts-bar { height: 6px; border-radius: 9999px; background: var(--line-strong); overflow: hidden; }
+.kpts-bar > i {
+  display: block; height: 100%; border-radius: inherit; background: var(--mint-deep);
+  transform-origin: left; animation: kpts-grow .6s cubic-bezier(.22, .8, .24, 1) both;
+}
+@keyframes kpts-grow { from { transform: scaleX(0); } }
+
+.kpts-rank { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+.kpts-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.kpts-list li {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: baseline; gap: 8px;
+  padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px;
+}
+.kpts-plus { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--mint-deep); }
+.kpts-why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.kpts-when { font-size: 12px; white-space: nowrap; color: var(--ink-3); }
+
+:root[data-theme="dark"] .kmodal--card .kpts-week b,
+:root[data-theme="dark"] .kmodal--card .kpts-plus { color: var(--mint); }
+:root[data-theme="dark"] .kmodal--card .kpts-bar > i { background: var(--mint); }
+
+@media (max-width: 420px) {
+  .kpts-main { flex-direction: column; align-items: stretch; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kpts-bar > i { animation: none; }
+}

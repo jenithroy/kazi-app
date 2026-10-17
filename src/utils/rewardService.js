@@ -1,6 +1,11 @@
 import { supabase } from "../lib/db";
 
-// Set to false to pause all point awards without removing the integration code
+// Task points are awarded by the database now (migration 0057): a trigger on `tasks`
+// pays the assignee when a task is finished, and nothing in the browser can award
+// points. The old award_points() function is gone, because any signed-in user could
+// call it for anyone with any amount. This flag only covers the other events below
+// (attendance, orders, QC batches). They still call awardPoints() from the browser,
+// so they stay off until each one is moved into the database the same way.
 const REWARDS_ENABLED = false;
 
 // ---------------------------------------------------------------------------
@@ -70,23 +75,8 @@ export async function awardPoints({
     return null;
   }
 
-  try {
-    // One call, one transaction. The database does the idempotency check, the
-    // running totals and the leaderboard rebuild together — see migration 0016.
-    // Doing it in steps from here would let two simultaneous awards read the
-    // same total and one overwrite the other.
-    const { data, error } = await supabase.rpc('award_points', {
-      p_person_id:    uid,
-      p_display_name: displayName || null,
-      p_event_type:   eventType,
-      p_source_id:    String(sourceId),
-      p_points:       totalAward,
-      p_reason:       reason || eventType,
-    });
-    if (error) throw error;
-    return data; // null when already awarded, otherwise the new total
-  } catch (err) {
-    console.error('awardPoints failed:', err);
-    throw err;
-  }
+  // award_points() no longer exists (migration 0057). Award this event inside the
+  // database, as task completion is, before turning rewards on for it.
+  console.warn(`awardPoints("${eventType}"): not wired to the database yet, nothing awarded.`);
+  return null;
 }

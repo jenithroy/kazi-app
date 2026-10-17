@@ -25,6 +25,22 @@ export function startOfWeekDate() {
   return `${y}-${m}-${d}`;
 }
 
+/**
+ * A moment's calendar date in Kathmandu, as YYYY-MM-DD, wherever the browser is.
+ * The office's clock is what "today", "due today" and a task's on-time bonus mean.
+ */
+export function kathmanduDate(when = new Date()) {
+  return new Date(when).toLocaleDateString("en-CA", { timeZone: "Asia/Kathmandu" });
+}
+
+/** "Today", "Yesterday", or "3 Oct": a timestamp as a Kathmandu calendar day. */
+export function relativeDay(when) {
+  const day = kathmanduDate(when);
+  if (day === kathmanduDate()) return "Today";
+  if (day === kathmanduDate(Date.now() - 86400000)) return "Yesterday";
+  return new Date(when).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Asia/Kathmandu" });
+}
+
 export function formatDateLabel(value) {
   if (!value) return "-";
   return new Date(value).toLocaleDateString();

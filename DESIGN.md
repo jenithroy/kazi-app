@@ -546,6 +546,8 @@ Soft and nested: outer panes round more than what they hold. Radius by role: **t
 
 **Avatar** (`Avatar` in `ui.jsx`). A circle: the person's picture when they have one, otherwise their initials on a colour from their name. Pass `personId` when you have it; with only a `name` it still finds the picture, because `AvatarContext` knows every name that belongs to exactly one person (a shared name finds nobody rather than the wrong face). Pictures are 256px square JPEGs in the public `avatars` bucket, linked from the `person_avatars` table (migration 0056). A person sets theirs in the profile card: while editing, the avatar becomes the photo picker and `PhotoCropper` offers drag, zoom and "Use photo". It saves on its own, not with the Save button. Everything degrades to initials if the table isn't there yet.
 
+**Points** (`PointsPanel`, a section of the profile card; the Tasks page shows the same numbers). A total in the figure style, a level name with a thin progress bar to the next level, "#2 of 9 this week", and the last five awards, each with when it was earned. What a task is worth and the level thresholds are in `src/constants/points.js`. Points are only ever awarded by the database (migration 0057); the app reads them (`lib/points.js`, `hooks/usePoints.js`) and shows nothing at all until that migration has been run.
+
 **Loading, empty, error.** Loading is skeleton lines (`.kb-skel`), never a "Loading…" paragraph. Empty is `EmptyNote` / `.kb-empty`: an icon, one honest line. A grid that could not load shows `.kb-error` with a retry. A refused write shows a visible line ("Not saved…"), because row-level security drops it silently.
 
 **Legacy parts still in the tree** (fine on pages not yet redone; don't build new-look UI on them): `Card`/`.kazi-card`, `KPI`/`.kkpi`, `StatCard`, `PageHeader`/`.page-header`, `.panel`, `.tab-row`/`.tab-button`, `.table-wrap`, `.stat-card`.
@@ -590,6 +592,7 @@ Soft and nested: outer panes round more than what they hold. Radius by role: **t
 | Dialog shell | `src/components/Modal.jsx` (+ `.kmodal-*` in `styles.css`) |
 | Icons, avatar, legacy Btn/Pill/Card/KPI | `src/components/ui.jsx` |
 | Profile pictures | `src/lib/avatars.js` (shrink, save, remove), `src/context/AvatarContext.jsx`, `src/components/PhotoCropper.jsx` + `photo-cropper.css` |
+| Points | `src/constants/points.js`, `src/lib/points.js`, `src/hooks/usePoints.js`, `src/components/PointsPanel.jsx` + `points.css` |
 | Fonts | `index.html` loads Geist (400–700) and Geist Mono (400–600) from Google Fonts |
 
 Stylesheets from components load **before** `styles.css` in the build (`main.jsx` imports `App` first). See the Specificity Rule under Elevation & Depth.
