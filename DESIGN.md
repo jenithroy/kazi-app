@@ -538,7 +538,11 @@ Soft and nested: outer panes round more than what they hold. Radius by role: **t
 
 **Region switch** (`RegionSwitch.jsx`). A segmented pill (`kregion-seg`): a `--bg-2` track, the active segment lifted on a card with accent text. Text labels only (UK / Nepal): no flags. In a bento header it takes the page's tokens (`.kb-head .kregion-seg`). `RegionBadge` and the org-chart tag are text too.
 
-**Dialog** (`Modal.jsx`). Fixed header and footer, only the body scrolls; focus moves in and is restored; Tab is trapped; Escape and a backdrop click (that also *began* on the backdrop) close it; it portals to `document.body`; below 640px it is a bottom sheet. Sizes: `sm` 480, `md` 640 (default), `lg` 760, `xl` 1040, `card` 620. `onSubmit` wraps body and footer in one `<form>`. The shell is opaque and light-only today; only `size="card"` is glass and themed.
+**Dialog** (`Modal.jsx`). Fixed header and footer, only the body scrolls; focus moves in and is restored; Tab is trapped; Escape and a backdrop click (that also *began* on the backdrop) close it; it portals to `document.body`; below 640px it is a bottom sheet. Sizes: `sm` 480, `md` 640 (default), `lg` 760, `xl` 1040, `card` 620. `onSubmit` wraps body and footer in one `<form>`. Left alone the shell is opaque and light-only; `glass` and `size="card"` are the themed, glass versions (next).
+
+**Glass dialog and drawer** (`<Modal glass>`, `<Modal size="drawer">`; `components/modal-glass.css`). The same recipe as the tiles and the profile card (a translucent tint, 24px blur, grain, an edge the pointer lights), light and dark. It is self-contained: inside it the base tokens (`--ink`, `--card`, `--line` …) are remapped for dark, so what is drawn in a glass dialog uses those and never names a theme. The drawer floats in from the right edge (460px) on a wide screen and is the usual bottom sheet on a phone. Fields in these dialogs are `.tk-f` (label above, 40px control, 1.5px border, radius 10, the mint focus ring; 44px and 16px text on touch). Give a dialog the glass look when its page is a `.kb` page; leave the old opaque shell on pages that are not.
+
+**Board and cards** (the Tasks page, `components/tasks/`). A section is a `.kb-tile` pane with a head (dot, name, count, +, ⋯) and its own scrolling list. A card is a near-opaque surface on that glass: a tick, the title (two lines), chips (a "High" label for High priority, the customer, the category), who and when, what finishing it is worth. There is no coloured side stripe: priority is a word, not a colour. A card is three real buttons (tick, open, options), so a keyboard gets what a mouse does. Dragging is mouse-only; the options menu moves a card on a touch screen. Within a section the order is fixed by urgency (High first, then the soonest due), not by hand. A pane that has to take its height from what is in it (the rail's small tiles) must not be a size container: give it `container-type: inline-size`.
 
 **Forms** (`.kof` grid in the order dialog). 12 columns above 640px (`.kof-c3/c4/c6/c8` say how many a field takes), 2 below. Field = label above control (12.5/600 ink-3). Input 40px, 1.5px `--line-strong` border, radius 10, 14px; hover darkens the border; focus is a `--mint-2` border plus a 3px mint ring; `:user-invalid` is terracotta; dates and numbers are normalised (no spinners, a left-aligned date). 44px / 16px on touch.
 
@@ -593,6 +597,8 @@ Soft and nested: outer panes round more than what they hold. Radius by role: **t
 | Icons, avatar, legacy Btn/Pill/Card/KPI | `src/components/ui.jsx` |
 | Profile pictures | `src/lib/avatars.js` (shrink, save, remove), `src/context/AvatarContext.jsx`, `src/components/PhotoCropper.jsx` + `photo-cropper.css` |
 | Points | `src/constants/points.js`, `src/lib/points.js`, `src/hooks/usePoints.js`, `src/components/PointsPanel.jsx` + `points.css` |
+| Tasks page | `src/pages/Tasks.jsx` (data, filters, every write), `src/components/tasks/` (card, section, drawer, dialogs, rail tiles, `tasks.css`), `src/lib/tasks.js` (what is done or archived, due dates, ordering, the database calls) |
+| Glass dialogs, the drawer | `src/components/Modal.jsx` (`glass`, `size="drawer"`) + `src/components/modal-glass.css` |
 | Fonts | `index.html` loads Geist (400–700) and Geist Mono (400–600) from Google Fonts |
 
 Stylesheets from components load **before** `styles.css` in the build (`main.jsx` imports `App` first). See the Specificity Rule under Elevation & Depth.
@@ -607,7 +613,8 @@ Stylesheets from components load **before** `styles.css` in the build (`main.jsx
 | Production order dialog, Meta Ads dialogs, the dashboard's product-cost editor | On the new `Modal` shell (opaque, light only) |
 | Marketing calendar | On the real tokens (opaque, light only) |
 | Chat, Admin Panel, Usage, Roles | The earlier "newer pages" look (`kchat-`, `kap-`, `kusg-`, `krole-`): light, opaque, not the target any more |
-| Everything else (Tasks, Attendance, Production, QC, Inventory, Sales, Finance, Purchases, Billing, Budget, Employees, Customers, Bug report, Changelog, Login) | Earlier mint-and-white-card look, **light only**, many inline styles. Dark mode does not reach them: under a dark bar they stay light |
+| Tasks | **Redone**: a board of glass sections, a rail (your points, Done, this week), a details drawer; light + dark |
+| Everything else (Attendance, Production, QC, Inventory, Sales, Finance, Purchases, Billing, Budget, Employees, Customers, Bug report, Changelog, Login) | Earlier mint-and-white-card look, **light only**, many inline styles. Dark mode does not reach them: under a dark bar they stay light |
 
 ## Building a page in this look
 
@@ -623,9 +630,9 @@ Stylesheets from components load **before** `styles.css` in the build (`main.jsx
 
 ## Known gaps
 
-1. **The frame is bento-only.** `.kb` is a fixed-height flex column for a non-scrolling grid. There is no flow variant for pages that scroll on desktop.
-2. **Glass is welded to `.kb-tile`.** There is no page-agnostic pane for a list, a board column, a table card or a form section. Extract one from the `.kb-tile` glass block (keeping its fallbacks) before the second page needs it.
-3. **No new-look form controls.** Inputs, selects, checkboxes, tabs, tables and date pickers are opaque and light-only; the dialog shell is opaque too. Only the profile card has a dark, glass version.
+1. **The frame is bento-only.** `.kb` is a fixed-height flex column for a non-scrolling grid. Tasks works within it because each section scrolls inside itself; a page that must scroll as a whole (a long table, a form) has no flow variant yet.
+2. **A pane is still just a `.kb-tile`.** Any `.kb-tile` can hold a list, a board column or a card (Tasks does), but there is no component for it: you write `<section className="kb-tile …">` and give its body a scroll. Extract one the next time a page needs the same.
+3. **Page-level form controls are not redone.** Dialogs have them now (`.tk-f` in a `glass` Modal); inputs, selects, checkboxes, tabs, tables and date pickers *on a page* are still opaque and light-only, apart from the Tasks filter row (`.tk-search`, `.tk-select`).
 4. **Older pages ignore dark mode** and stay light under a dark bar until they are written for it.
 5. **Login** still uses the old white-logo screen.
 6. **`.impeccable/config.json` carries ignores** that were added only because this file used to be stale (their reasons say so). They are harmless; remove them when convenient.

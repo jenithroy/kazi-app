@@ -21,15 +21,18 @@ function publish(next) {
 }
 const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 
+/** Ask again. Resolves to the new numbers, or null when there are none to show. */
 export async function refreshPoints() {
   if (state.status !== "ready") publish({ status: "loading", error: "" });
   try {
     const data = await fetchMyPoints();
     publish(data ? { status: "ready", data, error: "" } : { status: "unavailable", data: null });
+    return data;
   } catch (err) {
     publish(pointsNotSetUp(err)
       ? { status: "unavailable", data: null, error: "" }
       : { status: state.data ? "ready" : "error", error: err?.message || "Couldn't load your points." });
+    return null;
   }
 }
 

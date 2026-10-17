@@ -22,6 +22,11 @@
  * inside its own container, and a portal is what stops a wheel or touch that
  * runs off the end of the modal from dragging that page along behind it.
  *
+ * `glass` gives the dialog the frosted-glass look (modal-glass.css) and lets it follow the
+ * light / dark theme; `size="drawer"` is a panel that slides in from the right on a wide
+ * screen (and is the usual bottom sheet on a phone). Without `glass` a dialog is the
+ * opaque, light-only box it has always been.
+ *
  * `aside` is for something that belongs to the card but sits outside its edge
  * (the profile card's Sign out tab). The panel clips what overflows it, so the
  * aside is a sibling, in a wrapper the width of the panel that it positions itself
@@ -30,6 +35,8 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Icons } from "./ui";
+import { useReveal } from "../hooks/useReveal";
+import "./modal-glass.css";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), ' +
@@ -45,8 +52,9 @@ export default function Modal({
   onClose,
   onSubmit,
   footer,
-  size = "md",              // "sm" 480px · "md" 640px · "lg" 760px
+  size = "md",              // "sm" 480px · "md" 640px · "lg" 760px · "drawer" 460px from the right
   dismissOnBackdrop = true,
+  glass = false,
   aside,
   children,
 }) {
@@ -54,6 +62,9 @@ export default function Modal({
   const scopeRef = useRef(null);   // what Tab cycles inside: the panel, and the aside if there is one
   const titleId = useId();
   const pressStartedOnBackdrop = useRef(false);
+
+  // A glass dialog is lit by the pointer like the tiles are; any other dialog has nothing to light.
+  useReveal(() => (glass ? [panelRef.current] : []), { inModal: true });
 
   // Focus goes in when the modal opens and back to whatever opened it when it
   // closes. On a mouse or keyboard machine that means the first field; on touch
@@ -111,7 +122,7 @@ export default function Modal({
   const panel = (
     <div
       ref={panelRef}
-      className={`kmodal kmodal--${size}`}
+      className={`kmodal kmodal--${size}${glass ? " kmodal--glass" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}

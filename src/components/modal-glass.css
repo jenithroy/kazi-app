@@ -1,0 +1,122 @@
+/* ══════════════════════════════════════════════════════════════════
+   GLASS DIALOGS — <Modal glass> and <Modal size="drawer">
+
+   Any dialog can opt in to the glass look the profile card has: a translucent tint over
+   a blurred backdrop, a fine grain, a light edge the pointer lights, light and dark.
+   It is the same recipe as the card (profile-theme.css) and the tiles (bento.css); the
+   card keeps its own sheet because it is more than a dialog.
+
+   Like the card, a glass dialog is self-contained: in the dark theme the app's own
+   tokens (--ink, --card, --line …) are simply given their dark values inside it, so
+   everything drawn in it (fields, buttons, text) follows without naming a theme.
+
+   Where backdrop-filter is missing, or the system asks for less transparency, the
+   dialog is the opaque surface it always was. This sheet loads before styles.css (see
+   main.jsx), so every selector here is one step more specific than the rule it changes.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The scrim ────────────────────────────────────────────────────
+   A backdrop-filter makes its element a "backdrop root": nothing inside it can see what
+   is behind it. The overlay's own blur would blind the dialog's glass, so the tint and
+   the blur move to a layer behind the dialog. */
+.kmodal-overlay:has(.kmodal--glass) {
+  background: none; animation: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.kmodal-overlay:has(.kmodal--glass)::before {
+  content: ""; position: absolute; inset: 0;
+  background: rgba(10, 28, 20, .45);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  animation: kmodal-fade .18s ease-out;
+}
+:root[data-theme="dark"] .kmodal-overlay:has(.kmodal--glass)::before { background: rgba(0, 0, 0, .56); }
+
+/* ── Tokens ─────────────────────────────────────────────────────── */
+.kmodal--glass {
+  --mg-glass: rgba(255, 255, 255, .84);
+  --mg-edge: rgba(255, 255, 255, .75);
+  --mg-input: #fff;
+  --mg-shadow: 0 30px 70px -20px rgba(10, 28, 20, .5), 0 6px 18px -6px rgba(10, 28, 20, .22), inset 0 1px 0 rgba(255, 255, 255, .9);
+  --ink-3: #4f5e56;     /* the dialog is tinted glass, not white: the secondary ink goes a touch deeper */
+}
+:root[data-theme="dark"] .kmodal--glass {
+  color-scheme: dark;
+  --ink: #edf1ef; --ink-2: #c8d0cc; --ink-3: #aab5b0; --ink-4: #8a968f; --ink-5: rgba(255, 255, 255, .3);
+  --bg: #111815; --bg-2: #19221e; --card: #16201b;
+  --line: rgba(255, 255, 255, .08); --line-strong: rgba(255, 255, 255, .16);
+  --mint-soft: rgba(125, 211, 168, .16); --mint-wash: rgba(125, 211, 168, .08);
+  --terra-soft: rgba(224, 123, 95, .2);
+  --shadow-2: 0 8px 22px -8px rgba(0, 0, 0, .7);
+  --mg-glass: rgba(17, 24, 21, .76);
+  --mg-edge: rgba(255, 255, 255, .13);
+  --mg-input: rgba(255, 255, 255, .06);
+  --mg-shadow: 0 34px 80px -22px rgba(0, 0, 0, .85), 0 6px 18px -6px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+/* the dialog's own text colours that styles.css wrote out literally */
+:root[data-theme="dark"] .kmodal--glass :is(.kmodal-msg--err, .kprof-ferr) { color: #f4ae98; }
+:root[data-theme="dark"] .kmodal--glass .kmodal-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .2); background-clip: content-box; }
+:root[data-theme="dark"] .kmodal--glass .kmodal-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .34); background-clip: content-box; }
+
+/* ── The side drawer ──────────────────────────────────────────────
+   Floats a little in from the right edge on a wide screen. On a phone it is the usual
+   bottom sheet (styles.css), which is why this is wide screens only. */
+@media (min-width: 641px) {
+  .kmodal-overlay:has(.kmodal--drawer) { justify-content: flex-end; align-items: stretch; padding: 12px; }
+  .kmodal.kmodal--drawer {
+    --kmodal-w: 460px;
+    height: 100%; max-height: none;
+    animation: kmodal-drawer-in .3s cubic-bezier(.16, 1, .3, 1);
+  }
+}
+@keyframes kmodal-drawer-in {
+  from { opacity: .4; transform: translateX(36px); }
+  to   { opacity: 1;  transform: none; }
+}
+
+/* ── Glass ──────────────────────────────────────────────────────── */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .kmodal.kmodal--glass {
+    background-color: var(--mg-glass);
+    background-image:
+      radial-gradient(circle 300px at var(--mx) var(--my), color-mix(in srgb, var(--glass-lit) calc(var(--in) * 100%), transparent), transparent 72%),
+      var(--glass-grain);
+    border: 1px solid var(--mg-edge);
+    box-shadow: var(--mg-shadow);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    backdrop-filter: blur(24px) saturate(1.5);
+    --mx: -999px; --my: -999px;     /* the pointer's light; hooks/useReveal.js writes these */
+    transition: --in .3s ease, --near .22s ease;
+  }
+  /* the edge, lit by how near the pointer is (the same ring the tiles and the card have) */
+  .kmodal.kmodal--glass::after {
+    content: ""; position: absolute; inset: 0; padding: 1.5px; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(circle 210px at var(--mx) var(--my), color-mix(in srgb, var(--glass-ring) calc(var(--near) * 100%), transparent), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+  /* bars that were opaque become veils, so the glass shows through them too */
+  .kmodal--glass .kmodal-ft { background: transparent; }
+
+  /* an operating-system setting asking for less see-through UI: the dialog is opaque again */
+  @media (prefers-reduced-transparency: reduce) {
+    .kmodal--glass { --mg-edge: var(--line); }
+    .kmodal.kmodal--glass {
+      background-color: var(--card);
+      background-image: radial-gradient(circle 300px at var(--mx) var(--my), color-mix(in srgb, var(--glass-lit) calc(var(--in) * 100%), transparent), transparent 72%);   /* the pointer's light stays; the grain goes */
+      box-shadow: var(--shadow-pop);
+      -webkit-backdrop-filter: none; backdrop-filter: none;
+    }
+    :root[data-theme="dark"] .kmodal.kmodal--glass { box-shadow: 0 34px 80px -22px rgba(0, 0, 0, .85), 0 6px 18px -6px rgba(0, 0, 0, .5); }
+    .kmodal--glass .kmodal-ft { background: var(--card); }
+    .kmodal-overlay:has(.kmodal--glass)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kmodal-overlay:has(.kmodal--glass)::before { animation: none; }
+  .kmodal.kmodal--drawer { animation: none; }
+  .kmodal.kmodal--glass { transition: none; }
+}

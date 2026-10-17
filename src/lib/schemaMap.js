@@ -1560,10 +1560,12 @@ export const SCHEMA_MAP = {
       "assignee_id": "assignee_id",
       "region": "region",
       "completedAt": "completed_at",
-      "sectionId": "section_id"
+      "sectionId": "section_id",
+      "archivedAt": "archived_at"
     },
     "derived": [],
     "columns": [
+      "archived_at",
       "assignee",
       "assignee_id",
       "category",
