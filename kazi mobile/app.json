@@ -1,0 +1,86 @@
+{
+  "expo": {
+    "name": "kazi-mobile",
+    "slug": "kazi-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen",
+      "expo-font",
+      "expo-sharing",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Kazi uses your location to confirm you're at the workshop when you clock in."
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Kazi lets you send photos from your library in a chat.",
+          "cameraPermission": "Kazi lets you take a photo to send in a chat.",
+          "microphonePermission": "Kazi records sound with any video you send in a chat."
+        }
+      ],
+      "expo-document-picker",
+      "expo-video",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Kazi lets you record a voice note to send in the lead inbox."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#5FD2A0",
+          "defaultChannel": "default"
+        }
+      ]
+    ],
+    "scheme": "kazimobile",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kazimanufacturing.kazimobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.kazimanufacturing.kazimobile",
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9bbaea4c-0d7b-45cb-9b68-1d3ace161485"
+      }
+    },
+    "owner": "crrishav"
+  }
+}

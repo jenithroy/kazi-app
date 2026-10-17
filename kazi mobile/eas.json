@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6812837628",
+        "ascApiKeyPath": "C:\\Users\\Rishav Chaudhary\\Downloads\\AuthKey_2GGKZ2WTF8.p8",
+        "ascApiKeyId": "2GGKZ2WTF8",
+        "ascApiKeyIssuerId": "25b3e220-48aa-40f9-bccb-34ccd0c987a2"
+      }
+    }
+  }
+}

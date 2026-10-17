@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "587869032874",
+    "firebase_url": "https://kazi-manufacturing-default-rtdb.firebaseio.com",
+    "project_id": "kazi-manufacturing",
+    "storage_bucket": "kazi-manufacturing.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:587869032874:android:9204358bd017c486d39bd3",
+        "android_client_info": {
+          "package_name": "com.kazimanufacturing.kazimobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVXu9aYhUTxTumNgYnnh7CGjA9TPrNlTc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
