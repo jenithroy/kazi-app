@@ -52,7 +52,8 @@ export default function Modal({
   onClose,
   onSubmit,
   footer,
-  size = "md",              // "sm" 480px · "md" 640px · "lg" 760px · "drawer" 460px from the right
+  size = "md",              // "sm" 480px · "md" 640px · "lg" 760px · "card" 620px · "drawer" 460px from the right
+  className,                // extra classes on the panel (a page's own variation of a size)
   dismissOnBackdrop = true,
   glass = false,
   aside,
@@ -122,7 +123,7 @@ export default function Modal({
   const panel = (
     <div
       ref={panelRef}
-      className={`kmodal kmodal--${size}${glass ? " kmodal--glass" : ""}`}
+      className={`kmodal kmodal--${size}${glass ? " kmodal--glass" : ""}${className ? ` ${className}` : ""}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}

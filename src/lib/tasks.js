@@ -1,7 +1,9 @@
 /**
  * The Tasks page's plain logic: what counts as finished or archived, how a due date
- * reads, how a column is ordered, and the three calls that go past the ordinary
- * read/write helpers (migration 0058).
+ * reads, how a column is ordered, and the calls that go past the ordinary read/write
+ * helpers (migration 0058's `set_task_done`). The Archive is personal and lives on the
+ * device, not in the database: the `archived_at` column and `archive_tasks()` that 0058
+ * also made are no longer used by the app.
  *
  * Nothing here draws anything, so it can be reasoned about and tested on its own.
  */
@@ -18,13 +20,14 @@ export const isDone = (t) => String(t?.status || "").trim().toLowerCase() === "d
 
 /**
  * A finished task is either "recent" (it shows in the Done list) or "archived" (only in
- * the Archive). Archived means: someone cleared it, or it finished more than a week ago,
- * or it finished before completion dates were kept, in which case nothing says when and
- * the safe reading is "a long time ago".
+ * the Archive). Archived means: this person cleared it on this device (`cleared`, a Set of
+ * task ids, see hooks/useClearedTasks.js: it is personal and never stored in the database),
+ * or it finished more than a week ago, or it finished before completion dates were kept, in
+ * which case nothing says when and the safe reading is "a long time ago".
  */
-export function isArchived(t, now = Date.now()) {
+export function isArchived(t, now = Date.now(), cleared) {
   if (!isDone(t)) return false;
-  if (t.archivedAt) return true;
+  if (cleared?.has(t.id)) return true;
   if (!t.completedAt) return true;
   return now - new Date(t.completedAt).getTime() > DONE_WINDOW_DAYS * DAY;
 }
@@ -109,14 +112,6 @@ export const BEHIND_MSG =
 export async function setTaskDone(id, done) {
   const { error } = await supabase.rpc("set_task_done", { p_task_id: id, p_done: done });
   if (error) throw error;
-}
-
-/** Archive (or bring back) finished tasks. Resolves to how many changed. */
-export async function archiveTasks(ids, archive = true) {
-  if (!ids.length) return 0;
-  const { data, error } = await supabase.rpc("archive_tasks", { p_ids: ids, p_archive: archive });
-  if (error) throw error;
-  return Number(data) || 0;
 }
 
 /** Delete tasks for good, in batches a request can carry. Needs edit on Tasks (the database checks). */

@@ -7,10 +7,11 @@ import "./tasks.css";
 const PAGE = 60;
 
 /**
- * Everything that has been cleared away or finished more than a week ago. Nothing here is
- * lost: a task can be reopened and goes back to the section it came from. People who can
- * edit Tasks can also delete for good, one at a time or the whole lot; the points the
- * tasks earned stay either way.
+ * Everything this person cleared away on this device, or that finished more than a week
+ * ago. The Archive is a personal view, not a place in the database: someone else's looks
+ * different. Nothing here is lost: a task can be reopened and goes back to the section it
+ * came from. People who can edit Tasks can also delete for good, one at a time or the whole
+ * lot, which removes the task for everyone; the points the tasks earned stay either way.
  *
  * A task finished before completion dates were kept has no date to show, so it says so
  * rather than guessing one.
@@ -28,7 +29,7 @@ export default function ArchiveDialog({ tasks, canEdit, canReopen, onReopen, onD
   return (
     <Modal
       title="Archive"
-      subtitle={`${tasks.length} finished ${tasks.length === 1 ? "task" : "tasks"} put away. Reopen one to bring it back.`}
+      subtitle={`${tasks.length} finished ${tasks.length === 1 ? "task" : "tasks"} put away on this device. Reopen one to bring it back.`}
       size="lg"
       glass
       onClose={onClose}

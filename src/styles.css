@@ -7506,7 +7506,10 @@ span.kap-personal { cursor: default; }
 @media (pointer: coarse) {
   .kmodal-body { scrollbar-width: thin; scrollbar-color: rgba(15, 46, 34, .28) transparent; }
 }
-@supports (-moz-appearance: none) {
+/* Firefox only, by asking whether the ::-webkit-scrollbar pieces exist. (`@supports (-moz-appearance: none)`
+   was the test here before; it is not dependable, since other browsers have started to accept that
+   property, and where it is true this rule would swap the slim bar above for the platform's, arrows and all.) */
+@supports not selector(::-webkit-scrollbar) {
   .kmodal-body { scrollbar-width: thin; scrollbar-color: rgba(15, 46, 34, .28) transparent; }
 }
 

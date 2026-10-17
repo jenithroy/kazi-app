@@ -12,7 +12,9 @@ import { BentoPage, EmptyNote } from "../components/bento/Bento";
 import { Archive, Lock } from "../components/bento/icons";
 import { useReveal } from "../hooks/useReveal";
 import { refreshPoints, useMyPoints } from "../hooks/usePoints";
-import { Icons, cn } from "../components/ui";
+import { Avatar, Icons, cn, hueFromName } from "../components/ui";
+import Select from "../components/Select";
+import { useClearedTasks } from "../hooks/useClearedTasks";
 import TaskColumn from "../components/tasks/TaskColumn";
 import TaskMenu from "../components/tasks/TaskMenu";
 import TaskPanel from "../components/tasks/TaskPanel";
@@ -23,7 +25,7 @@ import ConfirmDialog from "../components/tasks/ConfirmDialog";
 import { LeaderboardTile, PointsTile } from "../components/tasks/RailPoints";
 import { DEFAULT_SECTIONS } from "../components/tasks/tones";
 import {
-  BEHIND_MSG, DONE, archiveTasks, byDoneDate, byUrgency, databaseBehind, deleteTasks,
+  BEHIND_MSG, DONE, byDoneDate, byUrgency, databaseBehind, deleteTasks,
   isArchived, isDone, sameName, setTaskDone,
 } from "../lib/tasks";
 import "../components/tasks/tasks.css";
@@ -34,13 +36,16 @@ import "../components/tasks/tasks.css";
  *
  * You land on your own tasks (Everyone is one press away, unless your position only sees
  * its own). A task is ticked off with the circle on its card and lands in Done; a week later
- * it moves to the Archive by itself, and "Clear" sends the lot there at once. Finishing a
- * task pays the person it is assigned to (the database does that, see migration 0057).
+ * it moves to the Archive by itself, and "Clear" sends the lot there at once. Clearing is
+ * personal: it is remembered on this device only (hooks/useClearedTasks.js), so each person
+ * and each device has an Archive of their own. Finishing a task pays the person it is
+ * assigned to (the database does that, see migration 0057).
  *
  * Who may do what:
  *   edit Tasks      make, change, move and delete tasks and sections; finish anyone's
- *   the assignee    finish, reopen and archive their own tasks, even without edit rights
- *   everyone else   read only
+ *   the assignee    finish and reopen their own tasks, even without edit rights
+ *   everyone        clear their own Done list (it changes nothing for anyone else)
+ *   everyone else   otherwise read only
  *
  * Everything that writes goes through one of the helpers below, so a failure is explained in
  * one place. A write the database refuses because a migration has not been run shows a
@@ -69,6 +74,13 @@ function Tasks() {
   const [load, setLoad] = useState({ status: "loading", error: "" });
   const [behind, setBehind] = useState(false);          // the database is missing a migration this page needs
 
+  // What this person has cleared away, kept on this device (hooks/useClearedTasks.js).
+  const { cleared, clear: clearHere, restore: restoreHere, prune } = useClearedTasks(me);
+  useEffect(() => {
+    // forget cleared tasks that were deleted or reopened since, so the list does not pile up
+    if (load.status === "ready") prune(new Set(allTasks.filter(isDone).map((t) => t.id)));
+  }, [allTasks, load.status, prune]);
+
   const tasks = useMemo(() => filterByRegion(allTasks, region), [allTasks, region]);
   const customers = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
 
@@ -95,7 +107,7 @@ function Tasks() {
     const rows = await fetchAll("tasks");
     setTasks(rows);
     // The newer columns are missing from the view until the migration has been run.
-    if (rows.length && rows.every((r) => !("sectionId" in r) || !("archivedAt" in r))) setBehind(true);
+    if (rows.length && rows.every((r) => !("sectionId" in r))) setBehind(true);
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -212,8 +224,8 @@ function Tasks() {
 
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNowTick(Date.now()), 5 * 60000); return () => clearInterval(id); }, []);
-  const doneRecent = useMemo(() => visible.filter((t) => isDone(t) && !isArchived(t, nowTick)).sort(byDoneDate), [visible, nowTick]);
-  const archived = useMemo(() => visible.filter((t) => isArchived(t, nowTick)).sort(byDoneDate), [visible, nowTick]);
+  const doneRecent = useMemo(() => visible.filter((t) => isDone(t) && !isArchived(t, nowTick, cleared)).sort(byDoneDate), [visible, nowTick, cleared]);
+  const archived = useMemo(() => visible.filter((t) => isArchived(t, nowTick, cleared)).sort(byDoneDate), [visible, nowTick, cleared]);
 
   const openVisible = useMemo(() => visible.filter((t) => !isDone(t)), [visible]);
   const dueToday = openVisible.filter((t) => t.dueDate === today).length;
@@ -286,9 +298,10 @@ function Tasks() {
     if (!canTick(task) || leavingId) return;
     setLeavingId(task.id);
     if (!reduceMotion) await new Promise((r) => setTimeout(r, 170));
-    const before = { status: task.status, completedAt: task.completedAt, archivedAt: task.archivedAt };
+    const before = { status: task.status, completedAt: task.completedAt };
     const total = points.data?.total ?? null;
-    patchLocal(task.id, { status: DONE, completedAt: new Date().toISOString(), archivedAt: null });
+    patchLocal(task.id, { status: DONE, completedAt: new Date().toISOString() });
+    restoreHere([task.id]);   // finished again: it belongs in my Done list, whatever I cleared before
     setLeavingId(null);
     try {
       await setTaskDone(task.id, true);
@@ -308,8 +321,9 @@ function Tasks() {
 
   async function reopen(task) {
     if (!canTick(task)) return;
-    const before = { status: task.status, completedAt: task.completedAt, archivedAt: task.archivedAt };
-    patchLocal(task.id, { status: null, completedAt: null, archivedAt: null });
+    const before = { status: task.status, completedAt: task.completedAt };
+    patchLocal(task.id, { status: null, completedAt: null });
+    restoreHere([task.id]);
     try {
       await setTaskDone(task.id, false);
     } catch (err) {
@@ -318,34 +332,23 @@ function Tasks() {
     }
   }
 
+  // Clearing is personal and local: it hides tasks from this person's Done list on this
+  // device and nothing else changes (the database is not touched, so there is nothing to fail).
   const [undo, setUndo] = useState(null);   // { ids, count }
   const undoTimer = useRef(null);
-  async function clearDone() {
-    const ids = doneRecent.filter(canTick).map((t) => t.id);
+  function clearDone() {
+    const ids = doneRecent.map((t) => t.id);
     if (!ids.length) return;
-    const stamp = new Date().toISOString();
-    setTasks((cur) => cur.map((t) => (ids.includes(t.id) ? { ...t, archivedAt: stamp } : t)));
-    try {
-      const changed = await archiveTasks(ids, true);
-      // It can be fewer than asked (somebody else cleared some first): show what the database says.
-      if (changed < ids.length) loadTasks().catch(() => {});
-      if (changed > 0) {
-        setUndo({ ids, count: changed });
-        clearTimeout(undoTimer.current);
-        undoTimer.current = setTimeout(() => setUndo(null), 9000);
-      }
-    } catch (err) {
-      setTasks((cur) => cur.map((t) => (ids.includes(t.id) ? { ...t, archivedAt: null } : t)));
-      fail(err, "Couldn't clear the finished tasks.");
-    }
+    clearHere(ids);
+    setUndo({ ids, count: ids.length });
+    clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setUndo(null), 9000);
   }
-  async function undoClear() {
+  function undoClear() {
     if (!undo) return;
-    const { ids } = undo;
+    restoreHere(undo.ids);
     setUndo(null);
     clearTimeout(undoTimer.current);
-    setTasks((cur) => cur.map((t) => (ids.includes(t.id) ? { ...t, archivedAt: null } : t)));
-    try { await archiveTasks(ids, false); } catch (err) { fail(err, "Couldn't undo that."); loadTasks().catch(() => {}); }
   }
   useEffect(() => () => clearTimeout(undoTimer.current), []);
 
@@ -372,7 +375,7 @@ function Tasks() {
     const ids = archived.map((t) => t.id);
     setConfirm({
       title: `Delete ${ids.length} archived ${ids.length === 1 ? "task" : "tasks"}?`,
-      text: `They will be deleted for good and cannot be brought back. The points they earned stay.`,
+      text: `They will be deleted for good, for everyone: the Archive is only your view, but a deleted task is gone from the database and cannot be brought back. The points they earned stay.`,
       label: `Delete ${ids.length}`,
       run: async () => {
         try {
@@ -489,6 +492,14 @@ function Tasks() {
   const startOwner = people.some((p) => p.id === startOwnerId) ? startOwnerId : undefined;
   const panelTask = panel?.task ? allTasks.find((t) => t.id === panel.task.id) || panel.task : null;
 
+  /* ── the filter dropdowns ──────────────────────────────── */
+  const personFilterOptions = useMemo(() => [
+    { value: "", label: "All people" },
+    ...people.map((p) => ({ value: p.id, label: p.name, icon: <Avatar name={p.name} personId={p.id} hue={hueFromName(p.name)} size={22} /> })),
+  ], [people]);
+  const categoryFilterOptions = useMemo(() => [{ value: "", label: "Any category" }, ...TASK_CATEGORIES.map((c) => ({ value: c.label, label: c.label }))], []);
+  const customerFilterOptions = useMemo(() => [{ value: "", label: "Any customer" }, ...customers.map((c) => ({ value: c.name, label: c.name }))], [customers]);
+
   /* ── the glass: the pointer's light across every pane ─── */
   useReveal(() => document.querySelectorAll(".tk-page .kb-tile"));
 
@@ -571,20 +582,11 @@ function Tasks() {
           </button>
           <div className={cn("tk-bar-more", moreFilters && "is-open")}>
           {effectiveScope === "all" && (
-            <select className={cn("tk-select", personFilter && "is-on")} value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} aria-label="Person">
-              <option value="">All people</option>
-              {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <Select variant="pill" label="Person" value={personFilter} onChange={setPersonFilter} options={personFilterOptions} placeholder="All people" searchPlaceholder="Find a person" />
           )}
-          <select className={cn("tk-select", catFilter && "is-on")} value={catFilter} onChange={(e) => setCatFilter(e.target.value)} aria-label="Category">
-            <option value="">Any category</option>
-            {TASK_CATEGORIES.map((c) => <option key={c.label} value={c.label}>{c.label}</option>)}
-          </select>
+          <Select variant="pill" label="Category" value={catFilter} onChange={setCatFilter} options={categoryFilterOptions} placeholder="Any category" />
           {customers.length > 0 && (
-            <select className={cn("tk-select", custFilter && "is-on")} value={custFilter} onChange={(e) => setCustFilter(e.target.value)} aria-label="Customer">
-              <option value="">Any customer</option>
-              {customers.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-            </select>
+            <Select variant="pill" label="Customer" value={custFilter} onChange={setCustFilter} options={customerFilterOptions} placeholder="Any customer" searchPlaceholder="Find a customer" />
           )}
           </div>
           {filtersOn && (
@@ -646,7 +648,7 @@ function Tasks() {
               <DoneTile
                 tasks={doneRecent}
                 archivedCount={archived.length}
-                canClear={doneRecent.some(canTick)}
+                canClear={doneRecent.length > 0}
                 canReopen={canTick}
                 canFinishDrop
                 draggingId={draggingId}

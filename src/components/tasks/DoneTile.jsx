@@ -6,8 +6,9 @@ import { relativeDay } from "../../utils/date";
 /**
  * The finished tasks of the last week, in the rail. A task ticked off lands here, a week
  * later it moves to the Archive by itself, and "Clear" sends the lot there at once, with
- * an Undo for a few seconds. Points are not affected by any of it: they were paid when the
- * task was finished.
+ * an Undo for a few seconds. Clearing is personal: it is remembered on this device only, so
+ * it hides nothing from anyone else. Points are not affected by any of it: they were paid
+ * when the task was finished.
  *
  * Dropping a card on this tile finishes it, for people who prefer dragging to ticking.
  */
@@ -31,7 +32,7 @@ export default function DoneTile({
         <h2 className="kb-ttl">Done</h2>
         <span className="kb-note">{tasks.length ? `${tasks.length} this week` : "last 7 days"}</span>
         {canClear && tasks.length > 0 && (
-          <button type="button" className="tk-rt-act" onClick={onClear} title="Move all of these to the Archive">Clear</button>
+          <button type="button" className="tk-rt-act" onClick={onClear} title="Move all of these to your Archive (only on this device; nobody else is affected)">Clear</button>
         )}
       </div>
 

@@ -1,21 +1,31 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import Modal from "../Modal";
-import { RegionSelect } from "../RegionSwitch";
+import Select from "../Select";
+import DatePicker from "../DatePicker";
+import { Avatar, cn, hueFromName } from "../ui";
+import { Star } from "../bento/icons";
+import { REGIONS } from "../../utils/region";
 import { TASK_CATEGORIES } from "../../constants";
 import { fmtPoints, taskPoints } from "../../constants/points";
 import { fmtDay, isDone, normPriority } from "../../lib/tasks";
+import { TONE_DOT } from "./tones";
 import "./tasks.css";
 
 /**
- * A task's details, in a drawer from the right (a bottom sheet on a phone): making a new
- * one, changing an existing one, or, for someone who may only finish their own tasks,
- * reading it and ticking it off.
+ * A task's details, in a card in the middle of the screen like the profile card: what the
+ * task is on the left (title, details, progress), and who, when and where on the right.
+ * Making a new one, changing an existing one, or, for someone who may only finish their own
+ * tasks, reading it and ticking it off.
+ *
+ * It never scrolls: it is wide enough to hold every field at once. On a phone, where there
+ * is not that much width, the same two halves become two tabs inside the sheet, so it still
+ * does not scroll.
  *
  * The person is chosen, not typed: a task assigned to a person is what earns them points
  * and shows their picture. An older task that only carries a typed name keeps it until
  * someone picks a person.
  *
- * `onSave(patch)` resolves to `{ ok, message }`; the drawer closes only when it worked.
+ * `onSave(patch)` resolves to `{ ok, message }`; the card closes only when it worked.
  */
 
 const PRIORITIES = [["high", "High"], ["med", "Medium"], ["low", "Low"]];
@@ -46,12 +56,16 @@ export default function TaskPanel({
   mode, task, personId, sectionId, columns, people, customers, canEdit, canTick, today, region,
   onSave, onDelete, onDone, onReopen, onClose,
 }) {
+  const uid = useId();
+  const fid = (name) => `${uid}-${name}`;
   const creating = mode === "create";
   const done = !creating && isDone(task);
   const [form, setForm] = useState(() => formFor(creating ? null : task, { personId, sectionId, region }));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const set = (key) => (e) => { setForm((f) => ({ ...f, [key]: e.target.value })); setError(""); };
+  const [tab, setTab] = useState("task");          // on a phone: "task" | "who"
+  const patch = (key) => (value) => { setForm((f) => ({ ...f, [key]: value })); setError(""); };
+  const set = (key) => (e) => patch(key)(e.target.value);
   const editable = canEdit;
 
   // A typed name from before people could be chosen, kept as an option so it is not lost.
@@ -60,10 +74,27 @@ export default function TaskPanel({
 
   const worth = person ? taskPoints({ priority: form.priority, dueDate: form.dueDate }, today) : null;
 
+  const peopleOptions = useMemo(() => [
+    { value: "", label: "Nobody yet" },
+    ...(typed ? [{ value: form.assignee, label: `${typed} (not in the directory)` }] : []),
+    ...people.map((p) => ({
+      value: p.id, label: p.name,
+      icon: <Avatar name={p.name} personId={p.id} hue={hueFromName(p.name)} size={22} />,
+    })),
+  ], [people, typed, form.assignee]);
+  const sectionOptions = useMemo(() => columns.map((c) => ({ value: c.id, label: c.label, dot: TONE_DOT[c.tone] || TONE_DOT.neutral })), [columns]);
+  const categoryOptions = useMemo(() => [{ value: "", label: "None" }, ...TASK_CATEGORIES.map((c) => ({ value: c.label, label: c.label }))], []);
+  const customerOptions = useMemo(() => [
+    { value: "", label: "None" },
+    ...(form.customer && !customers.some((c) => c.name === form.customer) ? [{ value: form.customer, label: form.customer }] : []),
+    ...customers.map((c) => ({ value: c.name, label: c.name })),
+  ], [customers, form.customer]);
+  const regionOptions = useMemo(() => [{ value: "", label: "Not set" }, ...REGIONS.map((r) => ({ value: r.id, label: r.label }))], []);
+
   async function submit(e) {
     e.preventDefault();
     if (!editable || saving) return;
-    if (!form.title.trim()) { setError("Give the task a title."); return; }
+    if (!form.title.trim()) { setTab("task"); setError("Give the task a title."); return; }
     setSaving(true);
     setError("");
     const res = await onSave({
@@ -111,89 +142,118 @@ export default function TaskPanel({
     <Modal
       title={creating ? "New task" : "Task"}
       subtitle={subtitle}
-      size="drawer"
+      size="card"
+      className="kmodal--task"
       glass
       onClose={onClose}
       onSubmit={submit}
       footer={footer}
     >
-      <div className="tk-form">
-        <label className="tk-f tk-full">Title
-          <input value={form.title} onChange={set("title")} placeholder="What needs doing?" maxLength={200} disabled={!editable} required />
-        </label>
+      {/* phones only: the two halves as tabs, so the sheet needs no scrolling */}
+      <div className="tk-ed-tabs kregion-seg" role="tablist" aria-label="Task sections">
+        {[["task", "The task"], ["who", "Who and when"]].map(([id, text]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={fid(`tab-${id}`)}
+            aria-selected={tab === id}
+            aria-controls={fid(`pane-${id}`)}
+            className={cn("kregion-seg-btn", tab === id && "is-on")}
+            onClick={() => setTab(id)}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
 
-        <label className="tk-f tk-full">Assigned to
-          <select value={form.assignee} onChange={set("assignee")} disabled={!editable}>
-            <option value="">Nobody yet</option>
-            {typed && <option value={form.assignee}>{typed} (not in the directory)</option>}
-            {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
+      <div className="tk-ed">
+        <div className={cn("tk-ed-pane tk-ed-main", tab !== "task" && "is-off")} id={fid("pane-task")} role="tabpanel" aria-labelledby={fid("tab-task")}>
+          <div className="tk-f">
+            <label htmlFor={fid("title")}>Title</label>
+            <input id={fid("title")} value={form.title} onChange={set("title")} placeholder="What needs doing?" maxLength={200} disabled={!editable} required />
+          </div>
+          <div className="tk-f tk-grow">
+            <label htmlFor={fid("details")}>Details</label>
+            <textarea id={fid("details")} value={form.description} onChange={set("description")} placeholder="Anything the person needs to know" disabled={!editable} />
+          </div>
+          <div className="tk-f tk-grow">
+            <label htmlFor={fid("notes")}>Progress update</label>
+            <textarea id={fid("notes")} value={form.notes} onChange={set("notes")} placeholder="Where it has got to" disabled={!editable} />
+          </div>
 
-        <div className="tk-f">
-          Priority
-          <div className="kregion-seg" role="radiogroup" aria-label="Priority">
-            {PRIORITIES.map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={form.priority === id}
-                className={`kregion-seg-btn${form.priority === id ? " is-on" : ""}`}
-                disabled={!editable}
-                onClick={() => { setForm((f) => ({ ...f, priority: id })); setError(""); }}
-              >
-                {label}
-              </button>
-            ))}
+          <div className={cn("tk-worth", !(worth && !done) && "is-quiet")} aria-live="polite">
+            {worth && !done ? (
+              <>
+                <Star size={16} aria-hidden="true" />
+                <span>
+                  <b>{fmtPoints(worth.total)} points</b>
+                  <small>{worth.bonus ? `${fmtPoints(worth.base)} for finishing it, plus ${fmtPoints(worth.bonus)} if it is done by the due date` : "for finishing it"}</small>
+                </span>
+              </>
+            ) : done ? (
+              <span className="tk-worth-note">Finished{task?.completedAt ? ` ${fmtDay(task.completedAt)}` : ""}.</span>
+            ) : (
+              <span className="tk-worth-note">Pick a person to see what finishing it earns.</span>
+            )}
           </div>
         </div>
-        <label className="tk-f">Due date
-          <input type="date" value={form.dueDate} onChange={set("dueDate")} disabled={!editable} />
-        </label>
 
-        {worth && !done && (
-          <p className="tk-hint tk-full">
-            Finishing it earns <b>{fmtPoints(worth.total)} points</b>
-            {worth.bonus ? <> ({fmtPoints(worth.base)}, plus {fmtPoints(worth.bonus)} for finishing by the due date)</> : null}.
-          </p>
-        )}
+        <div className={cn("tk-ed-pane tk-ed-side", tab !== "who" && "is-off")} id={fid("pane-who")} role="tabpanel" aria-labelledby={fid("tab-who")}>
+          <div className="tk-f tk-wide">
+            <label htmlFor={fid("assignee")}>Assigned to</label>
+            <Select id={fid("assignee")} label="Assigned to" value={form.assignee} onChange={patch("assignee")} options={peopleOptions} placeholder="Nobody yet" disabled={!editable} searchPlaceholder="Find a person" />
+          </div>
 
-        <label className="tk-f tk-full">Details
-          <textarea value={form.description} onChange={set("description")} rows={3} placeholder="Anything the person needs to know" disabled={!editable} />
-        </label>
-        <label className="tk-f tk-full">Progress update
-          <textarea value={form.notes} onChange={set("notes")} rows={2} placeholder="Where it has got to" disabled={!editable} />
-        </label>
+          <div className="tk-f">
+            <span id={fid("prio")}>Priority</span>
+            <div className="kregion-seg tk-prio" role="radiogroup" aria-labelledby={fid("prio")}>
+              {PRIORITIES.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.priority === id}
+                  className={cn("kregion-seg-btn", form.priority === id && "is-on")}
+                  disabled={!editable}
+                  onClick={() => patch("priority")(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="tk-f">
+            <label htmlFor={fid("due")}>Due date</label>
+            <DatePicker id={fid("due")} label="Due date" value={form.dueDate} onChange={patch("dueDate")} disabled={!editable} today={today} placeholder="No due date" />
+          </div>
 
-        <label className="tk-f">Section
-          <select value={form.sectionId} onChange={set("sectionId")} disabled={!editable}>
-            {columns.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
-        </label>
-        <label className="tk-f">Category
-          <select value={form.category} onChange={set("category")} disabled={!editable}>
-            <option value="">None</option>
-            {TASK_CATEGORIES.map((c) => <option key={c.label} value={c.label}>{c.label}</option>)}
-          </select>
-        </label>
+          <div className="tk-f">
+            <label htmlFor={fid("section")}>Section</label>
+            <Select id={fid("section")} label="Section" value={form.sectionId} onChange={patch("sectionId")} options={sectionOptions} placeholder="Choose a section" disabled={!editable} />
+          </div>
+          <div className="tk-f">
+            <label htmlFor={fid("category")}>Category</label>
+            <Select id={fid("category")} label="Category" value={form.category} onChange={patch("category")} options={categoryOptions} placeholder="None" disabled={!editable} />
+          </div>
 
-        <label className="tk-f">Customer
-          <select value={form.customer} onChange={set("customer")} disabled={!editable}>
-            <option value="">None</option>
-            {form.customer && !customers.some((c) => c.name === form.customer) && <option value={form.customer}>{form.customer}</option>}
-            {customers.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-          </select>
-        </label>
-        <label className="tk-f">Order reference
-          <input value={form.orderRef} onChange={set("orderRef")} placeholder="e.g. KZ-2418" maxLength={60} disabled={!editable} />
-        </label>
+          <div className="tk-f tk-wide">
+            <label htmlFor={fid("customer")}>Customer</label>
+            <Select id={fid("customer")} label="Customer" value={form.customer} onChange={patch("customer")} options={customerOptions} placeholder="None" disabled={!editable} searchPlaceholder="Find a customer" />
+          </div>
+          <div className="tk-f">
+            <label htmlFor={fid("order")}>Order reference</label>
+            <input id={fid("order")} value={form.orderRef} onChange={set("orderRef")} placeholder="e.g. KZ-2418" maxLength={60} disabled={!editable} />
+          </div>
 
-        <label className="tk-f tk-full">Region
-          <RegionSelect value={form.region} onChange={(v) => setForm((f) => ({ ...f, region: v }))} disabled={!editable} />
-        </label>
-
-        {!editable && <p className="tk-hint tk-full">You can read this task{canTick ? " and mark it done" : ""}. Changing it is for people who can edit Tasks.</p>}
+          <div className="tk-f">
+            <label htmlFor={fid("region")}>Region</label>
+            <Select id={fid("region")} label="Region" value={form.region} onChange={patch("region")} options={regionOptions} placeholder="Not set" disabled={!editable} />
+          </div>
+          {!editable && (
+            <p className="tk-hint tk-wide">You can read this task{canTick ? " and mark it done" : ""}. Changing it is for people who can edit Tasks.</p>
+          )}
+        </div>
       </div>
     </Modal>
   );

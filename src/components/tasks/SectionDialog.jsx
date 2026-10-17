@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Modal from "../Modal";
+import Select from "../Select";
 import { Icons } from "../ui";
 import { SECTION_TONES, TONE_DOT } from "./tones";
 import "./tasks.css";
@@ -22,6 +23,7 @@ export default function SectionDialog({ mode, col, columns, openCount = 0, nameP
 
   const others = editing ? columns.filter((c) => c.id !== col.id) : [];
   const [target, setTarget] = useState(others[0]?.id || "");
+  const moveOptions = others.map((c) => ({ value: c.id, label: c.label, dot: TONE_DOT[c.tone] || TONE_DOT.neutral }));
   const index = editing ? columns.findIndex((c) => c.id === col.id) : -1;
 
   async function submit(e) {
@@ -88,11 +90,10 @@ export default function SectionDialog({ mode, col, columns, openCount = 0, nameP
               : <>Delete <b>{col.label}</b>? It has no open tasks.</>}
           </p>
           {openCount > 0 && (
-            <label className="tk-f tk-full">Move its open tasks to
-              <select value={target} onChange={(e) => setTarget(e.target.value)}>
-                {others.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-            </label>
+            <div className="tk-f tk-full">
+              <label htmlFor="tk-move-to">Move its open tasks to</label>
+              <Select id="tk-move-to" label="Move its open tasks to" value={target} onChange={setTarget} options={moveOptions} placeholder="Choose a section" />
+            </div>
           )}
         </div>
       ) : (

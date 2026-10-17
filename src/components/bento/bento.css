@@ -26,8 +26,45 @@
 :root[data-theme="dark"]:has(.kb) body,
 :root[data-theme="dark"] .kmain:has(.kb) { background: #0b100e; }
 :root[data-theme="dark"] .kb { color-scheme: dark; }
-:root[data-theme="dark"]:has(.kb) *::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); background-clip: content-box; }
-:root[data-theme="dark"]:has(.kb) *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.28); background-clip: content-box; }
+
+/* ── Scrollbars on glass ──────────────────────────────────────────
+   The platform's bar (a wide grey track with arrow buttons) fights the glass, so on a
+   `.kb` page every scroll area gets a slim pill instead: no track, no arrows, a
+   thumb that is calm at rest, firmer once the area is pointed at and firm under the
+   pointer. It is the same for a section's list of cards, the Done list and the board's
+   own sideways scroll, in light and dark. Chromium and Safari read the ::-webkit-
+   pieces; Firefox, which has no such pieces, gets its thin standard bar in the same
+   colour. (Setting scrollbar-width where ::-webkit-scrollbar is understood would switch
+   the pill off and bring the arrows back, hence the @supports test, which is true
+   only where those pieces do not exist.) A touch screen keeps its own overlay bar. */
+.kb {
+  --kb-sb: rgba(15,46,34,.22);
+  --kb-sb-near: rgba(15,46,34,.38);
+  --kb-sb-hi: rgba(15,46,34,.6);
+}
+:root[data-theme="dark"] .kb {
+  --kb-sb: rgba(255,255,255,.2);
+  --kb-sb-near: rgba(255,255,255,.36);
+  --kb-sb-hi: rgba(255,255,255,.58);
+}
+@media (pointer: fine) {
+  .kb ::-webkit-scrollbar { width: 12px; height: 12px; }
+  .kb ::-webkit-scrollbar-track,
+  .kb ::-webkit-scrollbar-corner { background: transparent; }
+  .kb ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  .kb ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent; border-radius: 999px;
+    background: var(--kb-sb); background-clip: content-box;
+  }
+  .kb ::-webkit-scrollbar-thumb:vertical { min-height: 44px; }
+  .kb ::-webkit-scrollbar-thumb:horizontal { min-width: 44px; }
+  .kb :hover::-webkit-scrollbar-thumb { background: var(--kb-sb-near); background-clip: content-box; }
+  .kb ::-webkit-scrollbar-thumb:hover,
+  .kb ::-webkit-scrollbar-thumb:active { background: var(--kb-sb-hi); background-clip: content-box; }
+}
+@supports not selector(::-webkit-scrollbar) {
+  .kb * { scrollbar-width: thin; scrollbar-color: var(--kb-sb-near) transparent; }
+}
 
 /* ── Tokens ───────────────────────────────────────────────────── */
 .kb {
