@@ -22,11 +22,23 @@
 -- never touches them; the ledger stands on its own. A task with nobody assigned (or
 -- only a typed name, not a person) earns nothing.
 --
--- The app reads points through three functions that anyone signed in may call and
--- that only ever show what the app shows: my_points(), points_leaderboard() and
--- my_point_history(). "This week" is worked out from the ledger, Sunday to Saturday
--- in Kathmandu (user_points.weekly_points was only ever added to and never reset, so
--- it is no longer kept).
+-- Points start the day this runs. A task that is already finished when it runs has no
+-- row in the ledger, which would let its person reopen it and finish it again for
+-- points; so each such task gets a row worth 0 points (section 5), and that is that.
+-- The same step is repeated at the end of 0058, once it has linked old tasks to people.
+--
+-- "On time" is judged by the Kathmandu calendar for everybody.
+--
+-- Finishing a task never fails because of points: if awarding goes wrong the task is
+-- still finished and a warning is logged (Logs > Postgres in the Supabase dashboard).
+--
+-- Nobody signed in can read the ledger itself: its reasons are task titles, and a task
+-- is only for people who can see Tasks. The app reads points through three functions that
+-- anyone signed in may call and that only ever show what the app shows: my_points(),
+-- points_leaderboard() and my_point_history(). Only people who are still Active appear on
+-- the board. "This week" is worked out from the ledger, Sunday to Saturday in Kathmandu
+-- (user_points.weekly_points was only ever added to and never reset, so it is no longer
+-- kept). The totals in user_points stay readable for the Employees page's org chart.
 --
 -- To correct someone's points by hand, in the SQL editor:
 --     select award_points_internal('<person id>', null, 'adjustment', 'note-1', 25, 'why');
@@ -71,7 +83,13 @@ create table if not exists public.leaderboard (
 alter table public.tasks add column if not exists completed_at timestamptz;
 
 
--- ─── 2. Read-only for everyone signed in; written only by the functions below ─
+-- ─── 2. Nobody signed in writes these; only the totals can be read ───────────
+--
+-- The ledger (point_transactions) says what every award was for, and that is a task's
+-- title, so it is not readable at all: people see their own through my_point_history().
+-- The old one-row cache (leaderboard) is not read by anything. Both are written and read
+-- only by the functions below, which run as their owner. The totals (user_points) stay
+-- readable to whoever can see the Dashboard, as before, for the Employees org chart.
 
 do $$
 declare
@@ -86,16 +104,15 @@ begin
                       as restrictive for all to authenticated using (app_issuer_ok())$f$, t);
 
     execute format('drop policy if exists "sect_read" on public.%I', t);
-    execute format($f$create policy "sect_read" on public.%I
-                      as permissive for select to authenticated using (app_can_view('dashboard'))$f$, t);
-
-    -- nobody writes these from the app: the functions below run as their owner
     execute format('drop policy if exists "sect_write" on public.%I', t);
-    execute format('revoke insert, update, delete, truncate on public.%I from anon, authenticated', t);
-    execute format('grant select on public.%I to authenticated', t);
+    execute format('revoke all on public.%I from anon, authenticated', t);
     execute format('grant select, insert, update, delete on public.%I to service_role', t);
   end loop;
 end $$;
+
+create policy "sect_read" on public.user_points
+  as permissive for select to authenticated using (app_can_view('dashboard'));
+grant select on public.user_points to authenticated;
 
 -- The Employees page's org chart reads totals through this view (as 0011 defined it).
 create or replace view public.fs_user_points as
@@ -127,7 +144,7 @@ returns integer
 language plpgsql
 volatile
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
 declare
   tx_id     text := p_person_id::text || '__' || p_event_type || '__' || p_source_id;
@@ -167,7 +184,7 @@ create or replace function public.tasks_award_points()
 returns trigger
 language plpgsql
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
 declare
   pts   integer;
@@ -181,8 +198,14 @@ begin
   pts := case when lower(btrim(coalesce(new.priority, ''))) = 'high' then 30 else 20 end;
   if new.due_date is not null and today <= new.due_date then pts := pts + 10; end if;
 
-  select full_name into who from people where id = new.assignee_id;
-  perform award_points_internal(new.assignee_id, who, 'task_completed', new.id::text, pts, left(new.title, 120));
+  -- A problem with points must never stop a task being finished: the inner block undoes
+  -- only the award, the task still saves, and the reason goes to the database log.
+  begin
+    select full_name into who from people where id = new.assignee_id;
+    perform award_points_internal(new.assignee_id, who, 'task_completed', new.id::text, pts, left(new.title, 120));
+  exception when others then
+    raise warning 'points were not awarded for task % (%): %', new.id, new.title, sqlerrm;
+  end;
   return new;
 end $$;
 
@@ -196,7 +219,24 @@ create trigger tasks_award_points
   execute function public.tasks_award_points();
 
 
--- ─── 5. What the app reads ───────────────────────────────────────────────────
+-- ─── 5. History is closed ────────────────────────────────────────────────────
+--
+-- A task that is finished by the time this runs was finished before points existed (with
+-- or without a finish date: the older page stamped one for a while). Each such task gets a
+-- ledger row worth 0 points, dated long ago so it counts for nothing and shows nowhere,
+-- whose only job is to occupy the id that finishing the task again would use. Rows that
+-- are already there (real awards) are left alone.
+
+insert into public.point_transactions (id, person_id, event_type, source_id, points, reason, awarded_at)
+select t.assignee_id::text || '__task_completed__' || t.id::text,
+       t.assignee_id, 'task_completed', t.id::text, 0, 'finished before points started', timestamptz '1970-01-01'
+  from public.tasks t
+ where t.assignee_id is not null
+   and lower(btrim(t.status)) = 'done'
+on conflict (id) do nothing;
+
+
+-- ─── 6. What the app reads ───────────────────────────────────────────────────
 
 -- The start of this week (Sunday 00:00 in Kathmandu) as a point in time.
 create or replace function public.points_week_start()
@@ -221,15 +261,22 @@ returns table (
 language sql
 stable
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
-  with me as (select app_person_id() as id),
-  totals as (select person_id, total_points as pts from user_points where total_points > 0),
+  with me as (select app_person_id() as id where app_issuer_ok()),
+  -- only people who still work here are ranked, here and on the board, so the two agree
+  totals as (
+    select u.person_id, u.total_points as pts
+      from user_points u
+      join people p on p.id = u.person_id and p.status = 'Active'
+     where u.total_points > 0
+  ),
   weekly as (
-    select person_id, sum(points)::integer as pts
-      from point_transactions
-     where awarded_at >= points_week_start() and points > 0 and person_id is not null
-     group by person_id
+    select t.person_id, sum(t.points)::integer as pts
+      from point_transactions t
+      join people p on p.id = t.person_id and p.status = 'Active'
+     where t.awarded_at >= points_week_start() and t.points > 0
+     group by t.person_id
   ),
   rank_t as (select person_id, rank() over (order by pts desc)::integer as r from totals),
   rank_w as (select person_id, rank() over (order by pts desc)::integer as r from weekly)
@@ -249,22 +296,23 @@ returns table (rank integer, person_id uuid, name text, points integer)
 language sql
 stable
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
   with scoped as (
     select u.person_id, u.total_points as pts
       from user_points u
-     where p_scope = 'all' and u.total_points > 0
+     where lower(coalesce(p_scope, 'week')) = 'all' and u.total_points > 0
     union all
     select t.person_id, sum(t.points)::integer
       from point_transactions t
-     where p_scope <> 'all' and t.awarded_at >= points_week_start() and t.points > 0 and t.person_id is not null
+     where lower(coalesce(p_scope, 'week')) <> 'all'
+       and t.awarded_at >= points_week_start() and t.points > 0 and t.person_id is not null
      group by t.person_id
   )
   select (rank() over (order by s.pts desc))::integer, s.person_id, pe.full_name, s.pts::integer
     from scoped s
-    join people pe on pe.id = s.person_id
-   where app_person_id() is not null
+    join people pe on pe.id = s.person_id and pe.status = 'Active'
+   where app_person_id() is not null and app_issuer_ok()
    order by s.pts desc, pe.full_name
    limit greatest(coalesce(p_limit, 10), 1);
 $$;
@@ -275,11 +323,11 @@ returns table (points integer, reason text, event_type text, awarded_at timestam
 language sql
 stable
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
   select t.points, t.reason, t.event_type, t.awarded_at
     from point_transactions t
-   where t.person_id = app_person_id()
+   where t.person_id = app_person_id() and app_issuer_ok() and t.points > 0
    order by t.awarded_at desc
    limit greatest(coalesce(p_limit, 8), 1);
 $$;

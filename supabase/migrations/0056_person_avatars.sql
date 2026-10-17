@@ -26,12 +26,19 @@
 create table if not exists public.person_avatars (
   person_id  uuid primary key references public.people(id) on delete cascade,
   url        text not null,
-  updated_at timestamptz not null default now(),
-  -- Only a file in our own avatars bucket: stops a person pointing the picture
-  -- at somebody else's server (a tracking image, or a link that changes later).
-  constraint person_avatars_url_in_bucket
-    check (url like '%/storage/v1/object/public/avatars/%')
+  updated_at timestamptz not null default now()
 );
+
+-- The link must be an https file in an avatars bucket, inside this person's own folder.
+-- That stops a picture pointing at somebody else's server (a tracking image, or a link
+-- that changes later), at a plain http or javascript: address, or at another person's
+-- file. It is its own statement so it also tightens a table an earlier run created. It
+-- cannot name this project, so the app only draws a picture from its own project's
+-- bucket as well (AvatarContext).
+alter table public.person_avatars drop constraint if exists person_avatars_url_in_bucket;
+alter table public.person_avatars
+  add constraint person_avatars_url_in_bucket
+  check (url ~ ('^https://[a-z0-9-]+\.supabase\.co/storage/v1/object/public/avatars/' || person_id::text || '/[^/?#]+$'));
 
 alter table public.person_avatars enable row level security;
 
@@ -61,6 +68,11 @@ create policy "require_known_issuer" on public.person_avatars
   to authenticated
   using (app_issuer_ok());
 
+-- Supabase hands every new table to anon and authenticated with every privilege; take
+-- back what the app never uses (RLS alone would keep anon out of the rows, but not
+-- out of TRUNCATE).
+revoke all on public.person_avatars from anon;
+revoke truncate, references, trigger on public.person_avatars from authenticated;
 grant select, insert, update, delete on public.person_avatars to authenticated;
 grant select, insert, update, delete on public.person_avatars to service_role;
 
@@ -79,10 +91,18 @@ on conflict (id) do update
       allowed_mime_types = excluded.allowed_mime_types;
 
 -- A person writes inside the folder named for their own id; HR can write anywhere.
+--
+-- Showing a picture does not go through these rules (a public bucket's links are open to
+-- anyone who has one). They decide who may LIST the folder, and listing is only for people
+-- signed in: the anon key sits in the web page for anybody to copy, and a list of every
+-- folder and file name would hand out a link to every staff photo. Every rule also asks
+-- app_issuer_ok(), the same "only our own sign-in" check the tables carry, because
+-- storage rules are not covered by the tables' blanket policy.
 drop policy if exists "avatars_read" on storage.objects;
 create policy "avatars_read" on storage.objects
   for select
-  using (bucket_id = 'avatars');
+  to authenticated
+  using (bucket_id = 'avatars' and app_issuer_ok());
 
 drop policy if exists "avatars_insert" on storage.objects;
 create policy "avatars_insert" on storage.objects
@@ -90,6 +110,7 @@ create policy "avatars_insert" on storage.objects
   to authenticated
   with check (
     bucket_id = 'avatars'
+    and app_issuer_ok()
     and ((storage.foldername(name))[1] = app_person_id()::text or app_can_edit('employees'))
   );
 
@@ -99,10 +120,12 @@ create policy "avatars_update" on storage.objects
   to authenticated
   using (
     bucket_id = 'avatars'
+    and app_issuer_ok()
     and ((storage.foldername(name))[1] = app_person_id()::text or app_can_edit('employees'))
   )
   with check (
     bucket_id = 'avatars'
+    and app_issuer_ok()
     and ((storage.foldername(name))[1] = app_person_id()::text or app_can_edit('employees'))
   );
 
@@ -112,5 +135,6 @@ create policy "avatars_delete" on storage.objects
   to authenticated
   using (
     bucket_id = 'avatars'
+    and app_issuer_ok()
     and ((storage.foldername(name))[1] = app_person_id()::text or app_can_edit('employees'))
   );

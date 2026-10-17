@@ -20,8 +20,12 @@
 --   * set_task_done()      Finish or reopen a task. Allowed to whoever can edit tasks AND to the
 --                          person the task is assigned to, so staff who can only view the
 --                          Tasks page can still tick off their own work. It is the only way
---                          past the edit-only rule on tasks, and only for finishing.
+--                          past the edit-only rule on tasks, and only for the assignee's own
+--                          finished or open task (a task with nobody assigned needs edit
+--                          rights). A task already in the state asked for is left alone.
 --   * archive_tasks()      Archive (or bring back) finished tasks; same two kinds of caller.
+--   * points               If the points ledger (0057) is there, every task that is already
+--                          finished gets a 0-point row, so history cannot be cashed in.
 --   * realtime             tasks and task_columns are published, so a teammate's change shows
 --                          up without a refresh (and the dashboards' task tiles go live).
 --
@@ -63,12 +67,12 @@ create index if not exists tasks_assignee_id_idx on public.tasks (assignee_id);
 
 do $$
 declare
+  trig_mode "char";       -- how the trigger was switched on: O (normally), R (replica) or A (always)
   paused boolean := false;
 begin
-  if exists (
-    select 1 from pg_trigger
-     where tgrelid = 'public.tasks'::regclass and tgname = 'tasks_notify_trg' and tgenabled <> 'D'
-  ) then
+  select tgenabled into trig_mode from pg_trigger
+   where tgrelid = 'public.tasks'::regclass and tgname = 'tasks_notify_trg';
+  if trig_mode is not null and trig_mode <> 'D' then
     alter table public.tasks disable trigger tasks_notify_trg;
     paused := true;
   end if;
@@ -97,8 +101,29 @@ begin
            where lower(btrim(p2.full_name)) = lower(btrim(t.assignee))) = 1;
 
   if paused then
-    alter table public.tasks enable trigger tasks_notify_trg;
+    execute format('alter table public.tasks %s trigger tasks_notify_trg',
+                   case trig_mode when 'A' then 'enable always' when 'R' then 'enable replica' else 'enable' end);
   end if;
+end $$;
+
+-- Points (0057), if they are installed: close the books on every task that is already
+-- finished, as 0057 does, now that old tasks have been linked to people above. A task
+-- finished by the time this runs was finished before points existed (with or without a
+-- finish date), and gets a 0-point ledger row so that reopening and finishing it again
+-- cannot pay out. Skipped when there is no points ledger yet (0057 repeats this step when
+-- it is run).
+do $$
+begin
+  if to_regclass('public.point_transactions') is null then
+    return;
+  end if;
+  insert into public.point_transactions (id, person_id, event_type, source_id, points, reason, awarded_at)
+  select t.assignee_id::text || '__task_completed__' || t.id::text,
+         t.assignee_id, 'task_completed', t.id::text, 0, 'finished before points started', timestamptz '1970-01-01'
+    from public.tasks t
+   where t.assignee_id is not null
+     and lower(btrim(t.status)) = 'done'
+  on conflict (id) do nothing;
 end $$;
 
 -- No section can be called Done any more (0041's rule, kept).
@@ -142,26 +167,40 @@ grant select on public.fs_tasks to authenticated, service_role;
 -- Finish (p_done true) or reopen (false) a task. Finishing stamps completed_at, which is
 -- what pays the assignee (0057), and files an unfiled task in the first section so that
 -- reopening it puts it back somewhere. Reopening clears the stamp and the archive mark.
+--
+-- Who may: whoever can edit tasks, and the person the task is assigned to (the person,
+-- not a typed name: a task with nobody assigned needs edit rights). Both ways round. A
+-- task that is already in the state asked for is left exactly as it is, so this can never
+-- hand a task from before finish dates a new one (which would pay points) or wipe the
+-- lane text of a task that is still open. Called with a NULL it does nothing (strict).
 create or replace function public.set_task_done(p_task_id uuid, p_done boolean)
 returns void
 language plpgsql
 volatile
+strict
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
 declare
   t  tasks%rowtype;
   me uuid := app_person_id();
 begin
+  -- the tables carry this check as a blanket policy; a function that runs as its owner does not
+  if not coalesce(app_issuer_ok(), false) then
+    raise exception 'That sign-in is not recognised.' using errcode = '42501';
+  end if;
+
   select * into t from tasks where id = p_task_id;
   if not found then
-    raise exception 'That task no longer exists.' using errcode = 'P0002';
+    raise exception 'That task no longer exists.';
   end if;
-  if not (app_can_edit('tasks') or (me is not null and t.assignee_id = me)) then
+  -- (for a task with nobody assigned the second half is NULL, not false: coalesce it, or "not NULL" lets everyone in)
+  if not (app_can_edit('tasks') or coalesce(me is not null and t.assignee_id = me, false)) then
     raise exception 'You can only finish tasks that are assigned to you.' using errcode = '42501';
   end if;
 
   if p_done then
+    if lower(btrim(coalesce(t.status, ''))) = 'done' then return; end if;
     update tasks
        set status       = 'Done',
            completed_at = coalesce(completed_at, now()),
@@ -169,6 +208,7 @@ begin
            section_id   = coalesce(section_id, (select id from task_columns order by sort_order, label limit 1))
      where id = p_task_id;
   else
+    if lower(btrim(coalesce(t.status, ''))) <> 'done' then return; end if;
     update tasks
        set status = null, completed_at = null, archived_at = null
      where id = p_task_id;
@@ -176,25 +216,28 @@ begin
 end $$;
 
 -- Archive (p_archive true) or bring back finished tasks. Only finished tasks are touched,
--- and only those the caller may change. Returns how many changed.
+-- and only those the caller may change (an editor's any, an assignee's own). Returns how
+-- many really changed: one already archived is not archived again, and its date stays.
 create or replace function public.archive_tasks(p_ids uuid[], p_archive boolean default true)
 returns integer
 language plpgsql
 volatile
+strict
 security definer
-set search_path to 'public'
+set search_path to 'public', 'pg_temp'
 as $$
 declare
   n  integer;
   me uuid := app_person_id();
 begin
-  if me is null then
+  if me is null or not coalesce(app_issuer_ok(), false) then
     raise exception 'You can only archive tasks that are assigned to you.' using errcode = '42501';
   end if;
   update tasks
      set archived_at = case when p_archive then now() else null end
    where id = any (p_ids)
      and lower(btrim(status)) = 'done'
+     and (archived_at is null) = p_archive
      and (app_can_edit('tasks') or assignee_id = me);
   get diagnostics n = row_count;
   return n;
