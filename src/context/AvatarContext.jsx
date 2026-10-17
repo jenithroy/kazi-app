@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../supabase";
+import { SUPABASE_URL, supabase } from "../supabase";
 import { useAuth } from "./AuthContext";
 
 /**
@@ -20,6 +20,16 @@ const STALE_MS = 60_000;   // a tab that has been in the background this long re
 
 const keyOf = (name) => String(name || "").trim().toLowerCase();
 
+/**
+ * A picture is only ever drawn from this project's own avatars bucket. The table's rule
+ * (0056) already keeps a link to https, to a bucket called avatars and to the person's own
+ * folder, but it cannot know which project is ours; this does. Anything else is ignored and
+ * that person keeps their initials, so nobody can make everyone's browser fetch an address
+ * of their choosing.
+ */
+const OWN_BUCKET = SUPABASE_URL ? `${String(SUPABASE_URL).replace(/\/+$/, "")}/storage/v1/object/public/avatars/` : null;
+const isOurs = (url) => Boolean(OWN_BUCKET) && typeof url === "string" && url.startsWith(OWN_BUCKET);
+
 export function AvatarProvider({ children }) {
   const { profile } = useAuth();
   const signedIn = Boolean(profile?.personId);
@@ -36,7 +46,7 @@ export function AvatarProvider({ children }) {
       if (pics.error) throw pics.error;
 
       const byId = {};
-      for (const row of pics.data || []) byId[row.person_id] = row.url;
+      for (const row of pics.data || []) if (isOurs(row.url)) byId[row.person_id] = row.url;
 
       // name -> id, only for names that belong to exactly one person
       const seen = new Map();

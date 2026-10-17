@@ -149,11 +149,18 @@ function Tasks() {
     t.assignee_id ? people.find((p) => p.id === String(t.assignee_id)) || null
       : personByName.get(String(t.assignee || "").trim().toLowerCase()) || null
   ), [people, personByName]);
+  /** Is it assigned to me as a person? Only this lets someone who cannot edit tasks finish one, and only this earns points. */
+  const assignedToMe = useCallback((t) => Boolean(t.assignee_id && me && String(t.assignee_id) === String(me)), [me]);
+  /** Is it mine to look at? That is assigned to me, or an old task that only carries my name. */
   const isMine = useCallback((t) => (
-    (t.assignee_id && me && String(t.assignee_id) === String(me)) || (!t.assignee_id && sameName(t.assignee, profile?.name))
-  ), [me, profile?.name]);
-  /** May this person finish (and reopen, archive) this task? Editors any; the assignee their own. */
-  const canTick = useCallback((t) => canEdit || Boolean(isMine(t)), [canEdit, isMine]);
+    assignedToMe(t) || (!t.assignee_id && sameName(t.assignee, profile?.name))
+  ), [assignedToMe, profile?.name]);
+  /**
+   * May this person finish (and reopen, archive) this task? Editors any; the assignee their own.
+   * The database enforces the same rule by the person, not the typed name, so an old task that
+   * only carries a name can be finished by an editor but not by the person it names.
+   */
+  const canTick = useCallback((t) => canEdit || assignedToMe(t), [canEdit, assignedToMe]);
 
   /* ── what is on screen ─────────────────────────────────── */
   const [scope, setScopeState] = useState(readScope);
@@ -291,7 +298,7 @@ function Tasks() {
       return;
     }
     // The database paid the assignee; if that is me, say how much.
-    if (isMine(task) && total !== null) {
+    if (assignedToMe(task) && total !== null) {
       const now = await refreshPoints();
       if (now && now.total > total) showPointsToast(now.total - total, task.title);
     } else {
@@ -319,10 +326,14 @@ function Tasks() {
     const stamp = new Date().toISOString();
     setTasks((cur) => cur.map((t) => (ids.includes(t.id) ? { ...t, archivedAt: stamp } : t)));
     try {
-      await archiveTasks(ids, true);
-      setUndo({ ids, count: ids.length });
-      clearTimeout(undoTimer.current);
-      undoTimer.current = setTimeout(() => setUndo(null), 9000);
+      const changed = await archiveTasks(ids, true);
+      // It can be fewer than asked (somebody else cleared some first): show what the database says.
+      if (changed < ids.length) loadTasks().catch(() => {});
+      if (changed > 0) {
+        setUndo({ ids, count: changed });
+        clearTimeout(undoTimer.current);
+        undoTimer.current = setTimeout(() => setUndo(null), 9000);
+      }
     } catch (err) {
       setTasks((cur) => cur.map((t) => (ids.includes(t.id) ? { ...t, archivedAt: null } : t)));
       fail(err, "Couldn't clear the finished tasks.");
