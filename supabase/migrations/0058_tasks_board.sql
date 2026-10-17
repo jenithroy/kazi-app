@@ -30,6 +30,9 @@
 -- finish date and nothing to say when they finished, so the page treats them as archived
 -- rather than guessing a date: that is what empties an overfull Done list.
 --
+-- The mobile app's task notifications (tasks_notify_trg) are left as they are; this
+-- migration only makes sure its own one-off tidying does not set them off.
+--
 -- Safe to run twice.
 -- ============================================================================
 
@@ -45,43 +48,66 @@ create index if not exists tasks_section_id_idx on public.tasks (section_id);
 create index if not exists tasks_assignee_id_idx on public.tasks (assignee_id);
 
 
--- ─── 2. Sections (as 0041) ───────────────────────────────────────────────────
+-- ─── 2. Tidy the rows that are already there ────────────────────────────────
+--
+-- The mobile app has a trigger on tasks (tasks_notify_trg, its migrations 0117-0122) that
+-- sends a push notification when a task's person or status changes. The three fixes below
+-- change exactly those things on existing rows, which would announce each one. So the
+-- trigger is switched off for just this block. It is one statement: if anything in it
+-- fails the whole block is undone, trigger included, so it can never be left off.
+--
+--   * sections (as 0041): file each open task in the section its old status named, spell
+--     Done one way, and drop an old "Done" lane (Done is not a section)
+--   * people, not typed names: every task whose name matches exactly one person gets that
+--     person. A name two people share is left alone.
 
--- File each open task in the section its old status named.
-update public.tasks t
-   set section_id = c.id
-  from public.task_columns c
- where t.section_id is null
-   and lower(btrim(t.status)) <> 'done'
-   and lower(btrim(c.label))  =  lower(btrim(t.status));
+do $$
+declare
+  paused boolean := false;
+begin
+  if exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.tasks'::regclass and tgname = 'tasks_notify_trg' and tgenabled <> 'D'
+  ) then
+    alter table public.tasks disable trigger tasks_notify_trg;
+    paused := true;
+  end if;
 
--- Done is spelled one way.
-update public.tasks
-   set status = 'Done'
- where lower(btrim(status)) = 'done'
-   and status <> 'Done';
+  update public.tasks t
+     set section_id = c.id
+    from public.task_columns c
+   where t.section_id is null
+     and lower(btrim(t.status)) <> 'done'
+     and lower(btrim(c.label))  =  lower(btrim(t.status));
 
--- Done is not a section.
-delete from public.task_columns where lower(btrim(label)) = 'done';
+  update public.tasks
+     set status = 'Done'
+   where lower(btrim(status)) = 'done'
+     and status <> 'Done';
 
+  delete from public.task_columns where lower(btrim(label)) = 'done';
+
+  update public.tasks t
+     set assignee_id = p.id
+    from public.people p
+   where t.assignee_id is null
+     and nullif(btrim(t.assignee), '') is not null
+     and lower(btrim(p.full_name)) = lower(btrim(t.assignee))
+     and (select count(*) from public.people p2
+           where lower(btrim(p2.full_name)) = lower(btrim(t.assignee))) = 1;
+
+  if paused then
+    alter table public.tasks enable trigger tasks_notify_trg;
+  end if;
+end $$;
+
+-- No section can be called Done any more (0041's rule, kept).
 alter table public.task_columns drop constraint if exists task_columns_label_not_done;
 alter table public.task_columns
   add constraint task_columns_label_not_done check (lower(btrim(label)) <> 'done');
 
 
--- ─── 3. Assign people, not typed names ───────────────────────────────────────
-
-update public.tasks t
-   set assignee_id = p.id
-  from public.people p
- where t.assignee_id is null
-   and nullif(btrim(t.assignee), '') is not null
-   and lower(btrim(p.full_name)) = lower(btrim(t.assignee))
-   and (select count(*) from public.people p2
-         where lower(btrim(p2.full_name)) = lower(btrim(t.assignee))) = 1;
-
-
--- ─── 4. The view ─────────────────────────────────────────────────────────────
+-- ─── 3. The view ─────────────────────────────────────────────────────────────
 
 create or replace view public.fs_tasks as
   select t.id::text as id,
@@ -111,7 +137,7 @@ alter view public.fs_tasks set (security_invoker = on);
 grant select on public.fs_tasks to authenticated, service_role;
 
 
--- ─── 5. Finishing, reopening, archiving ──────────────────────────────────────
+-- ─── 4. Finishing, reopening, archiving ──────────────────────────────────────
 
 -- Finish (p_done true) or reopen (false) a task. Finishing stamps completed_at, which is
 -- what pays the assignee (0057), and files an unfiled task in the first section so that
@@ -180,7 +206,7 @@ grant execute on function public.set_task_done(uuid, boolean) to authenticated, 
 grant execute on function public.archive_tasks(uuid[], boolean) to authenticated, service_role;
 
 
--- ─── 6. Live updates ─────────────────────────────────────────────────────────
+-- ─── 5. Live updates ─────────────────────────────────────────────────────────
 
 do $$
 declare
