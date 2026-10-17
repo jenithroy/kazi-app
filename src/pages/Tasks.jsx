@@ -1103,7 +1103,8 @@ function Tasks() {
 
   async function handleAdd(data) {
     try {
-      await insertRow("tasks", { ...data, region: data.region || region, createdBy: profile?.name || "Unknown" });
+      // No date is null, not '': an empty string is not a date to the database (saveTask does the same).
+      await insertRow("tasks", { ...data, dueDate: data.dueDate || null, region: data.region || region, createdBy: profile?.name || "Unknown" });
       await loadTasks();
     } catch (err) {
       console.error("Error adding task:", err);
