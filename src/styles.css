@@ -5886,8 +5886,6 @@ span.kap-personal { cursor: default; }
   outline-offset: 2px;
 }
 
-.kregion-flag { font-size: 13px; line-height: 1; }
-
 .kregion-switch--sm .kregion-seg-btn { padding: 4px 10px; font-size: 11.5px; }
 .kregion-switch--lg .kregion-seg-btn { padding: 8px 18px; font-size: 13.5px; }
 

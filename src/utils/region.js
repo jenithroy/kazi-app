@@ -14,8 +14,8 @@
  */
 
 export const REGIONS = [
-  { id: "nepal", label: "Nepal", short: "NP", flag: "🇳🇵" },
-  { id: "uk", label: "UK", short: "UK", flag: "🇬🇧" },
+  { id: "nepal", label: "Nepal", short: "NP" },
+  { id: "uk", label: "UK", short: "UK" },
 ];
 
 export const REGION_IDS = REGIONS.map((r) => r.id);

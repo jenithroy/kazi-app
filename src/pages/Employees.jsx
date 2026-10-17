@@ -128,7 +128,7 @@ function OrgCard({ emp, points }) {
       <div className="korg-tags">
         {emp.isProductionWorker && <span className="korg-tag korg-tag--prod">⚡ Production</span>}
         <span className={`korg-tag korg-tag--${emp.location === "uk" ? "uk" : "np"}`}>
-          {emp.location === "uk" ? "🇬🇧 UK" : "🇳🇵 Nepal"}
+          {emp.location === "uk" ? "UK" : "Nepal"}
         </span>
       </div>
       {points != null && (
@@ -174,7 +174,7 @@ function OrgChart({ employees, pointsMap = {} }) {
           <span style={{ fontWeight: 600 }}>⚡ {prodCount}</span> <span>production workers</span>
         </div>
         {prodCount === 0 && (
-          <div style={{ padding: "10px 16px", background: "rgba(230,81,0,0.08)", borderRadius: 10, border: "1.5px solid rgba(230,81,0,0.3)", fontSize: 13, color: "var(--terra)" }}>
+          <div style={{ padding: "10px 16px", background: "rgba(196,101,74,0.08)", borderRadius: 10, border: "1.5px solid rgba(196,101,74,0.3)", fontSize: 13, color: "var(--terra)" }}>
             Tag production workers in Directory → labour costs auto-calculate in Finance
           </div>
         )}
@@ -760,7 +760,7 @@ function Employees() {
                                 <input type="time" value={v.end || ""} onChange={e => patchEntry(day, { end: e.target.value })} style={{ marginTop: 4 }} />
                               </label>
                               <button type="button" className="ghost-button"
-                                style={{ padding: "4px 10px", fontSize: "0.8rem", color: "var(--terra)", borderColor: "rgba(211,47,47,0.35)" }}
+                                style={{ padding: "4px 10px", fontSize: "0.8rem", color: "var(--terra)", borderColor: "rgba(196,101,74,0.35)" }}
                                 onClick={() => removeEntry(day)}>Remove</button>
                             </div>
                           ))}
@@ -890,12 +890,12 @@ function Employees() {
                               <button className="ghost-button" style={{ padding: "4px 10px", fontSize: "0.82rem" }}
                                 onClick={() => startEdit(emp)}>Edit</button>
                               <button className="ghost-button"
-                                style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(230,81,0,0.35)" : "rgba(46,125,50,0.4)" }}
+                                style={{ padding: "4px 10px", fontSize: "0.82rem", color: emp.status === "Active" ? "var(--warn)" : "var(--ok)", borderColor: emp.status === "Active" ? "rgba(212,160,74,0.35)" : "rgba(31,110,76,0.4)" }}
                                 onClick={() => toggleStatus(emp)}>
                                 {emp.status === "Active" ? "Deactivate" : "Activate"}
                               </button>
                               <button className="ghost-button"
-                                style={{ padding: "4px 10px", fontSize: "0.82rem", color: "var(--terra)", borderColor: "rgba(211,47,47,0.35)" }}
+                                style={{ padding: "4px 10px", fontSize: "0.82rem", color: "var(--terra)", borderColor: "rgba(196,101,74,0.35)" }}
                                 onClick={() => handleDeleteEmployee(emp)}>
                                 Delete
                               </button>
@@ -1013,7 +1013,7 @@ function Employees() {
                         onChange={e => setPayrollForm(f => ({ ...f, note: e.target.value }))} />
                     </label>
                     {attWarning && (
-                      <div className="kfin-full" style={{ padding: "10px 14px", background: "rgba(255,160,0,0.12)", border: "1.5px solid rgba(255,160,0,0.45)", borderRadius: 8, fontSize: 13, color: "#a06000", fontWeight: 500, marginBottom: 12 }}>
+                      <div className="kfin-full" style={{ padding: "10px 14px", background: "rgba(212,160,74,0.12)", border: "1.5px solid rgba(212,160,74,0.45)", borderRadius: 8, fontSize: 13, color: "#7d5512", fontWeight: 500, marginBottom: 12 }}>
                         {attWarning}
                       </div>
                     )}
@@ -1054,7 +1054,7 @@ function Employees() {
                         </span>
                       </div>
                       {calc.deductionsExceedGross && (
-                        <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(255,160,0,0.12)", border: "1.5px solid rgba(255,160,0,0.45)", borderRadius: 8, fontSize: 13, color: "#a06000", fontWeight: 500 }}>
+                        <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(212,160,74,0.12)", border: "1.5px solid rgba(212,160,74,0.45)", borderRadius: 8, fontSize: 13, color: "#7d5512", fontWeight: 500 }}>
                           ⚠️ Deductions exceed gross salary — net pay has been clamped to NPR 0.
                         </div>
                       )}

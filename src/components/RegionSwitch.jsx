@@ -30,7 +30,6 @@ export function RegionSwitch({ untagged = 0, hint = true, size = "md" }) {
             onClick={() => setRegion(r.id)}
             title={`Show ${r.label} data`}
           >
-            <span className="kregion-flag" aria-hidden="true">{r.flag}</span>
             {r.label}
           </button>
         ))}
@@ -144,7 +143,7 @@ export function RegionBadge({ value, muted = false }) {
   const meta = regionMeta(id);
   return (
     <span className={`kregion-badge kregion-badge--${id}${muted ? " is-muted" : ""}`}>
-      <span aria-hidden="true">{meta.flag}</span> {meta.label}
+      {meta.label}
     </span>
   );
 }
