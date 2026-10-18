@@ -155,6 +155,8 @@ export default function Select({
   function onTriggerKey(e) {
     if (disabled) return;
     if (open) { onNavKey(e, false); return; }
+    // Ctrl (or Cmd) + Enter is the cards' "I am done, save" from any field: a closed dropdown leaves it for them rather than opening its list
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) return;
     if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) { e.preventDefault(); openList(); }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && /\S/.test(e.key)) {
       // typing on a closed button opens the list on the first option that starts with the letter

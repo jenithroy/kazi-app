@@ -1,4151 +1,485 @@
-import { useEffect, useMemo, useState, useRef, Fragment } from "react";
-import PageHeader from "../components/PageHeader";
-import useFirestore from "../hooks/useFirestore";
+/**
+ * Inventory & Library.
+ *
+ * One frame (a header, a bar of tabs and search, one glass pane) and, in the pane, the table for the tab you are on:
+ *
+ *   Stock          what is on the shelf, with In / Out / Balance
+ *   Items cost     what a piece costs to make and what it sells for
+ *   Stock ledger   Opening + In − Out = Closing over a date range; prints
+ *   Fabrics · Processes · Samples · Tech packs   the library
+ *
+ * A table row is a button: pressing it opens the card in the middle of the screen (components/inventory/ItemCard.jsx
+ * and LibraryCards.jsx, on components/EditCard.jsx), which is where things are edited. Nothing is edited in a row, so
+ * there is no Save to find at the far end of a wide table.
+ *
+ * Tech packs keep their old cards and editor until they are redone (components/inventory/TechPackLegacy.jsx).
+ *
+ * What each tab shows, which positions may edit, the region switch, the stock sums and every write are the old
+ * page's. (One thing the old page did not do: deleting an item, process, fabric or sample. Its delete handler was
+ * named like the database call it made, so it called itself forever. The cards' Delete works.)
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BentoPage, EmptyNote } from "../components/bento/Bento";
+import { Icons } from "../components/ui";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { FilterChips, PageTabs, SearchBox } from "../components/table/Bar";
+import ItemCard from "../components/inventory/ItemCard";
+import { FabricCard, ProcessCard, SampleCard } from "../components/inventory/LibraryCards";
+import { CostTable, FabricTable, ProcessTable, SampleTable, StockTable } from "../components/inventory/Tables";
+import LedgerReport from "../components/inventory/LedgerReport";
+import Rail from "../components/inventory/Rail";
+import { TechPackCard, TechPackSpecModal, TechPackSpecPreview, TechPackViewer } from "../components/inventory/TechPackLegacy";
+import "../components/inventory/inventory.css";
 import { useAuth } from "../context/AuthContext";
-import { sectionCanEdit, sectionVisible } from "../utils/permissions";
-import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
-import { uploadPublicFileAtPath } from "../lib/storage";
-import { cn, Pill, Icons, Card, Btn } from "../components/ui";
-import { movementTotals, itemMovements, logStockMovement, STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
-import { COMPANY_NAME, COMPANY_ADDR } from "../utils/billing.jsx";
 import { useRegion } from "../context/RegionContext";
 import { useCurrency } from "../context/CurrencyContext";
-import { RegionSwitch, RegionField, RegionSelect, RegionBadge } from "../components/RegionSwitch";
+import { useReveal } from "../hooks/useReveal";
+import { sectionCanEdit, sectionVisible } from "../utils/permissions";
+import { deleteRow, fetchAll, insertRow } from "../lib/db";
+import { STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
 import { countUntagged, countUntaggedBy, filterByRegion, filterByRegionField } from "../utils/region";
+import { kathmanduDate } from "../utils/date";
+import { movementIndex, stockRow } from "../lib/inventory";
 
-/* ── Image compression & upload helpers ───────────────── */
-function compressFabricImage(file, maxWidth = 1200, quality = 0.8) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
+const NONE = [];
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
-                type: "image/jpeg",
-                lastModified: Date.now()
-              });
-              resolve(compressedFile);
-            } else {
-              reject(new Error("Image compression failed to generate blob."));
-            }
-          },
-          "image/jpeg",
-          quality
-        );
-      };
-      img.onerror = (err) => reject(err);
-      img.src = event.target.result;
-    };
-    reader.onerror = (err) => reject(err);
-  });
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-// Firestore docs max out at 1 MiB — keep inline images comfortably below that.
-const INLINE_IMAGE_LIMIT = 700 * 1024;
-
-async function inlineImageFallback(file) {
-  for (const [maxWidth, quality] of [[1200, 0.8], [900, 0.7], [640, 0.6], [480, 0.5]]) {
-    const small = await compressFabricImage(file, maxWidth, quality);
-    const dataUrl = await fileToDataUrl(small);
-    if (dataUrl.length <= INLINE_IMAGE_LIMIT) return dataUrl;
-  }
-  throw new Error("Image is too large to store. Please choose a smaller picture.");
-}
-
-async function uploadImage(path, file) {
-  try {
-    const storagePromise = uploadPublicFileAtPath("product-media", path, file, { contentType: "image/jpeg" })
-      .then(({ url }) => url);
-
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Storage upload timeout")), 3000)
-    );
-
-    return await Promise.race([storagePromise, timeoutPromise]);
-  } catch (err) {
-    console.warn("Storage upload failed or timed out, storing image inline instead:", err);
-    return inlineImageFallback(file);
-  }
-}
-
-function uploadFabricSwatch(fabricId, file) {
-  return uploadImage(`fabrics/swatches/${fabricId}_${Date.now()}.jpg`, file);
-}
-
-function uploadPatternTechPack(patternId, file, idx = 0) {
-  return uploadImage(`patterns/techpacks/${patternId}_${Date.now()}_${idx}.jpg`, file);
-}
-
-function uploadPatternSketch(patternId, file, side) {
-  return uploadImage(`patterns/sketches/${patternId}_${side}_${Date.now()}.jpg`, file);
-}
-
-/* ── Tech pack image helpers ──────────────────────────── */
-function isTechPackImageUrl(url) {
-  if (!url) return false;
-  return url.startsWith("data:image/")
-    || /\.(jpe?g|png|webp|gif)($|\?)/i.test(url)
-    || url.includes("techpacks");
-}
-
-// A tech pack can have multiple pages (tech_pack_images). Older records stored
-// a single image in tech_pack_url — merge it in so nothing disappears.
-function getTechPackImages(item) {
-  const imgs = Array.isArray(item.tech_pack_images) ? item.tech_pack_images.filter(Boolean) : [];
-  if (item.tech_pack_url && isTechPackImageUrl(item.tech_pack_url) && !imgs.includes(item.tech_pack_url)) {
-    return [item.tech_pack_url, ...imgs];
-  }
-  return imgs;
-}
-
-function uploadSamplePhoto(sampleId, file) {
-  return uploadImage(`samples/photos/${sampleId}_${Date.now()}.jpg`, file);
-}
-
-/* ── Stock Constants ───────────────────────────────────── */
-const STOCK_CATEGORIES = [
-  "Raw Materials", "Fabric", "Thread & Accessories", "Packaging",
-  "Equipment", "Consumables", "Finished Goods", "Office Supplies", "Other"
+const DEFAULT_FABRICS = [
+  { name: "Rib Fabric", gsm: 200, composition: "Woolen", status: "In Stock" },
+  { name: "Collar T-shirt", gsm: 210, composition: "Cotton 100%", status: "In Stock" },
+  { name: "Linen", gsm: null, composition: "Cotton 100%", status: "In Stock" },
+  { name: "AP Cotton", gsm: 380, composition: "Cotton 100%", status: "In Stock" },
+  { name: "24 Come Sinker", gsm: 160, composition: "Cotton 100%", status: "In Stock" },
+  { name: "Stripe Linen", gsm: null, composition: "Cotton 100%", status: "In Stock" },
+  { name: "Cotton Terry", gsm: 280, composition: "Cotton 100%", status: "In Stock" },
+  { name: "SOS Cotton", gsm: 420, composition: "Cotton 100%", status: "In Stock" },
+  { name: "30s Sinker Nepali", gsm: 160, composition: "Cotton 100%", status: "In Stock" },
+  { name: "PC PK", gsm: 260, composition: "Cotton 100%", status: "In Stock" },
+  { name: "Anti-Grunge Cotton", gsm: 420, composition: "Cotton 100%", status: "In Stock" },
+  { name: "Sinker Cotton", gsm: 140, composition: "Cotton 100%", status: "In Stock" },
 ];
 
-const emptyItemForm = {
-  item: "", unit: "pcs", category: "Raw Materials", supplier: "",
-  openingStock: 0, minLevel: 0,
-  unitCostNPR: "", location: "", owner: "", condition: "", region: ""
-};
+const TAB_NOUN = { stock: "item", cost: "cost item", fabrics: "fabric", processes: "process", patterns: "tech pack", samples: "sample" };
 
-const emptyCostForm = {
-  item: "", category: "Raw Materials", fabricName: "", gramsUsed: "",
-  fabric: "", rib: "", trims: "", directLabour: "", others: "", targetPrice: ""
-};
+const has = (hay, q) => String(hay || "").toLowerCase().includes(q);
 
-function nextItemId(rows) {
-  const kaziRows = rows.filter(r => r.itemId && r.itemId.toLowerCase().includes("kazi"));
-  if (kaziRows.length > 0) {
-    const nums = kaziRows.map(r => parseInt(r.itemId.replace(/\D/g, ""), 10)).filter(n => !isNaN(n));
-    const nextNum = nums.length ? Math.max(...nums) + 1 : 1001;
-    return `#kazi${nextNum}`;
-  }
-  const nums = rows.map(r => parseInt((r.itemId || "ITEM000").replace(/\D/g, ""), 10)).filter(n => !isNaN(n));
-  return `IT${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
-}
-
-/* ── Library Constants ─────────────────────────────────── */
-const PROCESS_CATEGORIES = ["printing", "embellishment", "construction", "finishing", "other"];
-const COMMON_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
-const SAMPLE_STAGES = ["Proto", "Fit", "Size-Set", "PP", "Shipment"];
-const SAMPLE_STATUSES = ["Pending", "Approved", "Rejected", "In Revision"];
-const GARMENT_CATEGORIES = ["Menswear", "Womenswear", "Kidswear"];
-const SEASONS = ["Spring-Summer", "Autumn-Winter", "Winter", "Summer"];
-
-const emptyFabric   = { name: "", composition: "", gsm: "", weight: "", available_colors: "", supplier: "", price_per_meter: "", pricePerKg: "", notes: "", region: "" };
-const emptyProcess  = { name: "", category: "", description: "", cost_per_unit: "", min_quantity: "", lead_time_days: "", notes: "", region: "" };
-const emptyPattern  = { name: "", product_type: "", sizes_available: [], tech_pack_url: "", tech_pack_images: [], notes: "", market: "" };
-const emptySample   = { name: "", product_type: "", stage: "Proto", status: "Pending", fabric_used: "", size: "", color: "", cost: "", photo_url: "", notes: "", region: "" };
-
-// Garment Specification Sheet — matches the paper/Excel tech pack Anusha builds by
-// hand per style: header block, a variable measurement grid, front/back sketches,
-// wash care, up to 3 fabric/lining rows, trims, and remarks.
-const emptyTechPackSpec = {
-  styleNo: "", market: "", category: "Menswear", specDate: "", specSize: "", season: "",
-  designerName: "", name: "", product_type: "",
-  measurements: [], frontSketchUrl: "", backSketchUrl: "",
-  washCare: "", fabricRows: [{ fabricName: "", description: "" }], trims: "", remarks: "",
-  sizes_available: [], tech_pack_images: [], notes: ""
-};
-
-function nextStyleCode(patterns) {
-  const nums = patterns
-    .map(p => p.styleNo || "")
-    .map(s => parseInt(String(s).replace(/\D/g, ""), 10))
-    .filter(n => !isNaN(n));
-  const nextNum = nums.length ? Math.max(...nums) + 1 : 1;
-  return `#KAZI${String(nextNum).padStart(3, "0")}`;
-}
-
-function findFabricInLibrary(fabrics, name) {
-  const n = (name || "").trim().toLowerCase();
-  if (!n) return null;
-  return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
-}
-
-/* ── Cost spreadsheet cell input ────────────────────────── */
-function CostCell({ value, onChange, disabled, width = "80px", placeholder, title }) {
-  const [localVal, setLocalVal] = useState(value ?? "");
-
-  useEffect(() => {
-    setLocalVal(value ?? "");
-  }, [value]);
-
-  return (
-    <input
-      type="number"
-      value={localVal === 0 && localVal !== "0" ? "" : localVal}
-      disabled={disabled}
-      placeholder={placeholder}
-      title={title}
-      onChange={e => setLocalVal(e.target.value)}
-      onBlur={() => {
-        const num = localVal === "" ? 0 : Number(localVal);
-        if (num !== Number(value)) {
-          onChange(num);
-        }
-      }}
-      onKeyDown={e => {
-        if (e.key === "Enter") {
-          e.target.blur();
-        }
-      }}
-      style={{
-        width,
-        padding: "4px 6px",
-        fontSize: "12.5px",
-        fontFamily: "var(--mono)",
-        textAlign: "right",
-        border: "1px solid var(--line-strong)",
-        borderRadius: "4px",
-        background: disabled ? "var(--bg-2)" : "#fff",
-        color: "var(--ink-2)",
-        outline: "none",
-        transition: "border-color 0.15s, box-shadow 0.15s"
-      }}
-    />
-  );
-}
-
-/* ── Text spreadsheet cell input ────────────────────────── */
-function TextCell({ value, onChange, disabled, width = "110px", style = {}, list, placeholder }) {
-  const [localVal, setLocalVal] = useState(value ?? "");
-
-  useEffect(() => {
-    setLocalVal(value ?? "");
-  }, [value]);
-
-  return (
-    <input
-      type="text"
-      value={localVal}
-      disabled={disabled}
-      list={list}
-      placeholder={placeholder}
-      onChange={e => setLocalVal(e.target.value)}
-      onBlur={() => {
-        if (localVal !== value) {
-          onChange(localVal);
-        }
-      }}
-      onKeyDown={e => {
-        if (e.key === "Enter") {
-          e.target.blur();
-        }
-      }}
-      style={{
-        width,
-        padding: "4px 6px",
-        fontSize: "12.5px",
-        fontFamily: "var(--mono)",
-        textAlign: "left",
-        border: "1px solid var(--line-strong)",
-        borderRadius: "4px",
-        background: disabled ? "var(--bg-2)" : "#fff",
-        color: "var(--ink-2)",
-        outline: "none",
-        transition: "border-color 0.15s, box-shadow 0.15s",
-        ...style
-      }}
-    />
-  );
-}
-
-/* ── Per-order size-run reconciliation panel (Stock tab) ── */
-/* ── Dated stock ledger — replaces the old silent stepper ── */
-function StockLedgerPanel({ unit, history, form, onFieldChange, onLog, logging, disabled, colSpan }) {
-  const { currency, num } = useCurrency();
-  const SOURCE_LABEL = { purchase: "Purchase", sale: "Sale", manual: "Manual", opening: "Opening", production: "Production" };
-  return (
-    <tr className="kinv-row">
-      <td colSpan={colSpan} style={{ padding: "16px 20px", background: "var(--bg-2)", borderBottom: "1px solid var(--line)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
-          Stock Ledger
-        </div>
-        {!disabled && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            <input type="date" className="kfin-input" style={{ fontSize: 12, padding: "5px 8px", width: 140 }}
-              value={form.date} onChange={e => onFieldChange("date", e.target.value)} />
-            <select className="kfin-select" style={{ fontSize: 12, padding: "5px 8px", width: 80 }}
-              value={form.direction} onChange={e => onFieldChange("direction", e.target.value)}>
-              <option value="in">In</option>
-              <option value="out">Out</option>
-            </select>
-            <input type="number" min="0" step="any" className="kfin-input" placeholder={`Qty (${unit})`}
-              style={{ fontSize: 12, padding: "5px 8px", width: 100 }}
-              value={form.qty} onChange={e => onFieldChange("qty", e.target.value)} />
-            <input type="text" className="kfin-input" placeholder="Note (optional)"
-              style={{ fontSize: 12, padding: "5px 8px", flex: 1, minWidth: 140 }}
-              value={form.note} onChange={e => onFieldChange("note", e.target.value)} />
-            <button type="button" className="kinv-btn-ghost" onClick={onLog} disabled={logging}>
-              {logging ? "…" : "+ Log Movement"}
-            </button>
-          </div>
-        )}
-        {history.length === 0 ? (
-          <p style={{ fontSize: 12, color: "var(--ink-4)" }}>No dated movements yet — stock quantity comes entirely from Opening Stock until one is logged.</p>
-        ) : (
-          <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%", maxWidth: 560 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "2px 14px 6px 0", color: "var(--ink-4)", fontWeight: 600 }}>Date</th>
-                <th style={{ textAlign: "left", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Source</th>
-                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>In</th>
-                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Out</th>
-                <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Amount ({currency})</th>
-                <th style={{ textAlign: "left", padding: "2px 0 6px 14px", color: "var(--ink-4)", fontWeight: 600 }}>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map(m => (
-                <tr key={m.id}>
-                  <td style={{ padding: "3px 14px 3px 0", fontFamily: "var(--mono)" }}>{m.date}</td>
-                  <td style={{ padding: "3px 14px" }}>{SOURCE_LABEL[m.source] || m.source}</td>
-                  <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--mint-deep)", fontWeight: 600 }}>
-                    {m.direction === "in" ? Number(m.qty).toLocaleString() : ""}
-                  </td>
-                  <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--terra)", fontWeight: 600 }}>
-                    {m.direction === "out" ? Number(m.qty).toLocaleString() : ""}
-                  </td>
-                  <td style={{ padding: "3px 14px", textAlign: "right", color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                    {m.amountNPR ? num(m.amountNPR) : "—"}
-                  </td>
-                  <td style={{ padding: "3px 0 3px 14px", color: "var(--ink-3)" }}>{m.note || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-/* ── Product-wise Stock Ledger report — Opening + In − Out = Closing, valued
-   at each item's unit cost, replayed from the same dated stock_movements that
-   drive the Stock Levels tab. No separate "opening stock rollover" is needed:
-   a period's opening balance is just the replay of every movement dated
-   before that period's start. ── */
-function stockLedgerReportRows(rows, movements, fromDate, toDate) {
-  return rows.map(row => {
-    const all = itemMovements(movements, row.id);
-    let openingQty = Number(row.openingStock || 0);
-    let inQty = 0, outQty = 0, inAmount = 0, outAmount = 0;
-    const unitCost = Number(row.unitCostNPR || 0);
-    for (const m of all) {
-      const qty = Number(m.qty || 0);
-      if (m.date < fromDate) {
-        openingQty += m.direction === "in" ? qty : -qty;
-      } else if (m.date <= toDate) {
-        // Real purchase/sale value when the movement carries one; movements
-        // logged before amountNPR existed fall back to qty × unit cost.
-        const amount = m.amountNPR != null ? Number(m.amountNPR) : qty * unitCost;
-        if (m.direction === "in") { inQty += qty; inAmount += amount; }
-        else { outQty += qty; outAmount += amount; }
-      }
-    }
-    const closingQty = openingQty + inQty - outQty;
-    return {
-      id: row.id, item: row.item, category: row.category || "Other", unit: row.unit || "",
-      openingQty, inQty, outQty, closingQty,
-      inAmount, outAmount, closingAmount: closingQty * unitCost,
-    };
-  });
-}
-
-function StockLedgerReport({ rows, movements, fromDate, toDate, onFromChange, onToChange }) {
-  const { currency, num } = useCurrency();
-  const fmtAmt = n => num(n);
-  // The amount columns don't name a currency (in rupees that is understood). Once the
-  // switch is on pounds each one does, so a printed 617.28 can't be misread as rupees.
-  const amtCcy = currency === "NPR" ? "" : ` (${currency})`;
-  const fmtQty = n => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
-
-  const reportRows = stockLedgerReportRows(rows, movements, fromDate, toDate);
-  const byCategory = new Map();
-  for (const r of reportRows) {
-    if (!byCategory.has(r.category)) byCategory.set(r.category, []);
-    byCategory.get(r.category).push(r);
-  }
-  const categoryOrder = [...STOCK_CATEGORIES, ...[...byCategory.keys()].filter(c => !STOCK_CATEGORIES.includes(c))];
-
-  const grand = reportRows.reduce((s, r) => ({
-    openingQty: s.openingQty + r.openingQty, inQty: s.inQty + r.inQty, inAmount: s.inAmount + r.inAmount,
-    outQty: s.outQty + r.outQty, outAmount: s.outAmount + r.outAmount,
-    closingQty: s.closingQty + r.closingQty, closingAmount: s.closingAmount + r.closingAmount,
-  }), { openingQty: 0, inQty: 0, inAmount: 0, outQty: 0, outAmount: 0, closingQty: 0, closingAmount: 0 });
-
-  let sn = 0;
-  const th = { textAlign: "right", padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", borderBottom: "2px solid var(--line-strong)" };
-  const thLeft = { ...th, textAlign: "left" };
-  const td = { textAlign: "right", padding: "5px 10px", fontSize: 12.5, fontFamily: "var(--mono)", borderBottom: "1px solid var(--line)" };
-  const tdLeft = { ...td, textAlign: "left", fontFamily: "var(--font)" };
-
-  return (
-    <div>
-      <div className="kinv-no-print" style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: "var(--ink-4)", fontWeight: 600 }}>
-          From
-          <input type="date" className="kfin-input" style={{ fontSize: 12.5, padding: "6px 8px" }} value={fromDate} onChange={e => onFromChange(e.target.value)} />
-        </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: "var(--ink-4)", fontWeight: 600 }}>
-          To
-          <input type="date" className="kfin-input" style={{ fontSize: 12.5, padding: "6px 8px" }} value={toDate} onChange={e => onToChange(e.target.value)} />
-        </label>
-        <button type="button" className="ghost-button" onClick={() => window.print()}>Print</button>
-      </div>
-
-      <div id="kinv-ledger-print-area">
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: ".02em" }}>{COMPANY_NAME.toUpperCase()}</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-2)", marginTop: 2 }}>Stock Ledger — Product Wise</div>
-          <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>{COMPANY_ADDR}</div>
-          <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 6 }}>Report Date: {fromDate}  to  {toDate}</div>
-        </div>
-
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
-            <thead>
-              <tr>
-                <th style={thLeft}>S.N.</th>
-                <th style={thLeft}>Description</th>
-                <th style={th}>Opening Qty</th>
-                <th style={th}>In Qty</th>
-                <th style={th}>In Amount{amtCcy}</th>
-                <th style={th}>Out Qty</th>
-                <th style={th}>Out Amount{amtCcy}</th>
-                <th style={th}>Balance Qty</th>
-                <th style={th}>Balance Amount{amtCcy}</th>
-                <th style={thLeft}>Unit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categoryOrder.filter(cat => byCategory.has(cat)).map(cat => {
-                const items = byCategory.get(cat);
-                const sub = items.reduce((s, r) => ({
-                  openingQty: s.openingQty + r.openingQty, inQty: s.inQty + r.inQty, inAmount: s.inAmount + r.inAmount,
-                  outQty: s.outQty + r.outQty, outAmount: s.outAmount + r.outAmount,
-                  closingQty: s.closingQty + r.closingQty, closingAmount: s.closingAmount + r.closingAmount,
-                }), { openingQty: 0, inQty: 0, inAmount: 0, outQty: 0, outAmount: 0, closingQty: 0, closingAmount: 0 });
-                return (
-                  <Fragment key={cat}>
-                    <tr>
-                      <td colSpan={10} style={{ padding: "10px 10px 4px", fontSize: 12, fontWeight: 700, color: "var(--ink-2)", background: "var(--bg-2)" }}>{cat}</td>
-                    </tr>
-                    {items.map(r => {
-                      sn += 1;
-                      return (
-                        <tr key={r.id}>
-                          <td style={tdLeft}>{sn}</td>
-                          <td style={tdLeft}>{r.item}</td>
-                          <td style={td}>{fmtQty(r.openingQty)}</td>
-                          <td style={td}>{fmtQty(r.inQty)}</td>
-                          <td style={td}>{fmtAmt(r.inAmount)}</td>
-                          <td style={td}>{fmtQty(r.outQty)}</td>
-                          <td style={td}>{fmtAmt(r.outAmount)}</td>
-                          <td style={{ ...td, fontWeight: 700 }}>{fmtQty(r.closingQty)}</td>
-                          <td style={{ ...td, fontWeight: 700 }}>{fmtAmt(r.closingAmount)}</td>
-                          <td style={tdLeft}>{r.unit}</td>
-                        </tr>
-                      );
-                    })}
-                    <tr>
-                      <td style={tdLeft} colSpan={2}>Subtotal</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{fmtQty(sub.openingQty)}</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{fmtQty(sub.inQty)}</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{fmtAmt(sub.inAmount)}</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{fmtQty(sub.outQty)}</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{fmtAmt(sub.outAmount)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{fmtQty(sub.closingQty)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{fmtAmt(sub.closingAmount)}</td>
-                      <td style={td}></td>
-                    </tr>
-                  </Fragment>
-                );
-              })}
-              {reportRows.length === 0 && (
-                <tr><td colSpan={10} style={{ textAlign: "center", padding: "28px 0", color: "var(--ink-4)", fontSize: 13 }}>No inventory items yet</td></tr>
-              )}
-            </tbody>
-            {reportRows.length > 0 && (
-              <tfoot>
-                <tr>
-                  <td style={{ ...tdLeft, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }} colSpan={2}>TOTAL</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.openingQty)}</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.inQty)}</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtAmt(grand.inAmount)}</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.outQty)}</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtAmt(grand.outAmount)}</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtQty(grand.closingQty)}</td>
-                  <td style={{ ...td, fontWeight: 800, borderTop: "2px solid var(--line-strong)" }}>{fmtAmt(grand.closingAmount)}</td>
-                  <td style={{ ...td, borderTop: "2px solid var(--line-strong)" }}></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-
-        <div style={{ fontSize: 10.5, color: "var(--ink-4)", marginTop: 16, lineHeight: 1.6 }}>
-          <div><strong>Note:</strong></div>
-          <div>Opening Qty = Previous period's closing balance.</div>
-          <div>In Qty (Purchase) = Total quantity purchased. Out Qty (Sales/Issue) = Total quantity sold/issued.</div>
-          <div>Balance Qty = Opening Qty + In Qty − Out Qty. Amounts are valued at each item's recorded unit cost.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SizeBreakdownPanel({ sizeRows, damageLog, onSizeChange, onAddDamage, onRemoveDamage, disabled, colSpan }) {
-  const [tagInput, setTagInput] = useState("");
-
-  const totalRequired = sizeRows.reduce((s, r) => s + Number(r.required || 0), 0);
-  const totalCounted  = sizeRows.reduce((s, r) => s + Number(r.counted  || 0), 0);
-  const totalDiff = totalCounted - totalRequired;
-  const diffColor = (d) => d < 0 ? "var(--terra)" : d > 0 ? "var(--mint-deep)" : "var(--ink-4)";
-  const diffLabel = (d) => d > 0 ? `+${d}` : String(d);
-
-  function submitTag() {
-    onAddDamage(tagInput);
-    setTagInput("");
-  }
-
-  return (
-    <tr className="kinv-row">
-      <td colSpan={colSpan} style={{ padding: "16px 20px", background: "var(--bg-2)" }}>
-        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-start" }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
-              Size Breakdown — Required vs Counted
-            </div>
-            <table style={{ borderCollapse: "collapse", fontSize: 12.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "2px 14px 6px 0", color: "var(--ink-4)", fontWeight: 600 }}>Size</th>
-                  <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Required</th>
-                  <th style={{ textAlign: "right", padding: "2px 14px 6px", color: "var(--ink-4)", fontWeight: 600 }}>Counted</th>
-                  <th style={{ textAlign: "right", padding: "2px 0 6px 14px", color: "var(--ink-4)", fontWeight: 600 }}>Diff</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sizeRows.map(r => {
-                  const diff = Number(r.counted || 0) - Number(r.required || 0);
-                  return (
-                    <tr key={r.size}>
-                      <td style={{ padding: "3px 14px 3px 0", fontFamily: "var(--mono)" }}>{r.size}</td>
-                      <td style={{ padding: "3px 14px", textAlign: "right" }}>
-                        <CostCell value={r.required} onChange={val => onSizeChange(r.size, "required", val)} disabled={disabled} width="64px" />
-                      </td>
-                      <td style={{ padding: "3px 14px", textAlign: "right" }}>
-                        <CostCell value={r.counted} onChange={val => onSizeChange(r.size, "counted", val)} disabled={disabled} width="64px" />
-                      </td>
-                      <td style={{ padding: "3px 0 3px 14px", textAlign: "right", fontWeight: 700, color: diffColor(diff) }}>
-                        {diffLabel(diff)}
-                      </td>
-                    </tr>
-                  );
-                })}
-                <tr style={{ borderTop: "1.5px solid var(--line-strong)" }}>
-                  <td style={{ padding: "5px 14px 0 0", fontWeight: 700 }}>Total</td>
-                  <td style={{ padding: "5px 14px 0", textAlign: "right", fontWeight: 700 }}>{totalRequired}</td>
-                  <td style={{ padding: "5px 14px 0", textAlign: "right", fontWeight: 700 }}>{totalCounted}</td>
-                  <td style={{ padding: "5px 0 0 14px", textAlign: "right", fontWeight: 700, color: diffColor(totalDiff) }}>{diffLabel(totalDiff)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ minWidth: 220 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
-              Damage (wash)
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-              {damageLog.length === 0 && <span style={{ fontSize: 12, color: "var(--ink-4)" }}>None logged</span>}
-              {damageLog.map((tag, i) => (
-                <span key={i} style={{
-                  display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12,
-                  padding: "3px 8px", borderRadius: 12, background: "var(--bg)", border: "1px solid var(--line)"
-                }}>
-                  {tag}
-                  {!disabled && (
-                    <button type="button" onClick={() => onRemoveDamage(i)}
-                      style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-4)", padding: 0, fontSize: 12, lineHeight: 1 }}>
-                      ✕
-                    </button>
-                  )}
-                </span>
-              ))}
-            </div>
-            {!disabled && (
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  type="text"
-                  value={tagInput}
-                  placeholder="e.g. W-3XL, damaged 2pcs L"
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); submitTag(); } }}
-                  className="kfin-input"
-                  style={{ fontSize: 12, padding: "5px 8px", flex: 1, minWidth: 140 }}
-                />
-                <button type="button" className="kinv-btn-ghost" onClick={submitTag}>Add</button>
-              </div>
-            )}
-          </div>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-/* ── Icons ─────────────────────────────────────────────── */
-function TrashIcon({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-      <path d="M10 11v6M14 11v6"/>
-    </svg>
-  );
-}
-
-function ChevronIcon({ size = 14, open }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-      <path d="M9 6l6 6-6 6"/>
-    </svg>
-  );
-}
-
-function SaveIcon({ size = 14 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-      <path d="M17 21v-8H7v8M7 3v5h8"/>
-    </svg>
-  );
-}
-
-/* ── Library Modals & Cards ──────────────────────────── */
-function LibraryModal({ tab, item, onClose, onSaved }) {
-  const isEdit = !!item;
-  const { region } = useRegion();
-  const fileInputRef = useRef(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState("");
-
-  const [form, setForm] = useState(() => {
-    if (!item) {
-      // A new record defaults to the region on screen. Editing one leaves its
-      // region exactly as saved, including "not set".
-      if (tab === "fabrics")   return { ...emptyFabric,  region };
-      if (tab === "processes") return { ...emptyProcess, region };
-      if (tab === "samples")   return { ...emptySample,  region };
-      return { ...emptyPattern, region };
-    }
-    return {
-      ...item,
-      available_colors: Array.isArray(item.available_colors) ? item.available_colors.join(", ") : (item.available_colors || ""),
-      sizes_available: item.sizes_available || [],
-      // Legacy tech packs stored a single image in tech_pack_url — it is migrated
-      // into the pages list on save, so keep this field for external links only.
-      ...(tab === "patterns" && isTechPackImageUrl(item.tech_pack_url) ? { tech_pack_url: "" } : {}),
-    };
-  });
-
-  const imageField = tab === "samples" ? "photo_url" : "tech_pack_url";
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(tab !== "patterns" && item?.[imageField] && (item[imageField].startsWith("data:image/") || item[imageField].includes(".jpg") || item[imageField].includes("techpacks") || item[imageField].includes("photos")) ? item[imageField] : "");
-  const [dragActive, setDragActive] = useState(false);
-
-  // Tech packs support multiple pages: already-saved URLs + newly picked files
-  const [packImages, setPackImages] = useState(() => (tab === "patterns" && item) ? getTechPackImages(item) : []);
-  const [packFiles, setPackFiles] = useState([]);
-  const [packPreviews, setPackPreviews] = useState([]);
-
-  const addFiles = (fileList) => {
-    const files = Array.from(fileList || []).filter(f => f.type.startsWith("image/"));
-    if (!files.length) return;
-    if (tab === "patterns") {
-      setPackFiles(prev => [...prev, ...files]);
-      setPackPreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
-    } else {
-      setImageFile(files[0]);
-      setImagePreview(URL.createObjectURL(files[0]));
-    }
-  };
-
-  const removePackFile = (idx) => {
-    setPackFiles(prev => prev.filter((_, i) => i !== idx));
-    setPackPreviews(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    addFiles(e.dataTransfer.files);
-  };
-
-  const handleFileChange = (e) => {
-    addFiles(e.target.files);
-    e.target.value = "";
-  };
-
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const toggleSize = (s) => set("sizes_available", form.sizes_available.includes(s)
-    ? form.sizes_available.filter(x => x !== s)
-    : [...form.sizes_available, s]
-  );
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.name.trim()) { setError("Name is required"); return; }
-    setSaving(true); setError("");
-    try {
-      const payload = { ...form };
-      delete payload.id;
-      delete payload.createdAt;
-      delete payload.updatedAt;
-      if (tab === "fabrics") {
-        payload.gsm             = form.gsm ? Number(form.gsm) : null;
-        payload.price_per_meter = form.price_per_meter ? Number(form.price_per_meter) : null;
-      }
-      if (tab === "processes") {
-        payload.cost_per_unit  = form.cost_per_unit  ? Number(form.cost_per_unit)  : null;
-        payload.min_quantity   = form.min_quantity   ? Number(form.min_quantity)   : null;
-        payload.lead_time_days = form.lead_time_days ? Number(form.lead_time_days) : null;
-      }
-      if (tab === "samples") {
-        payload.cost = form.cost ? Number(form.cost) : null;
-      }
-
-      async function uploadPackPages(docId) {
-        const urls = [];
-        for (let i = 0; i < packFiles.length; i++) {
-          const compressed = await compressFabricImage(packFiles[i]);
-          urls.push(await uploadPatternTechPack(docId, compressed, i));
-        }
-        return urls;
-      }
-
-      let docId = item?.id;
-      if (isEdit) {
-        if (tab === "patterns") {
-          const uploaded = packFiles.length ? await uploadPackPages(docId) : [];
-          payload.tech_pack_images = [...packImages, ...uploaded];
-        }
-        if (tab === "samples" && imageFile) {
-          const compressed = await compressFabricImage(imageFile);
-          payload[imageField] = await uploadSamplePhoto(docId, compressed);
-        }
-        await updateRow(tab, docId, { ...payload, updatedAt: new Date().toISOString() });
-        onSaved({ id: docId, ...payload });
-      } else {
-        const ref = await insertRow(tab, payload);
-        docId = ref.id;
-        if (tab === "patterns" && packFiles.length) {
-          const uploaded = await uploadPackPages(docId);
-          payload.tech_pack_images = uploaded;
-          await updateRow(tab, docId, { tech_pack_images: uploaded });
-        }
-        if (tab === "samples" && imageFile) {
-          const compressed = await compressFabricImage(imageFile);
-          const uploadedUrl = await uploadSamplePhoto(docId, compressed);
-          await updateRow(tab, docId, { [imageField]: uploadedUrl });
-          payload[imageField] = uploadedUrl;
-        }
-        onSaved({ id: docId, ...payload });
-      }
-    } catch (err) {
-      setError(err.message || "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kbrf-modal" style={{ maxWidth: 520 }}>
-        <div className="kbrf-modal-hd">
-          <div style={{ fontSize: 16, fontWeight: 700 }}>
-            {isEdit ? "Edit" : "Add"} {tab === "fabrics" ? "Fabric" : tab === "processes" ? "Process" : tab === "samples" ? "Sample" : "Tech Pack"}
-          </div>
-          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label className="kfin-label">Name *</label>
-            <input className="kfin-input" value={form.name ?? ""} onChange={e => set("name", e.target.value)} placeholder={tab === "fabrics" ? "e.g. 180 GSM Cotton Jersey" : tab === "processes" ? "e.g. DTG Printing" : tab === "samples" ? "e.g. Oversized Hoodie v2" : "e.g. Oversized Tee"} />
-          </div>
-
-          {tab === "patterns" ? (
-            <div>
-              <label className="kfin-label">Market</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                {["UK", "Nepal"].map(m => (
-                  <button key={m} type="button"
-                    onClick={() => set("market", form.market === m ? "" : m)}
-                    style={{
-                      padding: "6px 14px", borderRadius: 8, fontSize: 13, border: "1.5px solid",
-                      borderColor: form.market === m ? "var(--mint-deep)" : "var(--line)",
-                      background: form.market === m ? "var(--mint-soft)" : "transparent",
-                      color: form.market === m ? "var(--mint-deep)" : "var(--ink-3)",
-                      cursor: "pointer",
-                    }}>
-                    {m}
-                  </button>
-                ))}
-              </div>
-              <span className="kfield-hint">
-                Decides which side of the UK / Nepal switch this tech pack appears under.
-                Leave it unset and it shows under both.
-              </span>
-            </div>
-          ) : (
-            <div>
-              <label className="kfin-label">Region</label>
-              <RegionSelect className="kfin-input" value={form.region} onChange={v => set("region", v)} />
-            </div>
-          )}
-
-          {tab === "fabrics" && <>
-            <div className="krsp-2" style={{ gap: 12 }}>
-              <div>
-                <label className="kfin-label">Composition</label>
-                <input className="kfin-input" value={form.composition ?? ""} onChange={e => set("composition", e.target.value)} placeholder="100% Cotton" />
-              </div>
-              <div>
-                <label className="kfin-label">Weight (GSM)</label>
-                <input className="kfin-input" type="number" value={form.gsm ?? ""} onChange={e => set("gsm", e.target.value)} placeholder="180" />
-              </div>
-            </div>
-            <div>
-              <label className="kfin-label">Available Colors (comma-separated)</label>
-              <input className="kfin-input" value={form.available_colors ?? ""} onChange={e => set("available_colors", e.target.value)} placeholder="White, Black, Navy" />
-            </div>
-            <div className="krsp-2" style={{ gap: 12 }}>
-              <div>
-                <label className="kfin-label">Supplier</label>
-                <input className="kfin-input" value={form.supplier ?? ""} onChange={e => set("supplier", e.target.value)} />
-              </div>
-              <div>
-                <label className="kfin-label">Price/metre (NPR)</label>
-                <input className="kfin-input" type="number" value={form.price_per_meter ?? ""} onChange={e => set("price_per_meter", e.target.value)} placeholder="350" />
-              </div>
-            </div>
-          </>}
-
-          {tab === "processes" && <>
-            <div>
-              <label className="kfin-label">Category</label>
-              <select className="kfin-input" value={form.category ?? ""} onChange={e => set("category", e.target.value)}>
-                <option value="">Select category</option>
-                {PROCESS_CATEGORIES.map(c => <option key={c} value={c} style={{ textTransform: "capitalize" }}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="kfin-label">Description</label>
-              <textarea className="kfin-input" rows={2} value={form.description ?? ""} onChange={e => set("description", e.target.value)} style={{ resize: "vertical" }} />
-            </div>
-            <div className="krsp-3" style={{ gap: 10 }}>
-              <div>
-                <label className="kfin-label">Cost/unit (NPR)</label>
-                <input className="kfin-input" type="number" value={form.cost_per_unit ?? ""} onChange={e => set("cost_per_unit", e.target.value)} />
-              </div>
-              <div>
-                <label className="kfin-label">Min qty</label>
-                <input className="kfin-input" type="number" value={form.min_quantity ?? ""} onChange={e => set("min_quantity", e.target.value)} />
-              </div>
-              <div>
-                <label className="kfin-label">Lead time (days)</label>
-                <input className="kfin-input" type="number" value={form.lead_time_days ?? ""} onChange={e => set("lead_time_days", e.target.value)} />
-              </div>
-            </div>
-          </>}
-
-          {tab === "patterns" && <>
-            <div>
-              <label className="kfin-label">Product Type</label>
-              <input className="kfin-input" value={form.product_type ?? ""} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
-            </div>
-            <div>
-              <label className="kfin-label">Sizes Available</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                {COMMON_SIZES.map(s => (
-                  <button key={s} type="button"
-                    onClick={() => toggleSize(s)}
-                    style={{
-                      padding: "4px 10px", borderRadius: 6, fontSize: 12, border: "1.5px solid",
-                      borderColor: form.sizes_available.includes(s) ? "var(--mint-deep)" : "var(--line)",
-                      background: form.sizes_available.includes(s) ? "var(--mint-soft)" : "transparent",
-                      color: form.sizes_available.includes(s) ? "var(--mint-deep)" : "var(--ink-3)",
-                      cursor: "pointer",
-                    }}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="kfin-label">Tech Pack Pages</label>
-              <div
-                className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
-                onDragEnter={handleDrag}
-                onDragOver={handleDrag}
-                onDragLeave={handleDrag}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  border: "2px dashed var(--line)",
-                  borderRadius: 8,
-                  padding: "16px",
-                  textAlign: "center",
-                  background: "var(--bg)",
-                  cursor: "pointer",
-                  transition: "border-color .15s",
-                  marginTop: 6
-                }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--ink-4)", marginBottom: 4 }}>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                </svg>
-                <p style={{ margin: 0, fontSize: 12, fontWeight: 500, color: "var(--ink-2)" }}>
-                  Drag tech pack pages here or click to browse
-                </p>
-                <p style={{ margin: "2px 0 0 0", fontSize: 10, color: "var(--ink-4)" }}>
-                  Multiple pictures allowed — PNG, JPG, JPEG (automatic compression)
-                </p>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                style={{ display: "none" }}
-                accept="image/*"
-                multiple
-                onChange={handleFileChange}
-              />
-              {(packImages.length > 0 || packPreviews.length > 0) && (
-                <div className="ktp-page-thumbs">
-                  {packImages.map((url, i) => (
-                    <div key={`saved-${i}`} className="ktp-page-thumb">
-                      <img src={url} alt={`Page ${i + 1}`} />
-                      <span className="ktp-page-thumb-num">{i + 1}</span>
-                      <button type="button" className="ktp-page-thumb-x" title="Remove page"
-                        onClick={() => setPackImages(prev => prev.filter((_, x) => x !== i))}>✕</button>
-                    </div>
-                  ))}
-                  {packPreviews.map((url, i) => (
-                    <div key={`new-${i}`} className="ktp-page-thumb ktp-page-thumb--new">
-                      <img src={url} alt={`New page ${i + 1}`} />
-                      <span className="ktp-page-thumb-num">{packImages.length + i + 1}</span>
-                      <button type="button" className="ktp-page-thumb-x" title="Remove page"
-                        onClick={() => removePackFile(i)}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="kfin-label">External Link (optional — Drive, PDF, etc.)</label>
-              <input className="kfin-input" value={form.tech_pack_url ?? ""} onChange={e => set("tech_pack_url", e.target.value)} placeholder="https://…" />
-            </div>
-          </>}
-
-          {tab === "samples" && <>
-            <div className="krsp-2" style={{ gap: 12 }}>
-              <div>
-                <label className="kfin-label">Product Type</label>
-                <input className="kfin-input" value={form.product_type ?? ""} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie…" />
-              </div>
-              <div>
-                <label className="kfin-label">Fabric Used</label>
-                <input className="kfin-input" value={form.fabric_used ?? ""} onChange={e => set("fabric_used", e.target.value)} placeholder="e.g. 180 GSM Cotton Jersey" />
-              </div>
-            </div>
-            <div className="krsp-2" style={{ gap: 12 }}>
-              <div>
-                <label className="kfin-label">Sample Stage</label>
-                <select className="kfin-input" value={form.stage ?? "Proto"} onChange={e => set("stage", e.target.value)}>
-                  {SAMPLE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="kfin-label">Status</label>
-                <select className="kfin-input" value={form.status ?? "Pending"} onChange={e => set("status", e.target.value)}>
-                  {SAMPLE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="krsp-2" style={{ gap: 12 }}>
-              <div>
-                <label className="kfin-label">Size</label>
-                <select className="kfin-input" value={form.size ?? ""} onChange={e => set("size", e.target.value)}>
-                  <option value="">Select size</option>
-                  {COMMON_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="kfin-label">Color</label>
-                <input className="kfin-input" value={form.color ?? ""} onChange={e => set("color", e.target.value)} placeholder="e.g. Navy" />
-              </div>
-            </div>
-            <div>
-              <label className="kfin-label">Sample Cost (NPR)</label>
-              <input className="kfin-input" type="number" value={form.cost ?? ""} onChange={e => set("cost", e.target.value)} placeholder="0" />
-            </div>
-            <div>
-              <label className="kfin-label">Sample Photo</label>
-              <div
-                className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
-                onDragEnter={handleDrag}
-                onDragOver={handleDrag}
-                onDragLeave={handleDrag}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  border: "2px dashed var(--line)",
-                  borderRadius: 8,
-                  padding: "16px",
-                  textAlign: "center",
-                  background: "var(--bg)",
-                  cursor: "pointer",
-                  transition: "border-color .15s",
-                  marginTop: 6
-                }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "var(--ink-4)", marginBottom: 4 }}>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                </svg>
-                <p style={{ margin: 0, fontSize: 12, fontWeight: 500, color: "var(--ink-2)" }}>
-                  Drag sample picture here or click to browse
-                </p>
-                <p style={{ margin: "2px 0 0 0", fontSize: 10, color: "var(--ink-4)" }}>
-                  PNG, JPG, JPEG (automatic compression)
-                </p>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                style={{ display: "none" }}
-                accept="image/*"
-                onChange={handleFileChange}
-              />
-              {imagePreview && (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
-                  <img src={imagePreview} alt="Preview" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: "1px solid var(--line)" }} />
-                  <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Selected Sample Photo</span>
-                </div>
-              )}
-            </div>
-          </>}
-
-          <div>
-            <label className="kfin-label">Notes</label>
-            <textarea className="kfin-input" rows={2} value={form.notes ?? ""} onChange={e => set("notes", e.target.value)} style={{ resize: "vertical" }} />
-          </div>
-
-          {error && <p style={{ color: "var(--terra)", fontSize: 13 }}>{error}</p>}
-
-          <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
-            <button type="submit" className="primary-button" disabled={saving} style={{ flex: 1 }}>
-              {saving ? "Saving…" : isEdit ? "Save Changes" : "Add"}
-            </button>
-            <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ── Sketch upload slot (Front / Back) ─────────────────── */
-function SketchUpload({ label, previewUrl, onFile, disabled }) {
-  const fileInputRef = useRef(null);
-  const [dragActive, setDragActive] = useState(false);
-
-  const handleDrag = (e) => {
-    e.preventDefault(); e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
-    else if (e.type === "dragleave") setDragActive(false);
-  };
-  const handleDrop = (e) => {
-    e.preventDefault(); e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files?.[0]) onFile(e.dataTransfer.files[0]);
-  };
-
-  return (
-    <div>
-      <label className="kfin-label">{label}</label>
-      <div
-        className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
-        onDragEnter={disabled ? undefined : handleDrag}
-        onDragOver={disabled ? undefined : handleDrag}
-        onDragLeave={disabled ? undefined : handleDrag}
-        onDrop={disabled ? undefined : handleDrop}
-        onClick={disabled ? undefined : () => fileInputRef.current?.click()}
-        style={{ minHeight: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, cursor: disabled ? "default" : "pointer" }}
-      >
-        {previewUrl ? (
-          <img src={previewUrl} alt={label} style={{ maxHeight: 130, maxWidth: "100%", objectFit: "contain" }} />
-        ) : (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--ink-4)" }}>{disabled ? "No sketch" : "Click or drag to upload"}</p>
-        )}
-      </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        style={{ display: "none" }}
-        accept="image/*"
-        onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = ""; }}
-      />
-    </div>
-  );
-}
-
-/* ── Garment Specification Sheet — create/edit ─────────── */
-function TechPackSpecModal({ item, fabrics, patterns, onClose, onSaved }) {
-  const isEdit = !!item;
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const [form, setForm] = useState(() => isEdit
-    ? { ...emptyTechPackSpec, ...item }
-    : { ...emptyTechPackSpec, styleNo: nextStyleCode(patterns || []), specDate: new Date().toISOString().slice(0, 10) }
-  );
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const [measurements, setMeasurements] = useState(() => (isEdit && Array.isArray(item.measurements)) ? item.measurements : []);
-  const [fabricRows, setFabricRows] = useState(() => (isEdit && Array.isArray(item.fabricRows) && item.fabricRows.length) ? item.fabricRows : [{ fabricName: "", description: "" }]);
-
-  const [frontSketchFile, setFrontSketchFile] = useState(null);
-  const [frontSketchPreview, setFrontSketchPreview] = useState(item?.frontSketchUrl || "");
-  const [backSketchFile, setBackSketchFile] = useState(null);
-  const [backSketchPreview, setBackSketchPreview] = useState(item?.backSketchUrl || "");
-
-  // Legacy scanned/photographed tech pack pages — kept alongside the structured
-  // fields so older photo-only tech packs don't lose their pages.
-  const [packImages, setPackImages] = useState(() => isEdit ? getTechPackImages(item) : []);
-  const [packFiles, setPackFiles] = useState([]);
-  const [packPreviews, setPackPreviews] = useState([]);
-  const packInputRef = useRef(null);
-
-  function addMeasurementRow() {
-    setMeasurements(m => [...m, { label: "", inch: "" }]);
-  }
-  function updateMeasurementRow(idx, field, val) {
-    setMeasurements(m => m.map((r, i) => i === idx ? { ...r, [field]: val } : r));
-  }
-  function removeMeasurementRow(idx) {
-    setMeasurements(m => m.filter((_, i) => i !== idx));
-  }
-
-  function addFabricRow() {
-    if (fabricRows.length >= 3) return;
-    setFabricRows(r => [...r, { fabricName: "", description: "" }]);
-  }
-  function updateFabricRow(idx, field, val) {
-    setFabricRows(rows => rows.map((r, i) => {
-      if (i !== idx) return r;
-      const next = { ...r, [field]: val };
-      if (field === "fabricName") {
-        const match = findFabricInLibrary(fabrics, val);
-        if (match && !r.description) {
-          const parts = [match.composition, match.gsm ? `${match.gsm} GSM` : ""].filter(Boolean);
-          next.description = parts.join(", ");
-        }
-      }
-      return next;
-    }));
-  }
-  function removeFabricRow(idx) {
-    setFabricRows(rows => rows.filter((_, i) => i !== idx));
-  }
-
-  function addPackFiles(fileList) {
-    const files = Array.from(fileList || []).filter(f => f.type.startsWith("image/"));
-    if (!files.length) return;
-    setPackFiles(prev => [...prev, ...files]);
-    setPackPreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
-  }
-  function removePackFile(idx) {
-    setPackFiles(prev => prev.filter((_, i) => i !== idx));
-    setPackPreviews(prev => prev.filter((_, i) => i !== idx));
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.name.trim()) { setError("Description of Garment is required"); return; }
-    setSaving(true); setError("");
-    try {
-      const payload = {
-        styleNo:      form.styleNo,
-        market:       form.market,
-        category:     form.category,
-        specDate:     form.specDate,
-        specSize:     form.specSize,
-        season:       form.season,
-        designerName: form.designerName,
-        name:         form.name,
-        product_type: form.product_type,
-        measurements: measurements.filter(r => r.label.trim() !== ""),
-        washCare:     form.washCare,
-        fabricRows:   fabricRows.filter(r => r.fabricName.trim() !== "" || r.description.trim() !== ""),
-        trims:        form.trims,
-        remarks:      form.remarks,
-        sizes_available: form.sizes_available,
-        notes:        form.notes
-      };
-
-      let docId = item?.id;
-      if (!isEdit) {
-        const ref = await insertRow("patterns", { ...payload, frontSketchUrl: "", backSketchUrl: "", tech_pack_images: [] });
-        docId = ref.id;
-      }
-
-      if (frontSketchFile) payload.frontSketchUrl = await uploadPatternSketch(docId, await compressFabricImage(frontSketchFile), "front");
-      else payload.frontSketchUrl = form.frontSketchUrl || "";
-
-      if (backSketchFile) payload.backSketchUrl = await uploadPatternSketch(docId, await compressFabricImage(backSketchFile), "back");
-      else payload.backSketchUrl = form.backSketchUrl || "";
-
-      if (packFiles.length) {
-        const uploaded = [];
-        for (let i = 0; i < packFiles.length; i++) {
-          const compressed = await compressFabricImage(packFiles[i]);
-          uploaded.push(await uploadPatternTechPack(docId, compressed, i));
-        }
-        payload.tech_pack_images = [...packImages, ...uploaded];
-      } else {
-        payload.tech_pack_images = packImages;
-      }
-
-      await updateRow("patterns", docId, { ...payload, updatedAt: new Date().toISOString() });
-      onSaved({ id: docId, ...payload });
-    } catch (err) {
-      setError(err.message || "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kbrf-modal" style={{ maxWidth: 760 }}>
-        <div className="kbrf-modal-hd">
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{isEdit ? "Edit" : "New"} Garment Specification Sheet</div>
-          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 16, maxHeight: "78vh", overflowY: "auto" }}>
-          {error && <p style={{ color: "var(--terra)", fontSize: 13, margin: 0 }}>{error}</p>}
-
-          {/* Header block */}
-          <div className="krsp-2" style={{ gap: 12 }}>
-            <div>
-              <label className="kfin-label">Style No.</label>
-              <input className="kfin-input" value={form.styleNo} onChange={e => set("styleNo", e.target.value)} placeholder="#KAZI000" />
-            </div>
-            <div>
-              <label className="kfin-label">Date</label>
-              <input className="kfin-input" type="date" value={form.specDate} onChange={e => set("specDate", e.target.value)} />
-            </div>
-          </div>
-
-          <div className="krsp-2" style={{ gap: 12 }}>
-            <div>
-              <label className="kfin-label">Category</label>
-              <select className="kfin-input" value={form.category} onChange={e => set("category", e.target.value)}>
-                {GARMENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="kfin-label">Size</label>
-              <input className="kfin-input" value={form.specSize} onChange={e => set("specSize", e.target.value)} placeholder="e.g. Medium, Extra Large (XL)" />
-            </div>
-          </div>
-
-          <div className="krsp-2" style={{ gap: 12 }}>
-            <div>
-              <label className="kfin-label">Season</label>
-              <input className="kfin-input" list="kinv-season-options" value={form.season} onChange={e => set("season", e.target.value)} placeholder="e.g. Spring-Summer" />
-              <datalist id="kinv-season-options">
-                {SEASONS.map(s => <option key={s} value={s} />)}
-              </datalist>
-            </div>
-            <div>
-              <label className="kfin-label">Designer's Name</label>
-              <input className="kfin-input" value={form.designerName} onChange={e => set("designerName", e.target.value)} />
-            </div>
-          </div>
-
-          <div>
-            <label className="kfin-label">Market</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              {["UK", "Nepal"].map(m => (
-                <button key={m} type="button"
-                  onClick={() => set("market", form.market === m ? "" : m)}
-                  style={{
-                    padding: "6px 14px", borderRadius: 8, fontSize: 13, border: "1.5px solid",
-                    borderColor: form.market === m ? "var(--mint-deep)" : "var(--line)",
-                    background: form.market === m ? "var(--mint-soft)" : "transparent",
-                    color: form.market === m ? "var(--mint-deep)" : "var(--ink-3)",
-                    cursor: "pointer"
-                  }}>
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="kfin-label">Description of Garment *</label>
-            <input className="kfin-input" value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Men Tailored Tank Top" required />
-          </div>
-
-          <div>
-            <label className="kfin-label">Product Type</label>
-            <input className="kfin-input" value={form.product_type} onChange={e => set("product_type", e.target.value)} placeholder="T-Shirt, Hoodie, Kurthi…" />
-          </div>
-
-          {/* Measurements */}
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <label className="kfin-label" style={{ margin: 0 }}>Measurements (Inch)</label>
-              <button type="button" className="kinv-btn-ghost" onClick={addMeasurementRow}>+ Add Point</button>
-            </div>
-            {measurements.length === 0 && <p style={{ fontSize: 12, color: "var(--ink-4)", margin: "4px 0" }}>No measurement points yet.</p>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {measurements.map((r, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: "var(--ink-4)", width: 18 }}>{i + 1}</span>
-                  <input className="kfin-input" style={{ flex: 2 }} value={r.label} placeholder="e.g. Full length"
-                    onChange={e => updateMeasurementRow(i, "label", e.target.value)} />
-                  <input className="kfin-input" style={{ flex: 1 }} value={r.inch} placeholder="Inch"
-                    onChange={e => updateMeasurementRow(i, "inch", e.target.value)} />
-                  <button type="button" className="kinv-btn-del" onClick={() => removeMeasurementRow(i)} title="Remove"><TrashIcon size={13} /></button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Sketches */}
-          <div className="krsp-2" style={{ gap: 12 }}>
-            <SketchUpload label="Front Sketch" previewUrl={frontSketchPreview}
-              onFile={f => { setFrontSketchFile(f); setFrontSketchPreview(URL.createObjectURL(f)); }} />
-            <SketchUpload label="Back Sketch" previewUrl={backSketchPreview}
-              onFile={f => { setBackSketchFile(f); setBackSketchPreview(URL.createObjectURL(f)); }} />
-          </div>
-
-          <div>
-            <label className="kfin-label">Wash Care Instructions</label>
-            <input className="kfin-input" value={form.washCare} onChange={e => set("washCare", e.target.value)} placeholder="e.g. Machine Wash, Line Dry, Iron medium, do not bleach" />
-          </div>
-
-          {/* Fabrics/linings */}
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <label className="kfin-label" style={{ margin: 0 }}>Fabrics / Linings</label>
-              {fabricRows.length < 3 && (
-                <button type="button" className="kinv-btn-ghost" onClick={addFabricRow}>+ Add Fabric</button>
-              )}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {fabricRows.map((r, i) => {
-                const match = findFabricInLibrary(fabrics, r.fabricName);
-                return (
-                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 8, padding: 8 }}>
-                    {match?.swatchImageUrl && (
-                      <img src={match.swatchImageUrl} alt={r.fabricName} style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 4, border: "1px solid var(--line)" }} />
-                    )}
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <input className="kfin-input" list="kinv-fabric-names" value={r.fabricName} placeholder={`Fabric ${i + 1} name`}
-                        onChange={e => updateFabricRow(i, "fabricName", e.target.value)} />
-                      <input className="kfin-input" value={r.description} placeholder="Description (composition, construction, GSM)"
-                        onChange={e => updateFabricRow(i, "description", e.target.value)} />
-                    </div>
-                    {fabricRows.length > 1 && (
-                      <button type="button" className="kinv-btn-del" onClick={() => removeFabricRow(i)} title="Remove fabric"><TrashIcon size={13} /></button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="kfin-label">Trims and Accessories</label>
-            <textarea className="kfin-input" rows={2} value={form.trims} onChange={e => set("trims", e.target.value)} style={{ resize: "vertical" }} placeholder="e.g. 0.5inch placket bias, white thread" />
-          </div>
-
-          <div>
-            <label className="kfin-label">Remarks</label>
-            <textarea className="kfin-input" rows={2} value={form.remarks} onChange={e => set("remarks", e.target.value)} style={{ resize: "vertical" }} placeholder="Construction notes" />
-          </div>
-
-          {/* Legacy scanned pages */}
-          <div>
-            <label className="kfin-label">Scanned Pages (optional — for photographed/legacy tech packs)</label>
-            <div
-              className="kazi-dropzone"
-              onClick={() => packInputRef.current?.click()}
-              style={{ padding: 12 }}
-            >
-              <p style={{ margin: 0, fontSize: 12, color: "var(--ink-4)" }}>Click to attach photos of a physical tech pack, if you have one</p>
-            </div>
-            <input ref={packInputRef} type="file" style={{ display: "none" }} accept="image/*" multiple
-              onChange={e => { addPackFiles(e.target.files); e.target.value = ""; }} />
-            {(packImages.length > 0 || packPreviews.length > 0) && (
-              <div className="ktp-page-thumbs">
-                {packImages.map((url, i) => (
-                  <div key={`saved-${i}`} className="ktp-page-thumb">
-                    <img src={url} alt={`Page ${i + 1}`} />
-                    <button type="button" className="ktp-page-thumb-x" title="Remove page"
-                      onClick={() => setPackImages(prev => prev.filter((_, x) => x !== i))}>✕</button>
-                  </div>
-                ))}
-                {packPreviews.map((url, i) => (
-                  <div key={`new-${i}`} className="ktp-page-thumb ktp-page-thumb--new">
-                    <img src={url} alt={`New page ${i + 1}`} />
-                    <button type="button" className="ktp-page-thumb-x" title="Remove page"
-                      onClick={() => removePackFile(i)}>✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
-            <button type="submit" className="primary-button" disabled={saving} style={{ flex: 1 }}>
-              {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Spec Sheet"}
-            </button>
-            <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ── Garment Specification Sheet — formatted read/print view ── */
-function TechPackSpecPreview({ item, onClose, onEdit }) {
-  const measurements = Array.isArray(item.measurements) ? item.measurements : [];
-  const fabricRows = Array.isArray(item.fabricRows) ? item.fabricRows.filter(r => r.fabricName || r.description) : [];
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kbrf-modal" style={{ maxWidth: 820 }}>
-        <div className="kbrf-modal-hd kinv-no-print">
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Garment Specification Sheet</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="ghost-button" onClick={() => window.print()}>Print</button>
-            {onEdit && <button type="button" className="ghost-button" onClick={onEdit}>Edit</button>}
-            <button className="kbrf-modal-close" onClick={onClose}>✕</button>
-          </div>
-        </div>
-
-        <div id="kinv-spec-print-area" style={{ padding: "20px 24px 24px", maxHeight: "78vh", overflowY: "auto", fontSize: 13 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", border: "1.5px solid #000" }}>
-            <tbody>
-              <tr>
-                <td style={specLabelStyle}>Style No.</td>
-                <td style={specValStyle}>{item.styleNo || "—"}</td>
-                <td style={specLabelStyle}>Date</td>
-                <td style={specValStyle}>{item.specDate || "—"}</td>
-              </tr>
-              <tr>
-                <td style={specLabelStyle}>Category</td>
-                <td style={specValStyle}>{item.category || "—"}</td>
-                <td style={specLabelStyle}>Size</td>
-                <td style={specValStyle}>{item.specSize || "—"}</td>
-              </tr>
-              <tr>
-                <td style={specLabelStyle}>Season</td>
-                <td style={specValStyle}>{item.season || "—"}</td>
-                <td style={specLabelStyle}>Designer's Name</td>
-                <td style={specValStyle}>{item.designerName || "—"}</td>
-              </tr>
-              <tr>
-                <td style={specLabelStyle}>Description of Garment</td>
-                <td colSpan={3} style={specValStyle}>
-                  {item.name}
-                  {item.market && <span style={{ marginLeft: 10, fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--mint-soft)", color: "var(--mint-deep)" }}>{item.market}</span>}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", border: "1.5px solid #000", borderTop: "none" }}>
-            <tbody>
-              <tr>
-                <td style={{ ...specLabelStyle, verticalAlign: "top", width: "30%" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr>
-                        <th style={specGridHead}>S.No</th>
-                        <th style={specGridHead}>Measurement</th>
-                        <th style={specGridHead}>Inch</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {measurements.length === 0 && (
-                        <tr><td colSpan={3} style={{ ...specGridCell, textAlign: "center", color: "var(--ink-4)" }}>No points entered</td></tr>
-                      )}
-                      {measurements.map((r, i) => (
-                        <tr key={i}>
-                          <td style={specGridCell}>{i + 1}</td>
-                          <td style={specGridCell}>{r.label}</td>
-                          <td style={specGridCell}>{r.inch}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </td>
-                <td style={{ ...specValStyle, width: "70%", textAlign: "center" }}>
-                  <div style={{ display: "flex", justifyContent: "space-around", gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Front</div>
-                      {item.frontSketchUrl
-                        ? <img src={item.frontSketchUrl} alt="Front" style={{ maxWidth: "100%", maxHeight: 220 }} />
-                        : <div style={{ color: "var(--ink-4)", fontSize: 12 }}>No sketch</div>}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Back</div>
-                      {item.backSketchUrl
-                        ? <img src={item.backSketchUrl} alt="Back" style={{ maxWidth: "100%", maxHeight: 220 }} />
-                        : <div style={{ color: "var(--ink-4)", fontSize: 12 }}>No sketch</div>}
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", border: "1.5px solid #000", borderTop: "none" }}>
-            <tbody>
-              <tr>
-                <td style={specLabelStyle}>Wash Care Instructions</td>
-                <td style={specValStyle}>{item.washCare || "—"}</td>
-              </tr>
-              <tr>
-                <td style={{ ...specLabelStyle, verticalAlign: "top" }}>Fabrics / Linings</td>
-                <td style={specValStyle}>
-                  {fabricRows.length === 0 && "—"}
-                  {fabricRows.map((r, i) => (
-                    <div key={i} style={{ marginBottom: i < fabricRows.length - 1 ? 8 : 0 }}>
-                      <strong>{r.fabricName || `Fabric ${i + 1}`}:</strong> {r.description || "—"}
-                    </div>
-                  ))}
-                </td>
-              </tr>
-              <tr>
-                <td style={specLabelStyle}>Trims and Accessories</td>
-                <td style={specValStyle}>{item.trims || "—"}</td>
-              </tr>
-              <tr>
-                <td style={specLabelStyle}>Remarks</td>
-                <td style={specValStyle}>{item.remarks || "—"}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const specLabelStyle = { border: "1px solid #000", padding: "6px 8px", fontWeight: 700, background: "#f4f4f4", width: "20%" };
-const specValStyle = { border: "1px solid #000", padding: "6px 8px" };
-const specGridHead = { border: "1px solid #000", padding: "3px 6px", fontSize: 11, background: "#f4f4f4" };
-const specGridCell = { border: "1px solid #000", padding: "3px 6px", fontSize: 12 };
-
-/* A price on a library card (₨/kg, ₨/unit, a sample's cost). In rupees it reads "₨ 450"
-   exactly as it always has. In any other currency it keeps the pence — the headline `fmt` rounds to
-   whole units, which would turn a ₨15 process into "£0/unit". `cur` is useCurrency(). */
-function priceText({ currency, fmt: fmtC, money }, npr) {
-  return currency !== "NPR" ? money(npr) : fmtC(npr);
-}
-
-function FabricCard({ item, onClick }) {
-  const cur = useCurrency();
-  const initials = item.name
-    ? item.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
-    : "?";
-  
-  let statusClass = "kazi-status-dot--instock";
-  if (item.status === "Low Stock") statusClass = "kazi-status-dot--lowstock";
-  if (item.status === "Out of Stock") statusClass = "kazi-status-dot--outofstock";
-
-  return (
-    <div className="kazi-fabric-card fade-in" onClick={onClick}>
-      <div className="kazi-fabric-frame">
-        {item.swatchImageUrl ? (
-          <img src={item.swatchImageUrl} alt={item.name} className="kazi-fabric-img" loading="lazy" />
-        ) : (
-          <div className="kazi-fabric-placeholder">
-            <span className="kazi-fabric-placeholder-initials">{initials}</span>
-            <span className="kazi-fabric-placeholder-gsm">{item.gsm ? `${item.gsm} GSM` : "— GSM"}</span>
-          </div>
-        )}
-      </div>
-      <div className="kazi-fabric-body">
-        <h4 className="kazi-fabric-name">{item.name}</h4>
-        <p className="kazi-fabric-comp">{item.composition || "No composition specified"}</p>
-        <div className="kazi-fabric-meta" style={{ flexWrap: "wrap", gap: 6 }}>
-          <Pill tone={item.gsm ? "mint" : "neutral"}>
-            {item.gsm ? `${item.gsm} GSM` : "— GSM"}
-          </Pill>
-          {item.weight && (
-            <Pill tone="blue">
-              {item.weight}
-            </Pill>
-          )}
-          {item.pricePerKg != null && (
-            <Pill tone="neutral">
-              {priceText(cur, item.pricePerKg)}/kg
-            </Pill>
-          )}
-          <span className="kazi-status-dot-wrap">
-            <span className={cn("kazi-status-dot", statusClass)} />
-            {item.status || "In Stock"}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FabricDrawer({ item, onClose, onSaved, onDelete, canEdit }) {
-  const fileInputRef = useRef(null);
-  const [name, setName] = useState(item.name || "");
-  const [gsm, setGsm] = useState(item.gsm !== null && item.gsm !== undefined ? String(item.gsm) : "");
-  const [weight, setWeight] = useState(item.weight || "");
-  const [composition, setComposition] = useState(item.composition || "");
-  const [status, setStatus] = useState(item.status || "In Stock");
-  const [pricePerKg, setPricePerKg] = useState(item.pricePerKg !== null && item.pricePerKg !== undefined ? String(item.pricePerKg) : "");
-  const [region, setRegion] = useState(item.region || "");
-  const [swatchImageUrl, setSwatchImageUrl] = useState(item.swatchImageUrl || "");
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
-  const [dragActive, setDragActive] = useState(false);
-
-  const initials = item.name
-    ? item.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
-    : "?";
-
-  async function handleFile(file) {
-    if (!file) return;
-    setError("");
-    setUploading(true);
-    try {
-      const compressed = await compressFabricImage(file);
-      const url = await uploadFabricSwatch(item.id, compressed);
-      setSwatchImageUrl(url);
-      await updateRow("fabrics", item.id, {
-        swatchImageUrl: url,
-        updatedAt: new Date().toISOString()
-      });
-      onSaved({ id: item.id, name, gsm: gsm === "" ? null : Number(gsm), weight, composition, status, pricePerKg: pricePerKg === "" ? null : Number(pricePerKg), swatchImageUrl: url }, false);
-    } catch (err) {
-      setError("Failed to upload image: " + err.message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  async function handleSave(e) {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError("Fabric name is required");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const parsedGsm = gsm === "" ? null : Number(gsm);
-      const payload = {
-        name,
-        gsm: parsedGsm,
-        weight,
-        composition,
-        status,
-        pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
-        region: region || null,
-        swatchImageUrl,
-        updatedAt: new Date().toISOString()
-      };
-      await updateRow("fabrics", item.id, payload);
-      onSaved({ id: item.id, ...payload });
-    } catch (err) {
-      setError("Failed to update fabric: " + err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDeleteClick() {
-    if (!window.confirm(`Are you sure you want to delete "${item.name}"?`)) return;
-    setDeleting(true);
-    setError("");
-    try {
-      await deleteRow("fabrics", item.id);
-      onDelete(item.id);
-    } catch (err) {
-      setError("Failed to delete fabric: " + err.message);
-      setDeleting(false);
-    }
-  }
-
-  return (
-    <div className="kazi-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kazi-sheet">
-        <div className="kazi-sheet-hd">
-          <h3 className="kazi-sheet-title">Fabric Inspection</h3>
-          <button className="kazi-sheet-close" onClick={onClose}>✕</button>
-        </div>
-        
-        <div className="kazi-sheet-content">
-          <div className="kazi-sheet-macro-frame">
-            {swatchImageUrl ? (
-              <img src={swatchImageUrl} alt={name} className="kazi-sheet-macro-img" />
-            ) : (
-              <div className="kazi-sheet-macro-placeholder">
-                <span>{initials}</span>
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handleSave} className="kazi-sheet-form">
-            {error && <p style={{ color: "var(--terra)", fontSize: 13, margin: 0 }}>{error}</p>}
-
-            <div>
-              <label className="kfin-label">Fabric Name *</label>
-              <input
-                className="kfin-input"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                disabled={!canEdit || saving || deleting}
-                required
-              />
-            </div>
-
-            <div className="krsp-3" style={{ gap: 12 }}>
-              <div>
-                <label className="kfin-label">Weight (GSM)</label>
-                <input
-                  className="kfin-input"
-                  type="number"
-                  value={gsm}
-                  onChange={e => setGsm(e.target.value)}
-                  placeholder="e.g. 240 (optional)"
-                  disabled={!canEdit || saving || deleting}
-                />
-              </div>
-              <div>
-                <label className="kfin-label">Fabric Weight</label>
-                <input
-                  className="kfin-input"
-                  type="text"
-                  value={weight}
-                  onChange={e => setWeight(e.target.value)}
-                  placeholder="e.g. 1.2 kg / roll"
-                  disabled={!canEdit || saving || deleting}
-                />
-              </div>
-              <div>
-                <label className="kfin-label">Status</label>
-                <select
-                  className="kfin-input"
-                  value={status}
-                  onChange={e => setStatus(e.target.value)}
-                  disabled={!canEdit || saving || deleting}
-                >
-                  <option value="In Stock">In Stock</option>
-                  <option value="Low Stock">Low Stock</option>
-                  <option value="Out of Stock">Out of Stock</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="kfin-label">Region</label>
-              <RegionSelect
-                className="kfin-input"
-                value={region}
-                onChange={setRegion}
-                disabled={!canEdit || saving || deleting}
-              />
-            </div>
-
-            <div>
-              <label className="kfin-label">Composition</label>
-              <input
-                className="kfin-input"
-                value={composition}
-                onChange={e => setComposition(e.target.value)}
-                placeholder="e.g. 100% Cotton, Woolen"
-                disabled={!canEdit || saving || deleting}
-              />
-            </div>
-
-            <div>
-              <label className="kfin-label">Price per KG (NPR)</label>
-              <input
-                className="kfin-input"
-                type="number"
-                value={pricePerKg}
-                onChange={e => setPricePerKg(e.target.value)}
-                placeholder="e.g. 1150 (per 1000g)"
-                disabled={!canEdit || saving || deleting}
-              />
-            </div>
-
-            {canEdit && (
-              <div>
-                <label className="kfin-label">Update Swatch Photo</label>
-                <div
-                  className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
-                  onDragEnter={handleDrag}
-                  onDragOver={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="kazi-dropzone-icon">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                  </svg>
-                  <p className="kazi-dropzone-text">
-                    {uploading ? "Uploading Swatch..." : "Drag swatch photo here or click to browse"}
-                  </p>
-                  <p className="kazi-dropzone-hint">PNG, JPG, JPEG (automatic compression)</p>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  style={{ display: "none" }}
-                  accept="image/*"
-                  onChange={e => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleFile(e.target.files[0]);
-                    }
-                  }}
-                />
-              </div>
-            )}
-
-            {canEdit && (
-              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                <button type="submit" className="primary-button" style={{ flex: 1 }} disabled={saving || deleting || uploading}>
-                  {saving ? (
-                    <>
-                      <span className="kazi-spinner" style={{ marginRight: 6 }} />
-                      Saving...
-                    </>
-                  ) : "Save Changes"}
-                </button>
-                <button type="button" className="ghost-button" style={{ color: "var(--terra)" }} onClick={handleDeleteClick} disabled={saving || deleting || uploading}>
-                  {deleting ? "Deleting..." : "Delete"}
-                </button>
-              </div>
-            )}
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AddFabricModal({ onClose, onSaved }) {
-  const { region: activeRegion } = useRegion();
-  const fileInputRef = useRef(null);
-  const [region, setRegion] = useState(activeRegion);
-  const [name, setName] = useState("");
-  const [gsm, setGsm] = useState("");
-  const [weight, setWeight] = useState("");
-  const [composition, setComposition] = useState("");
-  const [status, setStatus] = useState("In Stock");
-  const [pricePerKg, setPricePerKg] = useState("");
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [dragActive, setDragActive] = useState(false);
-
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    }
-  };
-
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    }
-  };
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError("Fabric name is required");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const parsedGsm = gsm === "" ? null : Number(gsm);
-
-      const tempPayload = {
-        name,
-        gsm: parsedGsm,
-        weight,
-        composition,
-        status,
-        pricePerKg: pricePerKg === "" ? null : Number(pricePerKg),
-        swatchImageUrl: "",
-        region: region || null,
-      };
-      
-      const docRef = await insertRow("fabrics", tempPayload);
-      const fabricId = docRef.id;
-
-      let finalUrl = "";
-      if (imageFile) {
-        const compressed = await compressFabricImage(imageFile);
-        finalUrl = await uploadFabricSwatch(fabricId, compressed);
-        await updateRow("fabrics", fabricId, {
-          swatchImageUrl: finalUrl
-        });
-      }
-
-      onSaved({ id: fabricId, ...tempPayload, swatchImageUrl: finalUrl });
-    } catch (err) {
-      setError("Failed to create fabric: " + err.message);
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kbrf-modal" style={{ maxWidth: 520 }}>
-        <div className="kbrf-modal-hd">
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Add New Fabric</div>
-          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
-          {error && <p style={{ color: "var(--terra)", fontSize: 13, margin: 0 }}>{error}</p>}
-
-          <div>
-            <label className="kfin-label">Fabric Name *</label>
-            <input
-              className="kfin-input"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. SOS Cotton, 30s Sinker Nepali"
-              required
-              disabled={saving}
-            />
-          </div>
-
-          <div>
-            <label className="kfin-label">Region</label>
-            <RegionSelect value={region} onChange={setRegion} className="kfin-input" disabled={saving} />
-          </div>
-
-          <div className="krsp-3" style={{ gap: 12 }}>
-            <div>
-              <label className="kfin-label">Weight (GSM)</label>
-              <input
-                className="kfin-input"
-                type="number"
-                value={gsm}
-                onChange={e => setGsm(e.target.value)}
-                placeholder="e.g. 420"
-                disabled={saving}
-              />
-            </div>
-            <div>
-              <label className="kfin-label">Fabric Weight</label>
-              <input
-                className="kfin-input"
-                type="text"
-                value={weight}
-                onChange={e => setWeight(e.target.value)}
-                placeholder="e.g. 1.2 kg"
-                disabled={saving}
-              />
-            </div>
-            <div>
-              <label className="kfin-label">Status</label>
-              <select
-                className="kfin-input"
-                value={status}
-                onChange={e => setStatus(e.target.value)}
-                disabled={saving}
-              >
-                <option value="In Stock">In Stock</option>
-                <option value="Low Stock">Low Stock</option>
-                <option value="Out of Stock">Out of Stock</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="kfin-label">Composition</label>
-            <input
-              className="kfin-input"
-              value={composition}
-              onChange={e => setComposition(e.target.value)}
-              placeholder="e.g. 100% Cotton"
-              disabled={saving}
-            />
-          </div>
-
-          <div>
-            <label className="kfin-label">Price per KG (NPR)</label>
-            <input
-              className="kfin-input"
-              type="number"
-              value={pricePerKg}
-              onChange={e => setPricePerKg(e.target.value)}
-              placeholder="e.g. 1150 (per 1000g)"
-              disabled={saving}
-            />
-          </div>
-
-          <div>
-            <label className="kfin-label">Fabric Swatch Photo</label>
-            <div
-              className={cn("kazi-dropzone", dragActive && "kazi-dropzone--active")}
-              onDragEnter={handleDrag}
-              onDragOver={handleDrag}
-              onDragLeave={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="kazi-dropzone-icon">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-              </svg>
-              <p className="kazi-dropzone-text">Drag swatch photo here or click to browse</p>
-              <p className="kazi-dropzone-hint">PNG, JPG, JPEG (automatic compression)</p>
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              style={{ display: "none" }}
-              accept="image/*"
-              onChange={handleFileChange}
-            />
-            {imagePreview && (
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
-                <img src={imagePreview} alt="Preview" className="kazi-upload-preview" />
-                <span style={{ fontSize: 12, color: "var(--ink-4)" }}>Selected Swatch Photo</span>
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
-            <button type="submit" className="primary-button" style={{ flex: 1 }} disabled={saving}>
-              {saving ? (
-                <>
-                  <span className="kazi-spinner" style={{ marginRight: 6 }} />
-                  Creating Fabric...
-                </>
-              ) : "Add Fabric"}
-            </button>
-            <button type="button" className="ghost-button" onClick={onClose} disabled={saving}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function ProcessCard({ item, canEdit, onEdit, onDelete }) {
-  const cur = useCurrency();
-  const CATEGORY_COLORS = {
-    construction:   { bg: "#e8f4f0", color: "#1f6e4c", icon: "🔨" },
-    printing:       { bg: "#eae4f6", color: "#6b3fa0", icon: "🖨️" },
-    embellishment:  { bg: "#fef3e2", color: "#b07020", icon: "✨" },
-    finishing:      { bg: "#e3eef8", color: "#2e6da4", icon: "🏁" },
-    other:          { bg: "#f0efed", color: "#5b6a62", icon: "⚙️" },
-  };
-  const cat = CATEGORY_COLORS[item.category] || CATEGORY_COLORS.other;
-
-  return (
-    <div className="klib-card">
-      {/* Category header band */}
-      <div className="klib-card-band" style={{ background: cat.bg }}>
-        <span className="klib-card-cat-icon">{cat.icon}</span>
-        <span className="klib-card-cat" style={{ color: cat.color }}>{item.category || "other"}</span>
-      </div>
-
-      {/* Body */}
-      <div className="klib-card-body">
-        <h4 className="klib-card-name">{item.name}</h4>
-        {item.description && (
-          <p className="klib-card-desc">{item.description}</p>
-        )}
-
-        {/* Metadata chips */}
-        <div className="klib-card-meta">
-          {item.cost_per_unit && (
-            <span className="klib-meta-chip">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-              {priceText(cur, item.cost_per_unit)}/unit
-            </span>
-          )}
-          {item.min_quantity && (
-            <span className="klib-meta-chip">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"/></svg>
-              Min {item.min_quantity} pcs
-            </span>
-          )}
-          {item.lead_time_days && (
-            <span className="klib-meta-chip">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-              {item.lead_time_days}d lead
-            </span>
-          )}
-        </div>
-
-        {item.notes && (
-          <p className="klib-card-notes">{item.notes}</p>
-        )}
-      </div>
-
-      {/* Actions */}
-      {canEdit && (
-        <div className="klib-card-actions">
-          <button className="klib-action-btn" onClick={onEdit}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            Edit
-          </button>
-          <button className="klib-action-btn klib-action-btn--danger" onClick={onDelete}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TechPackCard({ item, canEdit, onEdit, onDelete, onView, onViewSpec }) {
-  const sizes = Array.isArray(item.sizes_available) ? item.sizes_available : [];
-  const images = getTechPackImages(item);
-  const hasExternalLink = item.tech_pack_url && !isTechPackImageUrl(item.tech_pack_url);
-  const hasSpec = !!(item.styleNo || (Array.isArray(item.measurements) && item.measurements.length));
-
-  return (
-    <div className="klib-card ktp-card">
-      {/* Cover — first tech pack page, or a placeholder sheet */}
-      <div
-        className={cn("ktp-cover", images.length > 0 && "ktp-cover--clickable")}
-        onClick={images.length > 0 ? onView : undefined}
-        role={images.length > 0 ? "button" : undefined}
-        title={images.length > 0 ? "Open tech pack" : undefined}
-      >
-        {images.length > 0 ? (
-          <>
-            <img src={images[0]} alt={`${item.name} tech pack`} className="ktp-cover-img" loading="lazy" />
-            <div className="ktp-cover-overlay">
-              <span className="ktp-cover-open">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-                Open
-              </span>
-            </div>
-            {images.length > 1 && (
-              <span className="ktp-page-badge">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/><path d="M2 6v14a2 2 0 0 0 2 2h10"/></svg>
-                {images.length} pages
-              </span>
-            )}
-          </>
-        ) : (
-          <div className="ktp-cover-empty">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-            <span>No pages yet</span>
-          </div>
-        )}
-      </div>
-
-      {/* Body */}
-      <div className="klib-card-body">
-        <div className="ktp-title-row">
-          <h4 className="klib-card-name">{item.name}</h4>
-          {item.product_type && <span className="ktp-type-pill">{item.product_type}</span>}
-        </div>
-
-        {(item.styleNo || item.category || item.season || item.market) && (
-          <div className="klib-card-meta" style={{ flexWrap: "wrap", gap: 6 }}>
-            {item.styleNo && <Pill tone="neutral">{item.styleNo}</Pill>}
-            {item.category && <Pill tone="blue">{item.category}</Pill>}
-            {item.season && <Pill tone="neutral">{item.season}</Pill>}
-            {item.market && <Pill tone="mint">{item.market}</Pill>}
-          </div>
-        )}
-        {item.designerName && (
-          <p className="kazi-fabric-comp">Designer: {item.designerName}</p>
-        )}
-
-        {hasExternalLink && (
-          <a href={item.tech_pack_url} target="_blank" rel="noopener noreferrer" className="klib-meta-chip" style={{ textDecoration: "none", display: "inline-flex", alignSelf: "flex-start" }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            External file ↗
-          </a>
-        )}
-
-        {sizes.length > 0 && (
-          <div className="klib-card-sizes">
-            {sizes.map(s => (
-              <span key={s} className="klib-size-pill">{s}</span>
-            ))}
-          </div>
-        )}
-
-        {item.notes && (
-          <p className="klib-card-notes">{item.notes}</p>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="klib-card-actions">
-        {hasSpec && (
-          <button className="klib-action-btn" onClick={onViewSpec}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-            Spec Sheet
-          </button>
-        )}
-        {canEdit && (
-          <>
-            <button className="klib-action-btn" onClick={onEdit}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Edit
-            </button>
-            <button className="klib-action-btn klib-action-btn--danger" onClick={onDelete}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              Delete
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Full-screen tech pack viewer ─────────────────────── */
-function TechPackViewer({ item, onClose }) {
-  const images = getTechPackImages(item);
-  const [page, setPage] = useState(0);
-  const touchStartX = useRef(null);
-  const thumbsRef = useRef(null);
-
-  // Keep the active thumbnail visible as pages change (strip scrolls on mobile)
-  useEffect(() => {
-    thumbsRef.current?.querySelector(".ktp-viewer-thumb--active")
-      ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
-  }, [page]);
-
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight") setPage(p => Math.min(images.length - 1, p + 1));
-      if (e.key === "ArrowLeft")  setPage(p => Math.max(0, p - 1));
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [images.length, onClose]);
-
-  // Swipe left/right between pages on touch devices
-  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
-  const onTouchEnd = (e) => {
-    if (touchStartX.current == null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    touchStartX.current = null;
-    if (Math.abs(dx) < 50) return;
-    if (dx < 0) setPage(p => Math.min(images.length - 1, p + 1));
-    else        setPage(p => Math.max(0, p - 1));
-  };
-
-  if (!images.length) return null;
-  const current = images[Math.min(page, images.length - 1)];
-
-  return (
-    <div className="ktp-viewer" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      {/* Top bar */}
-      <div className="ktp-viewer-bar">
-        <div className="ktp-viewer-title">
-          <span className="ktp-viewer-name">{item.name}</span>
-          {item.product_type && <span className="ktp-viewer-type">{item.product_type}</span>}
-        </div>
-        <div className="ktp-viewer-bar-actions">
-          <span className="ktp-viewer-counter">{page + 1} / {images.length}</span>
-          <a href={current} target="_blank" rel="noopener noreferrer" className="ktp-viewer-btn" title="Open original in new tab">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          </a>
-          <button className="ktp-viewer-btn" onClick={onClose} title="Close (Esc)">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Stage */}
-      <div className="ktp-viewer-stage" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-        onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        {images.length > 1 && (
-          <button className="ktp-viewer-nav ktp-viewer-nav--prev" disabled={page === 0}
-            onClick={() => setPage(p => Math.max(0, p - 1))}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
-        )}
-        <img src={current} alt={`${item.name} — page ${page + 1}`} className="ktp-viewer-img" />
-        {images.length > 1 && (
-          <button className="ktp-viewer-nav ktp-viewer-nav--next" disabled={page === images.length - 1}
-            onClick={() => setPage(p => Math.min(images.length - 1, p + 1))}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-        )}
-      </div>
-
-      {/* Thumbnail strip */}
-      {images.length > 1 && (
-        <div className="ktp-viewer-thumbs" ref={thumbsRef}>
-          {images.map((url, i) => (
-            <button key={i} className={cn("ktp-viewer-thumb", i === page && "ktp-viewer-thumb--active")}
-              onClick={() => setPage(i)}>
-              <img src={url} alt={`Page ${i + 1}`} />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SampleCard({ item, canEdit, onEdit, onDelete }) {
-  const cur = useCurrency();
-  const STAGE_COLORS = {
-    "Proto":     { bg: "#f0efed", color: "#5b6a62" },
-    "Fit":       { bg: "#e3eef8", color: "#2e6da4" },
-    "Size-Set":  { bg: "#eae4f6", color: "#6b3fa0" },
-    "PP":        { bg: "#fef3e2", color: "#b07020" },
-    "Shipment":  { bg: "#e8f4f0", color: "#1f6e4c" },
-  };
-  const stageStyle = STAGE_COLORS[item.stage] || STAGE_COLORS["Proto"];
-
-  const STATUS_TONE = {
-    "Approved":    "mint",
-    "Rejected":    "terra",
-    "In Revision": "amber",
-    "Pending":     "neutral",
-  };
-
-  const isImagePhoto = item.photo_url && (
-    item.photo_url.startsWith("data:image/") ||
-    item.photo_url.includes(".jpg") ||
-    item.photo_url.includes(".png") ||
-    item.photo_url.includes(".jpeg") ||
-    item.photo_url.includes("photos")
-  );
-
-  return (
-    <div className="klib-card">
-      {isImagePhoto && (
-        <div className="klib-card-hero">
-          <img src={item.photo_url} alt="Sample" className="klib-card-hero-img" />
-        </div>
-      )}
-
-      <div className="klib-card-band" style={{ background: stageStyle.bg }}>
-        <span className="klib-card-cat-icon">🧵</span>
-        <span className="klib-card-cat" style={{ color: stageStyle.color }}>{item.stage || "Proto"}</span>
-      </div>
-
-      <div className="klib-card-body">
-        <h4 className="klib-card-name">{item.name}</h4>
-        {item.product_type && <p className="kazi-fabric-comp">{item.product_type}</p>}
-
-        <div className="klib-card-meta" style={{ flexWrap: "wrap", gap: 6 }}>
-          <Pill tone={STATUS_TONE[item.status] || "neutral"}>{item.status || "Pending"}</Pill>
-          {item.size && <Pill tone="blue">{item.size}</Pill>}
-          {item.color && <Pill tone="neutral">{item.color}</Pill>}
-        </div>
-
-        {(item.fabric_used || item.cost) && (
-          <div className="klib-card-meta" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-            {item.fabric_used && (
-              <span className="klib-meta-chip">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                {item.fabric_used}
-              </span>
-            )}
-            {item.cost && (
-              <span className="klib-meta-chip">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                {priceText(cur, item.cost)}
-              </span>
-            )}
-          </div>
-        )}
-
-        {item.notes && (
-          <p className="klib-card-notes">{item.notes}</p>
-        )}
-      </div>
-
-      {canEdit && (
-        <div className="klib-card-actions">
-          <button className="klib-action-btn" onClick={onEdit}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            Edit
-          </button>
-          <button className="klib-action-btn klib-action-btn--danger" onClick={onDelete}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Main Component ────────────────────────────────────── */
 function Inventory() {
   const { profile } = useAuth();
   const { region } = useRegion();
-  const { currency, money, moneyAlt } = useCurrency();
-  // The Items Cost inputs are always typed in rupees. In rupees the headers need no unit; with the
-  // page showing pounds they say so, because the read-outs between them are in pounds.
-  const inputCcy = currency === "NPR" ? "" : " (NPR)";
+  const { money } = useCurrency();
   const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
-  // Inventory & Library are one merged page in the UI (see the combined nav item in constants/nav.js) —
-  // granting either permission unlocks the whole page, so a partial grant (e.g. only
-  // "Inventory" ticked in the Admin Panel) never hides tabs like Tech Packs from someone
-  // who was clearly meant to have full access here.
-  const hasPageAccess = sectionCanEdit(profile, "inventory") || sectionCanEdit(profile, "library") || isNepalStaff;
-  const canEditInventory = hasPageAccess;
-  const canEditLibrary = hasPageAccess;
-  const canEditUnitEconomics = hasPageAccess;
-
+  // Inventory & Library are one merged page in the UI (see the combined nav item in constants/nav.js): granting either
+  // permission unlocks the whole page, so a partial grant never hides a tab from someone who was meant to have it all.
+  const canEdit = sectionCanEdit(profile, "inventory") || sectionCanEdit(profile, "library") || isNepalStaff;
   const showPage = sectionVisible(profile, "inventory") || sectionVisible(profile, "library");
-  const showInventory = showPage;
-  const showLibrary = showPage;
 
-  const { updateDoc: updateInventoryDoc } = useFirestore("inventory");
+  const tabList = useMemo(() => (showPage ? [
+    { id: "stock", label: "Stock" },
+    { id: "cost", label: "Items cost" },
+    { id: "ledger", label: "Stock ledger" },
+    { gap: true },
+    { id: "fabrics", label: "Materials & fabrics" },
+    { id: "processes", label: "Processes" },
+    { id: "patterns", label: "Tech packs" },
+    { id: "samples", label: "Samples" },
+  ] : []), [showPage]);
+  const [tab, setTab] = useState("stock");
+  const [query, setQuery] = useState("");
+  const [stockFilter, setStockFilter] = useState("all");      // stock and cost: all | low
+  const [fabricFilter, setFabricFilter] = useState("all");    // fabrics: all | heavy | light
+  const [ledgerFrom, setLedgerFrom] = useState(() => kathmanduDate().slice(0, 8) + "01");
+  const [ledgerTo, setLedgerTo] = useState(() => kathmanduDate());
 
-  // Dynamic Allowed Tabs Setup
-  const allowedTabs = [];
-  if (showLibrary || showInventory) {
-    allowedTabs.push({ key: "unit_economics", label: "Items Cost" });
-  }
-  if (showInventory) {
-    allowedTabs.push({ key: "stock", label: "Stock Levels" });
-    allowedTabs.push({ key: "details", label: "Item Details" });
-    allowedTabs.push({ key: "ledger", label: "Stock Ledger" });
-  }
-  if (showLibrary) {
-    allowedTabs.push({ key: "fabrics", label: "Materials & Fabrics" });
-    allowedTabs.push({ key: "processes", label: "Processes" });
-    allowedTabs.push({ key: "patterns", label: "Tech Packs" });
-    allowedTabs.push({ key: "samples", label: "Samples" });
-  }
-
-  const [activeTab, setActiveTab] = useState(() => {
-    return allowedTabs[0]?.key || "stock";
-  });
-
-  const [allRows, setRows] = useState([]);
-  const [movements, setMovements] = useState([]); // dated stock_movements — the real ledger
-  const [ledgerFrom, setLedgerFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
-  const [ledgerTo, setLedgerTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [movementForm, setMovementForm] = useState({}); // rowId -> { date, direction, qty, note }
-  const [loggingMovement, setLoggingMovement] = useState(null); // rowId currently saving
-  const [allFabrics, setFabrics] = useState([]);
-  const [allProcesses, setProcesses] = useState([]);
-  const [allPatterns, setPatterns] = useState([]);
-  const [allSamples, setSamples] = useState([]);
-  /* ── One region at a time ─────────────────────────────────
-     Everything the page draws comes from these, so the switch in the header
-     reaches every tab — stock, ledger, fabrics, processes, tech packs, samples
-     — without any of them being aware of it. Items with no region set show on
-     both sides until somebody files them (see utils/region.js).
-
-     `movements` stays whole on purpose: it is only ever looked up by item id,
-     and the item is what carries the region, so scoping the ledger a second
-     time would be redundant at best and would break closing balances at worst.
-     `allRows` likewise stays in scope, because a stock item's id must be unique
-     across the company and not restart at #kazi1001 per region. */
-  const rows      = useMemo(() => filterByRegion(allRows,      region), [allRows,      region]);
-  const fabrics   = useMemo(() => filterByRegion(allFabrics,   region), [allFabrics,   region]);
-  const processes = useMemo(() => filterByRegion(allProcesses, region), [allProcesses, region]);
-  // Tech packs are the exception: a pattern has always carried a `market`
-  // ("UK" / "Nepal"), set on the spec sheet, and that is the same question the
-  // switch asks. It filters on that rather than on a second field nobody fills.
-  const patterns  = useMemo(() => filterByRegionField(allPatterns, region, "market"), [allPatterns, region]);
-  const samples   = useMemo(() => filterByRegion(allSamples,   region), [allSamples,   region]);
-
-  const [unitEconomics, setUnitEconomics] = useState({});
-  const [draftEconomics, setDraftEconomics] = useState({});
+  /* ── the data ───────────────────────────────────────────────── */
+  const [data, setData] = useState({ rows: NONE, econ: {}, movements: NONE, fabrics: NONE, processes: NONE, patterns: NONE, samples: NONE });
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(NONE);
+  const [notice, setNotice] = useState("");          // something a person did that did not work, said on the page rather than in a browser pop-up
 
-  const [draft, setDraft] = useState({});
-  const [expandedRows, setExpandedRows] = useState({});
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [itemForm, setItemForm] = useState(emptyItemForm);
-  const [costForm, setCostForm] = useState(emptyCostForm);
-  const [addingItem, setAddingItem] = useState(false);
-  const [search, setSearch] = useState("");
-  const [savingRow, setSavingRow] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [deletingRow, setDeletingRow] = useState(null);
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!showPage) { setLoading(false); return; }
+    if (!quiet) setLoading(true);
+    const jobs = {
+      rows: fetchAll("inventory"), econ: fetchAll("unit_economics"), movements: fetchAll(STOCK_MOVEMENTS_COLLECTION),
+      fabrics: fetchAll("fabrics"), processes: fetchAll("processes"), patterns: fetchAll("patterns"), samples: fetchAll("samples"),
+    };
+    const keys = Object.keys(jobs);
+    const results = await Promise.allSettled(keys.map((k) => jobs[k]));
+    const next = {};
+    const bad = [];
+    results.forEach((r, i) => {
+      if (r.status !== "fulfilled") { bad.push(keys[i]); return; }
+      if (keys[i] === "rows") next.rows = r.value.slice().sort((a, b) => (a.item || "").localeCompare(b.item || ""));
+      // The costing sheet is stored as one jsonb blob per item, keyed by that item's id: unwrap `data` back into the shape the page works with.
+      else if (keys[i] === "econ") next.econ = Object.fromEntries(r.value.map((e) => [e.id, e.data || {}]));
+      else next[keys[i]] = r.value;
+    });
+    setData((prev) => ({ ...prev, ...next }));
+    setFailed(bad);
+    setLoading(false);
+  }, [showPage]);
 
-  // Library-specific UI states
-  const [libraryModalOpen, setLibraryModalOpen] = useState(false);
-  const [libraryEditItem, setLibraryEditItem] = useState(null);
-  const [viewTechPack, setViewTechPack] = useState(null);
-  const [viewSpecSheet, setViewSpecSheet] = useState(null);
+  useEffect(() => { load().catch(console.error); }, [load, profile]);
+  const reload = useCallback(() => load({ quiet: true }), [load]);
 
-  // Fabrics-specific UI states
-  const [fabricFilter, setFabricFilter] = useState("all");
-  const [selectedFabric, setSelectedFabric] = useState(null);
-  const [seedingCatalog, setSeedingCatalog] = useState(false);
-  const [fabricModalOpen, setFabricModalOpen] = useState(false);
+  /* ── one region at a time ──────────────────────────────────────
+     Everything the page draws comes from these, so the switch in the header reaches every tab without any of them being
+     aware of it. Items with no region set show on both sides until somebody files them (see utils/region.js).
+     `movements` stays whole on purpose: it is only ever looked up by item id, and the item is what carries the region.
+     `data.rows` likewise stays whole where an id is minted, because an item's code must be unique across the company. */
+  const rows = useMemo(() => filterByRegion(data.rows, region), [data.rows, region]);
+  const fabrics = useMemo(() => filterByRegion(data.fabrics, region), [data.fabrics, region]);
+  const processes = useMemo(() => filterByRegion(data.processes, region), [data.processes, region]);
+  // Tech packs are the exception: a pattern has always carried a `market` ("UK" / "Nepal"), the same question the switch asks.
+  const patterns = useMemo(() => filterByRegionField(data.patterns, region, "market"), [data.patterns, region]);
+  const samples = useMemo(() => filterByRegion(data.samples, region), [data.samples, region]);
+
+  const index = useMemo(() => movementIndex(data.movements), [data.movements]);
+  const stock = useMemo(() => rows.map((r) => stockRow(r, index)), [rows, index]);
+  const totals = useMemo(() => ({ items: stock.length, low: stock.filter((s) => s.low).length, value: stock.reduce((sum, s) => sum + s.value, 0) }), [stock]);
+
+  /* ── search and filters ─────────────────────────────────────── */
+  const q = query.trim().toLowerCase();
+  const stockFound = useMemo(
+    () => stock.filter((s) => !q || has(s.row.item, q) || has(s.row.itemId, q) || has(s.row.category, q) || has(s.row.supplier, q)),
+    [stock, q],
+  );
+  const stockShown = stockFilter === "low" ? stockFound.filter((s) => s.low) : stockFound;
+  const fabricsFound = useMemo(() => fabrics.filter((r) => !q || has(r.name, q) || has(r.composition, q) || has(r.supplier, q)), [fabrics, q]);
+  const heavy = fabricsFound.filter((r) => r.gsm !== null && r.gsm > 300);
+  const light = fabricsFound.filter((r) => r.gsm !== null && r.gsm < 200);
+  const fabricsShown = fabricFilter === "heavy" ? heavy : fabricFilter === "light" ? light : fabricsFound;
+  const processesShown = useMemo(() => processes.filter((r) => !q || has(r.name, q) || has(r.category, q) || has(r.description, q)), [processes, q]);
+  const patternsShown = useMemo(() => patterns.filter((r) => !q || has(r.name, q) || has(r.product_type, q)), [patterns, q]);
+  const samplesShown = useMemo(
+    () => samples.filter((r) => !q || has(r.name, q) || has(r.product_type, q) || has(r.stage, q) || has(r.fabric_used, q)),
+    [samples, q],
+  );
+
+  /* ── what is open on top of the page ────────────────────────── */
+  const [dialog, setDialog] = useState(null);       // { kind: "item" | "fabric" | "process" | "sample", mode: "create" | "edit" | …, id?, section? }
+  const [pack, setPack] = useState({ edit: undefined, view: null, spec: null });   // tech packs: edit (null = new), the viewer, the spec sheet
+  const [seeding, setSeeding] = useState(false);
+  const found = {
+    item: dialog?.kind === "item" && dialog.mode === "edit" ? data.rows.find((r) => r.id === dialog.id) : null,
+    fabric: dialog?.kind === "fabric" && dialog.mode === "edit" ? data.fabrics.find((r) => r.id === dialog.id) : null,
+    process: dialog?.kind === "process" && dialog.mode === "edit" ? data.processes.find((r) => r.id === dialog.id) : null,
+    sample: dialog?.kind === "sample" && dialog.mode === "edit" ? data.samples.find((r) => r.id === dialog.id) : null,
+  };
+  // an item that was deleted (here or on another screen) closes its card
+  useEffect(() => {
+    if (loading || !dialog || dialog.mode !== "edit") return;
+    if (!found[dialog.kind]) setDialog(null);
+  }, [loading, dialog, data]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // when a card closes and the thing it was opened from is gone (a deleted item), focus goes to the first row, not to the page
+  useEffect(() => {
+    if (!dialog && document.activeElement === document.body) document.querySelector(".inv-pane .dt-hit")?.focus({ preventScroll: true });
+  }, [dialog]);
+
+  const openItem = useCallback((row, section) => setDialog({ kind: "item", mode: "edit", id: row.id, section }), []);
+
+  function handleTabChange(next) {
+    setTab(next);
+    setQuery("");
+  }
 
   async function seedDefaultFabrics() {
-    setSeedingCatalog(true);
+    if (!canEdit) return;
+    setSeeding(true);
     try {
-      const defaults = [
-        { name: "Rib Fabric", gsm: 200, composition: "Woolen", status: "In Stock" },
-        { name: "Collar T-shirt", gsm: 210, composition: "Cotton 100%", status: "In Stock" },
-        { name: "Linen", gsm: null, composition: "Cotton 100%", status: "In Stock" },
-        { name: "AP Cotton", gsm: 380, composition: "Cotton 100%", status: "In Stock" },
-        { name: "24 Come Sinker", gsm: 160, composition: "Cotton 100%", status: "In Stock" },
-        { name: "Stripe Linen", gsm: null, composition: "Cotton 100%", status: "In Stock" },
-        { name: "Cotton Terry", gsm: 280, composition: "Cotton 100%", status: "In Stock" },
-        { name: "SOS Cotton", gsm: 420, composition: "Cotton 100%", status: "In Stock" },
-        { name: "30s Sinker Nepali", gsm: 160, composition: "Cotton 100%", status: "In Stock" },
-        { name: "PC PK", gsm: 260, composition: "Cotton 100%", status: "In Stock" },
-        { name: "Anti-Grunge Cotton", gsm: 420, composition: "Cotton 100%", status: "In Stock" },
-        { name: "Sinker Cotton", gsm: 140, composition: "Cotton 100%", status: "In Stock" }
-      ];
-
-      const seededItems = [];
-      for (const item of defaults) {
-        const payload = {
-          name: item.name,
-          gsm: item.gsm,
-          weight: "",
-          composition: item.composition,
-          status: item.status,
-          swatchImageUrl: "",
-                  };
-        const ref = await insertRow("fabrics", payload);
-        seededItems.push({ id: ref.id, ...payload });
+      for (const f of DEFAULT_FABRICS) {
+        await insertRow("fabrics", { name: f.name, gsm: f.gsm, weight: "", composition: f.composition, status: f.status, swatchImageUrl: "" });
       }
-
-      setFabrics(prev => [...prev, ...seededItems]);
+      await reload();
     } catch (err) {
       console.error("Failed to seed fabrics:", err);
-      alert("Seeding failed: " + err.message);
+      setNotice(`The standard catalog could not be added: ${err.message}`);
     } finally {
-      setSeedingCatalog(false);
+      setSeeding(false);
     }
   }
 
-  async function loadData() {
-    setLoading(true);
-    try {
-      const promises = [];
-      let inventoryIdx = -1;
-      let movementsIdx = -1;
-      let fabricsIdx = -1;
-      let processesIdx = -1;
-      let patternsIdx = -1;
-      let samplesIdx = -1;
-      let unitEconomicsIdx = -1;
-
-      if (showInventory || showLibrary) {
-        inventoryIdx = promises.length;
-        promises.push(fetchAll("inventory"));
-        unitEconomicsIdx = promises.length;
-        promises.push(fetchAll("unit_economics"));
-      }
-      if (showInventory) {
-        movementsIdx = promises.length;
-        promises.push(fetchAll(STOCK_MOVEMENTS_COLLECTION));
-      }
-      if (showLibrary) {
-        fabricsIdx = promises.length;
-        promises.push(fetchAll("fabrics"));
-        processesIdx = promises.length;
-        promises.push(fetchAll("processes"));
-        patternsIdx = promises.length;
-        promises.push(fetchAll("patterns"));
-        samplesIdx = promises.length;
-        promises.push(fetchAll("samples"));
-      }
-
-      const results = await Promise.allSettled(promises);
-
-      if (movementsIdx !== -1) {
-        const res = results[movementsIdx];
-        if (res.status === "fulfilled") {
-          setMovements(res.value);
-        }
-      }
-      if (inventoryIdx !== -1) {
-        const res = results[inventoryIdx];
-        if (res.status === "fulfilled") {
-          const records = res.value;
-          records.sort((a, b) => (a.item || "").localeCompare(b.item || ""));
-          setRows(records);
-        }
-      }
-      if (fabricsIdx !== -1) {
-        const res = results[fabricsIdx];
-        if (res.status === "fulfilled") {
-          setFabrics(res.value);
-        }
-      }
-      if (processesIdx !== -1) {
-        const res = results[processesIdx];
-        if (res.status === "fulfilled") {
-          setProcesses(res.value);
-        }
-      }
-      if (patternsIdx !== -1) {
-        const res = results[patternsIdx];
-        if (res.status === "fulfilled") {
-          setPatterns(res.value);
-        }
-      }
-      if (samplesIdx !== -1) {
-        const res = results[samplesIdx];
-        if (res.status === "fulfilled") {
-          setSamples(res.value);
-        }
-      }
-      if (unitEconomicsIdx !== -1) {
-        const res = results[unitEconomicsIdx];
-        if (res.status === "fulfilled") {
-          // The costing sheet is stored as one jsonb blob per item, keyed by
-          // that item’s id — so unwrap `data` back into the shape the page
-          // has always worked with.
-          const uMap = {};
-          res.value.forEach(r => { uMap[r.id] = r.data || {}; });
-          setUnitEconomics(uMap);
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { loadData().catch(console.error); }, [profile]);
-
-  // Opening + In - Out, replayed from the item's dated stock_movements —
-  // no more silently mutating a cumulative stepper.
-  function getClosing(row) {
-    const { inTotal, outTotal } = movementTotals(movements, row.id);
-    return Number(row?.openingStock || 0) + inTotal - outTotal;
-  }
-
-  function draftMovement(row) {
-    return movementForm[row.id] || { date: new Date().toISOString().slice(0, 10), direction: "in", qty: "", note: "" };
-  }
-  function setMovementField(rowId, field, val) {
-    setMovementForm(f => ({ ...f, [rowId]: { ...draftMovement({ id: rowId }), ...f[rowId], [field]: val } }));
-  }
-
-  async function logMovement(row) {
-    if (!canEditInventory) return;
-    const form = draftMovement(row);
-    const qty = Number(form.qty);
-    if (!qty || qty <= 0) { alert("Enter a quantity greater than 0."); return; }
-    const direction = form.direction || "in";
-    if (direction === "out") {
-      const current = getClosing(row);
-      if (qty > current) {
-        const ok = window.confirm(
-          `${row.item}: this "out" of ${qty} ${row.unit} would take the balance from ${current} to ${current - qty} (negative). Continue anyway?`
-        );
-        if (!ok) return;
-      }
-    }
-    setLoggingMovement(row.id);
-    try {
-      await logStockMovement({
-        itemId: row.id,
-        date: form.date || new Date().toISOString().slice(0, 10),
-        qty, direction,
-        source: "manual",
-        note: form.note || "",
-        createdBy: profile?.name || "Unknown",
-        // Manual adjustments have no transaction of their own to value them by,
-        // so price them at the item's unit cost like the report's legacy fallback.
-        amountNPR: qty * Number(row.unitCostNPR || 0),
-      });
-      setMovementForm(f => ({ ...f, [row.id]: { date: new Date().toISOString().slice(0, 10), direction: "in", qty: "", note: "" } }));
-      await loadData();
-    } catch (err) {
-      alert("Failed to log stock movement: " + err.message);
-    } finally {
-      setLoggingMovement(null);
-    }
-  }
-
-  function setDraftField(rowId, field, val) {
-    setDraft(d => ({ ...d, [rowId]: { ...d[rowId], [field]: val } }));
-  }
-
-  // Per-order size-run reconciliation (her "Kati Pugena" notebook pages): required
-  // vs counted stock by size, plus a free-typed wash/damage log — nested under
-  // each Stock row rather than a flat single quantity.
-  function getSizeRows(row) {
-    return Array.isArray(row.sizeRows) && row.sizeRows.length
-      ? row.sizeRows
-      : COMMON_SIZES.map(s => ({ size: s, required: 0, counted: 0 }));
-  }
-  function draftSizeRows(row) {
-    return draft[row.id]?.sizeRows ?? getSizeRows(row);
-  }
-  function updateSizeRow(rowId, row, size, field, val) {
-    setDraft(d => {
-      const current = d[rowId]?.sizeRows ?? getSizeRows(row);
-      const next = current.map(r => r.size === size ? { ...r, [field]: Number(val) || 0 } : r);
-      return { ...d, [rowId]: { ...d[rowId], sizeRows: next } };
-    });
-  }
-  function draftDamageLog(row) {
-    return draft[row.id]?.damageLog ?? (Array.isArray(row.damageLog) ? row.damageLog : []);
-  }
-  function addDamageTag(rowId, row, tag) {
-    if (!tag.trim()) return;
-    setDraft(d => {
-      const current = d[rowId]?.damageLog ?? (Array.isArray(row.damageLog) ? row.damageLog : []);
-      return { ...d, [rowId]: { ...d[rowId], damageLog: [...current, tag.trim()] } };
-    });
-  }
-  function removeDamageTag(rowId, row, idx) {
-    setDraft(d => {
-      const current = d[rowId]?.damageLog ?? (Array.isArray(row.damageLog) ? row.damageLog : []);
-      return { ...d, [rowId]: { ...d[rowId], damageLog: current.filter((_, i) => i !== idx) } };
-    });
-  }
-  function toggleExpandRow(rowId) {
-    setExpandedRows(e => ({ ...e, [rowId]: !e[rowId] }));
-  }
-
-  async function setItemRegion(row, value) {
-    if (!canEditInventory) return;
-    setSavingRow(row.id);
-    try {
-      await updateInventoryDoc(row.id, {
-        region: value || null,
-        lastUpdated: new Date().toISOString().slice(0, 10),
-        updatedBy: profile?.name || "Unknown",
-      });
-      setRows(prev => prev.map(r => (r.id === row.id ? { ...r, region: value || null } : r)));
-    } catch (err) {
-      alert("Failed to set region: " + err.message);
-    } finally {
-      setSavingRow(null);
-    }
-  }
-
-  async function saveRow(row) {
-    if (!canEditInventory) return;
-    setSavingRow(row.id);
-    try {
-      const rowDraft = draft[row.id] || {};
-      await updateInventoryDoc(row.id, {
-        owner:       rowDraft.owner     !== undefined ? rowDraft.owner     : (row.owner     || ""),
-        condition:   rowDraft.condition !== undefined ? rowDraft.condition : (row.condition || ""),
-        sizeRows:    rowDraft.sizeRows  !== undefined ? rowDraft.sizeRows  : getSizeRows(row),
-        damageLog:   rowDraft.damageLog !== undefined ? rowDraft.damageLog : (row.damageLog || []),
-        lastUpdated: new Date().toISOString().slice(0, 10),
-        updatedBy:   profile?.name || "Unknown"
-      });
-      await loadData();
-      setDraft(d => ({ ...d, [row.id]: {} }));
-    } catch (err) {
-      alert("Failed to save: " + err.message);
-    } finally {
-      setSavingRow(null);
-    }
-  }
-
-  async function deleteRow(rowId) {
-    setDeletingRow(rowId);
-    try {
-      await deleteRow("inventory", rowId);
-      await loadData();
-      setDeleteConfirm(null);
-    } catch (err) {
-      alert("Failed to delete: " + err.message);
-    } finally {
-      setDeletingRow(null);
-    }
-  }
-
-  async function addItem(e) {
-    e.preventDefault();
-    setAddingItem(true);
-    try {
-      await insertRow("inventory", {
-        ...itemForm,
-        // Company-wide numbering: the two arms must not both mint #kazi1001.
-        itemId:       nextItemId(allRows),
-        region:       itemForm.region || region,
-        openingStock: Number(itemForm.openingStock || 0),
-        minLevel:     Number(itemForm.minLevel     || 0),
-        unitCostNPR:  Number(itemForm.unitCostNPR  || 0),
-        createdBy:    profile?.name || "Unknown",
-        createdAt:    new Date().toISOString()
-      });
-      setItemForm(emptyItemForm);
-      setShowAddForm(false);
-      await loadData();
-    } catch (err) {
-      alert("Failed to add item: " + err.message);
-    } finally {
-      setAddingItem(false);
-    }
-  }
-
-  // Adding an item from the Item Cost tab needs the cost-breakdown fields
-  // (Fabric/Rib/Trims/Labour/Others/Target Price), not the Stock form's
-  // opening-stock/location/supplier fields — those don't apply here.
-  async function addEconomicsItem(e) {
-    e.preventDefault();
-    if (!costForm.item.trim()) return;
-    setAddingItem(true);
-    try {
-      const computed = computeFabricCost(costForm.fabricName, costForm.gramsUsed);
-      const fabricCost = costForm.fabric !== "" ? Number(costForm.fabric) : (computed ?? 0);
-
-      const itemRef = await insertRow("inventory", {
-        item:         costForm.item,
-        itemId:       nextItemId(rows),
-        category:     costForm.category,
-        unit:         "pcs",
-        openingStock: 0, minLevel: 0,
-        unitCostNPR:  0,
-        createdBy:    profile?.name || "Unknown",
-        createdAt:    new Date().toISOString()
-      });
-
-      const fabricName = costForm.fabricName.trim();
-      const economicsPayload = {
-        fabric:       fabricCost,
-        fabricName,
-        gramsUsed:    Number(costForm.gramsUsed || 0),
-        rib:          Number(costForm.rib || 0),
-        trims:        Number(costForm.trims || 0),
-        directLabour: Number(costForm.directLabour || 0),
-        others:       Number(costForm.others || 0),
-        targetPrice:  Number(costForm.targetPrice || 0),
-        updatedAt:    new Date().toISOString(),
-        updatedBy:    profile?.name || "Unknown"
-      };
-      await upsertRow("unit_economics", { id: itemRef.id, data: economicsPayload }, ["id"]);
-
-      const cogsNpr = economicsPayload.fabric + economicsPayload.rib + economicsPayload.trims + economicsPayload.directLabour + economicsPayload.others;
-      await updateRow("inventory", itemRef.id, {
-        unitCostNPR: cogsNpr,
-        lastUpdated: new Date().toISOString().slice(0, 10),
-        updatedBy: profile?.name || "Unknown"
-      });
-
-      if (fabricName && !findFabricByName(fabricName)) {
-        await insertRow("fabrics", {
-          name: fabricName, pricePerKg: null, composition: "", gsm: null,
-          weight: "", status: "In Stock", swatchImageUrl: "",
-        });
-      }
-
-      setCostForm(emptyCostForm);
-      setShowAddForm(false);
-      await loadData();
-    } catch (err) {
-      alert("Failed to add item: " + err.message);
-    } finally {
-      setAddingItem(false);
-    }
-  }
-
-  /* ── Unit Economics handlers ── */
-  // Fabric is bought by weight (₨ per 1000g) — this looks up a material's stored
-  // price so per-piece fabric cost can be derived from grams used instead of
-  // hand-calculated on paper first.
-  function findFabricByName(name) {
-    const n = (name || "").trim().toLowerCase();
-    if (!n) return null;
-    return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
-  }
-
-  function computeFabricCost(fabricName, gramsUsed) {
-    const match = findFabricByName(fabricName);
-    const grams = Number(gramsUsed);
-    if (match && match.pricePerKg && grams > 0) {
-      return Math.round((Number(match.pricePerKg) / 1000) * grams * 100) / 100;
-    }
-    return null;
-  }
-
-  // Updates the fabric name / grams-used draft fields and, when a priced material
-  // matches, recomputes the Fabric NPR cell. The cell stays directly editable
-  // afterwards — typing into it overrides the computed value.
-  function updateFabricSelection(patternId, field, value) {
-    setDraftEconomics(prev => {
-      const rowDraft = { ...(prev[patternId] || {}), [field]: value };
-      const currentSaved = unitEconomics[patternId] || {};
-      const fabricName = field === "fabricName" ? value : (rowDraft.fabricName ?? currentSaved.fabricName ?? "");
-      const gramsUsed  = field === "gramsUsed"  ? value : (rowDraft.gramsUsed  ?? currentSaved.gramsUsed  ?? "");
-      const computed = computeFabricCost(fabricName, gramsUsed);
-      if (computed !== null) rowDraft.fabric = computed;
-      return { ...prev, [patternId]: rowDraft };
-    });
-  }
-
-  async function saveEconomicsRow(patternId) {
-    if (!canEditUnitEconomics) return;
-    setSavingRow(patternId);
-    const draftData = draftEconomics[patternId] || {};
-    const currentData = unitEconomics[patternId] || {};
-
-    const payload = {
-      fabric:       Number(draftData.fabric       ?? currentData.fabric       ?? 0),
-      fabricName:   draftData.fabricName !== undefined ? draftData.fabricName : (currentData.fabricName ?? ""),
-      gramsUsed:    Number(draftData.gramsUsed    ?? currentData.gramsUsed    ?? 0),
-      rib:          Number(draftData.rib          ?? currentData.rib          ?? 0),
-      trims:        Number(draftData.trims        ?? currentData.trims        ?? 0),
-      directLabour: Number(draftData.directLabour ?? currentData.directLabour ?? 0),
-      others:       Number(draftData.others       ?? currentData.others       ?? 0),
-      targetPrice:  Number(draftData.targetPrice  ?? currentData.targetPrice  ?? 0),
-      updatedAt:    new Date().toISOString(),
-      updatedBy:    profile?.name || "Unknown"
-    };
-
-    try {
-      await upsertRow("unit_economics", { id: patternId, data: payload }, ["id"]);
-      setUnitEconomics(prev => ({
-        ...prev,
-        [patternId]: payload
-      }));
-
-      // Typing a material name that isn't in the library yet saves it, so it's
-      // there to pick (and price) next time instead of being a dead free-text value.
-      const typedFabricName = payload.fabricName.trim();
-      if (typedFabricName && !findFabricByName(typedFabricName)) {
-        const newFabricRef = await insertRow("fabrics", {
-          name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
-          weight: "", status: "In Stock", swatchImageUrl: "",         });
-        setFabrics(prev => [...prev, { id: newFabricRef.id, name: typedFabricName, pricePerKg: null }]);
-      }
-
-      const cogsNpr = payload.fabric + payload.rib + payload.trims + payload.directLabour + payload.others;
-      const invUpdates = {
-        unitCostNPR: cogsNpr,
-        lastUpdated: new Date().toISOString().slice(0, 10),
-        updatedBy: profile?.name || "Unknown"
-      };
-      if (draftData.itemId !== undefined) {
-        invUpdates.itemId = draftData.itemId;
-      }
-      if (draftData.item !== undefined) {
-        invUpdates.item = draftData.item;
-      }
-      await updateRow("inventory", patternId, invUpdates);
-      setRows(prev => prev.map(r => r.id === patternId ? { ...r, ...invUpdates } : r));
-
-      setDraftEconomics(prev => {
-        const copy = { ...prev };
-        delete copy[patternId];
-        return copy;
-      });
-    } catch (err) {
-      console.error("Failed to save unit economics:", err);
-      alert("Error saving: " + err.message);
-    } finally {
-      setSavingRow(null);
-    }
-  }
-
-  function updateDraftEconomics(patternId, field, value) {
-    setDraftEconomics(prev => ({
-      ...prev,
-      [patternId]: {
-        ...(prev[patternId] || {}),
-        [field]: value
-      }
-    }));
-  }
-
-  /* ── Library handlers ── */
-  async function handleDeleteLibraryItem(item) {
+  async function deleteTechPack(item) {
+    if (!canEdit) return;
     if (!window.confirm(`Delete "${item.name}"?`)) return;
     try {
-      await deleteRow(activeTab, item.id);
-      // Functional updates, so these edit the full list rather than the
-      // region-filtered view of it — otherwise saving in one region would
-      // silently drop every row belonging to the other.
-      if (activeTab === "fabrics")   setFabrics(prev => prev.filter(x => x.id !== item.id));
-      if (activeTab === "processes") setProcesses(prev => prev.filter(x => x.id !== item.id));
-      if (activeTab === "patterns")  setPatterns(prev => prev.filter(x => x.id !== item.id));
-      if (activeTab === "samples")   setSamples(prev => prev.filter(x => x.id !== item.id));
+      await deleteRow("patterns", item.id);
+      await reload();
     } catch (err) {
-      alert("Failed to delete: " + err.message);
+      setNotice(`The tech pack could not be deleted: ${err.message}`);
     }
   }
 
-  function handleSavedLibraryItem(saved) {
-    if (activeTab === "fabrics") {
-      if (libraryEditItem) {
-        setFabrics(prev => prev.map(x => x.id === saved.id ? saved : x));
-      } else {
-        setFabrics(prev => [...prev, saved]);
-      }
-    }
-    if (activeTab === "processes") {
-      if (libraryEditItem) {
-        setProcesses(prev => prev.map(x => x.id === saved.id ? saved : x));
-      } else {
-        setProcesses(prev => [...prev, saved]);
-      }
-    }
-    if (activeTab === "patterns") {
-      if (libraryEditItem) {
-        setPatterns(prev => prev.map(x => x.id === saved.id ? saved : x));
-      } else {
-        setPatterns(prev => [...prev, saved]);
-      }
-    }
-    if (activeTab === "samples") {
-      if (libraryEditItem) {
-        setSamples(prev => prev.map(x => x.id === saved.id ? saved : x));
-      } else {
-        setSamples(prev => [...prev, saved]);
-      }
-    }
-    setLibraryModalOpen(false);
-    setLibraryEditItem(null);
-  }
+  useReveal(() => document.querySelectorAll(".inv-page .kb-tile"));
 
-  function getActiveLibraryItems() {
-    if (activeTab === "fabrics")   return fabrics;
-    if (activeTab === "processes") return processes;
-    if (activeTab === "samples")   return samples;
-    return patterns;
-  }
-
-  /* ── Stats ── */
-  const lowStockCount  = rows.filter(r => getClosing(r) <= Number(r.minLevel || 0)).length;
-  const totalItems     = rows.length;
-  const totalStockValue = rows.reduce((s, r) => s + getClosing(r) * Number(r.unitCostNPR || 0), 0);
-  const categories     = new Set(rows.map(r => r.category).filter(Boolean)).size;
-
-  const filtered = rows.filter(r =>
-    !search ||
-    r.item?.toLowerCase().includes(search.toLowerCase()) ||
-    r.category?.toLowerCase().includes(search.toLowerCase()) ||
-    r.supplier?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const filteredFabrics = fabrics.filter(r => {
-    const matchesSearch = !search ||
-      r.name?.toLowerCase().includes(search.toLowerCase()) ||
-      r.composition?.toLowerCase().includes(search.toLowerCase()) ||
-      r.supplier?.toLowerCase().includes(search.toLowerCase());
-    
-    if (!matchesSearch) return false;
-
-    if (fabricFilter === "heavy") {
-      return r.gsm !== null && r.gsm > 300;
-    }
-    if (fabricFilter === "light") {
-      return r.gsm !== null && r.gsm < 200;
-    }
-    return true;
-  });
-  const filteredProcesses = processes.filter(r =>
-    !search ||
-    r.name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.category?.toLowerCase().includes(search.toLowerCase()) ||
-    r.description?.toLowerCase().includes(search.toLowerCase())
-  );
-  const filteredPatterns = patterns.filter(r =>
-    !search ||
-    r.name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.product_type?.toLowerCase().includes(search.toLowerCase())
-  );
-  const filteredSamples = samples.filter(r =>
-    !search ||
-    r.name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.product_type?.toLowerCase().includes(search.toLowerCase()) ||
-    r.stage?.toLowerCase().includes(search.toLowerCase()) ||
-    r.fabric_used?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  /* ── Draft helpers ── */
-  function draftField(row, field)   { return draft[row.id]?.[field] !== undefined ? draft[row.id][field] : (row[field] || ""); }
-
-  // Resolve dynamic title/desc
-  let pageTitle = "Inventory & Library";
-  let pageDesc = "Monitor stock levels, reorder alerts, fabrics, processes, and tech packs.";
-  if (showInventory && !showLibrary) {
-    pageTitle = "Inventory & Stock";
-    pageDesc = "Monitor stock levels, reorder alerts, and item details.";
-  } else if (showLibrary && !showInventory) {
-    pageTitle = "Production Library";
-    pageDesc = "Reference repository for fabrics, processes, and tech packs.";
-  }
-
-  const renderAction = () => {
-    if (activeTab === "stock" || activeTab === "details" || activeTab === "unit_economics") {
-      if (!canEditInventory) return null;
-      return (
-        <button className="primary-button" data-tour="add-stock" onClick={() => setShowAddForm(v => !v)}>
-          {showAddForm ? "Cancel" : "+ Add Item"}
-        </button>
-      );
-    }
-    if (activeTab === "fabrics") {
-      if (!canEditLibrary) return null;
-      return (
-        <button className="primary-button" onClick={() => { setFabricModalOpen(true); }}>
-          + Add Fabric
-        </button>
-      );
-    }
-    if (activeTab === "processes" || activeTab === "patterns" || activeTab === "samples") {
-      if (!canEditLibrary) return null;
-      const typeLabel = activeTab === "processes" ? "Process" : activeTab === "samples" ? "Sample" : "Tech Pack";
-      return (
-        <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
-          + Add {typeLabel}
-        </button>
-      );
-    }
-    return null;
-  };
-
-  const handleTabSelect = (tabKey) => {
-    setActiveTab(tabKey);
-    setShowAddForm(false);
-  };
+  /* ── the header ─────────────────────────────────────────────── */
+  const addButton = (() => {
+    if (!canEdit || tab === "ledger") return null;
+    const open = {
+      stock: () => setDialog({ kind: "item", mode: "create-stock" }),
+      cost: () => setDialog({ kind: "item", mode: "create-cost" }),
+      fabrics: () => setDialog({ kind: "fabric", mode: "create" }),
+      processes: () => setDialog({ kind: "process", mode: "create" }),
+      samples: () => setDialog({ kind: "sample", mode: "create" }),
+      patterns: () => setPack((p) => ({ ...p, edit: null })),
+    }[tab];
+    return (
+      <button type="button" className="kb-btn kb-btn--primary inv-newbtn" data-tour={tab === "stock" || tab === "cost" ? "add-stock" : undefined} onClick={open}>
+        <Icons.Plus size={13} sw={2.2} /> Add {TAB_NOUN[tab]}
+      </button>
+    );
+  })();
 
   // Tech packs count a missing `market`; everything else a missing `region`.
-  const untaggedCount =
-    activeTab === "patterns"  ? countUntaggedBy(allPatterns, "market") :
-    countUntagged(
-      activeTab === "fabrics"   ? allFabrics   :
-      activeTab === "processes" ? allProcesses :
-      activeTab === "samples"   ? allSamples   : allRows
+  const untagged = tab === "patterns" ? countUntaggedBy(data.patterns, "market") : countUntagged(
+    tab === "fabrics" ? data.fabrics : tab === "processes" ? data.processes : tab === "samples" ? data.samples : data.rows,
+  );
+
+  const sub = (() => {
+    if (loading) return <span>Loading…</span>;
+    if (tab === "stock" || tab === "cost") {
+      return (
+        <>
+          <span>{totals.items} {totals.items === 1 ? "item" : "items"}</span>
+          {totals.low > 0 ? <span className="kb-bad">{totals.low} low</span> : <span>all stocked</span>}
+          <span>{money(totals.value)} in stock</span>
+          {!canEdit && <span className="kb-tag">View only</span>}
+        </>
+      );
+    }
+    const n = { fabrics: fabrics.length, processes: processes.length, patterns: patterns.length, samples: samples.length }[tab];
+    return (
+      <>
+        {tab === "ledger" ? <span>{ledgerFrom} to {ledgerTo}</span> : <span>{n} {n === 1 ? TAB_NOUN[tab] : `${TAB_NOUN[tab]}s`}</span>}
+        {!canEdit && <span className="kb-tag">View only</span>}
+      </>
     );
+  })();
+
+  const tabs = tabList.map((t) => (t.gap ? t : {
+    ...t,
+    count: t.id === "stock" || t.id === "cost" ? rows.length
+      : t.id === "fabrics" ? fabrics.length : t.id === "processes" ? processes.length : t.id === "patterns" ? patterns.length : t.id === "samples" ? samples.length : undefined,
+  }));
+
+  /* ── what to say when a table is empty ──────────────────────── */
+  const noun = TAB_NOUN[tab];
+  const showRail = tab === "stock" || tab === "cost";
+  const emptyFor = (total, shownCount, addIt) => {
+    if (total > 0 && shownCount === 0) {
+      return (
+        <EmptyNote icon={<Icons.Search size={22} sw={1.5} />}>
+          Nothing matches{q ? ` “${query.trim()}”` : " that filter"}.{" "}
+          <button type="button" className="inv-link" onClick={() => { setQuery(""); setStockFilter("all"); setFabricFilter("all"); }}>Show everything</button>
+        </EmptyNote>
+      );
+    }
+    return (
+      <EmptyNote icon={<Icons.Inventory size={22} sw={1.5} />}>
+        No {noun}s yet.{" "}
+        {canEdit && addIt ? <button type="button" className="inv-link" onClick={addIt}>Add the first one</button> : null}
+      </EmptyNote>
+    );
+  };
+
+  const lowChips = (
+    <FilterChips
+      label="Show"
+      value={stockFilter}
+      onChange={setStockFilter}
+      options={[
+        { value: "all", label: "All", count: stockFound.length },
+        { value: "low", label: "Low", count: stockFound.filter((s) => s.low).length, tone: stockFound.some((s) => s.low) ? "warn" : undefined },
+      ]}
+    />
+  );
+
+  const failedText = failed.map((k) => ({ rows: "stock", econ: "costs", movements: "stock movements", fabrics: "fabrics", processes: "processes", patterns: "tech packs", samples: "samples" }[k])).join(", ");
+
+  if (!showPage) {
+    return (
+      <BentoPage className="inv-page">
+        <header className="kb-head"><div className="kb-head-l"><h1>Inventory & library</h1></div></header>
+        <EmptyNote icon={<Icons.Inventory size={22} sw={1.5} />}>Inventory is not part of your position.</EmptyNote>
+      </BentoPage>
+    );
+  }
 
   return (
-    <>
-      <PageHeader
-        title={pageTitle}
-        description={pageDesc}
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <RegionSwitch untagged={untaggedCount} />
-            {renderAction()}
-          </div>
-        }
-      />
+    <BentoPage className="inv-page">
+      <header className="kb-head">
+        <div className="kb-head-l">
+          <h1>Inventory & library</h1>
+          <p className="kb-head-sub">{sub}</p>
+        </div>
+        <div className="kb-head-r">
+          <div className="inv-region"><RegionSwitch untagged={untagged} size="sm" /></div>
+          {addButton}
+        </div>
+      </header>
 
-      {activeTab === "stock" && !canEditInventory && (
-        <p className="banner-warning">UK admin view-only mode enabled.</p>
-      )}
-
-      {/* ── KPI Cards (Only visible if user has Inventory permission) ── */}
-      {showInventory && (
-        <div className="kinv-kpis">
-          <div className={cn("kinv-kpi", lowStockCount > 0 && "kinv-kpi--warn")}>
-            <span className="kinv-kpi-l">TOTAL ITEMS</span>
-            <span className="kinv-kpi-v">{totalItems}</span>
-          </div>
-          <div className={cn("kinv-kpi", lowStockCount > 0 && "kinv-kpi--warn")}>
-            <span className="kinv-kpi-l">LOW / REORDER</span>
-            <span className="kinv-kpi-v" style={{ color: lowStockCount > 0 ? "var(--terra)" : undefined }}>
-              {lowStockCount}
-            </span>
-            <span className="kinv-kpi-note">{lowStockCount > 0 ? `${lowStockCount} needs attention` : "all OK"}</span>
-          </div>
-          <div className="kinv-kpi">
-            <span className="kinv-kpi-l">STOCK VALUE ({currency})</span>
-            <span className="kinv-kpi-v" style={{ fontSize: totalStockValue > 999999 ? 22 : 28 }}>
-              {money(totalStockValue)}
-            </span>
-            <span className="kinv-kpi-note">closing × unit cost</span>
-          </div>
-          <div className="kinv-kpi">
-            <span className="kinv-kpi-l">CATEGORIES</span>
-            <span className="kinv-kpi-v">{categories}</span>
-          </div>
+      {failed.length > 0 && (
+        <div className="inv-banner" role="alert">
+          <Icons.AlertTriangle size={16} sw={1.8} aria-hidden="true" />
+          <span>Some of this page did not load ({failedText}), so what you see may be incomplete.</span>
+          <button type="button" onClick={() => load()}>Try again</button>
         </div>
       )}
 
-      {/* ── Add Item Form (Item Cost) ── */}
-      {showAddForm && canEditInventory && activeTab === "unit_economics" && (
-        <section className="panel">
-          <h3 style={{ marginBottom: 16, fontSize: "0.95rem", fontWeight: 700 }}>New Cost Item</h3>
-          <form className="grid-form" onSubmit={addEconomicsItem}>
-            <label style={{ gridColumn: "span 2" }}>
-              Item Name
-              <input type="text" value={costForm.item} required placeholder="e.g. UK Hoodie"
-                onChange={e => setCostForm(f => ({ ...f, item: e.target.value }))} />
-            </label>
-            <label>
-              Category
-              <select value={costForm.category} onChange={e => setCostForm(f => ({ ...f, category: e.target.value }))}>
-                {STOCK_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </label>
-            <label>
-              Fabric / Material
-              <input type="text" list="kinv-fabric-names" value={costForm.fabricName} placeholder="e.g. Waffle"
-                onChange={e => setCostForm(f => ({ ...f, fabricName: e.target.value }))} />
-            </label>
-            <label>
-              Grams Used (per piece)
-              <input type="number" min="0" value={costForm.gramsUsed} placeholder="e.g. 900"
-                onChange={e => setCostForm(f => ({ ...f, gramsUsed: e.target.value }))} />
-            </label>
-            <label>
-              Fabric (NPR)
-              <input type="number" min="0" value={costForm.fabric} placeholder={
-                (() => {
-                  const c = computeFabricCost(costForm.fabricName, costForm.gramsUsed);
-                  return c !== null ? `auto: ${c}` : "0";
-                })()
-              }
-                onChange={e => setCostForm(f => ({ ...f, fabric: e.target.value }))} />
-            </label>
-            <label>
-              Rib (NPR)
-              <input type="number" min="0" value={costForm.rib} placeholder="0"
-                onChange={e => setCostForm(f => ({ ...f, rib: e.target.value }))} />
-            </label>
-            <label>
-              Trims (NPR)
-              <input type="number" min="0" value={costForm.trims} placeholder="0"
-                onChange={e => setCostForm(f => ({ ...f, trims: e.target.value }))} />
-            </label>
-            <label>
-              Labour (NPR)
-              <input type="number" min="0" value={costForm.directLabour} placeholder="0"
-                onChange={e => setCostForm(f => ({ ...f, directLabour: e.target.value }))} />
-            </label>
-            <label>
-              Others (NPR)
-              <input type="number" min="0" value={costForm.others} placeholder="0"
-                onChange={e => setCostForm(f => ({ ...f, others: e.target.value }))} />
-            </label>
-            <label>
-              Target Price (NPR)
-              <input type="number" min="0" value={costForm.targetPrice} placeholder="0"
-                onChange={e => setCostForm(f => ({ ...f, targetPrice: e.target.value }))} />
-            </label>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-              <button type="submit" className="primary-button" disabled={addingItem}>
-                {addingItem ? "Adding…" : "Add Item"}
-              </button>
-              <button type="button" className="ghost-button" onClick={() => setShowAddForm(false)}>Cancel</button>
-            </div>
-          </form>
-        </section>
-      )}
-
-      {/* ── Add Item Form (Stock) ── */}
-      {showAddForm && canEditInventory && activeTab !== "unit_economics" && (
-        <section className="panel">
-          <h3 style={{ marginBottom: 16, fontSize: "0.95rem", fontWeight: 700 }}>New Stock Item</h3>
-          <form className="grid-form" onSubmit={addItem}>
-            <label style={{ gridColumn: "span 2" }}>
-              Item Name
-              <input type="text" value={itemForm.item} required placeholder="e.g. Chinese Terry Fabric"
-                onChange={e => setItemForm(f => ({ ...f, item: e.target.value }))} />
-            </label>
-            <label>
-              Category
-              <select value={itemForm.category} onChange={e => setItemForm(f => ({ ...f, category: e.target.value }))}>
-                {STOCK_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </label>
-            <label>
-              Unit
-              <input type="text" value={itemForm.unit} placeholder="pcs / kg / metres"
-                onChange={e => setItemForm(f => ({ ...f, unit: e.target.value }))} />
-            </label>
-            <label>
-              Supplier
-              <input type="text" value={itemForm.supplier} placeholder="Supplier name"
-                onChange={e => setItemForm(f => ({ ...f, supplier: e.target.value }))} />
-            </label>
-            <label>
-              Location / Store
-              <input type="text" value={itemForm.location} placeholder="e.g. Warehouse A"
-                onChange={e => setItemForm(f => ({ ...f, location: e.target.value }))} />
-            </label>
-            <label>
-              Opening Stock
-              <input type="number" min="0" value={itemForm.openingStock} placeholder="0"
-                onChange={e => setItemForm(f => ({ ...f, openingStock: e.target.value }))} />
-            </label>
-            <label>
-              Min Reorder Level
-              <input type="number" min="0" value={itemForm.minLevel} placeholder="0"
-                onChange={e => setItemForm(f => ({ ...f, minLevel: e.target.value }))} />
-            </label>
-            <label>
-              Unit Cost (NPR)
-              <input type="number" min="0" value={itemForm.unitCostNPR} placeholder="0"
-                onChange={e => setItemForm(f => ({ ...f, unitCostNPR: e.target.value }))} />
-            </label>
-            <RegionField
-              value={itemForm.region}
-              onChange={v => setItemForm(f => ({ ...f, region: v }))}
-              hint="Which store this item sits in. Leave unset and it shows on both sides."
-            />
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-              <button type="submit" className="primary-button" disabled={addingItem}>
-                {addingItem ? "Adding…" : "Add Item"}
-              </button>
-              <button type="button" className="ghost-button" onClick={() => setShowAddForm(false)}>Cancel</button>
-            </div>
-          </form>
-        </section>
-      )}
-
-      {/* ── Tabs + Content ── */}
-      <div className="kinv-panel">
-
-        {/* Panel header */}
-        <div className="kinv-panel-hd">
-          <div className="kinv-tabs" data-tour="inventory-tabs">
-            {allowedTabs.map(t => (
-              <button
-                key={t.key}
-                className={cn("kinv-tab", activeTab === t.key && "kinv-tab--on")}
-                onClick={() => handleTabSelect(t.key)}
-              >
-                {t.label}
-                {["fabrics", "processes", "patterns", "samples"].includes(t.key) && (
-                  <span style={{ marginLeft: 6, fontSize: 11, background: "var(--bg-2)", padding: "1px 6px", borderRadius: 10, color: "var(--ink-4)" }}>
-                    {t.key === "fabrics" ? fabrics.length : t.key === "processes" ? processes.length : t.key === "samples" ? samples.length : patterns.length}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="kinv-search">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-            </svg>
-            <input
-              placeholder="Search items…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
+      {notice && (
+        <div className="inv-banner" role="alert">
+          <Icons.AlertTriangle size={16} sw={1.8} aria-hidden="true" />
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice("")}>Dismiss</button>
         </div>
+      )}
 
-        {/* ── Stock Levels ── */}
-        {activeTab === "stock" && showInventory && (
-          <div className="kinv-table-wrap">
-            <table className="kinv-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 28 }}></th>
-                  <th>Item ID</th>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Unit</th>
-                  <th>Opening</th>
-                  <th>In</th>
-                  <th>Out</th>
-                  <th>Balance</th>
-                  <th>Owner / Client</th>
-                  <th>Condition</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
-                      No items found
-                    </td>
-                  </tr>
-                )}
-                {filtered.map(row => {
-                  const rowDraft  = draft[row.id] || {};
-                  const opening   = Number(row.openingStock || 0);
-                  const { inTotal, outTotal } = movementTotals(movements, row.id);
-                  const closing   = opening + inTotal - outTotal;
-                  const minLevel  = Number(row.minLevel || 0);
-                  const lowStock  = closing <= minLevel;
-                  const negative  = closing < 0;
-                  const isDirty   = rowDraft.owner !== undefined || rowDraft.condition !== undefined ||
-                                     rowDraft.sizeRows !== undefined || rowDraft.damageLog !== undefined;
-                  const isDelConfirm = deleteConfirm === row.id;
-                  const isExpanded = !!expandedRows[row.id];
-
-                  return (
-                    <Fragment key={row.id}>
-                    <tr className={cn("kinv-row", lowStock && "kinv-row--low")}>
-                      <td>
-                        <button
-                          type="button"
-                          className="kinv-btn-ghost"
-                          style={{ padding: "2px 4px" }}
-                          onClick={() => toggleExpandRow(row.id)}
-                          title="Stock ledger, size breakdown & damage log"
-                        >
-                          <ChevronIcon size={13} open={isExpanded} />
-                        </button>
-                      </td>
-                      <td>
-                        <span className="kinv-id">{row.itemId}</span>
-                      </td>
-                      <td>
-                        <span className="kinv-name">{row.item}</span>
-                      </td>
-                      <td>
-                        <span className="kinv-cat">{row.category || "—"}</span>
-                      </td>
-                      <td>
-                        <span className="kinv-unit">{row.unit}</span>
-                      </td>
-                      <td><span className="kinv-num">{opening.toLocaleString()}</span></td>
-                      <td><span className="kinv-num" style={{ color: "var(--mint-deep)" }}>{inTotal.toLocaleString()}</span></td>
-                      <td><span className="kinv-num" style={{ color: "var(--terra)" }}>{outTotal.toLocaleString()}</span></td>
-                      <td>
-                        <span className="kinv-num" style={{ fontWeight: 700, color: negative ? "var(--terra)" : undefined }}>
-                          {closing.toLocaleString()}
-                        </span>
-                      </td>
-                      <td>
-                        <TextCell
-                          value={draftField(row, "owner")}
-                          onChange={val => setDraftField(row.id, "owner", val)}
-                          disabled={!canEditInventory}
-                          width="140px"
-                          placeholder="e.g. Client name"
-                        />
-                      </td>
-                      <td>
-                        <TextCell
-                          value={draftField(row, "condition")}
-                          onChange={val => setDraftField(row.id, "condition", val)}
-                          disabled={!canEditInventory}
-                          width="130px"
-                          placeholder="e.g. Packed, Washed"
-                        />
-                      </td>
-                      <td>
-                        {isDelConfirm ? (
-                          <div className="kinv-del-confirm">
-                            <span style={{ fontSize: 12, color: "var(--terra)", fontWeight: 600 }}>Delete?</span>
-                            <button
-                              className="kinv-btn-danger"
-                              onClick={() => deleteRow(row.id)}
-                              disabled={deletingRow === row.id}
-                            >{deletingRow === row.id ? "…" : "Yes"}</button>
-                            <button
-                              className="kinv-btn-ghost"
-                              onClick={() => setDeleteConfirm(null)}
-                            >No</button>
-                          </div>
-                        ) : (
-                          <div className="kinv-actions">
-                            <button
-                              className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
-                              disabled={!canEditInventory || savingRow === row.id}
-                              onClick={() => saveRow(row)}
-                              title="Save changes"
-                            >
-                              {savingRow === row.id ? (
-                                <span style={{ fontSize: 11 }}>…</span>
-                              ) : (
-                                <>
-                                  <SaveIcon size={13} />
-                                  <span>Save</span>
-                                </>
-                              )}
-                            </button>
-                            {canEditInventory && (
-                              <button
-                                className="kinv-btn-del"
-                                onClick={() => setDeleteConfirm(row.id)}
-                                title="Delete item"
-                              >
-                                <TrashIcon size={14} />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <StockLedgerPanel
-                        unit={row.unit}
-                        history={itemMovements(movements, row.id)}
-                        form={draftMovement(row)}
-                        onFieldChange={(field, val) => setMovementField(row.id, field, val)}
-                        onLog={() => logMovement(row)}
-                        logging={loggingMovement === row.id}
-                        disabled={!canEditInventory}
-                        colSpan={12}
-                      />
-                    )}
-                    {isExpanded && (
-                      <SizeBreakdownPanel
-                        sizeRows={draftSizeRows(row)}
-                        damageLog={draftDamageLog(row)}
-                        onSizeChange={(size, field, val) => updateSizeRow(row.id, row, size, field, val)}
-                        onAddDamage={tag => addDamageTag(row.id, row, tag)}
-                        onRemoveDamage={idx => removeDamageTag(row.id, row, idx)}
-                        disabled={!canEditInventory}
-                        colSpan={12}
-                      />
-                    )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── Stock Ledger report (product-wise, date-ranged) ── */}
-        {activeTab === "ledger" && showInventory && (
-          <div style={{ padding: "20px 24px" }}>
-            <StockLedgerReport
-              rows={rows}
-              movements={movements}
-              fromDate={ledgerFrom}
-              toDate={ledgerTo}
-              onFromChange={setLedgerFrom}
-              onToChange={setLedgerTo}
-            />
-          </div>
-        )}
-
-        {/* ── Item Details ── */}
-        {activeTab === "details" && showInventory && (
-          <div className="kinv-table-wrap">
-            <table className="kinv-table">
-              <thead>
-                <tr>
-                  <th>Item ID</th>
-                  <th>Item</th>
-                  <th>Category</th>
-                  <th>Unit</th>
-                  <th>Supplier</th>
-                  <th>Location</th>
-                  <th>Unit Cost</th>
-                  <th>Closing Stock</th>
-                  <th>Stock Value</th>
-                  <th>Min Level</th>
-                  <th>Region</th>
-                  <th>Last Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={12} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
-                      No items found
-                    </td>
-                  </tr>
-                )}
-                {filtered.map(row => {
-                  const closing    = getClosing(row);
-                  const stockValue = closing * Number(row.unitCostNPR || 0);
-                  return (
-                    <tr key={row.id} className="kinv-row">
-                      <td><span className="kinv-id">{row.itemId}</span></td>
-                      <td><span className="kinv-name">{row.item}</span></td>
-                      <td><span className="kinv-cat">{row.category || "—"}</span></td>
-                      <td><span className="kinv-unit">{row.unit}</span></td>
-                      <td style={{ fontSize: 13, color: "var(--ink-2)" }}>{row.supplier || "—"}</td>
-                      <td style={{ fontSize: 12, color: "var(--ink-3)" }}>{row.location || "—"}</td>
-                      <td>
-                        <span className="kinv-mono">
-                          {row.unitCostNPR ? money(row.unitCostNPR) : "—"}
-                        </span>
-                      </td>
-                      <td><span className="kinv-closing">{closing.toLocaleString()}</span></td>
-                      <td>
-                        <span className="kinv-mono" style={{ color: row.unitCostNPR ? "var(--mint-deep)" : "var(--ink-4)" }}>
-                          {row.unitCostNPR ? money(stockValue) : "—"}
-                        </span>
-                      </td>
-                      <td><span className="kinv-num">{row.minLevel || 0}</span></td>
-                      <td>
-                        {canEditInventory ? (
-                          <RegionSelect
-                            className="kfin-input"
-                            style={{ padding: "3px 6px", fontSize: 12, minWidth: 130 }}
-                            value={row.region}
-                            disabled={savingRow === row.id}
-                            onChange={v => setItemRegion(row, v)}
-                          />
-                        ) : (
-                          <RegionBadge value={row.region} />
-                        )}
-                      </td>
-                      <td style={{ fontSize: 11, color: "var(--ink-4)" }}>{row.lastUpdated || "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {/* ── Unit Economics costing spreadsheet grid ── */}
-        {activeTab === "unit_economics" && (showLibrary || showInventory) && (
-          <div className="kinv-table-wrap">
-            <datalist id="kinv-fabric-names">
-              {fabrics.map(f => <option key={f.id} value={f.name} />)}
-            </datalist>
-            <table className="kinv-table">
-              <thead>
-                <tr>
-                  <th>S.NO</th>
-                  <th>Code</th>
-                  <th>Items</th>
-                  <th style={{ textAlign: "right", minWidth: "150px" }}>Fabric{inputCcy}</th>
-                  <th style={{ textAlign: "right" }}>Rib{inputCcy}</th>
-                  <th style={{ textAlign: "right" }}>Trims{inputCcy}</th>
-                  <th style={{ textAlign: "right" }}>Labour{inputCcy}</th>
-                  <th style={{ textAlign: "right" }}>others{inputCcy}</th>
-                  <th style={{ textAlign: "right", minWidth: "130px" }}>total</th>
-                  <th style={{ textAlign: "right" }}>Stock</th>
-                  <th style={{ textAlign: "right" }}>Stock Value</th>
-                  <th style={{ textAlign: "right" }}>Target Price{inputCcy}</th>
-                  <th style={{ textAlign: "right" }}>GP & Margin</th>
-                  <th>Cost Driver & 50% Target</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={15} style={{ textAlign: "center", padding: "32px 0", color: "var(--ink-4)", fontSize: 13 }}>
-                      No items found.
-                      {canEditInventory && (
-                        <>
-                          {" "}
-                          <button className="kinv-btn-ghost" onClick={() => setShowAddForm(true)}>+ Add Item</button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                )}
-                {filtered.map((row, idx) => {
-                  const savedCost = unitEconomics[row.id] || {};
-                  const draftCost = draftEconomics[row.id] || {};
-
-                  const fabric       = draftCost.fabric       !== undefined ? draftCost.fabric       : (savedCost.fabric       || 0);
-                  const fabricName   = draftCost.fabricName   !== undefined ? draftCost.fabricName   : (savedCost.fabricName   || "");
-                  const gramsUsed    = draftCost.gramsUsed    !== undefined ? draftCost.gramsUsed    : (savedCost.gramsUsed    || "");
-                  const matchedFabric = findFabricByName(fabricName);
-                  const rib          = draftCost.rib          !== undefined ? draftCost.rib          : (savedCost.rib          || 0);
-                  const trims        = draftCost.trims        !== undefined ? draftCost.trims        : (savedCost.trims        || 0);
-                  const directLabour = draftCost.directLabour !== undefined ? draftCost.directLabour : (savedCost.directLabour || 0);
-                  const others       = draftCost.others       !== undefined ? draftCost.others       : (savedCost.others       || 0);
-                  const targetPrice  = draftCost.targetPrice  !== undefined ? draftCost.targetPrice  : (savedCost.targetPrice  || 0);
-
-                  const cogsNpr = fabric + rib + trims + directLabour + others;
-
-                  const gpNpr = targetPrice - cogsNpr;
-
-                  const marginPct = targetPrice > 0 ? (gpNpr / targetPrice) * 100 : 0;
-
-                  // Microeconomics Insights
-                  const components = [
-                    { name: "Fabric", val: fabric },
-                    { name: "Rib", val: rib },
-                    { name: "Trims", val: trims },
-                    { name: "Direct Labour", val: directLabour },
-                    { name: "Others", val: others }
-                  ];
-                  components.sort((a, b) => b.val - a.val);
-                  const highestComp = components[0];
-                  const driverText = cogsNpr > 0 && highestComp.val > 0 
-                    ? `${highestComp.name} (${((highestComp.val / cogsNpr) * 100).toFixed(1)}%)`
-                    : "—";
-
-                  const target50Npr = cogsNpr * 2;
-
-                  const isDirty = draftCost.fabric !== undefined ||
-                                  draftCost.fabricName !== undefined ||
-                                  draftCost.gramsUsed !== undefined ||
-                                  draftCost.rib !== undefined ||
-                                  draftCost.trims !== undefined || 
-                                  draftCost.directLabour !== undefined || 
-                                  draftCost.others !== undefined || 
-                                  draftCost.targetPrice !== undefined ||
-                                  draftCost.itemId !== undefined ||
-                                  draftCost.item !== undefined;
-
-                  const saving = savingRow === row.id;
-
-                  // Margin color tone
-                  let marginColor = "var(--ink-4)";
-                  if (targetPrice > 0) {
-                    if (marginPct < 0) marginColor = "var(--terra)";
-                    else if (marginPct < 30) marginColor = "var(--amber)";
-                    else marginColor = "var(--mint-deep)";
-                  }
-
-                  return (
-                    <tr key={row.id} className="kinv-row">
-                      <td>{idx + 1}</td>
-                      <td>
-                        <TextCell
-                          value={draftCost.itemId !== undefined ? draftCost.itemId : row.itemId}
-                          onChange={val => updateDraftEconomics(row.id, "itemId", val)}
-                          disabled={!canEditUnitEconomics}
-                          width="110px"
-                        />
-                      </td>
-                      <td>
-                        <TextCell
-                          value={draftCost.item !== undefined ? draftCost.item : row.item}
-                          onChange={val => updateDraftEconomics(row.id, "item", val)}
-                          disabled={!canEditUnitEconomics}
-                          width="240px"
-                          style={{ fontFamily: "inherit", fontWeight: 600 }}
-                        />
-                        {row.category && <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2, paddingLeft: 6 }}>{row.category}</div>}
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
-                          <TextCell
-                            value={fabricName}
-                            onChange={val => updateFabricSelection(row.id, "fabricName", val)}
-                            disabled={!canEditUnitEconomics}
-                            width="140px"
-                            list="kinv-fabric-names"
-                            placeholder="Material…"
-                          />
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <CostCell
-                              value={gramsUsed}
-                              onChange={val => updateFabricSelection(row.id, "gramsUsed", val)}
-                              disabled={!canEditUnitEconomics}
-                              width="55px"
-                              placeholder="g"
-                              title="Grams used per piece"
-                            />
-                            <CostCell
-                              value={fabric}
-                              onChange={val => updateDraftEconomics(row.id, "fabric", val)}
-                              disabled={!canEditUnitEconomics}
-                              title="Fabric cost (NPR) — auto-filled from material price × grams, or type your own"
-                            />
-                          </div>
-                          {matchedFabric?.pricePerKg == null && fabricName && (
-                            <span style={{ fontSize: 10, color: "var(--ink-4)" }}>no price set</span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <CostCell
-                          value={rib}
-                          onChange={val => updateDraftEconomics(row.id, "rib", val)}
-                          disabled={!canEditUnitEconomics}
-                        />
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <CostCell
-                          value={trims}
-                          onChange={val => updateDraftEconomics(row.id, "trims", val)}
-                          disabled={!canEditUnitEconomics}
-                        />
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <CostCell
-                          value={directLabour}
-                          onChange={val => updateDraftEconomics(row.id, "directLabour", val)}
-                          disabled={!canEditUnitEconomics}
-                        />
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <CostCell
-                          value={others}
-                          onChange={val => updateDraftEconomics(row.id, "others", val)}
-                          disabled={!canEditUnitEconomics}
-                        />
-                      </td>
-                      <td style={{ textAlign: "right", minWidth: "130px" }}>
-                        <div style={{ fontWeight: 600, fontSize: "15px", color: "var(--ink-1)" }}>{money(cogsNpr)}</div>
-                        <div style={{ fontSize: "12px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>{moneyAlt(cogsNpr)}</div>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <span className="kinv-num">{getClosing(row).toLocaleString()}</span>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 600, fontSize: "13px" }}>
-                          {money(getClosing(row) * cogsNpr)}
-                        </div>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <CostCell
-                          value={targetPrice}
-                          onChange={val => updateDraftEconomics(row.id, "targetPrice", val)}
-                          disabled={!canEditUnitEconomics}
-                        />
-                        {targetPrice > 0 && (
-                          <div style={{ fontSize: "10px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>{moneyAlt(targetPrice)}</div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        {targetPrice > 0 ? (
-                          <>
-                            <div style={{ fontWeight: 600, color: marginColor }}>{marginPct.toFixed(1)}%</div>
-                            <div style={{ fontSize: "11px", color: "var(--ink-4)", fontFamily: "var(--mono)", marginTop: 2 }}>
-                              GP: {money(gpNpr)} ({moneyAlt(gpNpr)})
-                            </div>
-                          </>
-                        ) : (
-                          <span style={{ color: "var(--ink-5)" }}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ fontSize: "12px", color: "var(--ink-2)" }}>
-                          <strong>Driver:</strong> {driverText}
-                        </div>
-                        <div style={{ fontSize: "11px", color: "var(--ink-4)", marginTop: 2 }}>
-                          <strong>50% SP:</strong> {money(target50Npr)} ({moneyAlt(target50Npr)})
-                        </div>
-                      </td>
-                      <td>
-                        {deleteConfirm === row.id ? (
-                          <div className="kinv-del-confirm">
-                            <span style={{ fontSize: 12, color: "var(--terra)", fontWeight: 600 }}>Delete?</span>
-                            <button
-                              className="kinv-btn-danger"
-                              onClick={() => deleteRow(row.id)}
-                              disabled={deletingRow === row.id}
-                            >{deletingRow === row.id ? "…" : "Yes"}</button>
-                            <button
-                              className="kinv-btn-ghost"
-                              onClick={() => setDeleteConfirm(null)}
-                            >No</button>
-                          </div>
-                        ) : (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <button
-                              className={cn("kinv-btn-save", isDirty && "kinv-btn-save--dirty")}
-                              disabled={!canEditUnitEconomics || saving}
-                              onClick={() => saveEconomicsRow(row.id)}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                padding: "6px 12px",
-                                borderRadius: "6px",
-                                fontSize: "12px",
-                                fontWeight: 500,
-                                cursor: canEditUnitEconomics && isDirty ? "pointer" : "default"
-                              }}
-                            >
-                              {saving ? (
-                                <span>…</span>
-                              ) : (
-                                <>
-                                  <SaveIcon size={12} />
-                                  <span>Save</span>
-                                </>
-                              )}
-                            </button>
-                            {canEditInventory && (
-                              <button
-                                className="kinv-btn-del"
-                                onClick={() => setDeleteConfirm(row.id)}
-                                title="Delete item"
-                              >
-                                <TrashIcon size={14} />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── Library Tabs (Fabrics, Processes, Patterns, Samples) ── */}
-        {["fabrics", "processes", "patterns", "samples"].includes(activeTab) && showLibrary && (
-          <div style={{ padding: 20 }}>
-            {loading ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-                {[1, 2, 3].map(i => <div key={i} style={{ height: 140, background: "var(--bg-2)", borderRadius: 14, animation: "pulse 1.5s infinite" }} />)}
-              </div>
-            ) : activeTab === "fabrics" ? (
-              <>
-                {fabrics.length === 0 ? (
-                  <div className="kazi-seed-card">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--ink-4)" }}>
-                      <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-                    </svg>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-2)" }}>No Fabrics in Production Library</div>
-                    <p style={{ fontSize: 13, color: "var(--ink-4)", margin: "0 0 8px", maxWidth: 360 }}>
-                      Populate the library with our standard fabric catalog items (SOS Cotton, Linen, Nepali Sinker, etc.) to get started.
-                    </p>
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={seedDefaultFabrics}
-                      disabled={seedingCatalog}
-                    >
-                      {seedingCatalog ? (
-                        <>
-                          <span className="kazi-spinner" style={{ marginRight: 6 }} />
-                          Seeding Catalog...
-                        </>
-                      ) : "Seed Default Catalog"}
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="kazi-fabric-toolbar">
-                      <div className="kazi-fabric-chips">
-                        <button
-                          type="button"
-                          className={cn("kazi-fabric-chip", fabricFilter === "all" && "kazi-fabric-chip--active")}
-                          onClick={() => setFabricFilter("all")}
-                        >
-                          All Fabrics
-                        </button>
-                        <button
-                          type="button"
-                          className={cn("kazi-fabric-chip", fabricFilter === "heavy" && "kazi-fabric-chip--active")}
-                          onClick={() => setFabricFilter("heavy")}
-                        >
-                          Heavyweight (&gt;300 GSM)
-                        </button>
-                        <button
-                          type="button"
-                          className={cn("kazi-fabric-chip", fabricFilter === "light" && "kazi-fabric-chip--active")}
-                          onClick={() => setFabricFilter("light")}
-                        >
-                          Lightweight (&lt;200 GSM)
-                        </button>
-                      </div>
-                    </div>
-
-                    {filteredFabrics.length === 0 ? (
-                      <div style={{ textAlign: "center", padding: "60px 0", color: "var(--ink-4)" }}>
-                        No fabrics match your search or filters.
-                      </div>
-                    ) : (
-                      <div className="kazi-fabric-grid">
-                        {filteredFabrics.map(item => (
-                          <FabricCard
-                            key={item.id}
-                            item={item}
-                            onClick={() => setSelectedFabric(item)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            ) : getActiveLibraryItems().length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 0", color: "var(--ink-4)" }}>
-                <div style={{ fontSize: 15, marginBottom: 12 }}>No {activeTab === "patterns" ? "tech packs" : activeTab} added yet</div>
-                {canEditLibrary && (
-                  <button className="primary-button" onClick={() => { setLibraryEditItem(null); setLibraryModalOpen(true); }}>
-                    Add first entry
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${activeTab === "patterns" ? 240 : 280}px, 1fr))`, gap: 16 }}>
-                {activeTab === "processes" && filteredProcesses.map(item => (
-                  <ProcessCard key={item.id} item={item} canEdit={canEditLibrary}
-                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
-                    onDelete={() => handleDeleteLibraryItem(item)} />
-                ))}
-                {activeTab === "patterns" && filteredPatterns.map(item => (
-                  <TechPackCard key={item.id} item={item} canEdit={canEditLibrary}
-                    onView={() => setViewTechPack(item)}
-                    onViewSpec={() => setViewSpecSheet(item)}
-                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
-                    onDelete={() => handleDeleteLibraryItem(item)} />
-                ))}
-                {activeTab === "samples" && filteredSamples.map(item => (
-                  <SampleCard key={item.id} item={item} canEdit={canEditLibrary}
-                    onEdit={() => { setLibraryEditItem(item); setLibraryModalOpen(true); }}
-                    onDelete={() => handleDeleteLibraryItem(item)} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+      <div className="inv-bar">
+        <div className="inv-tabs" data-tour="inventory-tabs">
+          <PageTabs label="Inventory sections" tabs={tabs} value={tab} onChange={handleTabChange} />
+        </div>
+        {tab !== "ledger" && <SearchBox value={query} onChange={setQuery} placeholder={`Search ${tab === "cost" ? "items" : tab === "patterns" ? "tech packs" : `${noun}s`}`} />}
       </div>
 
-      {libraryModalOpen && activeTab === "patterns" && (
+      <div className={`inv-layout${showRail ? " has-rail" : ""}`}>
+        <section className="kb-tile inv-pane" aria-label={tabList.find((t) => t.id === tab)?.label}>
+          {tab === "stock" && (
+            <>
+              <div className="inv-tools">{lowChips}</div>
+              <StockTable rows={stockShown} loading={loading} canEdit={canEdit} onOpen={openItem} activeId={dialog?.id} empty={emptyFor(stock.length, stockShown.length, () => setDialog({ kind: "item", mode: "create-stock" }))} />
+            </>
+          )}
+
+          {tab === "cost" && (
+            <>
+              <div className="inv-tools">{lowChips}</div>
+              <CostTable rows={stockShown} economics={data.econ} loading={loading} onOpen={openItem} activeId={dialog?.id} empty={emptyFor(stock.length, stockShown.length, () => setDialog({ kind: "item", mode: "create-cost" }))} />
+            </>
+          )}
+
+          {tab === "ledger" && (
+            <LedgerReport rows={rows} movements={data.movements} from={ledgerFrom} to={ledgerTo} onFrom={setLedgerFrom} onTo={setLedgerTo} onOpenItem={(id) => setDialog({ kind: "item", mode: "edit", id, section: "moves" })} />
+          )}
+
+          {tab === "fabrics" && (
+            <>
+              {fabrics.length > 0 && (
+                <div className="inv-tools">
+                  <FilterChips
+                    label="Weight"
+                    value={fabricFilter}
+                    onChange={setFabricFilter}
+                    options={[
+                      { value: "all", label: "All", count: fabricsFound.length },
+                      { value: "heavy", label: "Heavy, over 300 GSM", count: heavy.length },
+                      { value: "light", label: "Light, under 200 GSM", count: light.length },
+                    ]}
+                  />
+                </div>
+              )}
+              <FabricTable
+                rows={fabricsShown}
+                loading={loading}
+                onOpen={(r) => setDialog({ kind: "fabric", mode: "edit", id: r.id })}
+                activeId={dialog?.kind === "fabric" ? dialog.id : undefined}
+                empty={fabrics.length === 0 && canEdit ? (
+                  <EmptyNote icon={<Icons.Inventory size={22} sw={1.5} />}>
+                    <span>No fabrics in the library yet.</span>
+                    <button type="button" className="kb-btn kb-btn--primary" onClick={seedDefaultFabrics} disabled={seeding}>
+                      {seeding ? <><span className="kb-spin" aria-hidden="true" /> Adding…</> : "Add the standard catalog"}
+                    </button>
+                  </EmptyNote>
+                ) : emptyFor(fabrics.length, fabricsShown.length, () => setDialog({ kind: "fabric", mode: "create" }))}
+              />
+            </>
+          )}
+
+          {tab === "processes" && (
+            <ProcessTable rows={processesShown} loading={loading} onOpen={(r) => setDialog({ kind: "process", mode: "edit", id: r.id })} activeId={dialog?.kind === "process" ? dialog.id : undefined} empty={emptyFor(processes.length, processesShown.length, () => setDialog({ kind: "process", mode: "create" }))} />
+          )}
+
+          {tab === "samples" && (
+            <SampleTable rows={samplesShown} loading={loading} onOpen={(r) => setDialog({ kind: "sample", mode: "edit", id: r.id })} activeId={dialog?.kind === "sample" ? dialog.id : undefined} empty={emptyFor(samples.length, samplesShown.length, () => setDialog({ kind: "sample", mode: "create" }))} />
+          )}
+
+          {tab === "patterns" && (
+            <div className="inv-legacy">
+              {loading ? (
+                <div className="kb-skel-wrap" aria-hidden="true"><span className="kb-skel kb-skel--lg" /><span className="kb-skel" /></div>
+              ) : patternsShown.length === 0 ? (
+                emptyFor(patterns.length, patternsShown.length, () => setPack((p) => ({ ...p, edit: null })))
+              ) : (
+                <div className="inv-legacy-grid">
+                  {patternsShown.map((item) => (
+                    <TechPackCard
+                      key={item.id}
+                      item={item}
+                      canEdit={canEdit}
+                      onView={() => setPack((p) => ({ ...p, view: item }))}
+                      onViewSpec={() => setPack((p) => ({ ...p, spec: item }))}
+                      onEdit={() => setPack((p) => ({ ...p, edit: item }))}
+                      onDelete={() => deleteTechPack(item)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {showRail && <Rail stock={stock} movements={data.movements} loading={loading} onOpen={openItem} />}
+      </div>
+
+      {/* the fabric names the tech pack editor suggests from */}
+      <datalist id="kinv-fabric-names">
+        {fabrics.map((f) => <option key={f.id} value={f.name} />)}
+      </datalist>
+
+      {dialog?.kind === "item" && (dialog.mode !== "edit" || found.item) && (
+        <ItemCard
+          key={`${dialog.mode}:${dialog.id || ""}`}
+          mode={dialog.mode}
+          row={found.item}
+          economics={dialog.id ? data.econ[dialog.id] : undefined}
+          movements={data.movements}
+          fabrics={fabrics}
+          allRows={data.rows}
+          canEdit={canEdit}
+          region={region}
+          profileName={profile?.name}
+          initialSection={dialog.section}
+          onChanged={reload}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "fabric" && (dialog.mode !== "edit" || found.fabric) && (
+        <FabricCard key={dialog.id || "new"} item={found.fabric} canEdit={canEdit} region={region} onChanged={reload} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === "process" && (dialog.mode !== "edit" || found.process) && (
+        <ProcessCard key={dialog.id || "new"} item={found.process} canEdit={canEdit} region={region} onChanged={reload} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === "sample" && (dialog.mode !== "edit" || found.sample) && (
+        <SampleCard key={dialog.id || "new"} item={found.sample} canEdit={canEdit} region={region} onChanged={reload} onClose={() => setDialog(null)} />
+      )}
+
+      {pack.edit !== undefined && (
         <TechPackSpecModal
-          item={libraryEditItem}
+          item={pack.edit}
           fabrics={fabrics}
           patterns={patterns}
-          onClose={() => { setLibraryModalOpen(false); setLibraryEditItem(null); }}
-          onSaved={handleSavedLibraryItem}
+          onClose={() => setPack((p) => ({ ...p, edit: undefined }))}
+          onSaved={async () => { setPack((p) => ({ ...p, edit: undefined })); await reload(); }}
         />
       )}
-
-      {libraryModalOpen && activeTab !== "patterns" && (
-        <LibraryModal
-          tab={activeTab}
-          item={libraryEditItem}
-          onClose={() => { setLibraryModalOpen(false); setLibraryEditItem(null); }}
-          onSaved={handleSavedLibraryItem}
-        />
-      )}
-
-      {viewTechPack && (
-        <TechPackViewer item={viewTechPack} onClose={() => setViewTechPack(null)} />
-      )}
-
-      {viewSpecSheet && (
+      {pack.view && <TechPackViewer item={pack.view} onClose={() => setPack((p) => ({ ...p, view: null }))} />}
+      {pack.spec && (
         <TechPackSpecPreview
-          item={viewSpecSheet}
-          onClose={() => setViewSpecSheet(null)}
-          onEdit={() => { setViewSpecSheet(null); setLibraryEditItem(viewSpecSheet); setLibraryModalOpen(true); }}
+          item={pack.spec}
+          onClose={() => setPack((p) => ({ ...p, spec: null }))}
+          onEdit={canEdit ? () => setPack({ edit: pack.spec, view: null, spec: null }) : undefined}
         />
       )}
-
-      {fabricModalOpen && (
-        <AddFabricModal
-          onClose={() => setFabricModalOpen(false)}
-          onSaved={(newFabric) => {
-            setFabrics(prev => [...prev, newFabric]);
-            setFabricModalOpen(false);
-          }}
-        />
-      )}
-
-      {selectedFabric && (
-        <FabricDrawer
-          item={selectedFabric}
-          canEdit={canEditLibrary}
-          onClose={() => setSelectedFabric(null)}
-          onSaved={(updated, shouldClose = true) => {
-            setFabrics(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x));
-            if (shouldClose) setSelectedFabric(null);
-          }}
-          onDelete={(id) => {
-            setFabrics(prev => prev.filter(x => x.id !== id));
-            setSelectedFabric(null);
-          }}
-        />
-      )}
-    </>
+    </BentoPage>
   );
 }
 

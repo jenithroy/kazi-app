@@ -1,0 +1,431 @@
+/* ══════════════════════════════════════════════════════════════════
+   FINANCE — the page's own parts (everything is `.fn-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then one grid of glass panes:
+
+     rail      the sections of Finance in three groups, each with a count (left, the whole height)
+     top row   income, purchases, expenses, payroll and the net
+     pane      the chosen section: a bar (name, search, filters, buttons), a table that scrolls inside the
+               pane under a head that stays put, and a strip that adds up what is shown
+
+   The tables are the shared DataTable (components/table/) and every record opens in the shared EditCard
+   (components/EditCard.jsx): this sheet only draws what they leave to the page. Inside the grid everything
+   reads the `--kb-*` tokens; the cards are portalled out of `.kb`, so they read the base tokens and the
+   card's own `--ec-*` pairs.
+
+   Loaded after bento.css. The grid is written `.kb-grid.kb-grid--finance` (one class more than bento's own
+   `.kb-grid` rules) so it wins in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--finance {
+  grid-template-columns: 196px repeat(5, minmax(0, 1fr));
+  grid-template-rows: clamp(84px, 13vh, 112px) minmax(0, 1fr);
+  grid-template-areas:
+    "rail t1 t2 t3 t4 t5"
+    "rail pane pane pane pane pane";
+}
+.fn-tabs { display: none; }
+
+/* Under 1100px the rail is not drawn; the same choice is a dropdown above the pane. Six columns, and a window shorter
+   than the page needs scrolls in the shell rather than crushing the table. */
+@media (max-width: 1099px) {
+  .kb.fn-page { min-height: 900px; }
+  .kb-grid.kb-grid--finance {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-rows: 96px 96px auto minmax(0, 1fr);
+    grid-template-areas:
+      "t1 t1 t2 t2 t3 t3"
+      "t4 t4 t4 t5 t5 t5"
+      "tabs tabs tabs tabs tabs tabs"
+      "pane pane pane pane pane pane";
+  }
+  .kb-tile.fn-rail { display: none; }
+  .fn-tabs { display: block; }
+}
+
+/* Phone: two columns, the page scrolls, and every pane grows with what is in it. */
+@media (max-width: 768px) {
+  .kb.fn-page { min-height: 0; }
+  .kb-grid.kb-grid--finance {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas: "t1 t2" "t3 t4" "t5 t5" "tabs tabs" "pane pane";
+  }
+  .kb-tile.fn-t { min-height: 92px; }
+  .kb-tile.fn-t .kb-sub { white-space: normal; }      /* two short lines rather than "Paid sales and other inco…" */
+}
+
+/* The Purchases page: three numbers, the table, and where the spending went beside it (not drawn under 1280px) */
+.kb-grid.kb-grid--purchases {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 300px;
+  grid-template-rows: clamp(84px, 13vh, 112px) minmax(0, 1fr);
+  grid-template-areas:
+    "t1 t2 t3 cat"
+    "pane pane pane cat";
+}
+.fn-cats { margin: 0; padding: 2px 0 0; list-style: none; display: grid; gap: 14px; align-content: start; }
+.fn-cats-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 5px; font-size: 12.5px; color: var(--kb-ink-2); }
+.fn-cats-h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-cats-h b { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
+.kb-tile.fn-cat .kb-main { overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 1279px) {
+  .kb-grid.kb-grid--purchases { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "t1 t2 t3" "pane pane pane"; }
+  .kb-tile.fn-cat { display: none; }
+}
+@media (max-width: 1023px) {
+  .kb.fn-page--pur { min-height: 760px; }
+  .kb-grid.kb-grid--purchases { grid-template-rows: 96px minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .kb.fn-page--pur { min-height: 0; }
+  .kb-grid.kb-grid--purchases { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "t1 t2" "t3 t3" "pane pane"; }
+}
+
+/* ── The header: the period, the calendar, the region ─────────── */
+
+.fn-head-r { gap: 8px 10px; }
+.fn-period { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.fn-range { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.fn-range-l { font-size: 12px; font-weight: 600; color: var(--kb-ink-3); white-space: nowrap; }
+.kdp.kdp--pill { min-width: 0; }
+.fn-range .kdp-val.is-ph { color: var(--kb-ink-3); }      /* "Any date" is text too: the base placeholder ink is 2.5:1 on the glass */
+
+.kregion-seg.fn-modeseg { flex: 0 0 auto; }
+.fn-modeseg .kregion-seg-btn { flex: 0 0 auto; padding: 4px 11px; font-size: 11.5px; }
+
+@media (max-width: 768px) {
+  .kb .fn-head-r { justify-content: flex-start; }
+  .fn-period { width: 100%; }
+  .fn-range { flex: 1 1 auto; flex-wrap: wrap; }
+  /* the region switch keeps its own size (the shared rule stretches it to the full width), so the calendar switch can sit beside it;
+     the buttons are a finger's size; the "N untagged" hint wears the page's own warning colours */
+  .fn-page .kb-head-r .kregion-switch { width: auto; flex: 0 1 auto; justify-content: flex-start; gap: 8px; }
+  .fn-page .kb-head-r .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
+  .fn-page .kb-head-r .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: 32px; padding: 0 12px; font-size: 12.5px; }
+}
+/* the "N untagged" hint in the page's own warning colours, so it is not a bright cream chip on a dark page */
+.fn-page .kb-head-r .kregion-untagged { padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent); }
+
+/* ── Notices ──────────────────────────────────────────────────── */
+
+.fn-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.fn-banner > svg { flex: none; color: var(--kb-warn); }
+.fn-banner > span { flex: 1 1 auto; min-width: 0; }
+.fn-banner button { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--kb-ink-3); cursor: pointer; }
+.fn-banner button:hover { background: var(--kb-well); color: var(--kb-ink); }
+.fn-banner button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.fn-banner--bad { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 30%, transparent); }
+.fn-banner--bad > svg { color: var(--kb-bad); }
+
+/* ── The rail ─────────────────────────────────────────────────── */
+
+.kb-tile.fn-rail { padding: 10px 8px; gap: 0; }
+.fn-rail-in { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 2px; }
+.fn-rg { display: flex; flex-direction: column; gap: 2px; }
+.fn-rg-h { padding: 4px 10px 5px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--kb-ink-3); }
+.fn-ri {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 0 10px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--kb-ink-2); font: 500 13px/1 var(--font); text-align: left; cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+.fn-ri:hover:not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.fn-ri.is-on { background: var(--kb-accent); color: var(--kb-on-accent); }
+.fn-ri:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; }
+.fn-ri.is-on:focus-visible { outline-color: var(--kb-on-accent); }
+.fn-ri-l { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-ri i { flex: none; font-style: normal; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink-3); }
+.fn-ri.is-on i { color: inherit; opacity: .85; }
+.fn-ri kbd { display: none; flex: none; font: 600 10.5px/1 var(--font); letter-spacing: .02em; opacity: .8; }
+@media (hover: hover) and (pointer: fine) {
+  .fn-ri:hover kbd, .fn-ri:focus-visible kbd { display: inline; }
+  .fn-ri:hover i, .fn-ri:focus-visible i { display: none; }
+}
+
+/* ── The top row ──────────────────────────────────────────────── */
+
+/* one-row tiles share a baseline once the window is short: bento does this for any tile its container query reaches */
+.kb-tile.fn-t .kb-main { justify-content: flex-end; }
+
+/* The figures are what the books are checked against, so the whole amount shows whenever it fits (₨ 21,87,000); only a very
+   narrow tile falls back to the short "21.9L". A crore or more is pinned short by the tile itself (Tiles.jsx). */
+.kb-tile.fn-t .kb-fig { --fig: 26px; }
+.kb-tile.fn-t .kb-money-f { display: inline; }
+.kb-tile.fn-t .kb-money-s { display: none; }
+@container kb (min-width: 260px) { .kb-tile.fn-t .kb-fig { --fig: 30px; } }
+@container kb (max-width: 174px) {
+  .kb-tile.fn-t .kb-money-f { display: none; }
+  .kb-tile.fn-t .kb-money-s { display: inline; }
+}
+/* In a short window the figure and the line under it share one row, and the line would be cut to "Paid …": leave it out unless there is room for it */
+@container kb (max-height: 69px) { .kb-tile.fn-t .kb-sub { display: none; } }
+@container kb (max-height: 69px) and (min-width: 300px) { .kb-tile.fn-t .kb-sub { display: block; } }
+
+/* ── The pane around a table ──────────────────────────────────── */
+
+.kb-tile.fn-pane { padding: 0; gap: 0; }
+.fn-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-width: 0; padding: 12px 16px 10px; }
+.fn-bar-t { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.fn-bar-t h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; color: var(--kb-ink); white-space: nowrap; }
+.fn-bar-n { font-size: 12px; color: var(--kb-ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fn-bar-tools { flex: 1 1 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.fn-bar-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.fn-bar-acts .kb-btn--primary { height: 32px; padding: 0 14px; border-radius: 999px; }
+.fn-body { flex: 1 1 0; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+/* on a phone the page scrolls and the pane grows with its rows: a flex basis of 0 would collapse it to nothing */
+@media (max-width: 768px) { .fn-body { flex: none; } }
+/* and the bar becomes: the name and the buttons on one line (Export is an icon), the search on the next, then the filters */
+@media (max-width: 768px) {
+  .fn-bar { padding: 12px 12px 8px; }
+  .fn-bar-t { order: 1; }
+  .fn-bar-acts { order: 2; }
+  .fn-bar-tools { order: 3; flex: 1 1 100%; }
+  .fn-bar-tools .dt-search { order: -1; flex: 1 1 100%; }
+  .fn-bar-tools .dt-search input { font-size: 16px; }      /* the shared search box is 13px: on a phone iOS would zoom in on it */
+  .fn-export { width: 36px; padding: 0; justify-content: center; }
+  .fn-export span { display: none; }
+}
+
+.fn-viewonly { flex: none; margin: 0; padding: 0 16px 10px; font-size: 12.5px; color: var(--kb-ink-3); }
+
+/* what is shown, added up: always under the table */
+.fn-foot { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 22px; min-width: 0; padding: 9px 16px 11px; border-top: 1px solid var(--kb-line); font-size: 12.5px; color: var(--kb-ink-3); }
+.fn-sum { display: inline-flex; align-items: baseline; gap: 7px; }
+.fn-sum b { font-size: 13.5px; font-weight: 600; color: var(--kb-ink); font-variant-numeric: tabular-nums; }
+/* Status ink on text. The shared tokens measure about 4:1 on the busiest part of the glass; a little of the page's ink in them makes it 5. */
+.fn-pane .dt-good, .fn-sum b.dt-good, .fn-dr { color: color-mix(in srgb, var(--kb-good) 80%, var(--kb-ink)); }
+.fn-pane .dt-bad, .fn-sum b.dt-bad, .fn-cr, .fn-stb-v.is-neg, .fn-stb-total b.is-neg { color: color-mix(in srgb, var(--kb-bad) 80%, var(--kb-ink)); }
+.fn-pane .dt-warn, .fn-sum b.dt-warn { color: color-mix(in srgb, var(--kb-warn) 80%, var(--kb-ink)); }
+
+/* the offer to take a quick action back */
+.fn-undo { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--kb-line); background: var(--kb-chip); color: var(--kb-ink); font-size: 12.5px; }
+.fn-undo span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-undo button { flex: none; margin-left: auto; padding: 4px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--kb-accent); font: 700 12.5px/1.2 var(--font); cursor: pointer; }
+.fn-undo button:hover { background: var(--kb-well); }
+.fn-undo button:disabled { opacity: .55; cursor: progress; }
+.fn-undo button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+
+/* ── The tables: one line to a record, so many more of them fit ── */
+
+.dt.fn-dense .dt-row { min-height: 40px; padding-block: 3px; }
+.dt.fn-dense .dt-head { padding-block: 6px 7px; }
+.dt.fn-dense .dt-two-t > b { font-size: 13px; }
+@media (max-width: 768px) { .dt.fn-dense .dt-row { min-height: 52px; } }
+@media (pointer: coarse) { .dt.fn-dense .dt-row { min-height: 48px; } }
+
+/* the first part bold, the rest quieter and the first to be cut */
+.fn-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.fn-line b { flex: none; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 600; letter-spacing: -.005em; color: var(--kb-ink); }
+.fn-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--kb-ink-3); }
+
+.fn-link { color: var(--kb-accent, var(--ec-good)); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.fn-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.fn-link:focus-visible { outline: 2px solid var(--kb-accent, var(--ec-good)); outline-offset: 2px; box-shadow: none; border-radius: 6px; }
+
+/* the one button an expense row carries */
+.fn-paid {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.fn-paid:hover { background: var(--kb-well); color: var(--kb-ink); }
+.fn-paid.is-paid { background: var(--kb-good-bg); border-color: transparent; color: color-mix(in srgb, var(--kb-good) 72%, var(--kb-ink)); }
+.fn-paid:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+@media (pointer: coarse) { .fn-paid { height: 36px; padding: 0 14px; } }
+
+/* a purchase's number, with its fiscal year beside it (numbers start again each year) */
+.fn-id { display: inline-flex; align-items: baseline; gap: 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.fn-id b { font-size: 12.5px; font-weight: 600; color: var(--kb-ink); }
+.fn-id i { font-style: normal; font-size: 10.5px; color: var(--kb-ink-3); }
+
+/* a line above a table that asks for something (renumber, a missing bill) */
+.fn-note { flex: none; display: flex; align-items: center; gap: 10px; padding: 7px 16px; background: var(--kb-warn-bg); border-block: 1px solid color-mix(in srgb, var(--kb-warn) 24%, transparent); color: var(--kb-ink); font-size: 12.5px; line-height: 1.4; }
+.fn-note > svg { flex: none; color: var(--kb-warn); }
+.fn-note > span { min-width: 0; flex: 1 1 auto; }
+.fn-note button { flex: none; padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--kb-warn) 40%, transparent); border-radius: 999px; background: transparent; color: var(--kb-ink); font: 600 12px/1.2 var(--font); cursor: pointer; }
+.fn-note button:hover { background: var(--kb-well); }
+.fn-note button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+
+/* a phone's list shows so many rows until "Show all" */
+.fn-more { flex: none; padding: 10px 16px 6px; }
+.fn-more button { width: 100%; height: 36px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2); font: 600 12.5px/1 var(--font); cursor: pointer; }
+.fn-more button:hover { background: var(--kb-well); color: var(--kb-ink); }
+.fn-more button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+
+/* the bank's date with its time under it; the accounts of a journal entry, each in its own colour */
+.fn-when { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+.fn-when i { font-style: normal; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--kb-ink-3); }
+.fn-daytotal { font-size: 12px; font-style: italic; color: var(--kb-ink-3); }
+.fn-side { font-style: normal; font-size: 11px; font-weight: 500; margin-left: 4px; color: var(--kb-ink-3); }
+/* a name for a column that only holds a button: read out, not drawn */
+.fn-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+.fn-note--good { background: var(--kb-good-bg); border-block-color: color-mix(in srgb, var(--kb-good) 24%, transparent); }
+.fn-note--good > svg { color: var(--kb-good); }
+
+/* ── Statements: profit and loss, the balance sheet ───────────── */
+
+.fn-stm { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px 32px; align-content: start; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 18px; }
+.fn-stm-l { display: grid; gap: 20px; align-content: start; min-width: 0; }
+.fn-stm-r { align-self: start; display: grid; gap: 16px; padding: 16px 18px; border-radius: 14px; background: var(--kb-well); }
+.fn-stm-r h3 { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--kb-ink-3); }
+.fn-hbar { display: grid; gap: 6px; }
+.fn-hbar-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--kb-ink-2); }
+.fn-hbar-h b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
+.fn-stm-net { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 14px 16px; border-radius: 14px; background: var(--kb-good-bg); font-size: 14px; font-weight: 600; color: var(--kb-ink); }
+.fn-stm-net b { font-size: 24px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.fn-stm-net.is-loss { background: var(--kb-bad-bg); }
+.fn-stm-net.is-loss b { color: var(--kb-bad); }
+
+.fn-bsh { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 32px; align-content: start; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 18px; }
+.fn-bsh > p { grid-column: 1 / -1; padding: 0 0 4px; }
+/* a region that scrolls can be reached with the keyboard, so it shows where it is */
+.fn-stm:focus-visible, .fn-bsh:focus-visible, .fn-cats:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; border-radius: 10px; }
+
+.fn-stb h3 { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--kb-ink-3); }
+.fn-stb--good h3 { color: color-mix(in srgb, var(--kb-good) 80%, var(--kb-ink)); }
+.fn-stb--bad h3 { color: color-mix(in srgb, var(--kb-bad) 80%, var(--kb-ink)); }
+.fn-stb-note { margin: 0 0 6px; font-size: 12px; color: var(--kb-ink-3); }
+.fn-stb-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; padding: 8px 0; border: 0; border-top: 1px solid var(--kb-line); background: transparent; color: var(--kb-ink); font: 400 13.5px/1.3 var(--font); text-align: left; }
+.fn-stb-rows > :first-child { border-top: 0; }
+button.fn-stb-row { cursor: pointer; width: calc(100% + 16px); margin-inline: -8px; padding-inline: 8px; border-radius: 8px; transition: background-color .15s; }
+button.fn-stb-row:hover { background: var(--kb-well); }
+button.fn-stb-row:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; }
+.fn-stb-l { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.fn-stb-l small { font-size: 12px; color: var(--kb-ink-3); }
+.fn-stb-v { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fn-stb-total { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 2px; padding-top: 10px; border-top: 2px solid var(--kb-line-hi); font-size: 13.5px; font-weight: 600; color: var(--kb-ink); }
+.fn-stb-total b { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1099px) {
+  .fn-stm, .fn-bsh { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .fn-stm, .fn-bsh { flex: none; overflow: visible; }
+}
+
+/* ── Inside a card (portalled out of `.kb`) ───────────────────── */
+
+.fn-flow { display: contents; }
+
+/* a filed VAT bill: the picture of it, if it is one */
+.fn-bill { display: grid; gap: 12px; }
+.fn-bill-img { display: block; overflow: hidden; border-radius: 12px; background: var(--ec-well); box-shadow: inset 0 0 0 1px var(--line); }
+.fn-bill-img img { display: block; width: 100%; max-height: 340px; object-fit: contain; }
+
+/* how a journal entry posts: the debit, then the credit a step in */
+.fn-tacc { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--ec-well); }
+.fn-tacc > div { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: baseline; gap: 8px; font-size: 13.5px; }
+.fn-tacc > .is-cr { padding-left: 16px; }
+.fn-tacc-k { font: 700 11px/1 var(--font); letter-spacing: .06em; color: var(--ink-3); }
+.fn-tacc b { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.fn-tacc-v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+.fn-check { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
+.fn-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--mint-deep); }
+
+.fn-datef-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.fn-datef-head .ec-lbl i { font-style: normal; color: var(--ec-bad); }
+.kregion-seg.fn-modeseg--mini { padding: 2px; }
+.fn-modeseg--mini .kregion-seg-btn { padding: 2px 8px; font-size: 11px; }
+.fn-datef-start { justify-content: flex-start; height: 42px; }
+.fn-bs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, .8fr); gap: 6px; }
+.fn-bs .ksel { min-width: 0; padding-inline: 10px; }
+
+.fn-drop { position: relative; }
+.fn-drop .ec-drop { width: 100%; }
+.fn-drop-x { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: var(--ec-well); color: var(--ink-3); cursor: pointer; }
+.fn-drop-x:hover { background: var(--line-strong); color: var(--ink); }
+.fn-drop-x:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; }
+
+.fn-err { font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--ec-bad); }
+.fn-confirm p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.fn-changes { margin: 0 0 10px; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.fn-changes li { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.fn-changes b { color: var(--ink); }
+.fn-eid { font: 600 15px/1.3 var(--mono); color: var(--ink); }
+.fn-bills { margin: 0 0 8px; padding: 0; list-style: none; display: grid; gap: 4px; }
+
+/* A purchase's card is wider than the usual one: the items need the room. The six columns of its left pane let the
+   short fields share a row (date and supplier, then category, payment and VAT). */
+.kmodal--card.kmodal--ec.fn-pc { --kmodal-w: 1080px; }
+.fn-pc .ec { grid-template-columns: minmax(0, 1fr) 330px; }
+.fn-pc .ec-main { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.fn-pc .fn-s2 { grid-column: span 2; }
+.fn-pc .fn-s4 { grid-column: span 4; }
+
+/* the items bought: a row each, particulars wide, scrolling inside the card once there are many (a bill can run to twenty) */
+.fn-lines { gap: 6px; }
+.fn-lines-body { display: flex; flex-direction: column; gap: 6px; max-height: 236px; overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+.fn-lrow { display: grid; grid-template-columns: minmax(0, 1fr) 76px 92px 98px 116px 32px; gap: 6px; align-items: center; }
+.fn-lrow--h { padding: 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.fn-pc .fn-lrow input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { height: 38px; padding: 0 10px; font-size: 13.5px; }
+.fn-pc .fn-lrow .fn-amt input:not([type="checkbox"]) { font-weight: 600; }
+.fn-lx { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); cursor: pointer; }
+.fn-lx:hover:not(:disabled) { background: var(--ec-well); color: var(--ink); }
+.fn-lx:disabled { opacity: .35; cursor: default; }
+.fn-lx:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; }
+.fn-addline { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; margin-left: -4px; border: 0; border-radius: 8px; background: transparent; color: var(--ec-good); font: 600 12.5px/1 var(--font); cursor: pointer; }
+.fn-addline:hover { background: var(--ec-well); }
+.fn-addline:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; }
+
+/* a window narrower than the card wants: a narrower side pane and tighter item columns */
+@media (max-width: 1000px) {
+  .fn-pc .ec { grid-template-columns: minmax(0, 1fr) 264px; }
+  .fn-lrow { grid-template-columns: minmax(0, 1fr) 60px 72px 80px 96px 28px; }
+}
+/* a phone: the two panes are two tabs (EditCard), the short fields pair up, and each item is two lines: what, then the numbers */
+@media (max-width: 640px) {
+  .fn-pc .ec-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fn-pc .fn-s2 { grid-column: span 1; }
+  .fn-pc .fn-s4 { grid-column: span 2; }
+  .fn-lrow--h { display: none; }
+  .fn-lrow { grid-template-columns: repeat(4, minmax(0, 1fr)) 32px; }
+  .fn-lrow > :first-child { grid-column: 1 / -1; }
+  .fn-lines-body { max-height: none; overflow: visible; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fn-ri, .fn-paid { transition: none; }
+}
+
+/* ── Payroll ──────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--payroll, .kb-grid.kb-grid--fy {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: clamp(84px, 13vh, 112px) minmax(0, 1fr);
+  grid-template-areas:
+    "t1 t2 t3 t4"
+    "pane pane pane pane";
+}
+@media (max-width: 1023px) {
+  .kb.fn-page--pay, .kb.fn-page--fy { min-height: 760px; }
+  .kb-grid.kb-grid--payroll, .kb-grid.kb-grid--fy { grid-template-rows: 96px minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .kb.fn-page--pay, .kb.fn-page--fy { min-height: 0; }
+  .kb-grid.kb-grid--payroll, .kb-grid.kb-grid--fy { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "t1 t2" "t3 t4" "pane pane"; }
+}
+
+/* a payroll record's card: the wide card's six columns, a little narrower */
+.kmodal--card.kmodal--ec.fn-pc.fn-yc { --kmodal-w: 980px; }
+.fn-pc .fn-s3 { grid-column: span 3; }
+@media (max-width: 640px) { .fn-pc .fn-s3 { grid-column: span 2; } }
+
+/* the late deduction: what the attendance says, one adjustment to type, and the final figure */
+.fn-late { gap: 8px; }
+.fn-late .ec-lbl small { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.fn-late-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 12px; align-items: end; padding: 12px 14px; border-radius: 12px; background: var(--ec-well); }
+.fn-late-grid > div, .fn-late-adj { display: grid; gap: 4px; min-width: 0; align-content: end; }
+.fn-late-grid span { font-size: 11px; font-weight: 600; line-height: 1.3; color: var(--ink-3); }
+.fn-late-grid b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+/* red on the card's tinted wells measures 4.3:1; a little of the card's ink in it makes it 5 */
+.fn-pc .ec-bad, .fn-pc .ec-kv dd.ec-bad, .fn-late-grid b.is-bad { color: color-mix(in srgb, var(--ec-bad) 80%, var(--ink)); }
+.fn-late-adj .ec-amt input { height: 36px; }
+@media (max-width: 640px) { .fn-late-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* a quiet strip that is a warning, not good news */
+.ec-strip.is-warn { background: var(--ec-warn-bg); color: var(--ec-warn); }

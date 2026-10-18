@@ -5,7 +5,7 @@
  *
  *   attendance  production           tasks
  *   attendance  production           tasks
- *   stock       finance     qc       due soon
+ *   stock       finance     budget   due soon
  *   stock       finance     budget   due soon
  *
  * Finance, for a position that may not open it, becomes "not in today".
@@ -18,16 +18,15 @@ import ClockInCard from "../../components/ClockInCard";
 import { RegionSwitch } from "../../components/RegionSwitch";
 import { BentoGrid, BentoPage, DashHead } from "../../components/bento/Bento";
 import { Layers } from "../../components/bento/icons";
-import { attendanceToday, lowStockItems, moneySummary, qcSummary, taskSummary, useDashData, whosOut } from "./shared";
+import { attendanceToday, lowStockItems, moneySummary, taskSummary, useDashData, whosOut } from "./shared";
 import { ProductCostsModal } from "./modals";
 import { LoadError } from "./LoadError";
 import {
-  AttendanceTile, BudgetTile, DueSoonTile, MoneyTile, OrdersTile, QcTile, StockTile, TasksTile, WhosOutTile,
+  AttendanceTile, BudgetTile, DueSoonTile, MoneyTile, OrdersTile, StockTile, TasksTile, WhosOutTile,
 } from "./tiles";
 
 const COLLECTIONS = {
   attendance: "attendance",
-  qcLogs: "qc_logs",
   inventory: "inventory",
   tasks: "tasks",
   budgetRequests: "budget_requests",
@@ -43,13 +42,12 @@ const COLLECTIONS = {
 const LIVE = ["finance_payroll", "finance_expenses", "finance_purchases", "employees", "orders", "invoices"];
 
 function derive(cols, { today }) {
-  const { attendance, qcLogs, inventory, tasks, budgetRequests, orders, users } = cols;
+  const { attendance, inventory, tasks, budgetRequests, orders, users } = cols;
   const totalStaff = users.filter((u) => ["nepal_admin", "employee", "nepal_staff"].includes(u.role)).length || users.length || 7;
   return {
     attendance: attendanceToday(attendance, totalStaff, today),
     whosOut: whosOut(attendance, users, today),
     ...taskSummary(tasks, users, today),
-    ...qcSummary(qcLogs),
     ...moneySummary(cols, createdAfterCutoff),
     lowItems: lowStockItems(inventory),
     pendingBudget: budgetRequests.filter((b) => b.status === "Pending" || !b.status),
@@ -90,8 +88,7 @@ export default function OpsDash() {
           <TasksTile data={d} loading={loading} />
           <StockTile items={d.lowItems} loading={loading} />
           {hasFinance ? <MoneyTile data={d} loading={loading} /> : <WhosOutTile area="money" people={d.whosOut} loading={loading} />}
-          <QcTile data={d} loading={loading} />
-          <BudgetTile pending={d.pendingBudget} loading={loading} />
+          <BudgetTile list pending={d.pendingBudget} loading={loading} />
           <DueSoonTile orders={d.orders || []} loading={loading} />
         </BentoGrid>
       )}

@@ -253,12 +253,12 @@
   "rev  rev  rev  rev  rev  inv  inv  inv  cash   cash   pay    pay"
   "rev  rev  rev  rev  rev  inv  inv  inv  profit profit profit profit"
   "appr appr appr appr pipe pipe pipe pipe pipe   today  today  today"
-  "appr appr appr appr pipe pipe pipe pipe pipe   qc     qc     qc"; }
+  "appr appr appr appr pipe pipe pipe pipe pipe   today  today  today"; }
 
 .kb-grid--ops { grid-template-areas:
   "today today today orders orders orders orders orders tasks tasks tasks tasks"
   "today today today orders orders orders orders orders tasks tasks tasks tasks"
-  "stock stock stock money  money  money  money  qc     qc    due   due   due"
+  "stock stock stock money  money  money  money  budget budget due  due   due"
   "stock stock stock money  money  money  money  budget budget due  due   due"; }
 
 .kb-grid--accountant { grid-template-areas:
@@ -666,12 +666,7 @@
 .kb-goal-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--kb-ink-3); }
 .kb-goal-h b { font-weight: 600; color: var(--kb-ink-2); font-variant-numeric: tabular-nums; }
 
-/* ══ QC, stock, content ════════════════════════════════════════ */
-
-.kb-dots { flex: none; display: flex; gap: 5px; }
-.kb-dots i { width: 14px; height: 14px; border-radius: 5px; background: var(--kb-good-fill); }
-.kb-dots i.warn { background: var(--kb-warn-fill); }
-.kb-dots i.bad { background: var(--kb-bad-fill); }
+/* ══ Stock, content ══════════════════════════════════════════ */
 
 @container kb (max-height: 200px) { .kb-stock-n span { display: none; } .kb-stock-n + .kb-stock-q .kb-meter { display: none; } .kb-stock-q { width: auto; } .kb-row { padding: 6px 0; } }
 .kb-stock-n { flex: 1 1 0; min-width: 0; display: grid; gap: 1px; }
@@ -698,6 +693,24 @@
 .kb-trend-x { flex: none; display: flex; justify-content: space-between; font-size: 11px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
 .kb-trend-empty { flex: 1 1 0; min-height: 0; display: grid; place-items: center; text-align: center; padding: 8px; font-size: 12.5px; color: var(--kb-ink-3); border-radius: 12px; background: var(--kb-well); }
 
+/* The line and the bars follow the pointer (charts.jsx): a dashed guide, a dot, and a small label saying what is there.
+   The chart sits above its tile's link (.kb-act) so it can listen; a click on it is handed back to the link. */
+.kb-trend-plot.is-live, .kb-bars.is-live { cursor: pointer; }
+.kb-trend-guide { position: absolute; top: -3px; bottom: -3px; width: 0; margin-left: -.75px; border-left: 1.5px dashed var(--kb-line-hi); pointer-events: none; }
+.kb-trend-dot--hover { width: 12px; height: 12px; margin: 0 -6px -6px; background: var(--kb-accent); border: 2.5px solid var(--kb-surface); box-shadow: 0 0 0 2px color-mix(in srgb, var(--kb-accent) 38%, transparent); pointer-events: none; }
+.kb-tip {
+  position: absolute; z-index: 3; transform: translateX(-50%); display: grid; gap: 1px; justify-items: center; padding: 5px 10px; border-radius: 9px;
+  background: var(--kb-surface); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow-hi);
+  white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums;
+}
+.kb-tip b { font-size: 12.5px; font-weight: 600; color: var(--kb-ink); }
+.kb-tip span { font-size: 11px; color: var(--kb-ink-3); }
+.kb-bar-track { position: relative; }
+.kb-tip--bar { left: 50%; }
+.kb-tip--l { left: 0; transform: none; justify-items: start; }
+.kb-tip--r { left: auto; right: 0; transform: none; justify-items: end; }
+.kb-bar.is-hover .kb-bar-track > i { background: var(--kb-accent); }
+
 /* ══ Approvals ═════════════════════════════════════════════════ */
 
 .kb-appr { align-items: center; gap: 10px; padding: 10px 0; }
@@ -710,6 +723,8 @@
 .kb-appr-amt span { font-size: 11.5px; color: var(--kb-ink-3); }
 .kb-appr-acts { flex: none; display: flex; gap: 6px; }
 @container kb (max-width: 379px) { .kb-appr-amt span { display: none; } }
+/* The amount at the end of a row in the Budget requests list. */
+.kb-bud-amt { flex: none; font-size: 13px; font-weight: 600; color: var(--kb-ink); font-variant-numeric: tabular-nums; }
 
 /* ══ Your attendance (calendar) ════════════════════════════════ */
 
@@ -733,6 +748,7 @@
 .kb-cal-d.leave { background: var(--kb-info-bg); color: var(--kb-info); }
 .kb-cal-d.absent { background: var(--kb-bad-bg); color: var(--kb-bad); }
 .kb-cal-d.weekend { font-weight: 400; }
+.kb-cal-d.holiday { background: repeating-linear-gradient(135deg, transparent 0 4px, var(--kb-info-bg) 4px 7px); color: var(--kb-info); font-weight: 400; }
 .kb-cal-d.today { box-shadow: inset 0 0 0 2px var(--kb-accent); color: var(--kb-ink); font-weight: 700; }
 @container kb (max-height: 330px) { .kb-cal-d { font-size: 11px; border-radius: 6px; } .kb-cal-dow, .kb-cal-grid { gap: 3px; } }
 
@@ -823,8 +839,8 @@
     "rev   rev   rev   rev    pay    pay"
     "inv   inv   inv   profit profit profit"
     "inv   inv   inv   today  today  today"
-    "appr  appr  appr  qc     qc     qc"
-    "appr  appr  appr  qc     qc     qc"
+    "appr  appr  appr  today  today  today"
+    "appr  appr  appr  today  today  today"
     "pipe  pipe  pipe  pipe   pipe   pipe"
     "pipe  pipe  pipe  pipe   pipe   pipe"; }
 
@@ -833,7 +849,7 @@
     "today  today  today  orders orders orders"
     "tasks  tasks  tasks  stock  stock  stock"
     "tasks  tasks  tasks  stock  stock  stock"
-    "money  money  money  money  qc     qc"
+    "money  money  money  money  budget budget"
     "money  money  money  money  budget budget"
     "due    due    due    due    due    due"
     "due    due    due    due    due    due"; }
@@ -882,9 +898,9 @@
 
   .kb-grid--owner, .kb-grid--ops, .kb-grid--accountant, .kb-grid--designer, .kb-grid--marketing, .kb-grid--staff { grid-template-rows: none; }
   .kb-grid--owner { grid-template-areas:
-    "rev rev" "inv inv" "cash pay" "profit profit" "appr appr" "pipe pipe" "today today" "qc qc"; }
+    "rev rev" "inv inv" "cash pay" "profit profit" "appr appr" "pipe pipe" "today today"; }
   .kb-grid--ops { grid-template-areas:
-    "today today" "orders orders" "tasks tasks" "stock stock" "money money" "qc budget" "due due"; }
+    "today today" "orders orders" "tasks tasks" "stock stock" "money money" "budget budget" "due due"; }
   .kb-grid--accountant { grid-template-areas:
     "clock clock" "inv inv" "money money" "cash pay" "purch budget" "recent recent"; }
   .kb-grid--designer { grid-template-areas:
@@ -925,7 +941,7 @@
 
 /* ══ Motion preferences ════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
-  .kb-tile, .kb-tile::before, .kb-go, .kb-btn, .kb-ringbtn, .kb-quick-a, .kmain { transition: none !important; }
+  .kb-tile, .kb-tile::before, .kb-go, .kb-btn, .kb-pillbtn, .kb-ringbtn, .kb-quick-a, .kmain { transition: none !important; }
   .kb-tile--live:hover, .kb-tile--live:has(> .kb-hit:active) { transform: none; }
   .kb-meter > i, .kb-pipe-b > i, .kb-bar-track > i, .kb-ring-seg, .kb-stack > i, .kb-skel, .kb-ringbtn-spin, .kb-spin { animation: none !important; }
 }

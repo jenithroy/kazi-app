@@ -56,3 +56,8 @@ mentions/
 
 # Instagram DM bot (separate running service, not part of this app's build)
 meta-dm-bot/
+
+# Project docs (root level only; README and CONTRIBUTING stay for GitHub)
+/*.md
+!/README.md
+!/CONTRIBUTING.md

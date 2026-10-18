@@ -12,7 +12,7 @@ The same React build also ships inside a Capacitor wrapper (`com.kazimfg.app`, A
 
 Kazi Manufacturing's own staff, about a dozen people across two locations:
 
-- **Nepal factory team (Kathmandu).** Operations head, operations and fashion interns, accountant, marketing co-ordinator, content editor, operations assistants. They log the day's work: attendance and GPS clock-in, tasks, production stages, QC inspections, stock movements, purchases, expenses, payroll, VAT invoices and budget requests.
+- **Nepal factory team (Kathmandu).** Operations head, operations and fashion interns, accountant, marketing co-ordinator, content editor, operations assistants. They log the day's work: attendance and GPS clock-in, tasks, production stages, stock movements, purchases, expenses, payroll, VAT invoices and budget requests.
 - **UK directors.** They own the business and oversee it remotely: revenue, invoices, outstanding balances, bank balances, order pipeline, budget approvals, payroll commitment.
 - **System admin / developer.** Maintains roles, permissions and the app itself.
 
@@ -29,7 +29,7 @@ Built for exactly one company's two-country operation. NPR is the stored currenc
 ## Operating Context
 
 - Access is a property of the position (role), set in the Admin Panel and enforced by Supabase row-level security. A role sees a page as none / view / edit. A view-only role still sees the whole page, read-only.
-- Workflows cover: GPS-geofenced clock-in (100 m radius) with late-cut calculation; a production order pipeline (received → cutting → stitching → embellishment → QC → packing → dispatch); QC batch logs; a stock ledger with reorder alerts; unit economics and costing; tech packs and a fabric library; expenses with VAT bill uploads; purchases with line items and 13% VAT; double-entry journal, ledger, P&L, balance sheet; bank feed via webhook; payroll with late deductions and salary slips; VAT invoices, challans and quotations numbered per Nepali fiscal year with partial payments; budget requests approved from the UK; team chat; a usage and activity log; a bug report page.
+- Workflows cover: GPS-geofenced clock-in (100 m radius) with late-cut calculation; a production order pipeline (received → cutting → stitching → embellishment → QC → packing → dispatch); a stock ledger with reorder alerts; unit economics and costing; tech packs and a fabric library; expenses with VAT bill uploads; purchases with line items and 13% VAT; double-entry journal, ledger, P&L, balance sheet; bank feed via webhook; payroll with late deductions and salary slips; VAT invoices, challans and quotations numbered per Nepali fiscal year with partial payments; budget requests approved from the UK; team chat; a usage and activity log; a bug report page.
 - Heavy keyboard data entry exists and must keep working: Enter-to-advance inputs, keyboard selects, Shift+letter tab shortcuts.
 - Guided "Show me" tours target elements through `data-tour` attributes.
 

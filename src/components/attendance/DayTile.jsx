@@ -24,11 +24,14 @@ export default function DayTile({ rows, summary, filter, onFilter, date, today, 
   const listed = parts.filter((p) => p.state !== "half" || p.v > 0);
   const out = rows.filter((r) => r.state === "none" || r.state === "absent");
   const closed = summary.total === 0;
+  const off = rows.find((r) => r.off)?.off;            // why nobody is expected, when nobody is
 
   return (
     <Tile area="day" icon={<Icons.Attendance size={14} sw={1.8} />} title={isToday ? "In today" : "That day"} note={dayShort(date)} loading={loading} align="top" className="at-daytile">
       {closed ? (
-        <EmptyNote icon={<Icons.Calendar size={22} sw={1.5} />}>Saturday is the office's day off.</EmptyNote>
+        <EmptyNote icon={<Icons.Calendar size={22} sw={1.5} />}>
+          {off?.kind === "holiday" ? `${off.name} is a holiday: nobody is expected in.` : "Saturday is the office's day off."}
+        </EmptyNote>
       ) : (
         <>
           <div className="kb-att kb-fill">

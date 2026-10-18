@@ -5,17 +5,17 @@
  *   revenue    invoices   cash     payroll
  *   revenue    invoices   profit
  *   approvals  pipeline   attendance
- *   approvals  pipeline   quality
+ *   approvals  pipeline   attendance
  */
 import { useAuth } from "../../context/AuthContext";
 import { toNPR } from "../../utils/currency";
 import { RegionSwitch } from "../../components/RegionSwitch";
 import { BentoGrid, BentoPage, DashHead } from "../../components/bento/Bento";
-import { attendanceToday, invoiceSummary, qcSummary, useBank, useDashData } from "./shared";
+import { attendanceToday, invoiceSummary, useBank, useDashData } from "./shared";
 import { LoadError } from "./LoadError";
 import {
   ActiveOrdersTile, ApprovalsTile, AttendanceTile, CashTile, InvoicesTile, OrdersTile,
-  PayrollTile, ProfitTile, QcTile, RevenueTile,
+  PayrollTile, ProfitTile, RevenueTile,
 } from "./tiles";
 
 const COLLECTIONS = {
@@ -27,12 +27,11 @@ const COLLECTIONS = {
   payroll: "finance_payroll",
   orderCosts: "order_costs",
   employees: "employees",
-  qcLogs: "qc_logs",
 };
 const LIVE = ["finance_payroll", "invoices", "orders", "employees"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-function derive({ invoices, orders, attendance, budgetRequests, users, payroll, orderCosts, employees, qcLogs }, { today }) {
+function derive({ invoices, orders, attendance, budgetRequests, users, payroll, orderCosts, employees }, { today }) {
   // Headcount is the active roster — access comes from the person's position.
   const totalStaff = users.filter((u) => u.status !== "Inactive").length || 7;
 
@@ -68,13 +67,13 @@ function derive({ invoices, orders, attendance, budgetRequests, users, payroll, 
   });
   const revData = Array.from({ length: 30 }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - (29 - i));
-    const key = d.toISOString().slice(0, 10);
+    // the same local day the label above names (toISOString() is the UTC day, a day behind for the first hours of a Kathmandu morning)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     return invoices.filter((inv) => inv.date === key && inv.status === "Paid").reduce((s, inv) => s + toNPR(inv.totalNPR, inv.currency), 0);
   });
 
   return {
     ...invoiceSummary(invoices, today),
-    ...qcSummary(qcLogs),
     totalPaidNPR: paidInvoices.reduce((s, i) => s + toNPR(i.totalNPR, i.currency), 0),
     revIsLastMonth: revMonth !== thisMonth,
     revData, dates30,
@@ -114,7 +113,6 @@ export default function OwnerDash() {
           <ApprovalsTile pending={d.pendingBudget} loading={loading} />
           <OrdersTile area="pipe" title="Order pipeline" orders={d.orders || []} loading={loading} />
           <AttendanceTile counts={d.attendance} loading={loading} />
-          <QcTile data={d} loading={loading} />
         </BentoGrid>
       )}
     </BentoPage>

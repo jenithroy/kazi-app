@@ -7,6 +7,8 @@ import { Icons } from "./ui";
 import { awardPoints } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
 import { getCurrentPosition, hapticSuccess } from "../utils/native";
+import { useHolidays } from "../hooks/useHolidays";
+import { holidayOn } from "../lib/holidayDays";
 
 function fmtHM(date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
@@ -28,7 +30,10 @@ function fmtElapsed(ms) {
  */
 export default function ClockInCard({ profile, onClockChange, variant = "ring", showTime = false }) {
   const today = todayDate();
-  const isOfficeClosedToday = isSaturday(today);
+  // a holiday closes the office like a Saturday does: nobody is expected, so there is nothing to clock in to
+  const { rows: holidays } = useHolidays();
+  const holiday = holidayOn(today, holidays, profile?.location);
+  const isOfficeClosedToday = isSaturday(today) || Boolean(holiday);
   // Attendance and clock-ins are keyed by the person's row in `people`, not by
   // the Firebase uid they happened to sign in with — someone can now arrive
   // through either provider and must land on the same attendance record.
@@ -234,7 +239,6 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
       await upsertRow("attendance", {
         date: today,
         person_id: personId,
-        note: "GPS clock-in & out",
         ...(hours != null ? { hours } : {}),
       }, ["person_id", "date"]);
 
@@ -265,7 +269,6 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
       await upsertRow("attendance", {
         date: today,
         person_id: personId,
-        note: "GPS clock-in",
         hours: 8,
       }, ["person_id", "date"]);
       setClockedOutAtStr(null);
@@ -302,8 +305,8 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     if (status === "checking_status") {
       busy = true; main = <Icons.Clock size={28} sw={1.7} />; label = "Checking";
     } else if (isOfficeClosedToday && status === "idle") {
-      tone = "ok"; pct = 100; main = <Icons.Check size={28} sw={1.9} />; label = "Closed today";
-      note = "Saturday is the company holiday.";
+      tone = "ok"; pct = 100; main = <Icons.Check size={28} sw={1.9} />; label = holiday ? "Holiday" : "Closed today";
+      note = holiday ? `${holiday.name}: the office is closed.` : "Saturday is the company holiday.";
     } else if (status === "idle") {
       label = "Clock in"; press = startClock; note = `We check you are within ${RADIUS} m of the workshop.`;
       if (showTime) main = say(fmtHM(clockTime));
@@ -381,7 +384,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     if (status === "checking_status") {
       Icon = Icons.Clock; headline = "Checking attendance…";
     } else if (isOfficeClosedToday && status === "idle") {
-      Icon = Icons.Check; tone = "ok"; headline = "Office closed today"; detail = "Saturdays are a company holiday. No clock-in needed.";
+      Icon = Icons.Check; tone = "ok"; headline = "Office closed today"; detail = holiday ? `${holiday.name} is a holiday. No clock-in needed.` : "Saturdays are a company holiday. No clock-in needed.";
     } else if (status === "idle") {
       headline = "Ready to clock in"; detail = `GPS-checked within ${RADIUS} m of the workshop.`;
       acts = btn("primary", "Clock in", startClock);

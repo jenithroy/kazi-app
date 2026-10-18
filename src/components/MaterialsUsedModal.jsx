@@ -1,25 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { fetchAll } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
-import StockItemSelect from "./StockItemSelect";
+import Modal from "./Modal";
+import Select from "./Select";
+import { Icons } from "./ui";
 import {
   STOCK_MOVEMENTS_COLLECTION, stockClosing, postProductionStockOut, undoProductionStockOut,
 } from "../utils/stockLedger";
-import { LINE_KINDS, orderRefOf, resolveRows, round3 } from "../utils/productionConsumption";
+import { LINE_KINDS, materialItems, orderRefOf, resolveRows, round3 } from "../utils/productionConsumption";
+import "./production/production-dialogs.css";
 
-const kindLabel = (kind) => LINE_KINDS.find(k => k.value === kind)?.label || "Other";
+const kindLabel = (kind) => LINE_KINDS.find((k) => k.value === kind)?.label || "Other";
 const fmtQty = (n) => Number(round3(n)).toLocaleString("en-US", { maximumFractionDigits: 3 });
-
-const cardStyle = {
-  border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px",
-  background: "var(--card)", display: "flex", flexDirection: "column", gap: 10,
-};
-const warnBox = {
-  border: "1px solid rgba(230,81,0,0.35)", background: "rgba(230,81,0,0.06)",
-  borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "var(--ink-2)",
-  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
-};
-const hint = { fontSize: 12, color: "var(--ink-4)", margin: 0 };
 
 let rowSeq = 0;
 const newRow = () => ({ key: `row:${++rowSeq}`, kind: "trim", label: "", itemId: "", amount: "" });
@@ -35,13 +27,27 @@ function friendlyError(err) {
   return `Could not save: ${msg}`;
 }
 
+/** The stock items a row can draw from, as options: the item, its unit, and the category it is filed under. */
+function itemOptions(items, kind, current) {
+  const list = materialItems([...items], kind);
+  // The item already chosen stays selectable even if it is filed under a category this picker normally hides.
+  if (current && !list.some((i) => i.id === current)) {
+    const item = items.find((i) => i.id === current);
+    if (item) list.unshift(item);
+  }
+  return [
+    { value: "", label: "Choose an item" },
+    ...list.map((i) => ({ value: i.id, label: `${i.item}${i.unit ? ` (${i.unit})` : ""}`, hint: i.category || "Other" })),
+  ];
+}
+
 /**
  * Confirms which materials an order used and takes them out of stock.
  *
  * The person confirming adds each material by hand: what it is, the stock item it
  * came from (a colour or fabric substitution is simply a different item) and the
  * amount. Nothing is posted until they confirm, and a below-zero result or a
- * second deduction for the same order asks first.
+ * second deduction for the same order asks first (in the dialog, not in a pop-up).
  *
  *   advancing  true when opened by moving the order out of Quality Check — the
  *              buttons then also continue to the next stage.
@@ -50,6 +56,7 @@ function friendlyError(err) {
  */
 export default function MaterialsUsedModal({ order, advancing, onClose, onDone }) {
   const { profile } = useAuth();
+  const uid = useId();
   const orderRef = orderRefOf(order);
 
   const [loading, setLoading] = useState(true);
@@ -65,6 +72,7 @@ export default function MaterialsUsedModal({ order, advancing, onClose, onDone }
   // "Type the amount" is only nagged about once they have tried to confirm; until
   // then a row that has an item and no amount yet is just a row being filled in.
   const [attempted, setAttempted] = useState(false);
+  const [ask, setAsk] = useState(null);       // a question waiting for Yes / No: { text, yes, resolve }
 
   useEffect(() => {
     let cancelled = false;
@@ -85,25 +93,38 @@ export default function MaterialsUsedModal({ order, advancing, onClose, onDone }
     return () => { cancelled = true; };
   }, [order.id]);
 
-  const itemById = useMemo(() => new Map(items.map(i => [i.id, i])), [items]);
+  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const prior = useMemo(
-    () => movements.filter(m => m.source === "production" && m.sourceId === orderRef),
-    [movements, orderRef]
+    () => movements.filter((m) => m.source === "production" && m.sourceId === orderRef),
+    [movements, orderRef],
   );
 
   const calc = useMemo(
-    () => resolveRows(rows, { itemById, balanceOf: item => stockClosing(item, movements) }),
-    [rows, itemById, movements]
+    () => resolveRows(rows, { itemById, balanceOf: (item) => stockClosing(item, movements) }),
+    [rows, itemById, movements],
   );
 
+  const kindOptions = useMemo(() => LINE_KINDS.map((k) => ({ value: k.value, label: k.label })), []);
+
   function setRow(key, patch) {
-    setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
+  /** Asks a yes / no question in the dialog and waits for the answer. */
+  function confirmHere(text, yes) {
+    return new Promise((resolve) => setAsk({ text, yes, resolve }));
+  }
+  function answer(value) {
+    ask?.resolve(value);
+    setAsk(null);
   }
 
   async function handleUndo() {
-    if (!window.confirm(
-      `Put back the materials deducted for ${orderRef}? This removes ${prior.length} stock-out line${prior.length === 1 ? "" : "s"} from the ledger.`
-    )) return;
+    const ok = await confirmHere(
+      `Put back the materials deducted for ${orderRef}? This removes ${prior.length} stock-out line${prior.length === 1 ? "" : "s"} from the ledger.`,
+      "Put them back",
+    );
+    if (!ok) return;
     setSaving(true);
     setError("");
     try {
@@ -122,20 +143,20 @@ export default function MaterialsUsedModal({ order, advancing, onClose, onDone }
     const pieces = Number(piecesText) || 0;
     if (pieces <= 0) { setError("Enter how many pieces came out."); return; }
 
-    const needItem = calc.perRow.filter(r => r.needsItem);
+    const needItem = calc.perRow.filter((r) => r.needsItem);
     if (needItem.length) {
-      setError(`Choose the stock item for: ${needItem.map(r => r.row.label || kindLabel(r.row.kind)).join(", ")} — or remove the row.`);
+      setError(`Choose the stock item for: ${needItem.map((r) => r.row.label || kindLabel(r.row.kind)).join(", ")} — or remove the row.`);
       return;
     }
-    const needAmount = calc.perRow.filter(r => r.needsAmount);
+    const needAmount = calc.perRow.filter((r) => r.needsAmount);
     if (needAmount.length) {
-      setError(`Type the amount to deduct for: ${needAmount.map(r => r.row.label || r.item.item).join(", ")} — or remove the row.`);
+      setError(`Type the amount to deduct for: ${needAmount.map((r) => r.row.label || r.item.item).join(", ")} — or remove the row.`);
       return;
     }
 
     const lines = calc.perRow
-      .filter(r => r.item && r.qty > 0)
-      .map(r => ({
+      .filter((r) => r.item && r.qty > 0)
+      .map((r) => ({
         itemId: r.item.id,
         qty: round3(r.qty),
         label: r.row.label || r.item.item,
@@ -145,14 +166,16 @@ export default function MaterialsUsedModal({ order, advancing, onClose, onDone }
 
     const negative = [...calc.totals.entries()]
       .map(([id, total]) => ({ item: itemById.get(id), after: (calc.balances.get(id) || 0) - total }))
-      .filter(x => x.after < 0);
-    if (negative.length && !window.confirm(
-      `These would go below zero: ${negative.map(x => `${x.item.item} (${fmtQty(x.after)} ${x.item.unit || ""})`).join(", ")}. Deduct anyway?`
-    )) return;
+      .filter((x) => x.after < 0);
+    if (negative.length && !(await confirmHere(
+      `These would go below zero: ${negative.map((x) => `${x.item.item} (${fmtQty(x.after)} ${x.item.unit || ""})`).join(", ")}. Deduct anyway?`,
+      "Deduct anyway",
+    ))) return;
 
-    if (prior.length && !window.confirm(
-      `Stock was already deducted for ${orderRef}. Deduct these materials again on top of that?`
-    )) return;
+    if (prior.length && !(await confirmHere(
+      `Stock was already deducted for ${orderRef}. Deduct these materials again on top of that?`,
+      "Deduct again",
+    ))) return;
 
     setSaving(true);
     try {
@@ -165,123 +188,138 @@ export default function MaterialsUsedModal({ order, advancing, onClose, onDone }
   }
 
   const pieces = Number(piecesText) || 0;
+  const locked = saving || Boolean(ask);       // what was asked about is what gets posted: nothing may change meanwhile
   const subtitle = [
     orderRef, order.customerName, order.styleName,
     [order.fabricType, order.colorway && `(${order.colorway})`].filter(Boolean).join(" "),
   ].filter(Boolean).join(" · ");
 
+  const footer = (
+    <>
+      {advancing ? (
+        <button type="button" className="ghost-button" onClick={() => onDone({ deducted: false })} disabled={saving || loading}>
+          Advance without deducting
+        </button>
+      ) : (
+        <button type="button" className="ghost-button" onClick={onClose} disabled={saving}>Close</button>
+      )}
+      <button type="button" className="primary-button" onClick={handleConfirm} disabled={saving || loading || Boolean(loadError) || Boolean(ask)}>
+        {saving ? "Saving…" : advancing ? "Deduct stock and advance" : "Deduct stock"}
+      </button>
+    </>
+  );
+
   return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget && !saving) onClose(); }}>
-      <div className="kbrf-modal" style={{ maxWidth: 780 }} role="dialog" aria-modal="true" aria-label={`Materials used for ${orderRef}`}>
-        <div className="kbrf-modal-hd">
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>Materials used</div>
-            <div style={{ fontSize: 12, color: "var(--ink-4)", fontWeight: 400, marginTop: 2 }}>{subtitle}</div>
+    <Modal
+      size="lg"
+      className="pr-dlg"
+      glass
+      title="Materials used"
+      subtitle={subtitle}
+      onClose={saving ? undefined : onClose}
+      footer={footer}
+    >
+      {loading && <p className="pr-hint">Loading stock…</p>}
+      {!loading && loadError && <p className="pr-mat-strip is-bad" role="alert">{loadError}</p>}
+
+      {!loading && !loadError && (
+        <div className="kof pr-mat">
+          {prior.length > 0 && (
+            <div className="pr-mat-strip is-warn">
+              <span>
+                Materials for this order were already deducted{prior[0]?.date ? ` on ${prior[0].date}` : ""}
+                {" "}({prior.length} line{prior.length === 1 ? "" : "s"}).
+              </span>
+              <button type="button" className="ghost-button" onClick={handleUndo} disabled={locked}>Undo that deduction</button>
+            </div>
+          )}
+
+          <div className="kof-f kof-c4">
+            <label className="kof-l" htmlFor={`${uid}-pieces`}>Pieces that passed QC</label>
+            <input id={`${uid}-pieces`} type="number" min="0" step="1" value={piecesText} onChange={(e) => setPiecesText(e.target.value)} disabled={locked} />
           </div>
-          <button className="kbrf-modal-close" onClick={onClose} disabled={saving} aria-label="Close">✕</button>
-        </div>
+          <p className="pr-hint">
+            {pieces.toLocaleString()} pcs of {Number(order.quantity || 0).toLocaleString()} ordered. Count only pieces that passed QC —
+            rejected pieces reuse their material, so they aren't deducted.
+          </p>
 
-        {loading && <p style={hint}>Loading stock…</p>}
-        {!loading && loadError && <div style={warnBox}>{loadError}</div>}
+          {rows.length === 0 && (
+            <p className="pr-hint">Add each material this order used, choose the stock item it came from, and type the amount to deduct.</p>
+          )}
 
-        {!loading && !loadError && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {prior.length > 0 && (
-              <div style={warnBox}>
-                <span>
-                  Materials for this order were already deducted{prior[0]?.date ? ` on ${prior[0].date}` : ""}
-                  {" "}({prior.length} line{prior.length === 1 ? "" : "s"}).
-                </span>
-                <button className="ghost-button" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleUndo} disabled={saving}>
-                  Undo that deduction
-                </button>
-              </div>
-            )}
-
-            <label className="kfin-label" style={{ maxWidth: 260 }}>
-              Pieces that passed QC
-              <input className="kfin-input" type="number" min="0" step="1" value={piecesText}
-                onChange={e => setPiecesText(e.target.value)} />
-            </label>
-            <p style={hint}>
-              {pieces.toLocaleString()} pcs of {Number(order.quantity || 0).toLocaleString()} ordered. Count only pieces that passed QC —
-              rejected pieces reuse their material, so they aren't deducted.
-            </p>
-
-            {rows.length === 0 && (
-              <p style={hint}>Add each material this order used, choose the stock item it came from, and type the amount to deduct.</p>
-            )}
-
-            {calc.perRow.map(({ row, item, needsAmount, needsItem }) => {
-              const total = item ? calc.totals.get(item.id) || 0 : 0;
-              const balance = item ? calc.balances.get(item.id) || 0 : null;
-              const after = item ? balance - total : null;
-              const unit = item?.unit || "";
-              return (
-                <div key={row.key} style={cardStyle}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                      <select className="kfin-select" style={{ width: "auto" }} value={row.kind}
-                        onChange={e => setRow(row.key, { kind: e.target.value })} aria-label="Kind of material">
-                        {LINE_KINDS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
-                      </select>
-                      <input className="kfin-input" placeholder="What is it? e.g. Red thread" value={row.label}
-                        onChange={e => setRow(row.key, { label: e.target.value })} />
-                    </div>
-                    <button className="kbrf-modal-close" title="Remove this row" aria-label="Remove this row"
-                      onClick={() => setRows(prev => prev.filter(r => r.key !== row.key))} disabled={saving}>✕</button>
+          {calc.perRow.map(({ row, item, needsAmount, needsItem }, n) => {
+            const total = item ? calc.totals.get(item.id) || 0 : 0;
+            const balance = item ? calc.balances.get(item.id) || 0 : null;
+            const after = item ? balance - total : null;
+            const unit = item?.unit || "";
+            return (
+              <div key={row.key} className="pr-mat-row">
+                <div className="pr-mat-top">
+                  <div className="pr-mat-kind">
+                    <Select label={`Kind of material, row ${n + 1}`} value={row.kind} onChange={(v) => setRow(row.key, { kind: v })} options={kindOptions} disabled={locked} />
                   </div>
+                  <input
+                    type="text" placeholder="What is it? e.g. Red thread" aria-label={`What material, row ${n + 1}`}
+                    value={row.label} onChange={(e) => setRow(row.key, { label: e.target.value })} disabled={locked}
+                  />
+                  <button
+                    type="button" className="pr-mat-x" title="Remove this row" aria-label={`Remove row ${n + 1}`}
+                    onClick={() => setRows((prev) => prev.filter((r) => r.key !== row.key))} disabled={locked}
+                  >
+                    <Icons.X size={16} sw={2} aria-hidden="true" />
+                  </button>
+                </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-                    <label className="kfin-label">
-                      Stock item
-                      <StockItemSelect items={items} kind={row.kind} value={row.itemId}
-                        onChange={id => setRow(row.key, { itemId: id })} />
-                    </label>
-                    <label className="kfin-label">
-                      Deduct{unit ? ` (${unit})` : ""}
-                      <input className="kfin-input" type="number" min="0" step="any" value={row.amount} placeholder="0"
-                        onChange={e => setRow(row.key, { amount: e.target.value })} />
-                    </label>
+                <div className="pr-mat-grid">
+                  <div className="kof-f">
+                    <span className="kof-l">Stock item</span>
+                    <Select
+                      label={`Stock item, row ${n + 1}`} value={row.itemId} onChange={(id) => setRow(row.key, { itemId: id })}
+                      options={itemOptions(items, row.kind, row.itemId)} placeholder="Choose an item" searchPlaceholder="Find an item" disabled={locked}
+                    />
                   </div>
-
-                  <div style={{ fontSize: 12, color: "var(--ink-3)", display: "flex", flexDirection: "column", gap: 2 }}>
-                    {needsItem && <span style={{ color: "var(--terra)" }}>Choose which stock item this comes from.</span>}
-                    {needsAmount && attempted && <span style={{ color: "var(--terra)" }}>Type how much to deduct.</span>}
-                    {item && (
-                      <span style={{ color: after < 0 ? "var(--terra)" : undefined }}>
-                        In stock: {fmtQty(balance)} {item.unit} → {fmtQty(after)} {item.unit} after this
-                        {after < 0 ? " (below zero)" : ""}
-                      </span>
-                    )}
+                  <div className="kof-f">
+                    <label className="kof-l" htmlFor={`${uid}-amt-${row.key}`}>Deduct{unit ? ` (${unit})` : ""}</label>
+                    <input
+                      id={`${uid}-amt-${row.key}`} type="number" min="0" step="any" placeholder="0"
+                      value={row.amount} onChange={(e) => setRow(row.key, { amount: e.target.value })} disabled={locked}
+                    />
                   </div>
                 </div>
-              );
-            })}
 
-            <div>
-              <button className="ghost-button" style={{ fontSize: 13 }} onClick={() => setRows(prev => [...prev, newRow()])} disabled={saving}>
-                + Add material
-              </button>
-            </div>
+                <div className="pr-mat-lines">
+                  {needsItem && <span className="is-bad">Choose which stock item this comes from.</span>}
+                  {needsAmount && attempted && <span className="is-bad">Type how much to deduct.</span>}
+                  {item && (
+                    <span className={after < 0 ? "is-bad" : undefined}>
+                      In stock: {fmtQty(balance)} {item.unit} → {fmtQty(after)} {item.unit} after this
+                      {after < 0 ? " (below zero)" : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
 
-            {error && <div role="alert" style={{ ...warnBox, color: "var(--terra)" }}>{error}</div>}
-
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 4 }}>
-              {advancing ? (
-                <button className="ghost-button" onClick={() => onDone({ deducted: false })} disabled={saving}>
-                  Advance without deducting
-                </button>
-              ) : (
-                <button className="ghost-button" onClick={onClose} disabled={saving}>Close</button>
-              )}
-              <button className="primary-button" onClick={handleConfirm} disabled={saving}>
-                {saving ? "Saving…" : advancing ? "Deduct stock & advance" : "Deduct stock"}
-              </button>
-            </div>
+          <div>
+            <button type="button" className="ghost-button" onClick={() => setRows((prev) => [...prev, newRow()])} disabled={locked}>
+              <Icons.Plus size={14} sw={2} aria-hidden="true" /> Add material
+            </button>
           </div>
-        )}
-      </div>
-    </div>
+
+          {ask && (
+            <div className="pr-mat-strip is-warn" role="alertdialog" aria-label="Please confirm">
+              <span>{ask.text}</span>
+              <span className="pr-mat-ask">
+                <button type="button" className="ghost-button" onClick={() => answer(false)} autoFocus>Cancel</button>
+                <button type="button" className="primary-button" onClick={() => answer(true)}>{ask.yes}</button>
+              </span>
+            </div>
+          )}
+
+          {error && <p className="pr-mat-strip is-bad" role="alert">{error}</p>}
+        </div>
+      )}
+    </Modal>
   );
 }

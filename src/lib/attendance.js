@@ -11,6 +11,9 @@
  */
 import { getEmployeeScheduleForDate, parseLocalDate } from "../constants";
 import { tsDate } from "../utils/date";
+import { holidayOn } from "./holidayDays";
+
+export { holidayOn, holidaySpan, holidayDays } from "./holidayDays";
 
 /* ── Dates (local, as the rest of the app reads a "day") ───────── */
 
@@ -104,6 +107,17 @@ export function hoursFor(status, workedMin) {
 export const shiftFor = (name, iso) => getEmployeeScheduleForDate(name, parseLocalDate(iso));
 
 /**
+ * Is this day one nobody is expected in, for somebody in this region: a holiday, or the weekly
+ * Saturday? { kind: "holiday" | "saturday", name } or null. A holiday wins over the Saturday it
+ * covers, so the day is called by its name.
+ */
+export function dayOff(iso, holidays, region) {
+  const h = holidayOn(iso, holidays, region);
+  if (h) return { kind: "holiday", name: h.name };
+  return isSat(iso) ? { kind: "saturday", name: "Saturday" } : null;
+}
+
+/**
  * A past day with a clock-in and no clock-out counts as Absent: nothing says the day was worked
  * through. Today is left alone (they may still be at work), and so is a record someone with edit
  * rights set by hand (the clock-in stamps its own record "GPS"): a person's decision stands.
@@ -115,37 +129,44 @@ export function effectiveRecord(rec, clk, date, today) {
   return { ...(rec || {}), status: "Absent", lateCutApplied: false, note: rec?.note || "No clock-out", missedClockOut: true };
 }
 
-const AUTO_NOTE = /^GPS clock-in( & out)?$/i;
+const AUTO_NOTE = /^(GPS clock-in( & out)?|GPS clock-in \(low-accuracy bypass\)|No clock-out)$/i;
+
+/** What a person (or an admin) wrote on a day, as written. The clock-in's own wording is not a note. */
+export function humanNote(record) {
+  const note = String(record?.note || "").trim();
+  return AUTO_NOTE.test(note) ? "" : note;
+}
 
 /**
- * A record's note, said briefly: the clock-in's own wording becomes "GPS" (it is on nearly every
- * row), and a record somebody set by hand says who. Anything a person typed is kept as written.
+ * A record's note, said briefly: what somebody wrote, as written, else the clock-in's own wording
+ * shortened to "GPS". Who set the day is not part of it.
  */
 export function noteText(record) {
   if (!record) return "";
   const note = String(record.note || "").trim();
-  const by = record.loggedBy && record.loggedBy !== "GPS" ? String(record.loggedBy).split(" ")[0] : "";
-  if (by) return note && !AUTO_NOTE.test(note) ? `set by ${by} · ${note}` : `set by ${by}`;
-  if (AUTO_NOTE.test(note)) return "GPS";
+  if (/^GPS clock-in( & out)?$/i.test(note)) return "GPS";
   if (/low-accuracy bypass/i.test(note)) return "GPS · weak signal";
   return note;
 }
+
+/** The longest note a day can carry (a reason, not an essay). */
+export const NOTE_MAX = 280;
 
 /**
  * Everyone on the roster for one day, in one shape: who, how the day stands, when they came and
  * went. `staff` is the directory (with `personId`), `records` and `clocks` are that day's rows.
  * `now` is only used to say how long someone who has not clocked out has been in.
  */
-export function buildRoster({ staff, records, clocks, date, today = date, now = new Date() }) {
+export function buildRoster({ staff, records, clocks, date, today = date, now = new Date(), holidays = [] }) {
   const recBy = new Map(records.map((r) => [r.person_id, r]));
   const clkBy = new Map(clocks.map((c) => [c.person_id, c]));
-  const closed = isSat(date);
   return staff
     .filter((s) => s.personId)
     .map((s) => {
       const stored = recBy.get(s.personId) || null;
       const clk = clkBy.get(s.personId) || null;
       const rec = effectiveRecord(stored, clk, date, today);
+      const off = dayOff(date, holidays, s.location || s.region);   // a holiday or a Saturday for this person, or null
       const inAt = tsDate(clk?.clockedInAt);
       const outAt = tsDate(clk?.clockedOutAt);
       const worked = inAt && outAt ? workedMinutes(clk) : null;
@@ -154,7 +175,8 @@ export function buildRoster({ staff, records, clocks, date, today = date, now = 
         personId: s.personId,
         name: s.name,
         role: s.jobRole || "",
-        state: stateOf(rec, { closed }),
+        state: stateOf(rec, { closed: Boolean(off) }),
+        off,
         status: rec?.status || null,
         record: stored,                              // what is stored, for saving over it
         missedClockOut: Boolean(rec?.missedClockOut),
@@ -190,9 +212,10 @@ const tally = (into, status, cut) => {
 
 /**
  * Counts for one person's month and the days behind them. Saturday is the day off, so it only
- * appears when something was recorded on it. Half-days count as present.
+ * appears when something was recorded on it; a holiday is listed (as a day off, with its name) so
+ * the gap in the report explains itself. Half-days count as present.
  */
-export function personMonth({ records, clocks, month, today }) {
+export function personMonth({ records, clocks, month, today, holidays = [], region }) {
   const recBy = new Map(records.map((r) => [r.date, r]));
   const clkBy = new Map(clocks.map((c) => [c.date, c]));
   const out = { present: 0, late: 0, cuts: 0, absent: 0, leave: 0, minutes: 0, days: [] };
@@ -200,10 +223,11 @@ export function personMonth({ records, clocks, month, today }) {
     const iso = isoOf(month.y, month.m, d);
     const clock = clkBy.get(iso) || null;
     const record = effectiveRecord(recBy.get(iso), clock, iso, today);
-    if (isSat(iso) && !record && !clock) continue;
+    const off = dayOff(iso, holidays, region);
+    if (off?.kind === "saturday" && !record && !clock) continue;
     if (record) tally(out, record.status, record.lateCutApplied);
     out.minutes += workedMinutes(clock) ?? 0;
-    out.days.push({ iso, record, clock });
+    out.days.push({ iso, record, clock, off });
   }
   return out;
 }
@@ -213,7 +237,7 @@ export function personMonth({ records, clocks, month, today }) {
  * calendar's little bars and a person's report can never disagree. `byDay` is day of the
  * month -> that day's counts; `people` carries every person's counts and days.
  */
-export function teamMonth({ staff, records, clocks, month, today }) {
+export function teamMonth({ staff, records, clocks, month, today, holidays = [] }) {
   const group = (rows) => {
     const by = new Map();
     rows.forEach((r) => { if (!by.has(r.person_id)) by.set(r.person_id, []); by.get(r.person_id).push(r); });
@@ -225,7 +249,7 @@ export function teamMonth({ staff, records, clocks, month, today }) {
   const byDay = {};
   const people = [];
   staff.filter((s) => s.personId).forEach((s) => {
-    const pm = personMonth({ records: recBy.get(s.personId) || [], clocks: clkBy.get(s.personId) || [], month, today });
+    const pm = personMonth({ records: recBy.get(s.personId) || [], clocks: clkBy.get(s.personId) || [], month, today, holidays, region: s.location || s.region });
     people.push({ personId: s.personId, name: s.name, role: s.jobRole || "", ...pm });
     Object.keys(team).forEach((k) => { team[k] += pm[k]; });
     pm.days.forEach(({ iso, record }) => {

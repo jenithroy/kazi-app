@@ -65,8 +65,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
 .invoice-page { width: 210mm; min-height: 297mm; position: relative; background-image: url('${letterheadUrl}'); background-size: 100% 100%; background-repeat: no-repeat; }
 </style></head><body>${pageEl.outerHTML}</body></html>`);
     printWin.document.close();
-    printWin.onload = () => { setTimeout(() => { printWin.focus(); printWin.print(); }, 400); };
-    setTimeout(() => { printWin.focus(); printWin.print(); }, 1200);
+    // Whichever of the two comes first prints; the other (the fallback for a window that never fires onload) must not print a second time.
+    let printed = false;
+    const printOnce = () => { if (printed) return; printed = true; printWin.focus(); printWin.print(); };
+    printWin.onload = () => { setTimeout(printOnce, 400); };
+    setTimeout(printOnce, 1200);
   }
 
   /* ── Computed values ── */
@@ -118,7 +121,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   const btnBase = { padding: "8px 18px", borderRadius: 6, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, transition: "opacity .15s" };
 
   return (
-    <div id="__kazi_doc_root__" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", alignItems: "center", background: "rgba(0,0,0,0.55)" }}>
+    <div id="__kazi_doc_root__" style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center", background: "rgba(0,0,0,0.55)" }}>
 
       {/* ── Toolbar ── */}
       <div className="doc-toolbar" style={{ width: "100%", background: g, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", flexShrink: 0, flexWrap: "wrap", gap: 10 }}>

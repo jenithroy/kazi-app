@@ -180,6 +180,11 @@
 .at-chip--leave.is-on { background: var(--kb-info-bg); border-color: color-mix(in srgb, var(--kb-info) 45%, transparent); color: var(--kb-info); }
 .at-chip--absent.is-on, .at-chip--cut.is-on { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 45%, transparent); color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
 .at-chip--cut { border-style: dashed; }
+.at-chip--note { display: inline-flex; align-items: center; gap: 4px; border-style: dashed; }
+.at-chip--note.is-on { background: var(--kb-chip); border-color: color-mix(in srgb, var(--kb-accent) 45%, transparent); color: var(--kb-accent); }
+.at-chip--note[aria-disabled="true"]:not(.is-on) { opacity: .5; cursor: not-allowed; }
+.at-row.is-noting { flex-wrap: wrap; }
+.at-rownote { flex: 1 1 100%; min-width: 0; padding: 2px 0 6px 40px; }
 /* in a narrow tile the buttons take a line of their own under the name */
 @container kb (max-width: 579px) {
   .at-roster.is-edit .at-th { display: none; }
@@ -225,6 +230,11 @@
 .at-day-t { flex: none; width: 104px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--kb-ink-2); white-space: nowrap; }
 .at-day-h { flex: none; width: 70px; text-align: right; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--kb-ink-2); white-space: nowrap; }
 .at-day-n { flex: 1 1 0; min-width: 0; font-size: 12px; color: var(--kb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-day-n:empty { display: none; }
+@container kb (max-width: 519px) {
+  .at-day { flex-wrap: wrap; }
+  .at-day-n { flex: 1 1 100%; order: 9; margin-top: -3px; padding: 0 4px 2px 94px; white-space: normal; overflow-wrap: anywhere; }
+}
 .at-th .at-day-d, .at-th .at-day-s, .at-th .at-day-t, .at-th .at-day-h, .at-th .at-day-n { font-size: 10.5px; color: var(--kb-ink-3); }
 
 /* the report's counts */
@@ -317,7 +327,9 @@
 .at-cell.is-today::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--kb-accent); }
 .at-cell.is-sel { border-color: var(--kb-accent); box-shadow: 0 0 0 1px var(--kb-accent); }
 .at-cell.is-sat { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--kb-well) 5px 8px); }
-.at-cell.is-future:not(.is-sat) { background: transparent; border-color: var(--kb-line); }
+.at-cell.is-holiday { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--kb-info-bg) 5px 8px); }
+.at-cell.is-holiday .at-cell-n { color: var(--kb-info); }
+.at-cell.is-future:not(.is-sat):not(.is-holiday) { background: transparent; border-color: var(--kb-line); }
 .at-cell.is-future:not(.is-sel) .at-cell-n { color: var(--kb-ink-3); font-weight: 500; }
 .at-blank { min-width: 0; }
 
@@ -327,12 +339,12 @@
 .at-cell-bar i.is-none { background: var(--kb-track); }
 
 /* your own days are painted with how they went */
-.at-cell--present, .at-cell--half { background: var(--kb-good-bg); color: var(--kb-good); }
+.at-cell.at-cell--present, .at-cell.at-cell--half { background: var(--kb-good-bg); color: var(--kb-good); }
 .at-cell--half::before { content: "½"; position: absolute; top: 3px; right: 6px; font-size: 11px; font-weight: 600; line-height: 1; }
 .at-cell--half.is-today::before { right: 17px; }
-.at-cell--late { background: var(--kb-warn-bg); color: var(--kb-warn); }
-.at-cell--leave { background: var(--kb-info-bg); color: var(--kb-info); }
-.at-cell--absent { background: var(--kb-bad-bg); color: var(--kb-bad); }
+.at-cell.at-cell--late { background: var(--kb-warn-bg); color: var(--kb-warn); }
+.at-cell.at-cell--leave { background: var(--kb-info-bg); color: var(--kb-info); }
+.at-cell.at-cell--absent { background: var(--kb-bad-bg); color: var(--kb-bad); }
 .at-cell-t, .at-cell-h { font-size: 11px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .at-cell-t::before, .at-cell-h::before { content: attr(data-v); }
 .at-cell-t { margin-top: auto; }
@@ -345,6 +357,7 @@
 .at-cal-key span { display: inline-flex; align-items: center; gap: 6px; }
 .at-cal-key i { width: 9px; height: 9px; border-radius: 3px; }
 @container kb (max-height: 299px) { .at-cal-key { display: none; } }
+.at-sw--holiday { background: repeating-linear-gradient(135deg, transparent 0 2px, var(--kb-info-fill) 2px 3.5px); box-shadow: inset 0 0 0 1.5px var(--kb-info-fill); }
 .at-sw--present { background: var(--kb-good-bg); box-shadow: inset 0 0 0 1.5px var(--kb-good-fill); }
 .at-sw--late { background: var(--kb-warn-bg); box-shadow: inset 0 0 0 1.5px var(--kb-warn-fill); }
 .at-sw--leave { background: var(--kb-info-bg); box-shadow: inset 0 0 0 1.5px var(--kb-info-fill); }
@@ -382,3 +395,84 @@
 @media (prefers-reduced-motion: reduce) {
   .at-cell, .at-chip, .at-seg-btn, .at-nav, .at-key-btn, .at-day-btn { transition: none; }
 }
+
+/* ── A note on a day ──────────────────────────────────────────── */
+
+.at-noter { display: grid; gap: 6px; min-width: 0; }
+.at-noter-box {
+  display: block; width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--kb-line-hi); border-radius: 10px;
+  background: var(--kb-well); color: var(--kb-ink); font: 400 13px/1.4 var(--font); resize: none;
+}
+.at-noter-box::placeholder { color: var(--kb-ink-3); opacity: 1; }
+.at-noter-box:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 10px; }
+.at-noter-box:disabled { opacity: .7; }
+.at-noter-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.at-noter-count { margin-right: auto; font-size: 11px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
+.at-noter-err { margin-right: auto; font-size: 12px; line-height: 1.35; color: var(--kb-bad); }
+
+/* the staff page: the note under the day's facts, and the button that opens the box */
+.at-notebar { flex: none; display: grid; gap: 6px; min-width: 0; }
+.at-notetext { margin: 0; padding: 7px 10px; border-radius: 10px; background: var(--kb-well); color: var(--kb-ink-2); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+/* the clamp is on an inner span: on the padded box itself the next line would show through the padding */
+.at-notetext > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.kb-btn.at-notebtn { justify-self: start; height: 28px; padding: 0 11px; font-size: 12px; }
+
+/* with a note bar under them, the least useful facts give way a little sooner */
+@container kb (max-height: 339px) { .at-today.has-notebar .at-facts > .is-h300 { display: none; } }
+@container kb (max-height: 279px) { .at-today.has-notebar .at-facts > .is-h240 { display: none; } }
+
+/* A short tile (a laptop window is often 650px high): the note and its button share one line so the button never falls off the foot
+   of the tile, and each fact becomes one line ("In 08:47") instead of a label over a value. If even that does not fit the tile
+   scrolls, since a button nobody can reach is worse than a thin scrollbar. */
+.at-today > .kb-main { overflow-y: auto; scrollbar-width: thin; margin: -4px; padding: 4px; }      /* the 4px keeps the focus rings from being clipped */
+@container kb (max-height: 339px) {
+  .at-today.has-notebar .at-notebar { display: flex; align-items: center; gap: 8px; }
+  .at-today.has-notebar .at-notetext { flex: 1 1 0; min-width: 0; }
+  .at-today.has-notebar .at-notetext > span { -webkit-line-clamp: 2; }
+  .at-today.has-notebar .kb-btn.at-notebtn { flex: none; }
+}
+@container kb (max-height: 209px) {
+  .at-today .at-facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 5px 10px; }
+}
+@container kb (max-height: 189px) {
+  .at-today.has-notebar .at-notetext > span { -webkit-line-clamp: 1; }
+  .at-today .at-noter-box { height: 52px; }
+}
+@container kb (max-height: 129px) { .at-today.has-notebar .at-facts { display: none; } }
+
+/* ── Everyone's month (the report) ────────────────────────────── */
+
+.at-ev > li { border-bottom: 1px solid var(--kb-line); }
+.at-ev > li:last-child { border-bottom: 0; }
+.at-ev-row {
+  width: 100%; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 4px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background-color .15s;
+}
+.at-ev-row:hover { background: var(--kb-well); }
+.at-ev-row:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; border-radius: 8px; }
+.at-ev-n, .at-ev-h { flex: none; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.at-ev-n { width: 52px; font-weight: 500; color: var(--kb-ink); }
+.at-ev-h { width: 66px; color: var(--kb-ink-2); }
+.at-ev-n.is-zero { font-weight: 400; color: var(--kb-faint); }
+.at-ev-n.is-warn { color: var(--kb-warn); }
+.at-ev-n.is-bad { color: var(--kb-bad); }
+.at-ev-n.is-info { color: var(--kb-info); }
+.at-th .at-ev-n, .at-th .at-ev-h { font-size: 10.5px; font-weight: 600; color: var(--kb-ink-3); }
+
+/* ── The holidays dialog (portalled out of the page: the app's base tokens, which a glass dialog remaps for dark) ── */
+
+.at-hol { display: grid; gap: 14px; }
+.at-hol-form { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.at-hol-h { margin: 2px 0 -6px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.at-hol-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.at-hol-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.at-hol-row:first-child { border-top: 0; }
+.at-hol-t { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.at-hol-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink); }
+.at-hol-t span { font-size: 12.5px; color: var(--ink-3); }
+.at-hol-del, .at-hol-retry { flex: none; padding: 5px 10px; font-size: 12.5px; }
+.at-hol-retry { margin-left: 4px; }
+.at-hol-del.is-sure { color: #a8442c; border-color: #a8442c; }
+:root[data-theme="dark"] .kmodal--glass .at-hol-del.is-sure { color: #f4ae98; border-color: #f4ae98; }
+.at-hol-past summary { padding: 6px 0; font-size: 12.5px; color: var(--ink-3); cursor: pointer; }
+.at-hol-past[open] summary { margin-bottom: 4px; }

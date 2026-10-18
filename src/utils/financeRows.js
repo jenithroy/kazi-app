@@ -8,22 +8,52 @@
  * lives here so the fiscal-year page deletes a purchase the same way rather than
  * growing a second, slightly different copy of it.
  */
-import { deleteRow, fetchAll, updateRow, supabase } from "../lib/db";
+import { deleteRow, fetchAll, fetchOne, updateRow, supabase } from "../lib/db";
 import { deletePublicFile } from "../lib/storage";
 import { tsMillis } from "./date";
 import { fiscalYearForDate } from "./fiscalYear";
 
 /** Delete a purchase along with everything raised from it. */
 export async function deletePurchaseWithLinks(id, expenseId) {
-  await deleteRow("finance_purchases", id);
-
   // vat_bills and stock_movements are matched by the purchase's own uuid
   // (migration 0046), not its expenseId string — expense IDs restart every
   // fiscal year, so "EXP001" alone can now name two different purchases, and
   // matching by the string could delete a *different* purchase's VAT bill or
   // stock entry.
+  //
+  // What hangs off the purchase is read BEFORE it is deleted: once it is gone the database lets go of those links
+  // (migration 0046 makes vat_bills.purchase_id and stock_movements.purchase_id ON DELETE SET NULL), and a lookup by
+  // the purchase's id then finds nothing, so the bills, their files and the stock-in rows would be left behind.
+  let vatRows = [];
+  let stockRows = [];
+  let jRows = [];
   try {
-    const vatRows = await fetchAll("vat_bills", { filters: [{ field: "purchaseId", value: id }] });
+    vatRows = await fetchAll("vat_bills", { filters: [{ field: "purchaseId", value: id }] });
+  } catch (e) {
+    console.error("Failed to look up linked vat_bills:", e);
+  }
+  try {
+    stockRows = await fetchAll("stock_movements", { filters: [
+      { field: "source", value: "purchase" },
+      { field: "purchaseId", value: id },
+    ] });
+  } catch (e) {
+    console.error("Failed to look up linked stock_movements:", e);
+  }
+  try {
+    // Journal entries link back through `reference`, not a purchaseId column —
+    // that key never existed for them, and nothing files one against a
+    // purchase today, but the lookup is cheap insurance if that ever changes.
+    jRows = await fetchAll("journal_entries", { filters: [{ field: "reference", value: expenseId }] });
+  } catch (e) {
+    console.error("Failed to look up linked journal_entries:", e);
+  }
+
+  await deleteRow("finance_purchases", id);
+  // A delete the database refuses does not say so. Then the purchase is still there, and so must everything that belongs to it be.
+  if (await fetchOne("finance_purchases", id)) throw new Error("Not deleted. You may not have permission to delete this.");
+
+  try {
     for (const vData of vatRows) {
       await deletePublicFile("finance-attachments", vData.storagePath);
       await deleteRow("vat_bills", vData.id);
@@ -31,22 +61,12 @@ export async function deletePurchaseWithLinks(id, expenseId) {
   } catch (e) {
     console.error("Failed to delete linked vat_bills:", e);
   }
-
   try {
-    const stockRows = await fetchAll("stock_movements", { filters: [
-      { field: "source", value: "purchase" },
-      { field: "purchaseId", value: id },
-    ] });
     for (const sRow of stockRows) await deleteRow("stock_movements", sRow.id);
   } catch (e) {
     console.error("Failed to delete linked stock_movements:", e);
   }
-
   try {
-    // Journal entries link back through `reference`, not a purchaseId column —
-    // that key never existed for them, and nothing files one against a
-    // purchase today, but the lookup is cheap insurance if that ever changes.
-    const jRows = await fetchAll("journal_entries", { filters: [{ field: "reference", value: expenseId }] });
     for (const jRow of jRows) await deleteRow("journal_entries", jRow.id);
   } catch (e) {
     console.error("Failed to delete linked journal_entries:", e);

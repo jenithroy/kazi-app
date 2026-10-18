@@ -61,7 +61,7 @@ These hold on every page, in every phase.
 | Two visual languages | New pages use scoped CSS prefixes with real breakpoints. Old pages use **1,775 inline `style={{}}` objects** (Inventory 273, Finance 177, Production 141, Dashboard 124, Employees 121, Billing ~105, Attendance 102, Tasks 85). |
 | No shared parts | **11** different modal implementations, **~9** tab implementations, **~12** button class families (`primary-button`, `ghost-button`, `kbtn`, `kap-btn`, `kbil-btn-*`, `kinv-btn-*`, `kchat-ghost-btn`, `kbug-submit` …), and **6** page-header implementations. |
 | Letter-by-letter text on phones | `.kscroll { overflow-wrap: anywhere; }` at ≤768 px ([styles.css:2855](src/styles.css#L2855)) is applied to the app's main scroll area, while wide tables are squeezed into a 480–600 px `min-width`. |
-| Tables not built for phones | Employees 15 cols, Items Cost 15, Order P&L 13, Billing 12, Stock Levels 12, Item Details 12, Purchases 12, QC 10, Attendance 9, Expenses 9, Journal 9, Bank 9. |
+| Tables not built for phones | Employees 15 cols, Items Cost 15, Order P&L 13, Billing 12, Stock Levels 12, Item Details 12, Purchases 12, Attendance 9, Expenses 9, Journal 9, Bank 9. |
 | Layout grids that never collapse | `kfin-kpis` (4 cols, also used by Billing and FY pages), `kfin-charts`, `kfin-pl`, `kfin-bs`, `kbil-cols` line-item grid, `kbil-page-hd`, `kdash-qa`. Inline `gridColumn: "span 2/3"` also forces overflow once forms go single-column (Production order form, Billing). |
 | Touch-hostile interactions | Drag-and-drop is HTML5-only on the Tasks board, Production pipeline and Marketing calendar, so it does nothing on touch. Row actions and delete buttons only show on hover. Tooltips are hover-only. Tap targets are 14–24 px. |
 | Modals that don't fit phones | Tasks (11 fields, no scrolling), SalarySlip (fixed 2-column 960 px), Billing payment modal, Order form. **None trap focus**; most ignore Escape. |
@@ -356,6 +356,8 @@ Each entry lists the key problems, the target layout on desktop and phone, and w
 
 ### 8.4 Production — [Production.jsx](src/pages/Production.jsx) (2,257) + [ProductionCalendar](src/components/ProductionCalendar.jsx) (679) · Split
 
+> **Redone 2026-10-18** on the glass look: one screen, no tabs (see [DESIGN.md](DESIGN.md) "The Production page" and [FRONTEND_REDO.md](FRONTEND_REDO.md)). Everything below about the *look* (Kanban, Stepper, agenda, Gantt) was not followed; the *Preserve* list was. Batch Tracking, the drag board and the Gantt were removed on purpose; ProductionCalendar.jsx is gone.
+
 - **Split into** `Production/{index, PipelineTab, OrdersTab, CalendarTab, BatchesTab, OrderCard, StageStepper, OrderFormDialog, InvoiceDialog, OrderNotes, EmbellishmentPicker}`.
 - **Problems:**
   - inline `gridColumn: span 2` breaks the single-column form
@@ -383,11 +385,9 @@ Each entry lists the key problems, the target layout on desktop and phone, and w
   - `handleSaveReschedule`
 - **Fix commits:** duplicate order IDs across regions; "+ Invoice" always shown; `issueInvoiceForOrder` gets stuck on error; calendar dates shifted by a day (§11).
 
-### 8.5 Quality Control — [QualityControl.jsx](src/pages/QualityControl.jsx) (228)
+### 8.5 Quality Control — removed (2026-10-18)
 
-- Form card with `FormGrid` (Batch, Date, Inspected / Passed / Rejected, Defect, Action, Region), then the logs `DataTable` (cards on phones) with a proper empty state.
-- `RegionField` becomes disabled for view-only users. No new metrics unless you ask.
-- **Preserve:** `addQcLog`, the rejection-rate display.
+The page was deleted instead of redesigned: the usage log showed 54 opens and no saves, and the last QC record was typed in on 25 May. QC lives on as the order's "Quality Check" stage in Production. The `qc_logs` table and the Quality Control permission row are still in the database.
 
 ### 8.6 Inventory & Library — [Inventory.jsx](src/pages/Inventory.jsx) (4,146) · Split (largest risk)
 
@@ -604,7 +604,7 @@ Each phase ends with a **review stop.** You check the branch in your browser bef
 Dashboard (split, then redesign), Tasks, Attendance + ClockInCard.
 
 ### Phase 4 — Operations
-Production (split, then redesign) + ProductionCalendar, Quality Control, Inventory & Library (split, then redesign, probably several commits: stock tabs / cost tab / library / modals).
+Production (split, then redesign) + ProductionCalendar, Inventory & Library (split, then redesign, probably several commits: stock tabs / cost tab / library / modals).
 
 ### Phase 5 — Money
 Finance (split, then redesign, one commit per tab group), Fiscal-year transactions, Purchases + PurchaseRowGroup, Billing (split, then redesign) + DocPreview chrome, Budget, Sales.
@@ -622,7 +622,7 @@ Employees + SalarySlipModal, Customers + CustomerPicker, MarketingCalendar (Tail
 
 **Rough size:** ~45–60 commits.
 - **Heaviest:** Inventory, Finance, Billing, Production, Dashboard.
-- **Lightest:** QC, Sales, Budget, Bug Report, Changelog, and the reference pages.
+- **Lightest:** Sales, Budget, Bug Report, Changelog, and the reference pages.
 
 ---
 
@@ -654,24 +654,24 @@ These are **not** mixed into design commits. Unless you say otherwise, each beco
 | # | Sev | Page | Bug |
 |---|---|---|---|
 | 1 | **High** | Inventory | Local `async function deleteRow` shadows the imported db `deleteRow` and calls itself forever. **Deleting stock items, processes, tech packs and samples fails.** |
-| 2 | **High** | Production | `nextOrderId` counts only the region-filtered orders, so **order IDs can repeat across UK and Nepal.** |
-| 3 | **High** | Production | The list checks `order.invoiceNumber`, but orders store `invoiceRef`. **"+ Invoice" always shows, so an order can be invoiced twice.** |
+| 2 | **High** | Production | `nextOrderId` counts only the region-filtered orders, so **order IDs can repeat across UK and Nepal.** **Fixed 2026-10-18** (the Production rewrite numbers across every order). |
+| 3 | **High** | Production | The list checks `order.invoiceNumber`, but orders store `invoiceRef`. **"+ Invoice" always shows, so an order can be invoiced twice.** **Fixed 2026-10-18** (it is only offered when no invoice is linked to the order or named by its reference). |
 | 4 | **High** | Attendance | The per-row Save calls `saveRows`, which upserts **every** row, so saving one person writes Absent records for everyone without one. **Fixed 2026-10-18** (the rewrite saves one person at a time and shows "No record" for the unmarked). |
 | 5 | Med | Tasks | Clicking a card always opens the Edit modal and can save, even for roles without tasks edit rights (RLS may still block the write). |
-| 6 | Med | Finance | The bank form saves `amountNPR`, but the Bank KPI strip reads `t.amount`, so manually added transactions count as 0. |
-| 7 | Med | Purchases | The displayed ID is `EXP${index+1}` instead of `row.expenseId`, so it doesn't match what the ledger searches for. |
-| 8 | Med | ProductionCalendar | Dates are built with `toISOString()` from local midnight, so in Nepal and UK summer time orders likely show one day early. |
+| 6 | Med | Finance | The bank form saves `amountNPR`, but the Bank KPI strip reads `t.amount`, so manually added transactions count as 0. **Fixed 2026-10-18** (the Bank card sends `amount`, the type and the date to the columns that exist; the old form's date and amount went to columns that do not, so it saved neither). |
+| 7 | Med | Purchases | The displayed ID is `EXP${index+1}` instead of `row.expenseId`, so it doesn't match what the ledger searches for. **Fixed 2026-10-18** (the Number column is `expenseId`, with its fiscal year beside it). |
+| 8 | Med | ProductionCalendar | Dates are built with `toISOString()` from local midnight, so in Nepal and UK summer time orders likely show one day early. **Fixed 2026-10-18** (the new calendar and the labour-rate month use local date parts). |
 | 9 | Med | Dashboard | Hard-coded sparklines and `delta={18.4}`; "Late this week" shows today; "Done · 7d" counts all time. |
-| 10 | Med | Production | `issueInvoiceForOrder` has no try/catch (saving state gets stuck) and sets no region on the invoice. |
+| 10 | Med | Production | `issueInvoiceForOrder` has no try/catch (saving state gets stuck) and sets no region on the invoice. **Fixed 2026-10-18.** |
 | 11 | Med | Billing | Invoices never set `customerId` (free-text client), which may explain invoices missing from Customers totals. Needs checking against the database first. |
 | 12 | Med | MarketingCalendar | New items start with `id: null`, so edits made before the insert returns are lost; clicking any day inserts a row; no permission checks. |
-| 13 | Low | Finance | Balance-sheet check compares floats with `===`; `setActiveTab` is called during render. |
-| 14 | Low | QC | `QC${allLogs.length+1}` IDs collide if a log is ever deleted. |
+| 13 | Low | Finance | Balance-sheet check compares floats with `===`; `setActiveTab` is called during render. **Fixed 2026-10-18** (the check allows half a paisa; the section is restored in the first render, not set during one). |
+| 14 | Low | QC | `QC${allLogs.length+1}` IDs collide if a log is ever deleted. **Moot 2026-10-18** (the QC page was removed). |
 | 15 | Low | Attendance | Employee report access is gated by one hard-coded email (`isDeepa`), not a permission. **Fixed 2026-10-18** (removed: it never showed anyone else's data, because the database only returns a staff member's own rows). |
 | 16 | Low | BankBalanceWidget | Visibility is a hard-coded name allowlist (`zen`, `finn`, `wilson`, `admin`), not a permission. |
 | 17 | Low | Budget | `submitBudget` / `submitReq` have no try/finally, so the button sticks on "Submitting…" after a failure. |
-| 18 | Low | Billing | Empty state and CSV header say "Invoice" on the Challan and Quotation tabs. |
-| 19 | Low | DocPreview, SalarySlip | `print()` fires twice (onload and timeout), so the print dialog may open twice. SalarySlip also writes unescaped values into the print window. |
+| 18 | Low | Billing | Empty state and CSV header say "Invoice" on the Challan and Quotation tabs. **Fixed 2026-10-18** (the Billing redo labels them by tab). |
+| 19 | Low | DocPreview, SalarySlip | `print()` fires twice (onload and timeout), so the print dialog may open twice. SalarySlip also writes unescaped values into the print window. **DocPreview fixed 2026-10-18** (whichever of the two comes first prints, once); SalarySlip not touched. |
 | 20 | Low | Inventory | Skeleton uses a non-existent `pulse` animation; the `kinv-fabric-names` datalist only renders on the Items cost tab, so the tech-pack fabric autocomplete is empty. |
 | 21 | Low | Dashboard | Navigation uses `window.location.href`, a full page reload instead of router navigation. |
 | ? | Question | Inventory | Stock value is `closing × COGS` on Items cost but `closing × unitCostNPR` on Item details. Which is intended? |

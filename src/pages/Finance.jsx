@@ -1,2741 +1,318 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Cell, Legend, Pie, PieChart,
-  ResponsiveContainer, Tooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid
-} from "recharts";
+/**
+ * Finance, on the same frosted-glass frame as the Dashboard, Sales and Inventory: one screen, no page scroll, the tables
+ * scroll inside their pane and their heads and totals stay put.
+ *
+ *   header   the period (a fiscal year or any From / To), A.D. or B.S., UK or Nepal
+ *   top row  income, purchases, expenses, payroll, and where that leaves the books
+ *   left     the sections of Finance in three groups, each with how many records it holds
+ *   pane     the chosen section: a table to read and a card to enter or change (nothing is typed into a row)
+ *
+ * Every figure and every write is the old page's (lib/finance.js, lib/financeWrites.js, hooks/useFinanceData.js). What a
+ * position may see and change is the same: the tabs it is granted, view-only where it may not edit.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
-import { PurchaseRowGroup, emptyPurchaseForm, addLineItem, removeLineItem, applyItemChange, itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload, focusNextOnEnter, PAYMENT_TYPES } from "../components/PurchaseRowGroup";
-import { nextPurchaseNumber } from "../utils/financeRows";
-import KeyboardSelect from "../components/KeyboardSelect";
-import { BANK_NAMES } from "../utils/billing.jsx";
-import { createdAfterCutoff } from "../constants";
-import { deleteRow, fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
-import { uploadPublicFile, deletePublicFile } from "../lib/storage";
-import { asCurrency, roundAmount } from "../utils/format";
+import { PageTabs } from "../components/table/Bar";
+import { RegionSwitch } from "../components/RegionSwitch";
+import PeriodBar, { DateModeSwitch } from "../components/finance/PeriodBar";
+import TabRail from "../components/finance/TabRail";
+import FinanceTiles from "../components/finance/Tiles";
+import FinPane from "../components/finance/FinPane";
+import { FinanceProvider } from "../components/finance/FinanceContext";
+import ExpensesTab from "../components/finance/tabs/ExpensesTab";
+import PurchasesTab from "../components/finance/tabs/PurchasesTab";
+import VatTab from "../components/finance/tabs/VatTab";
+import JournalTab from "../components/finance/tabs/JournalTab";
+import DayBookTab from "../components/finance/tabs/DayBookTab";
+import LedgerTab from "../components/finance/tabs/LedgerTab";
+import PnlTab from "../components/finance/tabs/PnlTab";
+import BalanceTab from "../components/finance/tabs/BalanceTab";
+import BankTab from "../components/finance/tabs/BankTab";
+import OrderPnlTab from "../components/finance/tabs/OrderPnlTab";
+import "../components/finance/finance.css";
+import useFinanceData from "../hooks/useFinanceData";
+import useDateMode from "../hooks/useDateMode";
+import useMedia from "../hooks/useMedia";
 import { useAuth } from "../context/AuthContext";
-import { useCurrency } from "../context/CurrencyContext";
-import { toNPR } from "../utils/currency";
-import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
-import { postPurchaseStockIn } from "../utils/stockLedger";
-import { tsMillis, tsDate, todayDate } from "../utils/date";
 import { useRegion } from "../context/RegionContext";
-import { RegionSwitch, RegionSelect } from "../components/RegionSwitch";
+import { useCurrency } from "../context/CurrencyContext";
+import { financeTabAllowed, sectionCanEdit, FINANCE_TAB_KEYS } from "../utils/permissions";
 import { countUntagged, filterByRegion } from "../utils/region";
-import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
-import { DateRangeSelect, useDateRangeFilter } from "../components/DateRangeFilter";
-import DualDateInput, { DateModeToggle } from "../components/DualDateInput";
-import { filterByFiscalYear, filterByDateRange, isDateRangeActive, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, fmtDateBS, adToBsParts, isFiscalYearLabel, isoDay, payrollPeriodDate, fiscalYearForDate, currentFiscalYear } from "../utils/fiscalYear";
+import { BANK_NAMES } from "../utils/billing.jsx";
+import {
+  filterByFiscalYear, filterByDateRange, isDateRangeActive, fiscalYearDateRangeAD, fiscalYearsIn, mergeFiscalYears, isFiscalYearLabel,
+  isoDay, payrollPeriodDate,
+} from "../utils/fiscalYear";
+import { useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { useDateRangeFilter } from "../components/DateRangeFilter";
+import { describePeriod } from "../lib/period";
+import {
+  TABS, TAB_SHORTCUTS, asOfDateOf, balanceSheet, bankAccountNamesFrom, cashBankLedger, dayBookRows, expenseStats, journalTotals,
+  profitAndLoss, summarise, tabLabel,
+} from "../lib/finance";
 
-/* ── Seed data ─────────────────────────────────────── */
-// NOT "__seeded__" — Firestore permanently rejects doc IDs matching "__*__" (reserved),
-// so that name can never actually be written and the seed-once check never worked.
-const isBankCredit = (t) => String(t?.type || "").toLowerCase() === "credit";
-
-const SEED_PURCHASES = [
-  { expenseId: "EXP001", expenseItem: "Office supplies stationary",  category: "Office Supplies",       vatBill: true,  amountNPR: 5290   },
-  { expenseId: "EXP002", expenseItem: "Mobile phones",                category: "Equipment / IT",        vatBill: true,  amountNPR: 45000  },
-  { expenseId: "EXP003", expenseItem: "Factory Essentials",           category: "Consumables",           vatBill: true,  amountNPR: 11803  },
-  { expenseId: "EXP004", expenseItem: "Fabric Ribs",                  category: "Raw Materials",         vatBill: true,  amountNPR: 3106   },
-  { expenseId: "EXP005", expenseItem: "Chinese Terry Fabric",         category: "Raw Materials",         vatBill: true,  amountNPR: 27138  },
-  { expenseId: "EXP006", expenseItem: "Keyboard, mouse, mousepad",    category: "Equipment / IT",        vatBill: true,  amountNPR: 7500   },
-  { expenseId: "EXP007", expenseItem: "Calculator",                   category: "Office Supplies",       vatBill: true,  amountNPR: 1310   },
-  { expenseId: "EXP008", expenseItem: "Steel glass Rack",             category: "Furniture & Fixtures",  vatBill: true,  amountNPR: 17515  },
-  { expenseId: "EXP009", expenseItem: "CCTV Installation",            category: "Setup / Security",      vatBill: true,  amountNPR: 24500  },
-  { expenseId: "EXP010", expenseItem: "Wifi Installation",            category: "Setup / IT",            vatBill: true,  amountNPR: 5565   },
-  { expenseId: "EXP011", expenseItem: "Monitor",                      category: "Equipment / IT",        vatBill: true,  amountNPR: 12500  },
-  { expenseId: "EXP012", expenseItem: "Table office, Chair",          category: "Furniture & Fixtures",  vatBill: false, amountNPR: 23000  },
-  { expenseId: "EXP013", expenseItem: "Curtain",                      category: "Furniture & Fixtures",  vatBill: true,  amountNPR: 19600  },
-  { expenseId: "EXP014", expenseItem: "Tip-Top Sweets for opening",   category: "Miscellaneous / Events",vatBill: true,  amountNPR: 10425  },
-  { expenseId: "EXP015", expenseItem: "Water dispenser",              category: "Equipment",             vatBill: true,  amountNPR: 6500   },
-  { expenseId: "EXP016", expenseItem: "Water Jar",                    category: "Office Supplies",       vatBill: false, amountNPR: 600    },
-  { expenseId: "EXP017", expenseItem: "Mug, water Sweeper",           category: "Office Supplies",       vatBill: true,  amountNPR: 3500   },
-  { expenseId: "EXP018", expenseItem: "Rack",                         category: "Furniture & Fixtures",  vatBill: false, amountNPR: 12000  },
-  { expenseId: "EXP019", expenseItem: "Temple",                       category: "Miscellaneous",         vatBill: null,  amountNPR: 2600   },
-  { expenseId: "EXP020", expenseItem: "Wiring",                       category: "Setup / Maintenance",   vatBill: true,  amountNPR: 51000  },
-  { expenseId: "EXP021", expenseItem: "God Statue",                   category: "Miscellaneous",         vatBill: false, amountNPR: 1500   },
-  { expenseId: "EXP022", expenseItem: "Room Rent",                    category: "Rent / Lease",          vatBill: false, amountNPR: 70000  },
-  { expenseId: "EXP023", expenseItem: "Lawyer",                       category: "Professional Fees",     vatBill: false, amountNPR: 33000  },
-  { expenseId: "EXP024", expenseItem: "Jhapali Store",                category: "Miscellaneous",         vatBill: false, amountNPR: 500    },
-  { expenseId: "EXP025", expenseItem: "Sewing Machine",               category: "Machinery / Assets",    vatBill: true,  amountNPR: 945500 },
+const GROUPS = [
+  { label: "Money in and out", tabs: ["expenses", "purchases", "vat bills", "bank"] },
+  { label: "Books", tabs: ["journal", "day book", "ledger", "p&l", "balance sheet"] },
+  { label: "Orders", tabs: ["order p&l"] },
 ];
 
-const EXPENSE_CATEGORIES = [
-  "Utilities", "Rent / Lease", "Salaries", "Office Supplies",
-  "Transport", "Meals & Entertainment", "Marketing", "Professional Fees",
-  "Equipment", "Maintenance & Repairs", "Raw Materials", "Consumables",
-  "Software & Subscriptions", "Miscellaneous", "Other"
-];
-
-// Cash and the bank accounts carry an opening balance because their Ledger-tab
-// view is a running Dr/Cr/Balance table seeded from it — see cashBankLedger.
-const DEFAULT_ACCOUNTS = [
-  { name: "Cash", type: "Asset", openingBalanceNPR: 20000 },
-  { name: "Bank Account", type: "Asset" },
-  { name: "Nabil Bank", type: "Asset", openingBalanceNPR: 251000 },
-  { name: "Sanima Bank", type: "Asset", openingBalanceNPR: 0 },
-  { name: "Fonepay", type: "Asset" },
-  { name: "Accounts Receivable", type: "Asset" },
-  { name: "Advance Payable", type: "Asset" },
-  { name: "Inventory", type: "Asset" },
-  { name: "Equipment & Machinery", type: "Asset" },
-  { name: "Accounts Payable", type: "Liability" },
-  { name: "Advance Received", type: "Liability" },
-  { name: "Salaries Payable", type: "Liability" },
-  { name: "VAT Payable", type: "Liability" },
-  { name: "Owner's Equity", type: "Equity" },
-  { name: "Retained Earnings", type: "Equity" },
-  { name: "Sales Revenue", type: "Income" },
-  { name: "Service Revenue", type: "Income" },
-  { name: "Other Income", type: "Income" },
-  { name: "Salaries Expense", type: "Expense" },
-  { name: "Rent Expense", type: "Expense" },
-  { name: "Utilities Expense", type: "Expense" },
-  { name: "Raw Materials Expense", type: "Expense" },
-  { name: "Office Supplies Expense", type: "Expense" },
-  { name: "Marketing Expense", type: "Expense" },
-  { name: "Depreciation Expense", type: "Expense" },
-  { name: "Miscellaneous Expense", type: "Expense" },
-];
-
-const initialExpense = {
-  category: "Utilities", amountNPR: "",
-  date: new Date().toISOString().slice(0, 10), note: "", vatBill: false, region: "",
-  paymentType: "CASH", bankName: "Nabil Bank"
+const LOST_NAMES = {
+  finance_payroll: "payroll", finance_expenses: "expenses", finance_purchases: "purchases", vat_bills: "VAT bills", employees: "staff",
+  journal_entries: "journal", accounts: "accounts", invoices: "invoices", bank_transactions: "bank transactions", orders: "orders",
+  order_costs: "order costs", production: "production", inventory: "inventory",
 };
 
-const emptyJournalForm = {
-  date: new Date().toISOString().slice(0, 10),
-  description: "", debitAccount: "Cash", creditAccount: "Sales Revenue",
-  amountNPR: "", reference: "", partyName: "", region: ""
+function Soon({ tab }) {
+  return <FinPane title={tabLabel(tab)} labelledBy={`fin-tab-${tab.replace(/\W+/g, "-")}`} id="fin-pane"><p className="fn-viewonly">Not built yet.</p></FinPane>;
+}
+
+const VIEWS = {
+  expenses: ExpensesTab,
+  purchases: PurchasesTab,
+  "vat bills": VatTab,
+  journal: JournalTab,
+  "day book": DayBookTab,
+  ledger: LedgerTab,
+  "p&l": PnlTab,
+  "balance sheet": BalanceTab,
+  bank: BankTab,
+  "order p&l": OrderPnlTab,
 };
 
-// Advance Received/Payable are sub-ledgered by customer/supplier, not just a lump
-// balance — so posting against either one (on either side of the entry) asks for
-// who the advance belongs to.
-const ADVANCE_ACCOUNTS = new Set(["Advance Received", "Advance Payable"]);
-function isAdvanceEntry(f) {
-  return ADVANCE_ACCOUNTS.has(f.debitAccount) || ADVANCE_ACCOUNTS.has(f.creditAccount);
-}
-
-function tabLabel(t) {
-  if (t === "vat bills")     return "VAT Bills";
-  if (t === "p&l")           return "P & L";
-  if (t === "balance sheet") return "Balance Sheet";
-  if (t === "order p&l")     return "Order P&L";
-  if (t === "day book")      return "Day Book";
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
-
-const TABS = ["expenses", "purchases", "vat bills", "journal", "day book", "ledger", "p&l", "balance sheet", "bank", "order p&l"];
-
-// Shift+letter tab switching — letters chosen to stay memorable while avoiding
-// collisions between tabs that share a first letter (Purchases/P&L, Bank/Balance Sheet).
-const TAB_SHORTCUTS = {
-  e: "expenses",
-  p: "purchases",
-  v: "vat bills",
-  j: "journal",
-  d: "day book",
-  g: "ledger",
-  l: "p&l",
-  s: "balance sheet",
-  k: "bank",
-  o: "order p&l",
-};
-
-// Where each Day Book row sends her when clicked — the tab or page that owns
-// that record, same as the Ledger tab's click-to-source rows.
-const DAY_BOOK_SOURCE_TITLE = {
-  purchase: "Open in Purchases",
-  invoice:  "Open in Billing",
-  expense:  "Open in Expenses tab",
-  bank:     "Open in Bank tab",
-  journal:  "Open in Journal tab",
-};
-
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-
-// Dr/Cr totals per account over a list of journal entries. The Ledger tab's
-// "Other Accounts" cards and the Balance Sheet both read this, over different lists.
-function journalTotals(list) {
-  const map = {};
-  for (const entry of list) {
-    [entry.debitAccount, entry.creditAccount].forEach(acc => {
-      if (!map[acc]) map[acc] = { debits: 0, credits: 0, entryCount: 0 };
-    });
-    map[entry.debitAccount].debits  += Number(entry.amountNPR || 0);
-    map[entry.debitAccount].entryCount++;
-    map[entry.creditAccount].credits += Number(entry.amountNPR || 0);
-    map[entry.creditAccount].entryCount++;
-  }
-  return map;
-}
-
-// A date field that follows the page's calendar (`dateMode` in Finance). The value is
-// always an A.D. "YYYY-MM-DD" string, or "" when nothing is picked — the calendar only
-// decides how it is shown and entered. A.D. is the plain date input, as it always was.
-// B.S. is DualDateInput's Year/Month/Day dropdowns, except while blank: they would have
-// to show some date and look chosen when nothing is, so a blank one is a button that
-// starts from today instead.
-function DateField({ mode, value, onChange, style, required, dataRole, autoFocus, blankLabel = "Pick date" }) {
-  if (mode !== "bs") {
-    return (
-      <input type="date" className="kfin-input" style={style} value={value || ""} required={required}
-        data-role={dataRole} autoFocus={autoFocus} onChange={e => onChange(e.target.value)} />
-    );
-  }
-  if (!adToBsParts(value)) {
-    return (
-      <button type="button" className="ghost-button" style={{ padding: "6px 12px" }} onClick={() => onChange(todayDate())}>
-        {blankLabel}
-      </button>
-    );
-  }
-  return <DualDateInput value={value} onChange={onChange} mode="bs" hideToggle />;
-}
-
-function Finance() {
+export default function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { currency, foreign, fmt: fmtC, money, moneyAlt, moneyForeign, num, short, ratesVersion } = useCurrency();
-  // The two-column tables (NPR | foreign) lead with whichever currency the header picker is on; every
-  // cell stays under its own currency's header, so an NPR <input> never ends up under a £ title.
-  const pair = (nprCell, foreignCell) => (currency !== "NPR" ? [foreignCell, nprCell] : [nprCell, foreignCell]);
-  // The leading column also gets the emphasis: `strong` for the currency on the picker, `quiet` for the other.
-  // `cur` is "NPR" or "foreign" (the other column of the pair).
-  const lead = (cur, strong, quiet) => ((cur === "NPR") === (currency === "NPR") ? strong : quiet);
   const { region } = useRegion();
-  // Restored synchronously (not in an effect) so the page doesn't flash "expenses"
-  // before jumping to the tab she was on when she clicked out to Purchases/Billing.
+  const { ratesVersion } = useCurrency();
+  const [dateMode, , show] = useDateMode();
+  const narrow = useMedia("(max-width: 1099px)");           // the rail is not drawn here, so the dropdown is what a guided tour points at
+  const data = useFinanceData();
+  const loading = data.status === "loading";
+
+  /* ── which section ─────────────────────────────────────────── */
+  // Restored in the first render (not in an effect), so the page doesn't flash "expenses" before jumping to the section she
+  // was on when she clicked out to Purchases or Billing.
   const [activeTab, setActiveTab] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem("financeReturnState"))?.tab || "expenses"; }
-    catch { return "expenses"; }
+    try { return JSON.parse(sessionStorage.getItem("financeReturnState"))?.tab || "expenses"; } catch { return "expenses"; }
   });
+  const visibleTabs = useMemo(() => TABS.filter((t) => financeTabAllowed(profile, FINANCE_TAB_KEYS[t])), [profile]);
+  const tab = visibleTabs.includes(activeTab) ? activeTab : visibleTabs[0];
+  const canEditTab = useCallback((t) => sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS[t]), [profile]);
+  useEffect(() => { try { sessionStorage.removeItem("financeReturnState"); } catch { /* nothing saved */ } }, []);
 
-  const visibleTabs = TABS.filter(t => financeTabAllowed(profile, FINANCE_TAB_KEYS[t]));
-  const canEditTab  = (tabLabel) => sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS[tabLabel]);
-  const canEdit     = canEditTab(activeTab);
-
-  // Kept in a ref (not a dep) so the listener is registered once, not re-bound every render.
-  const visibleTabsRef = useRef(visibleTabs);
-  visibleTabsRef.current = visibleTabs;
+  const newRef = useRef(null);                  // the open tab says how to start a new record (Shift + N)
+  const tabsRef = useRef(visibleTabs);
+  tabsRef.current = visibleTabs;
   useEffect(() => {
-    function handleTabShortcut(e) {
+    function onKey(e) {
       if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-      const tag = e.target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
-      const tab = TAB_SHORTCUTS[e.key.toLowerCase()];
-      if (!tab || !visibleTabsRef.current.includes(tab)) return;
+      const t = e.target;
+      if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.tagName === "SELECT" || t?.isContentEditable) return;
+      if (document.querySelector(".kmodal-overlay")) return;
+      const key = e.key.toLowerCase();
+      // taken before anything under it sees the key: a dropdown that has the focus would otherwise also open on the letter
+      if (key === "n" && newRef.current) { e.preventDefault(); e.stopPropagation(); newRef.current(); return; }
+      const next = TAB_SHORTCUTS[key];
+      if (!next || !tabsRef.current.includes(next)) return;
       e.preventDefault();
-      setActiveTab(tab);
+      e.stopPropagation();
+      setActiveTab(next);
     }
-    window.addEventListener("keydown", handleTabShortcut);
-    return () => window.removeEventListener("keydown", handleTabShortcut);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  /* ── English (A.D.) / Nepali (B.S.) dates ──────────────────
-     Stored dates are always A.D. strings; the calendar is only how one is shown and
-     entered. A single switch serves the Journal, Ledger, Bank and Order P&L tabs, so
-     flipping any of its pills flips every date on them at once. */
-  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs"
-  const dateSwitch = <DateModeToggle mode={dateMode} onToggle={() => setDateMode(m => (m === "ad" ? "bs" : "ad"))} />;
-  const dateTh = (
-    <th>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        Date
-        {dateSwitch}
-      </div>
-    </th>
-  );
-  const showDate = iso => (dateMode === "bs" ? fmtDateBS(iso) : iso || "—");
+  /* ── a word at the top when something needs saying ─────────── */
+  const [notice, setNotice] = useState(null);
+  const noticeTimer = useRef(0);
+  const notify = useCallback((text, tone = "bad") => {
+    clearTimeout(noticeTimer.current);
+    setNotice({ text, tone });
+    noticeTimer.current = setTimeout(() => setNotice(null), 7000);
+  }, []);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
-  /* ── Fix 3: page-level error banner (auto-clears after 5s) ── */
-  const [pageError, setPageError] = useState("");
-  const errorBannerRef = useRef(null);
-  function showError(msg) {
-    setPageError(msg);
-    setTimeout(() => setPageError(""), 5000);
-  }
-  useEffect(() => {
-    if (pageError) errorBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [pageError]);
+  /* ── one region's books, then one period of them ───────────────
+     The region says whose books, the fiscal year says which year of them and a From / To narrows that further. Everything below
+     reads the narrowed lists and needs no knowledge of the pickers. The `region*` lists stay in scope where a number must reach
+     across years: the ledger's brought-forward balances, the balance sheet's position at a year end, the bank-name list. */
+  const regionPayroll = useMemo(() => filterByRegion(data.payroll, region), [data.payroll, region]);
+  const employees = useMemo(() => filterByRegion(data.employees, region), [data.employees, region]);
+  const regionExpenses = useMemo(() => filterByRegion(data.expenses, region), [data.expenses, region]);
+  const regionPurchases = useMemo(() => filterByRegion(data.purchases, region), [data.purchases, region]);
+  const inventoryItems = useMemo(() => filterByRegion(data.inventoryItems, region), [data.inventoryItems, region]);
+  const regionVatBills = useMemo(() => filterByRegion(data.vatBills, region), [data.vatBills, region]);
+  const regionEntries = useMemo(() => filterByRegion(data.entries, region), [data.entries, region]);
+  const accounts = useMemo(() => filterByRegion(data.accounts, region), [data.accounts, region]);
+  const regionInvoices = useMemo(() => filterByRegion(data.invoices, region), [data.invoices, region]);
+  const regionBankTxns = useMemo(() => filterByRegion(data.bankTxns, region), [data.bankTxns, region]);
+  const regionOrders = useMemo(() => filterByRegion(data.orders, region), [data.orders, region]);
 
-  /* ── State ── */
-  const [allPayroll, setPayroll]      = useState([]);
-  const [allEmployees, setEmployees]  = useState([]);
-  const [allExpenses, setExpenses]    = useState([]);
-  const [expenseForm, setExpenseForm] = useState(initialExpense);
-  const [allPurchases, setPurchases]  = useState([]);
-  const [allInventoryItems, setInventoryItems] = useState([]); // for auto-posting stock-in on purchase save
-  const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
-  const [purchaseError, setPurchaseError] = useState("");     // inline error shown at the new-purchase row
-  const [purchaseSuccess, setPurchaseSuccess] = useState(""); // "EXP027 saved" confirmation by the table title
-  const [submitting, setSubmitting]   = useState(false);
-  const [expenseError, setExpenseError] = useState(""); // inline error shown under the Add Expense button
-  const [allVatBills, setVatBills]    = useState([]);
-  const [vatFile, setVatFile]         = useState(null);
-  // Holds the purchase's own uuid, not its expenseId string — expense IDs
-  // restart every fiscal year (migration 0046), so "EXP001" alone no longer
-  // picks out one purchase.
-  const [vatPurchaseId, setVatPurchaseId] = useState("");
-  const [uploading, setUploading]     = useState(false);
-  const fileInputRef                  = useRef(null);
-  const [expenseVatFile, setExpenseVatFile] = useState(null);
-  const expenseFileRef                = useRef(null);
-
-  const journalFormRef = useRef(null);
-
-  /* ── Accounting state ── */
-  const [allEntries, setEntries]   = useState([]);
-  const [allAccounts, setAccounts] = useState([]);
-  const [journalForm, setJournalForm] = useState(emptyJournalForm);
-  const [journalSubmitting, setJournalSubmitting] = useState(false);
-  const [journalEditId, setJournalEditId] = useState(null);
-  const [journalDraft, setJournalDraft] = useState({});
-  const [journalSaving, setJournalSaving] = useState(false);
-  const [allInvoices, setInvoices] = useState([]);
-  // In-place edit for a Cash/Bank ledger row sourced from a bank txn or journal entry —
-  // purchase/invoice rows deep-link to their own full editor (Purchases/Billing) instead.
-  const [ledgerDraft, setLedgerDraft] = useState(null); // { type: "bank"|"journal"|"opening", id, account, particulars, amount }
-  const [ledgerSaving, setLedgerSaving] = useState(false);
-
-  /* ── Bank transactions state ── */
-  const [allBankTxns, setBankTxns]    = useState([]);
-  const [showBankForm, setShowBankForm] = useState(false);
-  const [bankForm, setBankForm]       = useState({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "", accountName: "Nabil Bank" });
-
-  /* ── Order P&L state ── */
-  const [allOrders, setOrders]            = useState([]);
-  const [orderCosts, setOrderCosts]       = useState({});   // keyed by orderId
-  const [oplSelectedId, setOplSelectedId] = useState(null); // order open in panel
-  const [oplCostForm, setOplCostForm]     = useState({ material: "", labour: "", overhead: "", shipping: "" });
-  const [oplSaving, setOplSaving]         = useState(false);
-  const [oplStatusFilter, setOplStatusFilter] = useState("all");
-  const [labourRatePerUnit, setLabourRatePerUnit] = useState(null); // auto-calculated NPR/unit
-  const [oplDateFrom, setOplDateFrom]     = useState("");
-  const [oplDateTo, setOplDateTo]         = useState("");
-
-  /* ── One region's books ────────────────────────────────────
-     Finance is eleven tabs over the same eleven lists, so narrowing them in one
-     place is what makes "the UK numbers" and "the Nepal numbers" two answers
-     instead of one blended one. Every KPI, ledger, P&L line and dropdown below
-     reads these names and needs no knowledge of the switch.
-
-     Payroll and employees follow the person's own location rather than a tag of
-     their own — an attendance or salary record can never disagree with the
-     staff member it is about. See migration 0029.
-
-     The `all*` originals stay in scope where a number must span the company:
-     the untagged counts in the header report on the whole list. */
-  const regionPayroll   = useMemo(() => filterByRegion(allPayroll,   region), [allPayroll,   region]);
-  const employees       = useMemo(() => filterByRegion(allEmployees, region), [allEmployees, region]);
-  const regionExpenses  = useMemo(() => filterByRegion(allExpenses,  region), [allExpenses,  region]);
-  const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
-  const inventoryItems  = useMemo(() => filterByRegion(allInventoryItems, region), [allInventoryItems, region]);
-  const regionVatBills  = useMemo(() => filterByRegion(allVatBills,  region), [allVatBills,  region]);
-  const regionEntries   = useMemo(() => filterByRegion(allEntries,   region), [allEntries,   region]);
-  const accounts        = useMemo(() => filterByRegion(allAccounts,  region), [allAccounts,  region]);
-  const regionInvoices  = useMemo(() => filterByRegion(allInvoices,  region), [allInvoices,  region]);
-  const regionBankTxns  = useMemo(() => filterByRegion(allBankTxns,  region), [allBankTxns,  region]);
-  const regionOrders    = useMemo(() => filterByRegion(allOrders,    region), [allOrders,    region]);
-
-  /* ── One fiscal year's books ───────────────────────────────
-     The same idea one step further: the region says whose books, the fiscal year
-     says which year of them. It is applied right after the region, so every tab,
-     KPI, chart and total below reads the narrowed lists and needs no knowledge
-     of the picker. "all" (the default) changes nothing.
-
-     The `region*` lists above are the unfiltered-by-year originals. They stay in
-     scope where a number must reach across years: the Ledger's brought-forward
-     balances, the Balance Sheet's position as of the year end, the bank-name
-     list, the VAT upload dropdown, and the "N in other years" empty states.
-
-     A record belongs to the year its own date falls in (Bikram Sambat calendar).
-     A row with no usable date belongs to no year, so a specific year leaves it
-     out; "all" still shows it. */
   const [fy] = useFiscalYearFilter();
-  const fyRange  = useMemo(() => {
+  const fyRange = useMemo(() => {
     if (!isFiscalYearLabel(fy)) return null;
     const r = fiscalYearDateRangeAD(fy);
     return r?.startAD && r?.endAD ? r : null;
   }, [fy]);
-  const fyActive = !!fyRange;
-
-  // One custom From/To range, one narrowing step further than the fiscal
-  // year (see DateRangeFilter.jsx) — region → fiscal year → this. Composed
-  // with filterByFiscalYear rather than replacing it, so picking a custom
-  // range never disturbs the fiscal-year filtering everything else here still
-  // relies on (VAT periods, the Ledger/Balance Sheet's brought-forward math).
-  // A shared `inPeriod` rather than repeating both calls on every line below
-  // keeps each tab's date accessor written once — two copies risk drifting
-  // out of sync and silently double-filtering by different rules.
+  const fyActive = Boolean(fyRange);
   const [dateRange] = useDateRangeFilter();
-  const inPeriod = (list, dateOf = r => r.date) => filterByDateRange(filterByFiscalYear(list, fy, dateOf), dateRange, dateOf);
+  const periodActive = fyActive || isDateRangeActive(dateRange);
+  const inPeriod = (list, dateOf = (r) => r.date) => filterByDateRange(filterByFiscalYear(list, fy, dateOf), dateRange, dateOf);
 
-  const payroll   = useMemo(() => inPeriod(regionPayroll, payrollPeriodDate), [regionPayroll,   fy, dateRange]);
-  const expenses  = useMemo(() => inPeriod(regionExpenses),                  [regionExpenses,  fy, dateRange]);
-  const purchases = useMemo(() => inPeriod(regionPurchases),                 [regionPurchases, fy, dateRange]);
-  const entries   = useMemo(() => inPeriod(regionEntries),                   [regionEntries,   fy, dateRange]);
-  const invoices  = useMemo(() => inPeriod(regionInvoices),                  [regionInvoices,  fy, dateRange]);
-  const bankTxns  = useMemo(() => inPeriod(regionBankTxns),                  [regionBankTxns,  fy, dateRange]);
+  const payroll = useMemo(() => inPeriod(regionPayroll, payrollPeriodDate), [regionPayroll, fy, dateRange]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const expenses = useMemo(() => inPeriod(regionExpenses), [regionExpenses, fy, dateRange]);                    // eslint-disable-line react-hooks/exhaustive-deps
+  const purchases = useMemo(() => inPeriod(regionPurchases), [regionPurchases, fy, dateRange]);                 // eslint-disable-line react-hooks/exhaustive-deps
+  const entries = useMemo(() => inPeriod(regionEntries), [regionEntries, fy, dateRange]);                       // eslint-disable-line react-hooks/exhaustive-deps
+  const invoices = useMemo(() => inPeriod(regionInvoices), [regionInvoices, fy, dateRange]);                    // eslint-disable-line react-hooks/exhaustive-deps
+  const bankTxns = useMemo(() => inPeriod(regionBankTxns), [regionBankTxns, fy, dateRange]);                    // eslint-disable-line react-hooks/exhaustive-deps
   // An order's own date when it has one, else when it was created.
-  const orders    = useMemo(() => inPeriod(regionOrders, o => o.date || o.createdAt), [regionOrders, fy, dateRange]);
-  // A bill has no date of its own worth filing by — it is uploaded whenever someone
-  // gets round to it — so it goes in the year of what it is a bill FOR. Purchase
-  // bills carry the purchase's EXPxxx id, expense bills the expense's row id; if
-  // neither can be found (or has no date), fall back to when it was uploaded.
-  const vatBills  = useMemo(() => {
-    if (!fyActive && !isDateRangeActive(dateRange)) return regionVatBills;
+  const orders = useMemo(() => inPeriod(regionOrders, (o) => o.date || o.createdAt), [regionOrders, fy, dateRange]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // A bill has no date of its own worth filing by, so it goes in the year of what it is a bill FOR: a purchase's EXP id, an
+  // expense's row id; if neither is found, when it was uploaded.
+  const vatBills = useMemo(() => {
+    if (!periodActive) return regionVatBills;
     const dateOf = new Map();
-    allExpenses.forEach(e => { if (e.id != null && e.date) dateOf.set(String(e.id), e.date); });
-    allPurchases.forEach(p => { if (p.expenseId && p.date) dateOf.set(String(p.expenseId), p.date); });
-    return inPeriod(regionVatBills, b => dateOf.get(String(b.expenseId)) || b.uploadedAt);
-  }, [regionVatBills, allExpenses, allPurchases, fy, fyActive, dateRange]);
+    data.expenses.forEach((e) => { if (e.id != null && e.date) dateOf.set(String(e.id), e.date); });
+    data.purchases.forEach((p) => { if (p.expenseId && p.date) dateOf.set(String(p.expenseId), p.date); });
+    return inPeriod(regionVatBills, (b) => dateOf.get(String(b.expenseId)) || b.uploadedAt);
+  }, [regionVatBills, data.expenses, data.purchases, fy, periodActive, dateRange]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The years the current tab's records actually fall in. Tabs built from several
-  // lists (ledger, P&L, balance sheet) offer every year any of them touches.
+  // The years the open section's records actually fall in. Sections built from several lists offer every year any of them touches.
   const yearsHere = useMemo(() => {
-    const exp = fiscalYearsIn(regionExpenses), pur = fiscalYearsIn(regionPurchases),
-          jnl = fiscalYearsIn(regionEntries),  bnk = fiscalYearsIn(regionBankTxns),
-          inv = fiscalYearsIn(regionInvoices), pay = fiscalYearsIn(regionPayroll, payrollPeriodDate);
-    switch (activeTab) {
-      case "expenses":   return exp;
-      case "purchases":  return pur;
-      case "vat bills":  return mergeFiscalYears(exp, pur);
-      case "journal":    return jnl;
-      case "bank":       return bnk;
-      case "order p&l":  return fiscalYearsIn(regionOrders, o => o.date || o.createdAt);
+    const exp = fiscalYearsIn(regionExpenses);
+    const pur = fiscalYearsIn(regionPurchases);
+    const jnl = fiscalYearsIn(regionEntries);
+    const bnk = fiscalYearsIn(regionBankTxns);
+    const inv = fiscalYearsIn(regionInvoices);
+    const pay = fiscalYearsIn(regionPayroll, payrollPeriodDate);
+    switch (tab) {
+      case "expenses": return exp;
+      case "purchases": return pur;
+      case "vat bills": return mergeFiscalYears(exp, pur);
+      case "journal": return jnl;
+      case "bank": return bnk;
+      case "order p&l": return fiscalYearsIn(regionOrders, (o) => o.date || o.createdAt);
       case "ledger":
-      case "day book":   return mergeFiscalYears(pur, inv, bnk, jnl);
-      default:           return mergeFiscalYears(exp, pur, jnl, bnk, inv, pay);
+      case "day book": return mergeFiscalYears(pur, inv, bnk, jnl);
+      default: return mergeFiscalYears(exp, pur, jnl, bnk, inv, pay);
     }
-  }, [activeTab, regionExpenses, regionPurchases, regionEntries, regionBankTxns, regionInvoices, regionPayroll, regionOrders]);
+  }, [tab, regionExpenses, regionPurchases, regionEntries, regionBankTxns, regionInvoices, regionPayroll, regionOrders]);
 
-  // "No expenses in FY 2082/83 (12 in other years)." when the year is why a list is
-  // empty; `fallback` (the message the tab always had) when there is simply no data.
-  const fyEmpty = (noun, regionCount, fallback) =>
-    fyActive && regionCount > 0 ? `No ${noun} in FY ${fy} (${regionCount} in other years).` : fallback;
-
-  /* ── Load data ── */
-  async function loadData() {
-    // allSettled — a user lacking read access to one collection (e.g. bank_transactions,
-    // which is admin-only) must not blank out every other Finance tab they DO have access to.
-    const settled = await Promise.allSettled([
-      fetchAll("finance_payroll"),
-      fetchAll("finance_expenses"),
-      fetchAll("finance_purchases"),
-      fetchAll("vat_bills"),
-      fetchAll("employees"),
-      fetchAll("journal_entries"),
-      fetchAll("accounts"),
-      fetchAll("invoices"),
-      fetchAll("bank_transactions"),
-      fetchAll("orders"),
-      fetchAll("order_costs"),
-      fetchAll("production"),
-      fetchAll("inventory"),
-    ]);
-    const emptySnap = { docs: [] };
-    const [payrollSnap, expensesSnap, purchasesSnap, vatBillsSnap, employeesSnap,
-           entriesSnap, accountsSnap, invSnap, bankSnap, ordersSnap, costsSnap, productionSnap, inventorySnap] =
-      settled.map(r => {
-        if (r.status === "rejected") { console.error("Finance: failed to load one collection:", r.reason); return emptySnap; }
-        return r.value;
-      });
-    setInventoryItems(inventorySnap);
-
-    setEmployees(employeesSnap.filter(e => e.status !== "Inactive"));
-    setPayroll(payrollSnap);
-    const txns = [...bankSnap];
-    txns.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    setBankTxns(txns);
-
-    const expRows = [...expensesSnap];
-    expRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    setExpenses(expRows);
-
-    let purRows = [...purchasesSnap];
-    // Backfill the starter purchases only into a genuinely empty table. The
-    // old marker-document trick is gone: it existed so a re-seed could be
-    // detected in a store with no constraints, and it wrote a fake purchase
-    // row that every read then had to filter back out.
-    if (purRows.length === 0) {
-      const today = new Date().toISOString().slice(0, 10);
-      await Promise.all(SEED_PURCHASES.map(p =>
-        upsertRow("finance_purchases", { ...p, date: today }, ["expense_ref"])));
-      purRows = await fetchAll("finance_purchases");
-    }
-    // Collapse any duplicate expense refs for display, keeping the first.
-    // This used to DELETE the losers on every page load, which is not
-    // something a read should do — a transient glitch could quietly destroy
-    // accounting records. Postgres has no duplicates today, so hiding rather
-    // than deleting costs nothing and cannot lose a purchase.
-    //
-    // Keyed by fiscal year + expense ref, not the ref alone: numbers restart
-    // every fiscal year (migration 0046), so "EXP001" alone no longer names
-    // one purchase — FY2082/83 and FY2083/84 each have their own.
-    const seen = new Map();
-    for (const r of purRows) {
-      const key = `${r.fiscalYear || ""}:${r.expenseId}`;
-      if (!seen.has(key)) seen.set(key, r);
-    }
-    if (seen.size !== purRows.length) purRows = [...seen.values()];
-    purRows.sort((a, b) => (a.expenseId || "").localeCompare(b.expenseId || ""));
-    purRows = purRows.filter(r => createdAfterCutoff(r));
-    setPurchases(purRows);
-
-    const bills = [...vatBillsSnap];
-    bills.sort((a, b) => tsMillis(b.uploadedAt) - tsMillis(a.uploadedAt));
-    setVatBills(bills);
-    if (!vatPurchaseId && purRows.length > 0) setVatPurchaseId(purRows[0].id || "");
-
-    const entryRows = entriesSnap.filter(r => createdAfterCutoff(r));
-    entryRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    setEntries(entryRows);
-
-    let accs = [...accountsSnap];
-    if (accs.length === 0) {
-      for (const acc of DEFAULT_ACCOUNTS) await insertRow("accounts", acc);
-      accs = await fetchAll("accounts");
-    } else {
-      // Sync any new accounts added to DEFAULT_ACCOUNTS (e.g. Fonepay)
-      const existingNames = new Set(accs.map(a => a.name));
-      const missing = DEFAULT_ACCOUNTS.filter(a => !existingNames.has(a.name));
-      if (missing.length > 0) {
-        for (const acc of missing) await insertRow("accounts", acc);
-        accs = await fetchAll("accounts");
-      }
-      // Backfill openingBalanceNPR onto accounts seeded before that field existed.
-      for (const def of DEFAULT_ACCOUNTS) {
-        if (def.openingBalanceNPR == null) continue;
-        const acc = accs.find(a => a.name === def.name);
-        if (acc && acc.openingBalanceNPR == null) {
-          await updateRow("accounts", acc.id, { openingBalanceNPR: def.openingBalanceNPR });
-          acc.openingBalanceNPR = def.openingBalanceNPR;
-        }
-      }
-    }
-    // Auto-provision an Asset account for any bank name typed into the "Other"
-    // field on a purchase/invoice/expense/bank transaction (beyond the Nabil/
-    // Sanima quick picks), so it gets an opening balance and shows up in the
-    // Ledger tab like any other bank instead of silently dropping off cashBankLedger.
-    {
-      const customBankNames = new Set();
-      purRows.forEach(p => { if (p.paymentType === "Bank" && p.bankName && !BANK_NAMES.includes(p.bankName)) customBankNames.add(p.bankName); });
-      invSnap.forEach(inv => { if (inv.paymentType === "Bank" && inv.bankName && !BANK_NAMES.includes(inv.bankName)) customBankNames.add(inv.bankName); });
-      expRows.forEach(x => { if (x.paymentType === "Bank" && x.bankName && !BANK_NAMES.includes(x.bankName)) customBankNames.add(x.bankName); });
-      // bank_transactions has no per-account name — the importer feeds a
-      // single account — so there is nothing to harvest here any more.
-      const existingNames2 = new Set(accs.map(a => a.name));
-      const newBankAccounts = Array.from(customBankNames).filter(n => !existingNames2.has(n));
-      if (newBankAccounts.length > 0) {
-        for (const name of newBankAccounts) await insertRow("accounts", { name, type: "Asset", openingBalanceNPR: 0 });
-        accs = await fetchAll("accounts");
-      }
-    }
-    // One-time rename of an already-seeded "Laxmi Sunrise Bank" → "Nabil Bank",
-    // carrying its opening balance and any bank_transactions across so nothing drops off the ledger.
-    const oldBankAcc = accs.find(a => a.name === "Laxmi Sunrise Bank");
-    if (oldBankAcc && !accs.find(a => a.name === "Nabil Bank")) {
-      await updateRow("accounts", oldBankAcc.id, { name: "Nabil Bank" });
-      oldBankAcc.name = "Nabil Bank";
-      // The transactions themselves carry no account name, so there is
-      // nothing further to rename.
-    }
-    const seenAcc = new Set();
-    accs = accs.filter(a => { if (seenAcc.has(a.name)) return false; seenAcc.add(a.name); return true; });
-    accs.sort((a, b) => a.name.localeCompare(b.name));
-    setAccounts(accs);
-
-    setInvoices(invSnap);
-
-    // Orders
-    const orderRows = [...ordersSnap];
-    orderRows.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
-    setOrders(orderRows);
-
-    // Order costs — keyed by orderId (doc ID = orderId)
-    const costsMap = {};
-    // Keyed by the order reference the P&L form writes against.
-    costsSnap.forEach(c => { if (c.orderId) costsMap[c.orderId] = c; });
-    setOrderCosts(costsMap);
-
-    // Auto labour rate: last month's payroll ÷ last month's units passed
-    const now = new Date();
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthKey = lastMonth.toISOString().slice(0, 7); // "YYYY-MM"
-    const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    const lastMonthName = MONTH_NAMES[lastMonth.getMonth()];
-    const lastMonthYear = lastMonth.getFullYear();
-
-    const payrollData = payrollSnap;
-    // Deliberately the unfiltered snapshot: the auto labour rate is a
-    // company-wide cost per unit, not a per-region one.
-    const productionWorkers = new Set(
-      employeesSnap.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase())
-    );
-    // Only use production workers' payroll if any are tagged; otherwise fall back to all
-    const lastMonthPayroll = payrollData
-      .filter(r => r.month === lastMonthName && Number(r.year) === lastMonthYear)
-      .filter(r => productionWorkers.size === 0 || productionWorkers.has((r.staffName || "").toLowerCase()))
-      .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
-
-    const productionData = productionSnap;
-    const lastMonthUnits = productionData
-      .filter(b => (b.date || "").slice(0, 7) === lastMonthKey)
-      .reduce((s, b) => s + Number(b.passed || 0), 0);
-
-    if (lastMonthPayroll > 0 && lastMonthUnits > 0) {
-      setLabourRatePerUnit(lastMonthPayroll / lastMonthUnits);
-    }
-  }
-
-  useEffect(() => {
-    loadData().catch(console.error).finally(() => {
-      // Restore scroll only after this tab's content has actually rendered —
-      // doing it before data loads would scroll into a page that's still short.
-      try {
-        const saved = JSON.parse(sessionStorage.getItem("financeReturnState"));
-        if (saved) {
-          sessionStorage.removeItem("financeReturnState");
-          requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, saved.scrollY || 0)));
-        }
-      } catch { /* ignore malformed/missing saved state */ }
-    });
-  }, []);
-
-  // Called instead of a bare navigate() when a ledger row sends her to Purchases/Billing —
-  // remembers the ledger tab + scroll position so "Back to Finance" lands right back here.
-  function goToLedgerSource(path, state) {
-    sessionStorage.setItem("financeReturnState", JSON.stringify({ tab: activeTab, scrollY: window.scrollY }));
-    navigate(path, { state });
-  }
-
-  /* ── Handlers ── */
-
-  async function addPurchase() {
-    if (!canEditTab("purchases")) { setPurchaseError("You don't have permission to add purchases."); return; }
-    if (!purchaseForm.expenseItem.trim()) {
-      // Inline, next to the field itself — a top-of-page banner is invisible from this table
-      setPurchaseError("Required — who did you buy from?");
-      return;
-    }
-    setPurchaseError("");
-    setSubmitting(true);
-    try {
-      // Numbers restart every fiscal year (migration 0046) — decided from the
-      // purchase's own date, same as an invoice, not from today's date, so a
-      // backdated purchase draws from the year it actually belongs to.
-      const fiscalYear = fiscalYearForDate(purchaseForm.date) || currentFiscalYear();
-      const newId = await nextPurchaseNumber(fiscalYear);
-      const subtotal = purchaseSubtotal(purchaseForm.items);
-      const vatAmount = purchaseVatAmount(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt, purchaseForm.taxableAmt);
-      const grandTotal = purchaseGrandTotal(purchaseForm.items, purchaseForm.vatBill, purchaseForm.discountAmt, purchaseForm.taxableAmt);
-
-      const purchasePayload = {
-        expenseId: newId,
-        expenseItem: purchaseForm.expenseItem,
-        category: purchaseForm.category,
-        paymentType: purchaseForm.paymentType || "CASH",
-        bankName: purchaseForm.bankName || "Nabil Bank",
-        vatBill: purchaseForm.vatBill,
-        discountAmt: Number(purchaseForm.discountAmt || 0),
-        taxableAmt: Number(purchaseForm.taxableAmt || 0),
-        subtotalNPR: subtotal,
-        vatAmountNPR: vatAmount,
-        amountNPR: grandTotal,
-        date: purchaseForm.date,
-        fiscalYear,
-        region: purchaseForm.region || region,
-        items: purchaseItemsPayload(purchaseForm.items)
-      };
-      const inserted = await insertRow("finance_purchases", purchasePayload);
-      // Auto-post stock-in for any line item whose particulars name an existing
-      // inventory item (e.g. "Buff Meat") — silently skips everything else
-      // (rent, fees, etc. aren't stock). Needs the row's own id (not just its
-      // human expenseId), since stock_movements now links a purchase by uuid.
-      postPurchaseStockIn({
-        purchase: { ...purchasePayload, id: inserted.id },
-        items: purchasePayload.items,
-        inventoryItems,
-        createdBy: profile?.name || "Unknown",
-      }).catch(err => console.error("Stock auto-post failed:", err));
-      setPurchaseForm({ ...emptyPurchaseForm, date: new Date().toISOString().slice(0, 10), items: [{ ...emptyPurchaseForm.items[0] }] });
-      setPurchaseSuccess(`✓ ${newId} saved`);
-      setTimeout(() => setPurchaseSuccess(""), 4000);
-      await loadData();
-      // Straight back to Date so she can start the next purchase without touching the mouse.
-      requestAnimationFrame(() => document.querySelector('[data-role="purchase-date"]')?.focus());
-    } catch (err) {
-      console.error("Failed to add purchase:", err);
-      setPurchaseError(err?.code === "permission-denied"
-        ? "You don't have permission to add purchases."
-        : err?.code === "PGRST202" || err?.message?.includes("schema cache")
-        ? "Failed to save. Database migration 0046 may not be applied yet."
-        : "Failed to save. Check your connection and try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function deleteExpense(id) {
-    if (!window.confirm("Delete this expense?")) return;
-    await deleteRow("finance_expenses", id);
-    await loadData();
-  }
-
-  async function markExpensePaid(id, current) {
-    await updateRow("finance_expenses", id, { status: current === "Paid" ? null : "Paid" });
-    await loadData();
-  }
-
-  async function addExpense(e) {
-    e.preventDefault(); if (!canEdit) return;
-    setSubmitting(true);
-    setExpenseError("");
-    try {
-      const docRef = await insertRow("finance_expenses", {
-        ...expenseForm, amountNPR: Number(expenseForm.amountNPR || 0),
-        region: expenseForm.region || region,
-        loggedBy: profile?.name || "Unknown",
-      });
-      if (expenseForm.vatBill && expenseVatFile) {
-        // The expense itself is already saved at this point — a failed upload
-        // must not look like the whole save failed, or lose the VAT bill
-        // ever getting attached: report it, but let the form still clear.
-        try {
-          const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/expense-${docRef.id}`, expenseVatFile);
-          await insertRow("vat_bills", {
-            expenseId: docRef.id, expenseItem: expenseForm.note || expenseForm.category,
-            fileName: expenseVatFile.name, fileUrl: url, storagePath: path,
-            fileType: expenseVatFile.type, uploadedBy: profile?.name || "Unknown",
-            source: "expense",
-            region: expenseForm.region || region,
-          });
-        } catch (err) {
-          console.error("Failed to upload VAT bill:", err);
-          setExpenseError("Expense saved, but the VAT bill file failed to upload. Attach it again from the VAT Bills tab.");
-        }
-      }
-      setExpenseForm(initialExpense);
-      setExpenseVatFile(null);
-      if (expenseFileRef.current) expenseFileRef.current.value = "";
-      await loadData();
-    } catch (err) {
-      console.error("Failed to add expense:", err);
-      setExpenseError("Failed to save. Check your connection and try again.");
-    } finally { setSubmitting(false); }
-  }
-
-  async function uploadVatBill(e) {
-    e.preventDefault(); if (!vatFile || !vatPurchaseId) return;
-    setUploading(true);
-    try {
-      // Across every year, not the one on screen — the dropdown offers them all.
-      const purchase = regionPurchases.find(p => p.id === vatPurchaseId);
-      const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/${vatPurchaseId}`, vatFile);
-      await insertRow("vat_bills", {
-        expenseId: purchase?.expenseId || "", purchaseId: vatPurchaseId, expenseItem: purchase?.expenseItem || "",
-        fileName: vatFile.name, fileUrl: url, storagePath: path, fileType: vatFile.type,
-        uploadedBy: profile?.name || "Unknown",
-        region: purchase?.region || region,
-      });
-      setVatFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      await loadData();
-    } catch (err) { console.error("Upload failed:", err); alert("Upload failed: " + err.message); }
-    finally { setUploading(false); }
-  }
-
-  async function deleteVatBill(bill) {
-    if (!window.confirm(`Delete "${bill.fileName}"?`)) return;
-    await deletePublicFile("finance-attachments", bill.storagePath);
-    await deleteRow("vat_bills", bill.id); await loadData();
-  }
-
-  async function addEntry(e) {
-    e.preventDefault();
-    if (!journalForm.date) { alert("Pick the entry date."); return; } // B.S. mode has no native "required" to catch this
-    if (journalForm.debitAccount === journalForm.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
-    if (isAdvanceEntry(journalForm) && !journalForm.partyName.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
-    setJournalSubmitting(true);
-    try {
-      await insertRow("journal_entries", {
-        ...journalForm, amountNPR: Number(journalForm.amountNPR),
-        region: journalForm.region || region,
-        partyName: isAdvanceEntry(journalForm) ? journalForm.partyName.trim() : "",
-        createdBy: profile?.name || "Unknown",
-      });
-      setJournalForm(emptyJournalForm); await loadData();
-      requestAnimationFrame(() => document.querySelector('[data-role="journal-date"]')?.focus());
-    } catch (err) {
-      console.error("Failed to post journal entry:", err);
-      showError("Failed to post journal entry. Please try again.");
-    } finally {
-      setJournalSubmitting(false);
-    }
-  }
-
-  function startJournalEdit(entry) {
-    setJournalEditId(entry.id);
-    setJournalDraft({
-      date: entry.date || "", description: entry.description || "",
-      debitAccount: entry.debitAccount, creditAccount: entry.creditAccount,
-      amountNPR: entry.amountNPR ?? "", reference: entry.reference || "",
-      partyName: entry.partyName || "",
-    });
-  }
-  function cancelJournalEdit() {
-    setJournalEditId(null);
-    setJournalDraft({});
-  }
-  async function saveJournalEdit(id) {
-    if (journalDraft.debitAccount === journalDraft.creditAccount) { alert("Debit and Credit accounts must be different."); return; }
-    if (isAdvanceEntry(journalDraft) && !journalDraft.partyName?.trim()) { alert("Enter the customer/supplier this advance belongs to."); return; }
-    setJournalSaving(true);
-    try {
-      await updateRow("journal_entries", id, {
-        date: journalDraft.date,
-        description: journalDraft.description,
-        debitAccount: journalDraft.debitAccount,
-        creditAccount: journalDraft.creditAccount,
-        amountNPR: Number(journalDraft.amountNPR) || 0,
-        reference: journalDraft.reference,
-        partyName: isAdvanceEntry(journalDraft) ? journalDraft.partyName.trim() : "",
-      });
-      setJournalEditId(null);
-      setJournalDraft({});
-      await loadData();
-    } catch (err) {
-      console.error("Failed to update journal entry:", err);
-      showError("Failed to save changes. Please try again.");
-    } finally {
-      setJournalSaving(false);
-    }
-  }
-
-  function cancelLedgerDraft() {
-    setLedgerDraft(null);
-  }
-
-  async function commitLedgerDraft() {
-    if (!ledgerDraft || ledgerSaving) return;
-    const { type, id, date, particulars, amount, earlierMovementNPR } = ledgerDraft;
-    setLedgerSaving(true);
-    try {
-      if (type === "opening") {
-        // With a year picked, `amount` is the brought-forward total shown on screen
-        // (opening + every earlier year's movement), not the openingBalanceNPR column.
-        // Back that movement out so the stored figure keeps meaning "before anything
-        // was recorded" — saving the combined number as-is would double-count those
-        // earlier years the next time this loads.
-        await updateRow("accounts", id, { openingBalanceNPR: Number(amount || 0) - (earlierMovementNPR || 0), openingBalanceDate: date || null });
-      } else if (type === "bank") {
-        // bank_transactions keeps the figure in `amount`. Sending `amountNPR`
-        // named no column the table has, and the write layer drops keys it
-        // cannot map — so the amount looked saved and never was, while the
-        // description beside it went through. `date` is the same trap: it's a
-        // read-only derived column (schemaMap marks it under `derived`, not
-        // `fields`) computed from the real column, `timestamp` → txn_at — send
-        // that key instead, or an edited date silently never saves either.
-        await updateRow("bank_transactions", id, { timestamp: date, description: particulars, amount: Number(amount || 0) });
-      } else {
-        await updateRow("journal_entries", id, { date, description: particulars, amountNPR: Number(amount || 0) });
-      }
-      setLedgerDraft(null);
-      await loadData();
-    } catch (err) {
-      console.error("Failed to update ledger entry:", err);
-      showError("Failed to update ledger entry. Please try again.");
-    } finally {
-      setLedgerSaving(false);
-    }
-  }
-
-  // Enter saves, Escape abandons the edit — the same keys the Journal tab's
-  // editor answers to, so the two behave alike.
-  function ledgerEditKeys(e) {
-    if (e.key === "Enter") { e.preventDefault(); commitLedgerDraft(); }
-    else if (e.key === "Escape") { e.preventDefault(); cancelLedgerDraft(); }
-  }
-
-  /**
-   * The Save / Cancel bar under the ledger row being edited.
-   *
-   * A plain call rather than a component so React keeps the same elements
-   * across the parent's re-renders and a tabbed-to button does not lose focus.
-   */
-  function ledgerEditBar() {
-    return (
-      <tr style={{ background: "var(--mint-soft)" }}>
-        <td colSpan={5} style={{ padding: "6px 8px" }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="primary-button" style={{ padding: "3px 12px", fontSize: 11.5 }}
-              disabled={ledgerSaving} onClick={commitLedgerDraft}>
-              {ledgerSaving ? "Saving…" : "Save"}
-            </button>
-            <button type="button" className="ghost-button" style={{ padding: "3px 12px", fontSize: 11.5 }}
-              disabled={ledgerSaving} onClick={cancelLedgerDraft}>
-              Cancel
-            </button>
-            <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Enter saves · Esc cancels</span>
-          </div>
-        </td>
-      </tr>
-    );
-  }
-
-  /* ── Order P&L handlers ── */
-  function openOplPanel(order) {
-    setOplSelectedId(order.id);
-    const existing = orderCosts[order.orderId || order.id] || orderCosts[order.id] || {};
-    const autoLabour = (existing.labour == null && labourRatePerUnit)
-      ? String(Math.round(labourRatePerUnit * Number(order.quantity || 0)))
-      : "";
-    setOplCostForm({
-      material: existing.material != null ? String(existing.material) : "",
-      labour:   existing.labour   != null ? String(existing.labour)   : autoLabour,
-      overhead: existing.overhead != null ? String(existing.overhead) : "",
-      shipping: existing.shipping != null ? String(existing.shipping) : "",
-    });
-  }
-
-  async function saveOplCosts(e) {
-    e.preventDefault();
-    if (!oplSelectedId) return;
-    setOplSaving(true);
-    try {
-      const order = orders.find(o => o.id === oplSelectedId);
-      const costKey = order?.orderId || order?.id || oplSelectedId;
-      await upsertRow("order_costs", {
-        orderId:  costKey,
-        // Costs belong wherever the order does, not wherever the switch is.
-        region:   order?.region || null,
-        material: Number(oplCostForm.material || 0),
-        labour:   Number(oplCostForm.labour   || 0),
-        overhead: Number(oplCostForm.overhead  || 0),
-        shipping: Number(oplCostForm.shipping  || 0),
-        updatedAt: new Date().toISOString(),
-      }, ["order_ref"]);
-      await loadData();
-      setOplSelectedId(null);
-    } catch (err) {
-      console.error("Failed to save order costs:", err);
-      showError("Failed to save order costs. Please try again.");
-    } finally {
-      setOplSaving(false);
-    }
-  }
-
-  /* ── Memos ── */
-  const summary = useMemo(() => {
-    const now = new Date();
-    const curMonth = MONTHS[now.getMonth()];
-    const curYear  = now.getFullYear();
-    // KPI strip: payroll filtered to current month (MTD) — intentionally narrower than P&L which uses the full current year.
-    // With a fiscal year picked, `payroll` is already that year's rows and the strip shows the whole year instead —
-    // "this month" would read 0 for any year that is not the current one.
-    //
-    // Payroll tends to get entered in after-the-fact batches — a March run logged
-    // in September — so "this calendar month" is often empty even though real
-    // payroll is sitting right there. Rather than show a bare 0 that reads as
-    // broken, fall back to whichever month actually has the most recent rows.
-    let payrollRows = payroll.filter(r => r.month === curMonth && Number(r.year) === curYear);
-    let payrollMonthLabel = null; // set only when falling back — overrides "Payroll This Month"
-    if (!fyActive && payrollRows.length === 0 && payroll.length > 0) {
-      const latest = payroll.reduce((best, r) => {
-        const y = Number(r.year), mi = MONTHS.indexOf(r.month);
-        if (!y || mi < 0) return best;
-        return (!best || y > best.y || (y === best.y && mi > best.mi)) ? { y, mi, month: r.month } : best;
-      }, null);
-      if (latest) {
-        payrollRows = payroll.filter(r => r.month === latest.month && Number(r.year) === latest.y);
-        payrollMonthLabel = `${latest.month} ${latest.y}`;
-      }
-    }
-    const payrollNPR  = (fyActive ? payroll : payrollRows)
-      .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
-    const expensesNPR = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-    const purchNPR    = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-    const totalNPR    = payrollNPR + expensesNPR + purchNPR;
-    return { payrollNPR, expensesNPR, purchNPR, totalNPR, payrollMonthLabel };
-  }, [payroll, expenses, purchases, fyActive]);
-
-  // The "Other Accounts" cards: journal activity in the selected year (all of it with "all").
+  /* ── the sums (lib/finance.js) ─────────────────────────────── */
+  const summary = useMemo(() => summarise({ payroll, expenses, purchases, periodActive }), [payroll, expenses, purchases, periodActive]);
+  const exp = useMemo(() => expenseStats(expenses), [expenses]);
   const ledger = useMemo(() => journalTotals(entries), [entries]);
-
-  // The Balance Sheet is a position, not a period: with a year picked it is every
-  // entry dated up to that year's END, so earlier years' entries are still in it.
-  // A custom range works the same way — only its To-date acts as an "as of" cutoff
-  // (its From side doesn't mean anything for a snapshot); with both a fiscal year
-  // and a custom range set, the earlier (tighter) of the two cutoffs wins. With
-  // neither, it's the same list the cards use, exactly as before.
-  const asOfDate = useMemo(() => {
-    const bounds = [fyRange?.endAD, dateRange.to || null].filter(Boolean);
-    return bounds.length ? bounds.reduce((a, b) => (a < b ? a : b)) : null;
-  }, [fyRange, dateRange]);
+  const asOfDate = useMemo(() => asOfDateOf(fyRange, dateRange), [fyRange, dateRange]);
   const ledgerAsOf = useMemo(() => {
     if (!asOfDate) return ledger;
-    return journalTotals(regionEntries.filter(e => { const d = isoDay(e.date); return !!d && d <= asOfDate; }));
+    return journalTotals(regionEntries.filter((e) => { const d = isoDay(e.date); return !!d && d <= asOfDate; }));
   }, [ledger, regionEntries, asOfDate]);
+  const bankNames = useMemo(
+    () => bankAccountNamesFrom({ builtIn: BANK_NAMES, purchases: regionPurchases, invoices: regionInvoices, expenses: regionExpenses, bankTxns: regionBankTxns }),
+    [regionPurchases, regionInvoices, regionExpenses, regionBankTxns],
+  );
+  const cashBank = useMemo(
+    () => cashBankLedger({ purchases: regionPurchases, invoices: regionInvoices, expenses: regionExpenses, bankTxns: regionBankTxns, entries: regionEntries, accounts, bankNames, fyRange }),
+    [regionPurchases, regionInvoices, regionExpenses, regionBankTxns, regionEntries, accounts, bankNames, fyRange, ratesVersion],   // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const dayBook = useMemo(
+    () => dayBookRows({ purchases, invoices, expenses, bankTxns, entries }),
+    [purchases, invoices, expenses, bankTxns, entries, ratesVersion],   // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const pl = useMemo(
+    () => profitAndLoss({ entries, accounts, expenses, purchases, payroll, invoices, periodActive }),
+    [entries, accounts, expenses, purchases, payroll, invoices, periodActive, ratesVersion],   // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const bs = useMemo(() => balanceSheet({ accounts, ledgerAsOf }), [accounts, ledgerAsOf]);
 
-  // Nabil/Sanima plus any bank name typed into the "Other" field on a purchase,
-  // invoice or bank transaction — keeps custom-typed banks from silently
-  // dropping off the Ledger tab and cashBankLedger below.
-  // Read from every year so the same banks are listed whichever year is picked.
-  const bankAccountNames = useMemo(() => {
-    const set = new Set(BANK_NAMES);
-    regionPurchases.forEach(p => { if (p.paymentType === "Bank" && p.bankName) set.add(p.bankName); });
-    regionInvoices.forEach(i => { if (i.paymentType === "Bank" && i.bankName) set.add(i.bankName); });
-    regionExpenses.forEach(x => { if (x.paymentType === "Bank" && x.bankName) set.add(x.bankName); });
-    regionBankTxns.forEach(t => { if (t.accountName) set.add(t.accountName); });
-    return [...BANK_NAMES, ...[...set].filter(n => !BANK_NAMES.includes(n)).sort()];
-  }, [regionPurchases, regionInvoices, regionExpenses, regionBankTxns]);
+  /* ── going to the page a record belongs to and coming back ──── */
+  // A row that sends her to Purchases or Billing remembers the section, so "Back to Finance" lands right back here.
+  const goToSource = useCallback((path, state) => {
+    try { sessionStorage.setItem("financeReturnState", JSON.stringify({ tab })); } catch { /* not remembered */ }
+    navigate(path, { state });
+  }, [navigate, tab]);
 
-  // Running Cash/Bank ledger — matches Deepa's notebook format (Particulars/Dr/Cr/Balance).
-  // Rows are derived on the fly from Purchases, paid/partial Invoices, paid
-  // Expenses, Bank txns and Journal entries — nothing is written back, so
-  // there's no separate ledger doc to keep in sync.
-  //
-  // Built from every year's rows, then cut to the selected year: what happened
-  // before the year folds into a brought-forward opening balance (the account's
-  // own opening + all earlier movement), the year's rows follow, and later rows
-  // are left out — so the closing balance is the account's balance at that
-  // year's end and carries straight into the next year's opening.
-  const cashBankLedger = useMemo(() => {
-    const CASH = "Cash";
-    const ACCOUNTS = [CASH, ...bankAccountNames];
-    const rowsFor = Object.fromEntries(ACCOUNTS.map(name => [name, []]));
+  const counts = {
+    expenses: expenses.length, purchases: purchases.length, "vat bills": vatBills.length, journal: entries.length,
+    "day book": dayBook.length, bank: bankTxns.length, "order p&l": orders.length,
+  };
+  const groups = GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter((t) => visibleTabs.includes(t)) })).filter((g) => g.tabs.length);
+  const tabsForSelect = groups.flatMap((g, i) => [...(i ? [{ gap: true }] : []), ...g.tabs.map((t) => ({ id: t, label: tabLabel(t), count: counts[t] }))]);
 
-    regionPurchases.forEach(p => {
-      // Anything not explicitly "Bank" or "Credit" is Cash -- same rule paid
-      // invoices already use below ("defaults to Cash for older invoices with
-      // no paymentType set"). Purchases used to require an exact "CASH" match,
-      // so a row from before this field existed (paymentType null) matched
-      // neither branch and silently vanished from every Cash/Bank block despite
-      // being fully visible on the Purchases page -- 38 live rows, NPR 436k.
-      const acct = p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : p.paymentType === "Credit" ? null : CASH;
-      if (!acct || !rowsFor[acct]) return; // Credit purchases move to Accounts Payable, not Cash/Bank
-      rowsFor[acct].push({
-        date: p.date || "", sortKey: tsMillis(p.createdAt),
-        particulars: `Purchase — ${p.expenseItem || p.expenseId}`, dr: 0, cr: Number(p.amountNPR || 0),
-        sourceType: "purchase", sourceId: p.id, searchKey: p.expenseId,
-      });
-    });
+  const ctx = {
+    profile, region, show, status: data.status, loading, reload: data.reload, notify, goToSource, newRef, canEditTab,
+    canSeeBills: financeTabAllowed(profile, FINANCE_TAB_KEYS["vat bills"]),
+    fy, fyActive, fyRange, dateRange, periodActive, asOfDate, ratesVersion, dateMode,
+    expenses, regionExpenses, purchases, regionPurchases, vatBills, regionVatBills, entries, regionEntries, bankTxns, regionBankTxns,
+    invoices, regionInvoices, payroll, regionPayroll, orders, regionOrders, orderCosts: data.orderCosts, accounts, employees,
+    inventoryItems, labourRate: data.labourRate, allExpenses: data.expenses, allPurchases: data.purchases,
+    bankNames, cashBank, dayBook, ledger, ledgerAsOf, pl, bs, summary,
+    openTab: setActiveTab,
+  };
 
-    // Paid AND partially-paid invoices both carry real cash/bank receipts --
-    // amountPaid (a database trigger's running total of the invoice's own
-    // `payments` rows) is what actually arrived, so it's used for both rather
-    // than totalNPR, which a Partial invoice hasn't fully collected yet.
-    regionInvoices.filter(i => i.status === "Paid" || i.status === "Partial").forEach(i => {
-      const amt = toNPR(Number(i.amountPaid || 0), i.currency);
-      // defaults to Cash for older invoices with no paymentType set; a Credit
-      // sale (terms, not yet banked) has no cash/bank movement to post, same
-      // as a Credit purchase.
-      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : i.paymentType === "Credit" ? null : CASH;
-      if (!acct) return;
-      rowsFor[acct].push({
-        date: i.date || "", sortKey: tsMillis(i.createdAt),
-        particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
-        sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName,
-      });
-    });
+  const View = VIEWS[tab];
+  const sub = describePeriod({ fy, range: dateRange, mode: dateMode });
 
-    // Expenses had no payment method at all until now (migration 0047) and so
-    // never posted here -- only a *paid* expense is a real cash/bank movement,
-    // same reasoning as Partial vs. unpaid on the Sales side above.
-    regionExpenses.filter(x => x.status === "Paid").forEach(x => {
-      const acct = x.paymentType === "Bank" ? (x.bankName || "Nabil Bank") : x.paymentType === "Credit" ? null : CASH;
-      if (!acct || !rowsFor[acct]) return;
-      rowsFor[acct].push({
-        date: x.date || "", sortKey: tsMillis(x.createdAt),
-        particulars: `Expense — ${x.category || ""}${x.note ? ": " + x.note : ""}`, dr: 0, cr: Number(x.amountNPR || 0),
-        sourceType: "expense", sourceId: x.id, searchKey: null,
-      });
-    });
+  if (visibleTabs.length === 0) {
+    return (
+      <BentoPage className="fn-page">
+        <header className="kb-head"><div className="kb-head-l"><h1>Finance</h1></div></header>
+        <div className="kb-error" role="status"><p>Your position doesn't open any part of Finance.</p></div>
+      </BentoPage>
+    );
+  }
 
-    regionBankTxns.forEach(t => {
-      const acct = t.accountName || "Nabil Bank"; // txns logged before multi-bank support default to Nabil
-      if (!rowsFor[acct]) return;
-      const amt = Number(t.amount ?? t.amountNPR ?? 0);
-      rowsFor[acct].push({
-        date: t.date || "", sortKey: tsMillis(t.createdAt),
-        particulars: t.description || "Bank transaction",
-        dr: isBankCredit(t) ? amt : 0, cr: isBankCredit(t) ? 0 : amt,
-        sourceType: "bank", sourceId: t.id,
-      });
-    });
-
-    regionEntries.forEach(e => {
-      const amt = Number(e.amountNPR || 0);
-      if (rowsFor[e.debitAccount]) {
-        rowsFor[e.debitAccount].push({ date: e.date || "", sortKey: tsMillis(e.createdAt), particulars: e.description || "Journal entry", dr: amt, cr: 0, sourceType: "journal", sourceId: e.id });
-      }
-      if (rowsFor[e.creditAccount]) {
-        rowsFor[e.creditAccount].push({ date: e.date || "", sortKey: tsMillis(e.createdAt), particulars: e.description || "Journal entry", dr: 0, cr: amt, sourceType: "journal", sourceId: e.id });
-      }
-    });
-
-    const result = {};
-    for (const name of ACCOUNTS) {
-      const accountRow = accounts.find(a => a.name === name);
-      const accountId = accountRow?.id || null;
-      const baseOpening = accountRow?.openingBalanceNPR || 0;
-      const openingBalanceDate = accountRow?.openingBalanceDate || null;
-      const sorted = rowsFor[name].sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
-      let opening = baseOpening;
-      let shown = sorted;
-      if (fyRange) {
-        shown = [];
-        for (const r of sorted) {
-          const day = isoDay(r.date);
-          if (!day) continue;                                        // undated: belongs to no year
-          if (day < fyRange.startAD) opening += r.dr - r.cr;         // earlier years: brought forward
-          else if (day <= fyRange.endAD) shown.push(r);              // this year: listed
-        }
-      }
-      let balance = opening;
-      const rows = shown.map(r => {
-        balance += r.dr - r.cr;
-        return { ...r, balance };
-      });
-      result[name] = { accountId, openingBalanceNPR: opening, baseOpeningNPR: baseOpening, openingBalanceDate, rows, closingBalance: balance, totalRows: sorted.length };
-    }
-    return result;
-  }, [regionPurchases, regionInvoices, regionExpenses, regionBankTxns, regionEntries, accounts, bankAccountNames, fyRange, ratesVersion]);
-
-  // Day Book — every purchase, paid/partial sale, paid expense, bank
-  // transaction and journal entry in one chronological list, the way a Nepali
-  // day book (रोजमेल/Rojmel — the book of original entry) records each day's
-  // transactions as they happen, before they're posted into the per-account
-  // Ledger. Same sources as cashBankLedger above, but every account rather
-  // than just Cash/Bank, and merged by date instead of bucketed per account —
-  // so a journal entry against (say) Sales Revenue shows up here even though
-  // it never appears in the Ledger tab's Cash/Bank blocks. Already region- and
-  // fiscal-year-filtered, since it reads the same `purchases`/`invoices`/
-  // `expenses`/`bankTxns`/`entries` lists the Journal and Bank tabs do, not the
-  // unfiltered `region*` ones — there's no brought-forward opening balance
-  // here for a year boundary to complicate.
-  const dayBook = useMemo(() => {
-    const rows = [];
-
-    purchases.forEach(p => {
-      // Same fix as cashBankLedger above: only "Bank" and "Credit" are
-      // exceptions, everything else (including a legacy row with no
-      // paymentType recorded at all) is Cash.
-      const acct = p.paymentType === "Bank" ? (p.bankName || "Nabil Bank") : p.paymentType === "Credit" ? null : "Cash";
-      if (!acct) return; // credit purchases move to Accounts Payable — no cash/bank movement yet
-      rows.push({
-        date: p.date || "", sortKey: tsMillis(p.createdAt), account: acct,
-        particulars: `Purchase — ${p.expenseItem || p.expenseId}`, dr: 0, cr: Number(p.amountNPR || 0),
-        sourceType: "purchase", searchKey: p.expenseId,
-      });
-    });
-
-    // Paid and Partial both carry real receipts — see cashBankLedger above.
-    invoices.filter(i => i.status === "Paid" || i.status === "Partial").forEach(i => {
-      const amt = toNPR(Number(i.amountPaid || 0), i.currency);
-      const acct = i.paymentType === "Bank" ? (i.bankName || "Nabil Bank") : i.paymentType === "Credit" ? null : "Cash";
-      if (!acct) return;
-      rows.push({
-        date: i.date || "", sortKey: tsMillis(i.createdAt), account: acct,
-        particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
-        sourceType: "invoice", searchKey: i.invoiceNumber || i.clientName,
-      });
-    });
-
-    expenses.filter(x => x.status === "Paid").forEach(x => {
-      const acct = x.paymentType === "Bank" ? (x.bankName || "Nabil Bank") : x.paymentType === "Credit" ? null : "Cash";
-      if (!acct) return;
-      rows.push({
-        date: x.date || "", sortKey: tsMillis(x.createdAt), account: acct,
-        particulars: `Expense — ${x.category || ""}${x.note ? ": " + x.note : ""}`, dr: 0, cr: Number(x.amountNPR || 0),
-        sourceType: "expense", searchKey: null,
-      });
-    });
-
-    bankTxns.forEach(t => {
-      const amt = Number(t.amount ?? t.amountNPR ?? 0);
-      rows.push({
-        date: t.date || "", sortKey: tsMillis(t.createdAt), account: t.accountName || "Nabil Bank",
-        particulars: t.description || "Bank transaction",
-        dr: isBankCredit(t) ? amt : 0, cr: isBankCredit(t) ? 0 : amt,
-        sourceType: "bank",
-      });
-    });
-
-    entries.forEach(e => {
-      const amt = Number(e.amountNPR || 0);
-      const particulars = e.description || "Journal entry";
-      rows.push({ date: e.date || "", sortKey: tsMillis(e.createdAt), account: e.debitAccount, particulars, dr: amt, cr: 0, sourceType: "journal" });
-      rows.push({ date: e.date || "", sortKey: tsMillis(e.createdAt), account: e.creditAccount, particulars, dr: 0, cr: amt, sourceType: "journal" });
-    });
-
-    return rows.sort((a, b) => a.date.localeCompare(b.date) || a.sortKey - b.sortKey);
-  }, [purchases, invoices, expenses, bankTxns, entries, ratesVersion]);
-
-  const pl = useMemo(() => {
-    // Fix 1+2: use totalNPR (inc VAT, matches Dashboard/Billing); convert foreign-currency invoices to NPR
-    const salesRevenue = invoices
-      .filter(i => i.status === "Paid")
-      .reduce((s, i) => s + toNPR(Number(i.totalNPR || 0), i.currency), 0);
-    const otherIncome   = entries.filter(e => accounts.find(a => a.name === e.creditAccount && a.type === "Income")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
-    const totalIncome   = salesRevenue + otherIncome;
-    const expensesTotal = expenses.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-    const purchasesTotal= purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-    // "all" keeps the P&L's long-standing payroll rule (the current calendar year only). With a fiscal
-    // year picked, `payroll` is already that year's months (Shrawan..Asar), so all of it counts.
-    const curYear = new Date().getFullYear();
-    const payrollTotal  = payroll
-      .filter(r => fyActive || Number(r.year) === curYear)
-      .reduce((s, r) => s + Number(r.grossNPR || r.netNPR || 0), 0);
-    const journalExpenses = entries.filter(e => accounts.find(a => a.name === e.debitAccount && a.type === "Expense")).reduce((s, e) => s + Number(e.amountNPR || 0), 0);
-    const totalExpenses = expensesTotal + purchasesTotal + payrollTotal + journalExpenses;
-    return { salesRevenue, otherIncome, totalIncome, expensesTotal, purchasesTotal, payrollTotal, journalExpenses, totalExpenses, netProfit: totalIncome - totalExpenses };
-  }, [entries, accounts, expenses, purchases, payroll, invoices, fyActive, ratesVersion]);
-
-  const bs = useMemo(() => {
-    const balance = (name, type) => { const d = ledgerAsOf[name] || { debits: 0, credits: 0 }; return type === "Asset" ? d.debits - d.credits : d.credits - d.debits; };
-    const assets      = accounts.filter(a => a.type === "Asset").map(a => ({ ...a, balance: balance(a.name, "Asset") }));
-    const liabilities = accounts.filter(a => a.type === "Liability").map(a => ({ ...a, balance: balance(a.name, "Liability") }));
-    const equity      = accounts.filter(a => a.type === "Equity").map(a => ({ ...a, balance: balance(a.name, "Equity") }));
-    return { assets, liabilities, equity,
-      totalAssets:      assets.reduce((s, a) => s + a.balance, 0),
-      totalLiabilities: liabilities.reduce((s, a) => s + a.balance, 0),
-      totalEquity:      equity.reduce((s, a) => s + a.balance, 0) };
-  }, [accounts, ledgerAsOf]);
-
-  const accountNames = [...new Set(accounts.map(a => a.name))];
-
-  const donutData = useMemo(() => [
-    { name: "Purchases", value: summary.purchNPR,    color: "#1f6e4c" },
-    { name: "Expenses",  value: summary.expensesNPR, color: "#c4654a" },
-    { name: fyActive ? "Payroll" : summary.payrollMonthLabel ? `Payroll (${summary.payrollMonthLabel})` : "Payroll (MTD)", value: summary.payrollNPR, color: "#5688b0" },
-  ].filter(d => d.value > 0), [summary, fyActive]);
-
-  const categoryBarData = useMemo(() => {
-    const map = {};
-    purchases.forEach(p => { const cat = p.category || "Other"; map[cat] = (map[cat] || 0) + Number(p.amountNPR || 0); });
-    return Object.entries(map).map(([cat, total]) => ({ cat: cat.replace(" / ", "/"), total })).sort((a, b) => b.total - a.total).slice(0, 8);
-  }, [purchases]);
-
-  const plChartData = [
-    { name: "Income",     value: pl.totalIncome,              fill: "#1f6e4c" },
-    { name: "Expenses",   value: pl.totalExpenses,            fill: "#c4654a" },
-    { name: "Net Profit", value: Math.max(0, pl.netProfit),   fill: "#7dd3a8" },
-  ];
-
-  const purchaseTotal = purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0);
-
-  /* ── Render ── */
   return (
-      <div className="kfin-wrap">
+    <FinanceProvider value={ctx}>
+      <BentoPage className="fn-page">
+        <header className="kb-head">
+          <div className="kb-head-l">
+            <h1>Finance</h1>
+            <p className="kb-head-sub"><span>{sub}</span></p>
+          </div>
+          <div className="kb-head-r fn-head-r">
+            <RegionSwitch untagged={countUntagged([...data.expenses, ...data.purchases, ...data.entries])} size="sm" />
+            <DateModeSwitch />
+            <PeriodBar years={yearsHere} />
+          </div>
+        </header>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
-          <RegionSwitch untagged={countUntagged([...allExpenses, ...allPurchases, ...allEntries])} />
-        </div>
-
-        {/* Fix 3: error banner */}
-        {pageError && (
-          <div ref={errorBannerRef} style={{
-            background: "var(--terra-soft, #fdf2ef)", color: "var(--terra)",
-            border: "1px solid rgba(196,101,74,.3)", borderRadius: 8,
-            padding: "10px 14px", marginBottom: 14, fontSize: 13, fontWeight: 500,
-          }}>
-            {pageError}
+        {notice && (
+          <div className={`fn-banner fn-banner--${notice.tone}`} role={notice.tone === "bad" ? "alert" : "status"}>
+            <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+            <span>{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icons.X size={14} sw={2} aria-hidden="true" /></button>
+          </div>
+        )}
+        {data.status === "ready" && data.failed.length > 0 && (
+          <div className="fn-banner fn-banner--warn" role="status">
+            <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+            <span>Could not load {data.failed.map((c) => LOST_NAMES[c] || c).join(", ")}, so some figures may be missing or out of date.</span>
           </div>
         )}
 
-        {/* ── KPI strip ── */}
-        <div className="kfin-kpis">
-          <div
-            className="kfin-kpi kfin-kpi--link"
-            role="button"
-            tabIndex={0}
-            onClick={() => goToLedgerSource("/employees", { tab: "payroll" })}
-            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goToLedgerSource("/employees", { tab: "payroll" }); } }}
-            title="View all payroll records"
-          >
-            <Icons.ArrowRight size={13} sw={2} className="kfin-kpi-arrow" />
-            <div className="kfin-kpi-ico" style={{ background: "var(--blue-soft)", color: "var(--blue)" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.4 3.1-5.5 6-5.5s5.4 2.1 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.7.4 4.4 2.2 5 5.3"/>
-              </svg>
+        {data.status === "error" ? (
+          <div className="kb-error" role="alert">
+            <p>Finance could not load. Check your connection and try again.</p>
+            <button type="button" className="kb-btn kb-btn--ghost" onClick={data.reload}>Try again</button>
+          </div>
+        ) : (
+          <BentoGrid layout="finance">
+            <TabRail groups={groups} value={tab} onChange={setActiveTab} counts={counts} anchor={narrow ? undefined : "finance-tabs"} />
+            <FinanceTiles
+              loading={loading} summary={summary} pl={pl} exp={exp} purchaseCount={purchases.length} fy={fy} fyActive={fyActive} periodActive={periodActive}
+              onTab={setActiveTab} onPayroll={() => goToSource("/employees?tab=payroll", { tab: "payroll" })}
+            />
+            <div className="fn-tabs" style={{ gridArea: "tabs" }} data-tour={narrow ? "finance-tabs" : undefined}>
+              <PageTabs label="Finance sections" tabs={tabsForSelect} value={tab} onChange={setActiveTab} />
             </div>
-            <p className="kfin-kpi-label">{fyActive ? `Payroll · FY ${fy}` : summary.payrollMonthLabel ? `Payroll · ${summary.payrollMonthLabel}` : "Payroll This Month"}</p>
-            <p className="kfin-kpi-value">{money(summary.payrollNPR)}</p>
-            <p className="kfin-kpi-sub">{moneyAlt(summary.payrollNPR)}</p>
-          </div>
-
-          <div className="kfin-kpi">
-            <div className="kfin-kpi-ico" style={{ background: "var(--terra-soft)", color: "var(--terra)" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6M9 16h4"/>
-              </svg>
-            </div>
-            <p className="kfin-kpi-label">Total Expenses</p>
-            <p className="kfin-kpi-value">{money(summary.expensesNPR)}</p>
-            <p className="kfin-kpi-sub">{moneyAlt(summary.expensesNPR)}</p>
-          </div>
-
-          <div
-            className="kfin-kpi kfin-kpi--link"
-            role="button"
-            tabIndex={0}
-            onClick={() => navigate("/purchases")}
-            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/purchases"); } }}
-            title="View all saved purchases"
-          >
-            <Icons.ArrowRight size={13} sw={2} className="kfin-kpi-arrow" />
-            <div className="kfin-kpi-ico" style={{ background: "var(--amber-soft)", color: "var(--amber)" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>
-              </svg>
-            </div>
-            <p className="kfin-kpi-label">Total Purchases</p>
-            <p className="kfin-kpi-value">{money(summary.purchNPR)}</p>
-            <p className="kfin-kpi-sub">{moneyAlt(summary.purchNPR)}</p>
-          </div>
-
-          <div className="kfin-kpi">
-            <div className="kfin-kpi-ico" style={{
-              background: pl.netProfit < 0 ? "var(--terra-soft)" : "var(--mint-soft)",
-              color:      pl.netProfit < 0 ? "var(--terra)"      : "var(--mint-deep)",
-            }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1.1-3 2.5 1.3 2 3 2.5 3 1.1 3 2.5-1.3 2.5-3 2.5-3-1.1-3-2.5M12 5v2M12 17v2"/>
-              </svg>
-            </div>
-            <p className="kfin-kpi-label">Net {pl.netProfit >= 0 ? "Profit" : "Loss"}</p>
-            <p className="kfin-kpi-value" style={{ color: pl.netProfit < 0 ? "var(--terra)" : undefined }}>
-              {money(Math.abs(pl.netProfit))}
-            </p>
-            <p className="kfin-kpi-sub">{moneyAlt(Math.abs(pl.netProfit))}</p>
-          </div>
-        </div>
-
-        {/* ── Charts ── */}
-        <div className="kfin-charts">
-          <div className="kfin-panel">
-            <p className="kfin-panel-title">Outgoings Breakdown</p>
-            {donutData.length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("outgoings", regionExpenses.length + regionPurchases.length + regionPayroll.length, "No data yet.")}</p>
-              : (
-                <ResponsiveContainer width="100%" height={210}>
-                  <PieChart>
-                    <Pie data={donutData} cx="50%" cy="50%" innerRadius={58} outerRadius={86} paddingAngle={3} dataKey="value">
-                      {donutData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip formatter={v => [money(Number(v)), ""]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
-                    <Legend iconType="circle" iconSize={8} formatter={v => <span style={{ fontSize: 12, color: "var(--ink-2)" }}>{v}</span>} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-          </div>
-          <div className="kfin-panel">
-            <p className="kfin-panel-title">Purchases by Category</p>
-            {categoryBarData.length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("purchases", regionPurchases.length, "No purchases yet.")}</p>
-              : (
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={categoryBarData} margin={{ top: 4, right: 8, left: 0, bottom: 48 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                    <XAxis dataKey="cat" tick={{ fontSize: 10, fill: "var(--ink-3)" }} angle={-35} textAnchor="end" interval={0} />
-                    <YAxis tickFormatter={short} tick={{ fontSize: 10, fill: "var(--ink-3)" }} width={40} />
-                    <Tooltip formatter={v => [money(Number(v)), "Amount"]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
-                    <Bar dataKey="total" fill="var(--mint-deep)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-          </div>
-        </div>
-
-        {/* ── Tabs ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div className="kfin-tabs" data-tour="finance-tabs" style={{ flex: 1, minWidth: 0 }}>
-            {visibleTabs.map(t => (
-              <button
-                key={t}
-                className={`kfin-tab${activeTab === t ? " kfin-tab--on" : ""}`}
-                onClick={() => setActiveTab(t)}
-                title={`Shift+${Object.keys(TAB_SHORTCUTS).find(k => TAB_SHORTCUTS[k] === t)?.toUpperCase()}`}
-              >
-                {tabLabel(t)}
-              </button>
-            ))}
-          </div>
-          <DateRangeSelect style={{ flexShrink: 0 }} />
-          <FiscalYearSelect years={yearsHere} style={{ flexShrink: 0 }} />
-        </div>
-        {!visibleTabs.includes(activeTab) && visibleTabs.length > 0 && (() => { setActiveTab(visibleTabs[0]); return null; })()}
-
-        {/* ── Expenses ── */}
-        {activeTab === "expenses" && (
-          <>
-            {canEdit && (
-              <div className="kfin-block" data-tour="add-expense">
-                <div className="kfin-block-hd">
-                  <p className="kfin-block-title">Add Expense</p>
-                </div>
-                <form className="kfin-form" onSubmit={addExpense}>
-                  <label className="kfin-label">Category
-                    <select className="kfin-select" value={expenseForm.category} disabled={!canEdit}
-                      onChange={e => setExpenseForm(f => ({ ...f, category: e.target.value }))}>
-                      {EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                    </select>
-                  </label>
-                  <label className="kfin-label">Amount (NPR)
-                    <input type="number" className="kfin-input" value={expenseForm.amountNPR} disabled={!canEdit}
-                      onChange={e => setExpenseForm(f => ({ ...f, amountNPR: e.target.value }))} required />
-                  </label>
-                  <label className="kfin-label">Date
-                    <input type="date" className="kfin-input" value={expenseForm.date} disabled={!canEdit}
-                      onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))} required />
-                  </label>
-                  <label className="kfin-label">Region
-                    <RegionSelect className="kfin-input" value={expenseForm.region} disabled={!canEdit}
-                      onChange={v => setExpenseForm(f => ({ ...f, region: v }))} />
-                  </label>
-                  <label className="kfin-label">Payment Type
-                    <KeyboardSelect className="kfin-select" value={expenseForm.paymentType || "CASH"} options={PAYMENT_TYPES} disabled={!canEdit}
-                      onChange={v => setExpenseForm(f => ({ ...f, paymentType: v }))} />
-                  </label>
-                  {expenseForm.paymentType === "Bank" && (() => {
-                    const isOtherBank = expenseForm.bankName === "other" || (expenseForm.bankName && !BANK_NAMES.includes(expenseForm.bankName));
-                    return (
-                      <label className="kfin-label">Bank
-                        <KeyboardSelect className="kfin-select" value={isOtherBank ? "other" : (expenseForm.bankName || "Nabil Bank")} disabled={!canEdit}
-                          options={[...BANK_NAMES, { value: "other", label: "Other" }]}
-                          onChange={v => setExpenseForm(f => ({ ...f, bankName: v }))} />
-                        {isOtherBank && (
-                          <input type="text" className="kfin-input" style={{ marginTop: 6 }} disabled={!canEdit}
-                            value={expenseForm.bankName === "other" ? "" : expenseForm.bankName}
-                            placeholder="Type bank name"
-                            onChange={e => setExpenseForm(f => ({ ...f, bankName: e.target.value === "" ? "other" : e.target.value }))} />
-                        )}
-                      </label>
-                    );
-                  })()}
-                  <label className="kfin-label kfin-full">Note
-                    <input type="text" className="kfin-input" value={expenseForm.note} disabled={!canEdit}
-                      onChange={e => setExpenseForm(f => ({ ...f, note: e.target.value }))} placeholder="Optional description" />
-                  </label>
-                  <div className="kfin-full" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: canEdit ? "pointer" : "default", userSelect: "none", fontSize: 13, fontWeight: 500 }}>
-                      <input type="checkbox" checked={expenseForm.vatBill} disabled={!canEdit}
-                        onChange={e => setExpenseForm(f => ({ ...f, vatBill: e.target.checked }))}
-                        style={{ width: 15, height: 15, accentColor: "var(--mint-deep)" }} />
-                      Has VAT Bill
-                    </label>
-                    {expenseForm.vatBill && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <label className="kfin-label">Upload VAT Bill
-                          <input ref={expenseFileRef} type="file" accept="image/*,application/pdf" disabled={!canEdit}
-                            onChange={e => setExpenseVatFile(e.target.files[0] || null)}
-                            className="kfin-input" style={{ paddingTop: 6 }} />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                  {expenseError && <p className="form-error">{expenseError}</p>}
-                  <button type="submit" className="primary-button" disabled={!canEdit || submitting}>
-                    {submitting ? "Saving…" : "Add Expense"}
-                  </button>
-                </form>
-              </div>
-            )}
-            {!canEdit && <div className="kfin-notice">ℹ View-only — only Nepal staff can add expenses.</div>}
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Expenses <span className="kfin-block-sub">({expenses.length})</span></p>
-              </div>
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl">
-                  <thead><tr><th>Category</th>{pair(<th key="npr">Amount NPR</th>, <th key="foreign">Amount {foreign}</th>)}<th>Date</th><th>Payment</th><th>Note</th><th>VAT Bill</th><th>Status</th><th>Logged By</th>{canEdit && <th></th>}</tr></thead>
-                  <tbody>
-                    {expenses.length === 0 && (
-                      <tr><td colSpan={canEdit ? 10 : 9} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>
-                        {fyEmpty("expenses", regionExpenses.length, "No expenses yet.")}
-                      </td></tr>
-                    )}
-                    {expenses.map(item => {
-                      const bill = vatBills.find(b => b.expenseId === item.id);
-                      const isPaid = item.status === "Paid";
-                      return (
-                        <tr key={item.id} style={{ opacity: isPaid ? 0.65 : 1 }}>
-                          <td>{item.category}</td>
-                          {(() => {
-                            const strong = { fontFamily: "var(--mono)", textDecoration: isPaid ? "line-through" : "none" };
-                            const quiet = { color: "var(--ink-3)" };
-                            return pair(
-                              <td key="npr" style={lead("NPR", strong, quiet)}>{asCurrency(item.amountNPR || 0, "NPR")}</td>,
-                              <td key="foreign" style={lead("foreign", strong, quiet)}>{moneyForeign(item.amountNPR || 0)}</td>
-                            );
-                          })()}
-                          <td>{item.date}</td>
-                          <td style={{ color: "var(--ink-3)" }}>{item.paymentType === "Bank" ? (item.bankName || "Bank") : item.paymentType === "Credit" ? "Credit" : "Cash"}</td>
-                          <td style={{ color: "var(--ink-3)" }}>{item.note || "—"}</td>
-                          <td>
-                            {item.vatBill
-                              ? bill
-                                ? <a href={bill.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--mint-deep)", fontWeight: 600, fontSize: 12, textDecoration: "none" }}>View ↗</a>
-                                : <span className="badge-ok">Yes</span>
-                              : <span className="badge-danger">No</span>}
-                          </td>
-                          <td>
-                            {isPaid
-                              ? <span className="kbil-badge kbil-badge--ok">Paid</span>
-                              : <span className="kbil-badge kbil-badge--muted">Unpaid</span>}
-                          </td>
-                          <td style={{ color: "var(--ink-3)" }}>{item.loggedBy}</td>
-                          {canEdit && (
-                            <td>
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <button className="kbil-tbl-btn kbil-tbl-btn--ok"
-                                  onClick={() => markExpensePaid(item.id, item.status)}
-                                  title={isPaid ? "Mark as unpaid" : "Mark as paid"}>
-                                  {isPaid ? "Unmark" : "Mark Paid"}
-                                </button>
-                                <button className="kbil-tbl-btn kbil-tbl-btn--danger"
-                                  onClick={() => deleteExpense(item.id)}>
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
+            {View ? <View /> : <Soon tab={tab} />}
+          </BentoGrid>
         )}
-
-        {/* ── Purchases ── */}
-        {activeTab === "purchases" && (
-          <div className="kfin-block">
-            <div className="kfin-block-hd">
-              <p className="kfin-block-title">
-                Add Purchase
-                {purchaseSuccess && (
-                  <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 700, color: "var(--mint-deep)", background: "var(--mint-soft)", padding: "3px 10px", borderRadius: 20 }}>
-                    {purchaseSuccess}
-                  </span>
-                )}
-              </p>
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  {purchases.length} saved{fyActive ? ` in FY ${fy}` : ""} · {money(purchaseTotal)}
-                  <span style={{ color: "var(--ink-4)", fontWeight: 400, marginLeft: 8 }}>/ {moneyAlt(purchaseTotal)}</span>
-                </span>
-                <button type="button" className="ghost-button" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => navigate("/purchases")}>
-                  View saved purchases →
-                </button>
-              </div>
-            </div>
-            {!canEdit && <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ You don't have permission to add or edit purchases.</div>}
-            {canEdit && (
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl kfin-tbl-compact">
-                  <thead><tr>
-                    <th>Expense ID</th><th>Date</th><th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
-                    <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
-                  </tr></thead>
-
-                  <PurchaseRowGroup
-                    // The real number is drawn atomically at save time (an
-                    // atomic per-fiscal-year counter, migration 0046) -- showing
-                    // a computed guess here would burn a number on every render.
-                    expenseId={`New · FY ${fiscalYearForDate(purchaseForm.date) || currentFiscalYear()}`}
-                    data={purchaseForm}
-                    highlight
-                    partyError={purchaseError}
-                    onFieldChange={patch => {
-                      if ("expenseItem" in patch) setPurchaseError("");
-                      setPurchaseForm(f => ({ ...f, ...patch }));
-                    }}
-                    onItemChange={(idx, patch) => setPurchaseForm(f => ({ ...f, items: applyItemChange(f.items, idx, patch) }))}
-                    onAddItem={() => setPurchaseForm(f => ({ ...f, items: addLineItem(f.items) }))}
-                    onRemoveItem={idx => setPurchaseForm(f => ({ ...f, items: removeLineItem(f.items, idx) }))}
-                    onFinishEnter={addPurchase}
-                    actionCell={
-                      <button className="primary-button" type="button" disabled={submitting}
-                        style={{ padding: "5px 12px", fontSize: 12 }} onClick={addPurchase}>
-                        {submitting ? "Adding…" : "+ Add"}
-                      </button>
-                    }
-                  />
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── VAT Bills ── */}
-        {activeTab === "vat bills" && (
-          <>
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Upload VAT Bill</p>
-              </div>
-              {!canEdit && <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ Only Nepal staff can upload VAT bills.</div>}
-              <form onSubmit={uploadVatBill} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div className="kfin-form">
-                  <label className="kfin-label kfin-full">Linked Purchase (Expense ID)
-                    <select className="kfin-select" value={vatPurchaseId} disabled={!canEdit} onChange={e => setVatPurchaseId(e.target.value)}>
-                      {regionPurchases.map(p => <option key={p.id} value={p.id}>{p.expenseId} · FY {p.fiscalYear || "—"} — {p.expenseItem}</option>)}
-                    </select>
-                  </label>
-                  <label className="kfin-label kfin-full">File (image or PDF)
-                    <input ref={fileInputRef} type="file" accept="image/*,.pdf" disabled={!canEdit}
-                      onChange={e => setVatFile(e.target.files[0] || null)} className="kfin-input" style={{ paddingTop: 6 }} />
-                  </label>
-                  <button type="submit" className="primary-button" disabled={!canEdit || uploading || !vatFile || !vatPurchaseId}>
-                    {uploading ? "Uploading…" : "Upload Bill"}
-                  </button>
-                </div>
-              </form>
-            </div>
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">VAT Bills <span className="kfin-block-sub">({vatBills.length})</span></p>
-                {fyActive && <span style={{ fontSize: 11, color: "var(--ink-4)" }}>Filed by the date of the purchase or expense each bill is for</span>}
-              </div>
-              {vatBills.length === 0
-                ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("VAT bills", regionVatBills.length, "No VAT bills uploaded yet.")}</p>
-                : (
-                  <div className="kfin-tbl-wrap">
-                    <table className="kfin-tbl">
-                      <thead><tr><th>Expense ID</th><th>Expense Item</th><th>File</th><th>Uploaded By</th><th>Date</th><th>Actions</th></tr></thead>
-                      <tbody>
-                        {vatBills.map(bill => {
-                          const uploadedOn = tsDate(bill.uploadedAt);
-                          const uploadDate = uploadedOn
-                            ? uploadedOn.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-                            : "—";
-                          const isImg = bill.fileType?.startsWith("image/");
-                          return (
-                            <tr key={bill.id}>
-                              <td style={{ color: "var(--ink-4)", fontSize: 12, fontFamily: "var(--mono)" }}>{bill.expenseId}</td>
-                              <td style={{ fontWeight: 500 }}>{bill.expenseItem || "—"}</td>
-                              <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isImg ? "🖼 " : "📄 "}{bill.fileName}</td>
-                              <td>{bill.uploadedBy}</td>
-                              <td>{uploadDate}</td>
-                              <td>
-                                <div style={{ display: "flex", gap: 6 }}>
-                                  <a href={bill.fileUrl} target="_blank" rel="noopener noreferrer" className="ghost-button" style={{ padding: "4px 10px", fontSize: 12, textDecoration: "none" }}>View ↗</a>
-                                  {canEdit && <button className="ghost-button" style={{ padding: "4px 10px", fontSize: 12, color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }} onClick={() => deleteVatBill(bill)}>Delete</button>}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-            </div>
-          </>
-        )}
-
-        {/* ── Journal ── */}
-        {activeTab === "journal" && (
-          <>
-            {!canEdit && <div className="kfin-notice">ℹ UK admin — view only.</div>}
-            {canEdit && (
-              <div className="kfin-block">
-                <div className="kfin-block-hd">
-                  <p className="kfin-block-title">Post Journal Entry</p>
-                  {dateSwitch}
-                </div>
-                <form className="kfin-form" ref={journalFormRef} onSubmit={addEntry}
-                  onKeyDown={e => focusNextOnEnter(e, () => journalFormRef.current?.requestSubmit())}>
-                  <label className="kfin-label">Date
-                    <DateField mode={dateMode} value={journalForm.date} required dataRole="journal-date"
-                      onChange={v => setJournalForm(f => ({ ...f, date: v }))} />
-                  </label>
-                  <label className="kfin-label">Amount (NPR)
-                    <input type="number" min="1" className="kfin-input" value={journalForm.amountNPR} required placeholder="0"
-                      onChange={e => setJournalForm(f => ({ ...f, amountNPR: e.target.value }))} />
-                  </label>
-                  <label className="kfin-label">Debit Account (Dr)
-                    <KeyboardSelect className="kfin-select" value={journalForm.debitAccount} options={accountNames}
-                      onChange={v => setJournalForm(f => ({ ...f, debitAccount: v }))} />
-                  </label>
-                  <label className="kfin-label">Credit Account (Cr)
-                    <KeyboardSelect className="kfin-select" value={journalForm.creditAccount} options={accountNames}
-                      onChange={v => setJournalForm(f => ({ ...f, creditAccount: v }))} />
-                  </label>
-                  {isAdvanceEntry(journalForm) && (
-                    <label className="kfin-label">Customer / Supplier
-                      <input type="text" className="kfin-input" value={journalForm.partyName} required
-                        placeholder="Who this advance belongs to"
-                        onChange={e => setJournalForm(f => ({ ...f, partyName: e.target.value }))} />
-                    </label>
-                  )}
-                  <label className="kfin-label kfin-full">Description
-                    <input type="text" className="kfin-input" value={journalForm.description} required placeholder="Transaction description"
-                      onChange={e => setJournalForm(f => ({ ...f, description: e.target.value }))} />
-                  </label>
-                  <label className="kfin-label">Reference (optional)
-                    <input type="text" className="kfin-input" value={journalForm.reference} placeholder="Invoice # / PO # etc."
-                      onChange={e => setJournalForm(f => ({ ...f, reference: e.target.value }))} />
-                  </label>
-                  <label className="kfin-label">Region
-                    <RegionSelect className="kfin-input" value={journalForm.region}
-                      onChange={v => setJournalForm(f => ({ ...f, region: v }))} />
-                  </label>
-                  <button type="submit" className="primary-button" disabled={journalSubmitting} style={{ alignSelf: "flex-end" }}>
-                    {journalSubmitting ? "Posting…" : "Post Entry"}
-                  </button>
-                </form>
-              </div>
-            )}
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Journal Entries <span className="kfin-block-sub">({entries.length})</span></p>
-              </div>
-              {entries.length === 0
-                ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyEmpty("journal entries", regionEntries.length, "No journal entries yet.")}</p>
-                : (
-                  <div className="kfin-tbl-wrap">
-                    <table className="kfin-tbl">
-                      <thead><tr>{dateTh}<th>Description</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Customer / Supplier</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="foreign">Amount ({foreign})</th>)}<th>Reference</th><th>Posted By</th>{canEdit && <th></th>}</tr></thead>
-                      <tbody>
-                        {entries.map(entry => {
-                          const editing = journalEditId === entry.id;
-                          const inputStyle = { padding: "3px 6px", fontSize: 12, width: "100%" };
-                          if (!editing) {
-                            return (
-                              <tr key={entry.id}>
-                                <td style={{ whiteSpace: "nowrap" }}>{showDate(entry.date)}</td>
-                                <td style={{ fontWeight: 500 }}>{entry.description}</td>
-                                <td style={{ color: "var(--mint-deep)", fontWeight: 500 }}>{entry.debitAccount}</td>
-                                <td style={{ color: "var(--terra)", fontWeight: 500 }}>{entry.creditAccount}</td>
-                                <td style={{ color: "var(--ink-3)", fontSize: 12 }}>{entry.partyName || "—"}</td>
-                                {(() => {
-                                  const strong = { fontFamily: "var(--mono)", fontWeight: 600 };
-                                  const quiet = { color: "var(--ink-3)", fontFamily: "var(--mono)" };
-                                  return pair(
-                                    <td key="npr" style={lead("NPR", strong, quiet)}>NPR {roundAmount(entry.amountNPR || 0).toLocaleString()}</td>,
-                                    <td key="foreign" style={lead("foreign", strong, quiet)}>{moneyForeign(entry.amountNPR || 0)}</td>
-                                  );
-                                })()}
-                                <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{entry.reference || "—"}</td>
-                                <td style={{ fontSize: 12 }}>{entry.createdBy}</td>
-                                {canEdit && (
-                                  <td>
-                                    <button type="button" className="ghost-button" style={{ padding: "3px 10px", fontSize: 11.5 }} onClick={() => startJournalEdit(entry)}>
-                                      Edit
-                                    </button>
-                                  </td>
-                                )}
-                              </tr>
-                            );
-                          }
-                          return (
-                            <tr key={entry.id} style={{ background: "var(--mint-soft)" }}
-                              onKeyDown={e => focusNextOnEnter(e, () => saveJournalEdit(entry.id))}>
-                              <td>
-                                <DateField mode={dateMode} style={inputStyle} value={journalDraft.date} autoFocus
-                                  onChange={v => setJournalDraft(d => ({ ...d, date: v }))} />
-                              </td>
-                              <td>
-                                <input className="kfin-input" style={inputStyle} value={journalDraft.description}
-                                  onChange={e => setJournalDraft(d => ({ ...d, description: e.target.value }))} />
-                              </td>
-                              <td>
-                                <KeyboardSelect className="kfin-select" style={inputStyle} value={journalDraft.debitAccount} options={accountNames}
-                                  onChange={v => setJournalDraft(d => ({ ...d, debitAccount: v }))} />
-                              </td>
-                              <td>
-                                <KeyboardSelect className="kfin-select" style={inputStyle} value={journalDraft.creditAccount} options={accountNames}
-                                  onChange={v => setJournalDraft(d => ({ ...d, creditAccount: v }))} />
-                              </td>
-                              <td>
-                                <input className="kfin-input" style={inputStyle} value={journalDraft.partyName || ""}
-                                  placeholder={isAdvanceEntry(journalDraft) ? "Who this advance belongs to" : ""}
-                                  onChange={e => setJournalDraft(d => ({ ...d, partyName: e.target.value }))} />
-                              </td>
-                              {pair(
-                                <td key="npr">
-                                  <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={journalDraft.amountNPR}
-                                    onChange={e => setJournalDraft(d => ({ ...d, amountNPR: e.target.value }))} />
-                                </td>,
-                                <td key="foreign" style={{ color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                                  {moneyForeign(Number(journalDraft.amountNPR) || 0)}
-                                </td>
-                              )}
-                              <td>
-                                <input className="kfin-input" style={inputStyle} value={journalDraft.reference}
-                                  onChange={e => setJournalDraft(d => ({ ...d, reference: e.target.value }))} />
-                              </td>
-                              <td style={{ fontSize: 12 }}>{entry.createdBy}</td>
-                              <td>
-                                <div style={{ display: "flex", gap: 4 }}>
-                                  <button type="button" className="primary-button" style={{ padding: "3px 10px", fontSize: 11.5 }}
-                                    disabled={journalSaving} onClick={() => saveJournalEdit(entry.id)}>
-                                    {journalSaving ? "…" : "Save"}
-                                  </button>
-                                  <button type="button" className="ghost-button" style={{ padding: "3px 10px", fontSize: 11.5 }}
-                                    disabled={journalSaving} onClick={cancelJournalEdit}>
-                                    Cancel
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-            </div>
-          </>
-        )}
-
-        {/* ── Day Book ── */}
-        {activeTab === "day book" && (
-          <div className="kfin-block">
-            <div className="kfin-block-hd">
-              <p className="kfin-block-title">Day Book <span className="kfin-block-sub">({dayBook.length} entries)</span></p>
-              {dateSwitch}
-            </div>
-            {fyActive && (
-              <div className="kfin-notice" style={{ marginBottom: 14 }}>
-                ℹ FY {fy} · every purchase, paid sale, bank transaction and journal entry dated in this year, in the order they happened.
-              </div>
-            )}
-            {dayBook.length === 0 ? (
-              <p style={{ color: "var(--ink-4)", fontSize: 13 }}>
-                {fyEmpty("transactions", regionPurchases.length + regionInvoices.length + regionBankTxns.length + regionEntries.length, "No transactions yet.")}
-              </p>
-            ) : (
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl">
-                  <thead><tr><th>Particulars</th><th>Account</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th></tr></thead>
-                  <tbody>
-                    {(() => {
-                      // Group the already date-sorted rows under one heading per day —
-                      // a day book is organised by day first, unlike the Ledger's per-account blocks.
-                      const groups = [];
-                      for (const r of dayBook) {
-                        const last = groups[groups.length - 1];
-                        if (last && last.date === r.date) last.rows.push(r);
-                        else groups.push({ date: r.date, rows: [r] });
-                      }
-                      return groups.map(g => {
-                        const dayDr = g.rows.reduce((s, r) => s + Number(r.dr || 0), 0);
-                        const dayCr = g.rows.reduce((s, r) => s + Number(r.cr || 0), 0);
-                        return (
-                          <Fragment key={g.date || "undated"}>
-                            <tr style={{ background: "var(--bg-2)" }}>
-                              <td colSpan={4} style={{ fontWeight: 700, fontSize: 12.5 }}>{showDate(g.date)}</td>
-                            </tr>
-                            {g.rows.map((r, i) => (
-                              <tr key={i} style={{ cursor: "pointer" }} title={DAY_BOOK_SOURCE_TITLE[r.sourceType]}
-                                onClick={() => {
-                                  if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
-                                  else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
-                                  else if (r.sourceType === "expense") setActiveTab("expenses");
-                                  else if (r.sourceType === "bank") setActiveTab("bank");
-                                  else if (r.sourceType === "journal") setActiveTab("journal");
-                                }}
-                              >
-                                <td>{r.particulars}</td>
-                                <td style={{ color: "var(--ink-3)" }}>{r.account}</td>
-                                <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>{r.dr ? roundAmount(r.dr).toLocaleString() : "—"}</td>
-                                <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>{r.cr ? roundAmount(r.cr).toLocaleString() : "—"}</td>
-                              </tr>
-                            ))}
-                            <tr style={{ borderBottom: "2px solid var(--line)" }}>
-                              <td colSpan={2} style={{ textAlign: "right", color: "var(--ink-4)", fontSize: 11.5, fontStyle: "italic" }}>Day total</td>
-                              <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{roundAmount(dayDr).toLocaleString()}</td>
-                              <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{roundAmount(dayCr).toLocaleString()}</td>
-                            </tr>
-                          </Fragment>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: "var(--bg-2)", fontWeight: 700, borderTop: "2px solid var(--line)" }}>
-                      <td colSpan={2} style={{ fontWeight: 700 }}>Grand Total</td>
-                      <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>{roundAmount(dayBook.reduce((s, r) => s + Number(r.dr || 0), 0)).toLocaleString()}</td>
-                      <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>{roundAmount(dayBook.reduce((s, r) => s + Number(r.cr || 0), 0)).toLocaleString()}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Ledger ── */}
-        {activeTab === "ledger" && (
-          <>
-            {["Cash", ...bankAccountNames].map(name => [name, cashBankLedger[name]]).map(([name, data]) => (
-              <div className="kfin-block" key={name} style={{ marginBottom: 14 }}>
-                <div className="kfin-block-hd">
-                  <p className="kfin-block-title">{name}</p>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: data.closingBalance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                    Balance: {money(data.closingBalance)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", fontWeight: 400, marginLeft: 6 }}>
-                      ({moneyAlt(data.closingBalance)})
-                    </span>
-                  </span>
-                </div>
-                <div className="kfin-tbl-wrap">
-                  <table className="kfin-tbl">
-                    <thead><tr>{dateTh}<th>Particulars</th><th>Dr Amt (NPR)</th><th>Cr Amt (NPR)</th><th>Balance (NPR)</th></tr></thead>
-                    <tbody>
-                      {(() => {
-                        const editingOpening = ledgerDraft && ledgerDraft.type === "opening" && ledgerDraft.id === data.accountId;
-                        const openingEditable = canEdit;
-                        return (
-                          <>
-                          <tr
-                            style={{ background: editingOpening ? "var(--mint-soft)" : "var(--bg-2)", cursor: openingEditable && !editingOpening ? "pointer" : "default" }}
-                            title={openingEditable && !editingOpening ? (fyActive ? "Click to edit — updates the opening balance behind this brought-forward figure" : "Click to edit opening balance") : undefined}
-                            onClick={() => {
-                              if (!openingEditable || editingOpening) return;
-                              // With a year picked, `data.openingBalanceNPR` is already the brought-forward
-                              // total (see the ledger memo above) — stash the gap to the raw stored value so
-                              // commitLedgerDraft can undo it on save instead of overwriting the real column
-                              // with the combined figure.
-                              setLedgerDraft({
-                                type: "opening",
-                                id: data.accountId,
-                                date: data.openingBalanceDate,
-                                particulars: "Opening Balance",
-                                amount: data.openingBalanceNPR,
-                                earlierMovementNPR: data.openingBalanceNPR - data.baseOpeningNPR,
-                              });
-                            }}
-                            onKeyDown={editingOpening ? ledgerEditKeys : undefined}
-                          >
-                            <td style={{ color: "var(--ink-4)", fontSize: 12 }}>
-                              {editingOpening
-                                ? <DateField mode={dateMode} style={{ padding: "3px 6px", fontSize: 12, width: "100%" }}
-                                    value={ledgerDraft.date} blankLabel="Set date"
-                                    onChange={v => setLedgerDraft(d => ({ ...d, date: v }))} />
-                                : showDate(data.openingBalanceDate)}
-                            </td>
-                            <td style={{ fontWeight: 600 }}>{fyActive ? `Balance brought forward (before FY ${fy})` : "Opening Balance"}</td>
-                            <td></td><td></td>
-                            <td style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>
-                              {editingOpening
-                                ? <input type="number" min="0" step="any" className="kfin-input" style={{ padding: "3px 6px", fontSize: 12, width: "100%" }}
-                                    value={ledgerDraft.amount} autoFocus
-                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))} />
-                                : roundAmount(data.openingBalanceNPR).toLocaleString()}
-                            </td>
-                          </tr>
-                          {editingOpening && ledgerEditBar()}
-                          </>
-                        );
-                      })()}
-                      {data.rows.length === 0 ? (
-                        <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--ink-4)", padding: "16px 0" }}>{fyEmpty("transactions", data.totalRows, "No transactions yet.")}</td></tr>
-                      ) : data.rows.map((r, i) => {
-                        // Scoped to this account's table as well as the row: a journal entry
-                        // shows up twice, once under its debit account and once under its
-                        // credit account, so matching on the entry alone would open both
-                        // for editing at the same time — two rows, two Save bars, one record.
-                        const editing = ledgerDraft && ledgerDraft.type === r.sourceType
-                          && ledgerDraft.id === r.sourceId && ledgerDraft.account === name;
-                        const inputStyle = { padding: "3px 6px", fontSize: 12, width: "100%" };
-                        return (
-                          <Fragment key={i}>
-                          <tr
-                            title={canEdit && !editing ? (r.sourceType === "purchase" ? "Click to edit in Purchases" : r.sourceType === "invoice" ? "Click to edit in Billing" : r.sourceType === "expense" ? "Click to open in Expenses" : "Click to edit") : undefined}
-                            style={{ cursor: canEdit && !editing ? "pointer" : "default", background: editing ? "var(--mint-soft)" : undefined }}
-                            onClick={() => {
-                              if (!canEdit || editing) return;
-                              if (r.sourceType === "purchase") goToLedgerSource("/purchases", { search: r.searchKey });
-                              else if (r.sourceType === "invoice") goToLedgerSource("/billing", { search: r.searchKey, autoEdit: true });
-                              else if (r.sourceType === "expense") setActiveTab("expenses");
-                              else setLedgerDraft({ type: r.sourceType, id: r.sourceId, account: name, date: r.date, particulars: r.particulars, amount: r.dr || r.cr });
-                            }}
-                            onKeyDown={editing ? ledgerEditKeys : undefined}
-                          >
-                            <td style={{ color: "var(--ink-4)", fontSize: 12, whiteSpace: "nowrap" }}>
-                              {editing
-                                ? <DateField mode={dateMode} style={inputStyle} value={ledgerDraft.date} autoFocus
-                                    onChange={v => setLedgerDraft(d => ({ ...d, date: v }))} />
-                                : showDate(r.date)}
-                            </td>
-                            <td>
-                              {editing
-                                ? <input className="kfin-input" style={inputStyle} value={ledgerDraft.particulars}
-                                    onChange={e => setLedgerDraft(d => ({ ...d, particulars: e.target.value }))} />
-                                : r.particulars}
-                            </td>
-                            <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>
-                              {editing && r.dr
-                                ? <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={ledgerDraft.amount}
-                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))} />
-                                : (r.dr ? roundAmount(r.dr).toLocaleString() : "—")}
-                            </td>
-                            <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>
-                              {editing && r.cr
-                                ? <input type="number" min="0" step="any" className="kfin-input" style={inputStyle} value={ledgerDraft.amount}
-                                    onChange={e => setLedgerDraft(d => ({ ...d, amount: e.target.value }))} />
-                                : (r.cr ? roundAmount(r.cr).toLocaleString() : "—")}
-                            </td>
-                            <td style={{ fontFamily: "var(--mono)", fontWeight: 600 }}>{roundAmount(r.balance).toLocaleString()}</td>
-                          </tr>
-                          {editing && ledgerEditBar()}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      {(() => {
-                        const totalDr = data.rows.reduce((s, r) => s + Number(r.dr || 0), 0);
-                        const totalCr = data.rows.reduce((s, r) => s + Number(r.cr || 0), 0);
-                        return (
-                          <tr style={{ background: "var(--bg-2)", fontWeight: 700, borderTop: "2px solid var(--line)" }}>
-                            <td></td>
-                            <td style={{ fontWeight: 700 }}>Gross Total</td>
-                            <td style={{ color: "var(--mint-deep)", fontFamily: "var(--mono)" }}>{roundAmount(totalDr).toLocaleString()}</td>
-                            <td style={{ color: "var(--terra)", fontFamily: "var(--mono)" }}>{roundAmount(totalCr).toLocaleString()}</td>
-                            <td style={{ fontFamily: "var(--mono)", fontWeight: 700, color: data.closingBalance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                              {roundAmount(data.closingBalance).toLocaleString()}
-                            </td>
-                          </tr>
-                        );
-                      })()}
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            ))}
-          <div className="kfin-block">
-            <div className="kfin-block-hd">
-              <p className="kfin-block-title">Other Accounts</p>
-              {fyActive && <span style={{ fontSize: 11, color: "var(--ink-4)" }}>FY {fy} activity only — see Balance Sheet for the position at year end</span>}
-            </div>
-            {Object.entries(ledger).filter(([a]) => a !== "Cash" && !bankAccountNames.includes(a)).length === 0
-              ? <p style={{ color: "var(--ink-4)", fontSize: 13 }}>{fyActive && regionEntries.length > 0 ? `No journal entries in FY ${fy} for other accounts.` : "No journal entries yet for other accounts."}</p>
-              : (
-                <div className="kfin-ledger-grid">
-                  {Object.entries(ledger).filter(([a]) => a !== "Cash" && !bankAccountNames.includes(a)).sort(([a], [b]) => a.localeCompare(b)).map(([account, data]) => {
-                    const accInfo = accounts.find(a => a.name === account);
-                    const accType = accInfo?.type || "Unknown";
-                    const isAsset = accType === "Asset";
-                    const balance = isAsset ? data.debits - data.credits : data.credits - data.debits;
-                    const typeColors = {
-                      Asset:     { color: "var(--mint-deep)", bg: "var(--mint-soft)" },
-                      Liability: { color: "var(--terra)",     bg: "var(--terra-soft)" },
-                      Equity:    { color: "var(--amber)",     bg: "var(--amber-soft)" },
-                      Income:    { color: "var(--blue)",      bg: "var(--blue-soft)" },
-                      Expense:   { color: "var(--terra)",     bg: "var(--terra-soft)" },
-                    };
-                    const tc = typeColors[accType] || { color: "var(--ink-4)", bg: "var(--bg-2)" };
-                    return (
-                      <div key={account} className="kfin-ledger-card">
-                        <div className="kfin-ledger-card-top">
-                          <div>
-                            <p className="kfin-ledger-name">{account}</p>
-                            <span className="kfin-ledger-type" style={{ color: tc.color, background: tc.bg }}>{accType}</span>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <p className="kfin-ledger-bal-label">{fyActive ? "Net for year" : "Balance"}</p>
-                            <p className="kfin-ledger-bal" style={{ color: balance >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                              {money(Math.abs(balance))}
-                            </p>
-                            <p style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2, fontFamily: "var(--mono)" }}>
-                              ({moneyAlt(Math.abs(balance))})
-                            </p>
-                          </div>
-                        </div>
-                        <div className="kfin-ledger-footer">
-                          <span style={{ color: "var(--mint-deep)" }}>
-                            Dr: {currency !== "NPR" ? money(data.debits) : num(data.debits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.debits)})</span>
-                          </span>
-                          <span style={{ color: "var(--terra)" }}>
-                            Cr: {currency !== "NPR" ? money(data.credits) : num(data.credits)} <span style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>({moneyAlt(data.credits)})</span>
-                          </span>
-                          <span style={{ color: "var(--ink-4)", marginLeft: "auto" }}>{data.entryCount} entries</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* ── P&L ── */}
-        {activeTab === "p&l" && (
-          <div className="kfin-pl">
-            {fyActive && (
-              <div className="kfin-notice" style={{ marginBottom: 14 }}>
-                ℹ FY {fy} · {fmtDateBS(fyRange.startAD)} to {fmtDateBS(fyRange.endAD)} — paid invoices, expenses, purchases, journal entries and payroll dated in this year.
-              </div>
-            )}
-            <div className="kfin-block">
-              <p className="kfin-block-title" style={{ marginBottom: 18 }}>Profit & Loss Statement</p>
-              <div className="kfin-pl-section">
-                <p className="kfin-pl-section-title" style={{ color: "var(--mint-deep)" }}>Income</p>
-                <div className="kfin-pl-row">
-                  <span className="kfin-pl-row-label">Sales Revenue (paid invoices)</span>
-                  <span className="kfin-pl-row-val">
-                    {money(pl.salesRevenue)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.salesRevenue)})</span>
-                  </span>
-                </div>
-                <div className="kfin-pl-row">
-                  <span className="kfin-pl-row-label">Other Income (journal)</span>
-                  <span className="kfin-pl-row-val">
-                    {money(pl.otherIncome)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.otherIncome)})</span>
-                  </span>
-                </div>
-                <div className="kfin-pl-total">
-                  <span>Total Income</span>
-                  <span style={{ color: "var(--mint-deep)" }}>
-                    {money(pl.totalIncome)}
-                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(pl.totalIncome)})</span>
-                  </span>
-                </div>
-              </div>
-              <div className="kfin-pl-section">
-                <p className="kfin-pl-section-title" style={{ color: "var(--terra)" }}>Expenses</p>
-                <div className="kfin-pl-row">
-                  <span className="kfin-pl-row-label">Operating Expenses</span>
-                  <span className="kfin-pl-row-val">
-                    {money(pl.expensesTotal)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.expensesTotal)})</span>
-                  </span>
-                </div>
-                <div className="kfin-pl-row">
-                  <span className="kfin-pl-row-label">Purchases</span>
-                  <span className="kfin-pl-row-val">
-                    {money(pl.purchasesTotal)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.purchasesTotal)})</span>
-                  </span>
-                </div>
-                <div className="kfin-pl-row">
-                  <span className="kfin-pl-row-label">Payroll</span>
-                  <span className="kfin-pl-row-val">
-                    {money(pl.payrollTotal)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.payrollTotal)})</span>
-                  </span>
-                </div>
-                {pl.journalExpenses > 0 && (
-                  <div className="kfin-pl-row">
-                    <span className="kfin-pl-row-label">Journal Expenses</span>
-                    <span className="kfin-pl-row-val">
-                      {money(pl.journalExpenses)}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(pl.journalExpenses)})</span>
-                    </span>
-                  </div>
-                )}
-                <div className="kfin-pl-total">
-                  <span>Total Expenses</span>
-                  <span style={{ color: "var(--terra)" }}>
-                    {money(pl.totalExpenses)}
-                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(pl.totalExpenses)})</span>
-                  </span>
-                </div>
-              </div>
-              <div className="kfin-pl-net">
-                <span>Net {pl.netProfit >= 0 ? "Profit" : "Loss"}</span>
-                <span style={{ color: pl.netProfit >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                  {money(Math.abs(pl.netProfit))}
-                  <span style={{ fontSize: 13, color: pl.netProfit >= 0 ? "var(--mint-deep)" : "var(--terra)", marginLeft: 6, fontWeight: 500, opacity: 0.85 }}>
-                    ({moneyAlt(Math.abs(pl.netProfit))})
-                  </span>
-                </span>
-              </div>
-              <p className="kfin-pl-net-sub">{moneyAlt(Math.abs(pl.netProfit))}</p>
-            </div>
-            <div className="kfin-block">
-              <p className="kfin-block-title" style={{ marginBottom: 16 }}>Income vs Expenses</p>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={plChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: "var(--ink-3)" }} />
-                  <YAxis tickFormatter={short} tick={{ fontSize: 10, fill: "var(--ink-3)" }} width={46} />
-                  <Tooltip formatter={v => [money(Number(v)), ""]} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }} />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                    {plChartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* ── Balance Sheet ── */}
-        {activeTab === "balance sheet" && (
-          <>
-          {asOfDate && (
-            <div className="kfin-notice" style={{ marginBottom: 14 }}>
-              ℹ Position as of {fmtDateBS(asOfDate)}{fyActive && asOfDate === fyRange.endAD ? `, the end of FY ${fy}` : ""} — every journal entry dated up to then, not only this period's.
-            </div>
-          )}
-          <div className="kfin-bs">
-            <div className="kfin-block">
-              <p className="kfin-block-title" style={{ marginBottom: 14, color: "var(--mint-deep)" }}>Assets</p>
-              {bs.assets.map(a => (
-                <div key={a.id} className="kfin-bs-row">
-                  <span>{a.name}</span>
-                  <span style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                    {money(a.balance)}
-                    <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(a.balance)})</span>
-                  </span>
-                </div>
-              ))}
-              <div className="kfin-bs-total">
-                <span>Total Assets</span>
-                <span style={{ color: "var(--mint-deep)" }}>
-                  {money(bs.totalAssets)}
-                  <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalAssets)})</span>
-                </span>
-              </div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div className="kfin-block">
-                <p className="kfin-block-title" style={{ marginBottom: 14, color: "var(--terra)" }}>Liabilities</p>
-                {bs.liabilities.map(a => (
-                  <div key={a.id} className="kfin-bs-row">
-                    <span>{a.name}</span>
-                    <span style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                      {money(a.balance)}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(a.balance)})</span>
-                    </span>
-                  </div>
-                ))}
-                <div className="kfin-bs-total">
-                  <span>Total Liabilities</span>
-                  <span style={{ color: "var(--terra)" }}>
-                    {money(bs.totalLiabilities)}
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalLiabilities)})</span>
-                  </span>
-                </div>
-              </div>
-              <div className="kfin-block">
-                <p className="kfin-block-title" style={{ marginBottom: 14 }}>Equity</p>
-                {bs.equity.map(a => (
-                  <div key={a.id} className="kfin-bs-row">
-                    <span>{a.name}</span>
-                    <span style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                      {money(a.balance)}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 6, fontWeight: 400 }}>({moneyAlt(a.balance)})</span>
-                    </span>
-                  </div>
-                ))}
-                <div className="kfin-bs-total">
-                  <span>Total Equity</span>
-                  <span>
-                    {money(bs.totalEquity)}
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalEquity)})</span>
-                  </span>
-                </div>
-                <div className="kfin-bs-check">
-                  <span>Liabilities + Equity</span>
-                  <span style={{ color: (bs.totalLiabilities + bs.totalEquity) === bs.totalAssets ? "var(--mint-deep)" : "var(--amber)" }}>
-                    {money(bs.totalLiabilities + bs.totalEquity)}
-                    <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 6, fontWeight: 500 }}>({moneyAlt(bs.totalLiabilities + bs.totalEquity)})</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          </>
-        )}
-
-        {/* ── Bank Transactions ── */}
-        {activeTab === "bank" && (
-          <>
-            {!canEdit && <div className="kfin-notice">ℹ UK admin — view only.</div>}
-            {canEdit && (
-              <div className="kfin-block">
-                <div className="kfin-block-hd">
-                  <p className="kfin-block-title">Log Transaction</p>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {dateSwitch}
-                    <button className="ghost-button" style={{ fontSize: 12, padding: "5px 12px" }} onClick={() => setShowBankForm(v => !v)}>
-                      {showBankForm ? "✕ Cancel" : "+ Add Transaction"}
-                    </button>
-                  </div>
-                </div>
-                {showBankForm && (
-                  <form className="kfin-form" onSubmit={async e => {
-                    e.preventDefault();
-                    if (!bankForm.date) { alert("Pick the transaction date."); return; } // B.S. mode has no native "required" to catch this
-                    await insertRow("bank_transactions", {
-                      ...bankForm,
-                      region,
-                      accountName: bankForm.accountName || "Nabil Bank",
-                      amountNPR: Number(bankForm.amountNPR),
-                      createdBy: profile?.name || "Unknown",
-                                  });
-                    setBankForm({ date: "", description: "", amountNPR: "", type: "debit", category: "", reference: "", accountName: "Nabil Bank" });
-                    setShowBankForm(false);
-                    await loadData();
-                  }}>
-                    {(() => {
-                      const isOtherBank = bankForm.accountName === "other" || (bankForm.accountName && !BANK_NAMES.includes(bankForm.accountName));
-                      return (
-                        <>
-                          <label className="kfin-label">Bank
-                            <select className="kfin-select" value={isOtherBank ? "other" : bankForm.accountName} onChange={e => setBankForm(f => ({ ...f, accountName: e.target.value }))}>
-                              {BANK_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
-                              <option value="other">Other</option>
-                            </select>
-                          </label>
-                          {isOtherBank && (
-                            <label className="kfin-label">Bank Name
-                              <input type="text" className="kfin-input" value={bankForm.accountName === "other" ? "" : bankForm.accountName}
-                                placeholder="Type bank name" onChange={e => setBankForm(f => ({ ...f, accountName: e.target.value === "" ? "other" : e.target.value }))} />
-                            </label>
-                          )}
-                        </>
-                      );
-                    })()}
-                    <label className="kfin-label">Date
-                      <DateField mode={dateMode} value={bankForm.date} required
-                        onChange={v => setBankForm(f => ({ ...f, date: v }))} />
-                    </label>
-                    <label className="kfin-label">Description
-                      <input type="text" className="kfin-input" value={bankForm.description} required placeholder="e.g. Supplier payment — fabric" onChange={e => setBankForm(f => ({ ...f, description: e.target.value }))} />
-                    </label>
-                    <label className="kfin-label">Amount (NPR)
-                      <input type="number" min="0" className="kfin-input" value={bankForm.amountNPR} required placeholder="0" onChange={e => setBankForm(f => ({ ...f, amountNPR: e.target.value }))} />
-                    </label>
-                    <label className="kfin-label">Type
-                      <select className="kfin-select" value={bankForm.type} onChange={e => setBankForm(f => ({ ...f, type: e.target.value }))}>
-                        <option value="debit">Debit (money out)</option>
-                        <option value="credit">Credit (money in)</option>
-                      </select>
-                    </label>
-                    <label className="kfin-label">Category
-                      <select className="kfin-select" value={bankForm.category} onChange={e => setBankForm(f => ({ ...f, category: e.target.value }))}>
-                        <option value="">— Select —</option>
-                        {["Payroll","Supplier","Rent","Utilities","Tax","Client Payment","Loan","Transfer","Other"].map(c => <option key={c}>{c}</option>)}
-                      </select>
-                    </label>
-                    <label className="kfin-label">Reference / Note
-                      <input type="text" className="kfin-input" value={bankForm.reference} placeholder="Cheque no, bank ref, etc." onChange={e => setBankForm(f => ({ ...f, reference: e.target.value }))} />
-                    </label>
-                    <button type="submit" className="primary-button">Save Transaction</button>
-                  </form>
-                )}
-              </div>
-            )}
-
-            {/* Summary strip */}
-            {(() => {
-              const totalIn  = bankTxns.filter(t => isBankCredit(t)).reduce((s, t) => s + Number(t.amount ?? 0), 0);
-              const totalOut = bankTxns.filter(t => !isBankCredit(t)).reduce((s, t) => s + Number(t.amount ?? 0), 0);
-              const net = totalIn - totalOut;
-              return (
-                <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-                  {[
-                    { label: "Total In", value: totalIn, color: "var(--mint-deep)" },
-                    { label: "Total Out", value: totalOut, color: "var(--terra)" },
-                    { label: "Net", value: net, color: net >= 0 ? "var(--mint-deep)" : "var(--terra)" },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} className="kfin-kpi" style={{ flex: "1 1 140px" }}>
-                      <p className="kfin-kpi-label">{label}</p>
-                      <p className="kfin-kpi-value" style={{ color }}>{money(value)}</p>
-                      <p className="kfin-kpi-sub">{moneyAlt(value)}</p>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-
-            <div className="kfin-block">
-              <div className="kfin-block-hd">
-                <p className="kfin-block-title">Transactions <span className="kfin-block-sub">({bankTxns.length})</span></p>
-              </div>
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl">
-                  <thead>
-                    <tr>{dateTh}<th>Bank</th><th>Description</th><th>Category</th><th>Type</th>{pair(<th key="npr">Amount (NPR)</th>, <th key="foreign">Amount ({foreign})</th>)}<th>Reference</th>{canEdit && <th></th>}</tr>
-                  </thead>
-                  <tbody>
-                    {bankTxns.length === 0 && (
-                      <tr><td colSpan={canEdit ? 9 : 8} style={{ textAlign: "center", color: "var(--ink-4)", padding: "24px 0" }}>{fyEmpty("transactions", regionBankTxns.length, "No transactions yet — add one above.")}</td></tr>
-                    )}
-                    {bankTxns.map(t => (
-                      <tr key={t.id}>
-                        <td style={{ whiteSpace: "nowrap" }}>{showDate(t.date)}</td>
-                        <td style={{ color: "var(--ink-3)" }}>{t.accountName || "Nabil Bank"}</td>
-                        <td style={{ fontWeight: 500 }}>{t.description}</td>
-                        <td>{t.category || "—"}</td>
-                        <td>
-                          <span style={{ fontWeight: 600, color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)" }}>
-                            {isBankCredit(t) ? "Credit" : "Debit"}
-                          </span>
-                        </td>
-                        {(() => {
-                          const strong = { color: isBankCredit(t) ? "var(--mint-deep)" : "var(--terra)", fontWeight: 600 };
-                          const quiet = { color: "var(--ink-3)" };
-                          // The +/− belongs to the leading amount.
-                          const sign = (cur) => ((cur === "NPR") === (currency === "NPR") ? `${isBankCredit(t) ? "+" : "−"} ` : "");
-                          return pair(
-                            <td key="npr" style={lead("NPR", strong, quiet)}>
-                              {sign("NPR")}NPR {roundAmount(t.amount ?? 0).toLocaleString()}
-                            </td>,
-                            <td key="foreign" style={lead("foreign", strong, quiet)}>{sign("foreign")}{moneyForeign(t.amount ?? 0)}</td>
-                          );
-                        })()}
-                        <td style={{ color: "var(--ink-4)", fontSize: 12 }}>{t.reference || "—"}</td>
-                        {canEdit && (
-                          <td>
-                            <button onClick={async () => {
-                              if (!window.confirm("Delete this transaction?")) return;
-                              await deleteRow("bank_transactions", t.id);
-                              await loadData();
-                            }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-5)", fontSize: 16 }}>×</button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ── Order P&L ── */}
-        {activeTab === "order p&l" && (() => {
-          // Filtered orders
-          const filteredOrders = orders.filter(o => {
-            if (oplStatusFilter !== "all") {
-              const st = (o.status || o.stage || "").toLowerCase();
-              if (oplStatusFilter === "active"    && (st === "completed" || st === "cancelled")) return false;
-              if (oplStatusFilter === "completed" && st !== "completed") return false;
-            }
-            const createdOn = tsDate(o.createdAt);
-            if (createdOn) {
-              const d = createdOn.toISOString().slice(0, 10);
-              if (oplDateFrom && d < oplDateFrom) return false;
-              if (oplDateTo   && d > oplDateTo)   return false;
-            }
-            return true;
-          });
-
-          // Per-order P&L rows
-          const rows = filteredOrders.map(o => {
-            const costKey = o.orderId || o.id;
-            const costs   = orderCosts[costKey] || {};
-            const revenue = Number(o.totalValueNPR || 0);
-            const mat     = Number(costs.material || 0);
-            // Auto-calculate labour from rate if not manually entered
-            const hasManualLabour = costs.labour != null && costs.labour !== "";
-            const autoLab = (!hasManualLabour && labourRatePerUnit)
-              ? Math.round(labourRatePerUnit * Number(o.quantity || 0))
-              : 0;
-            const lab     = hasManualLabour ? Number(costs.labour) : autoLab;
-            const labIsAuto = !hasManualLabour && autoLab > 0;
-            const ovh     = Number(costs.overhead  || 0);
-            const shp     = Number(costs.shipping  || 0);
-            const totalCost = mat + lab + ovh + shp;
-            const profit    = revenue - totalCost;
-            const margin    = revenue > 0 ? (profit / revenue) * 100 : null;
-            const hasCosts  = mat + lab + ovh + shp > 0;
-            return { ...o, costKey, revenue, mat, lab, labIsAuto, ovh, shp, totalCost, profit, margin, hasCosts };
-          });
-
-          // KPI summary — exclude Cancelled orders from revenue/cost/profit totals
-          const nonCancelledRows = rows.filter(r => (r.status || r.stage || "").toLowerCase() !== "cancelled");
-          const kpiRevenue  = nonCancelledRows.reduce((s, r) => s + r.revenue,   0);
-          const kpiCost     = nonCancelledRows.reduce((s, r) => s + r.totalCost, 0);
-          const kpiProfit   = nonCancelledRows.reduce((s, r) => s + r.profit,    0);
-          const withMargin  = nonCancelledRows.filter(r => r.revenue > 0 && r.hasCosts);
-          const avgMargin   = withMargin.length
-            ? withMargin.reduce((s, r) => s + r.margin, 0) / withMargin.length
-            : null;
-
-          // Currently open order
-          const openOrder = oplSelectedId ? orders.find(o => o.id === oplSelectedId) : null;
-          const openCosts = openOrder ? (orderCosts[openOrder.orderId || openOrder.id] || {}) : {};
-          const openRevenue = Number(openOrder?.totalValueNPR || 0);
-          const previewMat  = Number(oplCostForm.material || 0);
-          const previewLab  = Number(oplCostForm.labour   || 0);
-          const previewOvh  = Number(oplCostForm.overhead  || 0);
-          const previewShp  = Number(oplCostForm.shipping  || 0);
-          const previewTotal  = previewMat + previewLab + previewOvh + previewShp;
-          const previewProfit = openRevenue - previewTotal;
-          const previewMargin = openRevenue > 0 ? (previewProfit / openRevenue) * 100 : null;
-
-          function marginPill(m) {
-            if (m === null) return <span className="kopl-margin-pill kopl-margin-pill--warn">—</span>;
-            const cls = m >= 20 ? "kopl-margin-pill--good" : m >= 0 ? "kopl-margin-pill--warn" : "kopl-margin-pill--bad";
-            return <span className={`kopl-margin-pill ${cls}`}>{m.toFixed(1)}%</span>;
-          }
-
-          return (
-            <>
-              {/* KPI strip */}
-              <div className="kopl-kpis">
-                {[
-                  { label: "Total Revenue",  value: kpiRevenue,  color: "var(--mint-deep)" },
-                  { label: "Total Costs",    value: kpiCost,     color: "var(--terra)"     },
-                  { label: "Total Profit",   value: kpiProfit,   color: kpiProfit >= 0 ? "var(--mint-deep)" : "var(--terra)" },
-                  { label: "Avg Margin",     value: avgMargin,   color: avgMargin != null && avgMargin >= 0 ? "var(--mint-deep)" : "var(--terra)", isMargin: true },
-                ].map(({ label, value, color, isMargin }) => (
-                  <div key={label} className="kopl-kpi">
-                    <p className="kopl-kpi-label">{label}</p>
-                    <p className="kopl-kpi-value" style={{ color }}>
-                      {isMargin
-                        ? (value != null ? `${value.toFixed(1)}%` : "—")
-                        : fmtC(value)}
-                    </p>
-                    {!isMargin && (
-                      <p className="kopl-kpi-sub">{moneyAlt(value)}</p>
-                    )}
-                    {isMargin && (
-                      <p className="kopl-kpi-sub">{withMargin.length} orders with cost data</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Labour rate banner */}
-              {labourRatePerUnit && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--mint-soft)", borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
-                  <span style={{ color: "var(--mint-deep)", fontWeight: 600 }}>⚡ Auto labour rate:</span>
-                  <span style={{ color: "var(--ink-2)" }}>
-                    {/* A per-unit rate is small (₨87 is £0.44), so pounds keep their pence instead of fmtC's whole units. */}
-                    {currency !== "NPR" ? money(labourRatePerUnit) : fmtC(labourRatePerUnit)}/unit — based on last month's payroll ÷ units produced
-                  </span>
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-4)" }}>Override per order by entering a manual labour cost</span>
-                </div>
-              )}
-
-              {/* Filters */}
-              <div className="kfin-block">
-                <div className="kopl-filters">
-                  <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>Status</span>
-                    <select className="kfin-select" value={oplStatusFilter} onChange={e => setOplStatusFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }}>
-                      <option value="all">All orders</option>
-                      <option value="active">Active</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </label>
-                  <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>From</span>
-                    <DateField mode={dateMode} value={oplDateFrom} onChange={setOplDateFrom} blankLabel="Any date" style={{ padding: "6px 10px", fontSize: 13 }} />
-                  </label>
-                  <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>To</span>
-                    <DateField mode={dateMode} value={oplDateTo} onChange={setOplDateTo} blankLabel="Any date" style={{ padding: "6px 10px", fontSize: 13 }} />
-                  </label>
-                  {dateSwitch}
-                  {(oplStatusFilter !== "all" || oplDateFrom || oplDateTo) && (
-                    <button className="ghost-button" style={{ fontSize: 12, padding: "6px 12px" }}
-                      onClick={() => { setOplStatusFilter("all"); setOplDateFrom(""); setOplDateTo(""); }}>
-                      Clear filters
-                    </button>
-                  )}
-                  <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink-4)" }}>
-                    {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""}
-                    {filteredOrders.length !== orders.length && ` (of ${orders.length})`}
-                  </span>
-                </div>
-
-                {/* Table */}
-                <div className="kopl-tbl-wrap">
-                  <table className="kopl-tbl">
-                    <thead>
-                      <tr>
-                        <th>Order ID</th>
-                        <th>Customer</th>
-                        <th>Qty</th>
-                        <th>Revenue ({currency})</th>
-                        <th>Material</th>
-                        <th>Labour</th>
-                        <th>Overhead</th>
-                        <th>Shipping</th>
-                        <th>Total Cost</th>
-                        <th>Profit</th>
-                        <th>Margin %</th>
-                        <th>Status</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length === 0 && (
-                        <tr>
-                          <td colSpan={13} style={{ textAlign: "center", color: "var(--ink-4)", padding: "32px 0" }}>
-                            {orders.length === 0 && fyActive && regionOrders.length > 0
-                              ? fyEmpty("orders", regionOrders.length, "")
-                              : <>No orders found. {orders.length === 0 ? "Orders will appear here once created." : `Try adjusting your filters${fyActive ? " or fiscal year" : ""}.`}</>}
-                          </td>
-                        </tr>
-                      )}
-                      {rows.map(row => (
-                        <tr key={row.id} className={oplSelectedId === row.id ? "kopl-tbl-selected" : ""}
-                          onClick={() => openOplPanel(row)}>
-                          <td style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-4)" }}>{row.orderId || row.id}</td>
-                          <td style={{ fontWeight: 500 }}>{row.customerName || "—"}</td>
-                          <td style={{ fontFamily: "var(--mono)" }}>{Number(row.quantity || 0).toLocaleString()}</td>
-                          <td style={{ fontFamily: "var(--mono)", fontWeight: 600, color: "var(--mint-deep)" }}>
-                            {fmtC(row.revenue)}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", color: row.mat ? "var(--ink)" : "var(--ink-5)" }}>
-                            {row.mat ? fmtC(row.mat) : "—"}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", color: row.lab ? "var(--ink)" : "var(--ink-5)" }}>
-                            {row.lab ? fmtC(row.lab) : "—"}
-                            {row.labIsAuto && <span title="Auto-calculated from payroll" style={{ marginLeft: 4, fontSize: 10, color: "var(--mint-deep)", fontFamily: "var(--font)" }}>⚡</span>}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", color: row.ovh ? "var(--ink)" : "var(--ink-5)" }}>
-                            {row.ovh ? fmtC(row.ovh) : "—"}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", color: row.shp ? "var(--ink)" : "var(--ink-5)" }}>
-                            {row.shp ? fmtC(row.shp) : "—"}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", color: "var(--terra)" }}>
-                            {row.hasCosts ? fmtC(row.totalCost) : "—"}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", fontWeight: 600,
-                            color: !row.hasCosts ? "var(--ink-5)" : row.profit >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>
-                            {row.hasCosts ? (row.profit >= 0 ? "+" : "") + fmtC(row.profit) : "—"}
-                          </td>
-                          <td>{row.hasCosts ? marginPill(row.margin) : <span className="kopl-margin-pill kopl-margin-pill--warn">No costs</span>}</td>
-                          <td>
-                            <span style={{
-                              display: "inline-block", padding: "2px 8px", borderRadius: "var(--r-pill)",
-                              fontSize: 11.5, fontWeight: 600,
-                              background: (row.status || "").toLowerCase() === "completed" ? "var(--mint-soft)" : "var(--blue-soft)",
-                              color:      (row.status || "").toLowerCase() === "completed" ? "var(--mint-deep)" : "var(--blue)",
-                            }}>
-                              {row.status || row.stage || "Active"}
-                            </span>
-                          </td>
-                          <td>
-                            <button className="ghost-button" style={{ fontSize: 11, padding: "4px 10px" }}
-                              onClick={ev => { ev.stopPropagation(); openOplPanel(row); }}>
-                              {orderCosts[row.costKey] ? "Edit costs" : "Add costs"}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Cost entry side panel */}
-              {oplSelectedId && openOrder && (
-                <div className="kopl-overlay" onClick={() => setOplSelectedId(null)}>
-                  <div className="kopl-panel" onClick={e => e.stopPropagation()}>
-                    <div className="kopl-panel-hd">
-                      <div>
-                        <p className="kopl-panel-title">Cost Entry</p>
-                        <p className="kopl-panel-sub">
-                          {openOrder.orderId || openOrder.id} · {openOrder.customerName || "—"} · {Number(openOrder.quantity || 0).toLocaleString()} pcs
-                        </p>
-                      </div>
-                      <button className="kopl-panel-close" onClick={() => setOplSelectedId(null)}>×</button>
-                    </div>
-
-                    <div className="kopl-panel-body">
-                      {/* Revenue summary */}
-                      <div className="kopl-panel-summary">
-                        <div className="kopl-panel-summary-row">
-                          <span>Revenue</span>
-                          <span style={{ fontFamily: "var(--mono)", fontWeight: 600, color: "var(--mint-deep)" }}>
-                            {fmtC(openRevenue)}
-                          </span>
-                        </div>
-                        <div className="kopl-panel-summary-row">
-                          <span>Material</span>
-                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewMat)}</span>
-                        </div>
-                        <div className="kopl-panel-summary-row">
-                          <span>Labour</span>
-                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewLab)}</span>
-                        </div>
-                        <div className="kopl-panel-summary-row">
-                          <span>Overhead</span>
-                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewOvh)}</span>
-                        </div>
-                        <div className="kopl-panel-summary-row">
-                          <span>Shipping</span>
-                          <span style={{ fontFamily: "var(--mono)" }}>{fmtC(previewShp)}</span>
-                        </div>
-                        <div className="kopl-panel-summary-row total">
-                          <span>Total Cost</span>
-                          <span style={{ fontFamily: "var(--mono)", color: "var(--terra)" }}>{fmtC(previewTotal)}</span>
-                        </div>
-                        <div className={`kopl-panel-summary-row ${previewProfit >= 0 ? "profit-row" : "loss-row"}`}>
-                          <span>{previewProfit >= 0 ? "Profit" : "Loss"}</span>
-                          <span style={{ fontFamily: "var(--mono)" }}>
-                            {fmtC(Math.abs(previewProfit))}
-                            {previewMargin !== null && (
-                              <span style={{ marginLeft: 6, fontSize: 12, opacity: 0.8 }}>
-                                ({previewMargin.toFixed(1)}%)
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Cost fields */}
-                      <form id="opl-cost-form" onSubmit={saveOplCosts} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        {[
-                          { key: "material", label: "Material Cost (NPR)", placeholder: "Fabric, trims, thread…" },
-                          { key: "labour",   label: "Labour Cost (NPR)",   placeholder: "Cutting, sewing, finishing…" },
-                          { key: "overhead", label: "Overhead (NPR)",      placeholder: "Factory, utilities, depreciation…" },
-                          { key: "shipping", label: "Shipping (NPR)",      placeholder: "Freight, packaging, customs…" },
-                        ].map(({ key, label, placeholder }) => (
-                          <label key={key} className="kfin-label" style={{ fontSize: 13, gap: 5 }}>
-                            {label}
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              className="kfin-input"
-                              value={oplCostForm[key]}
-                              placeholder={placeholder}
-                              onChange={e => setOplCostForm(f => ({ ...f, [key]: e.target.value }))}
-                              disabled={!canEdit}
-                            />
-                          </label>
-                        ))}
-                        {!canEdit && (
-                          <div className="kfin-notice" style={{ margin: 0 }}>ℹ View-only — only Nepal staff can edit costs.</div>
-                        )}
-                      </form>
-                    </div>
-
-                    <div className="kopl-panel-foot">
-                      {canEdit && (
-                        <button form="opl-cost-form" type="submit" className="primary-button" style={{ flex: 1 }} disabled={oplSaving}>
-                          {oplSaving ? "Saving…" : "Save Costs"}
-                        </button>
-                      )}
-                      <button className="ghost-button" style={{ flex: canEdit ? "0 0 auto" : 1, padding: "9px 16px" }}
-                        onClick={() => setOplSelectedId(null)}>
-                        {canEdit ? "Cancel" : "Close"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          );
-        })()}
-
-      </div>
+      </BentoPage>
+    </FinanceProvider>
   );
 }
-
-export default Finance;

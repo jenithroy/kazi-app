@@ -87,22 +87,6 @@ export function taskSummary(tasks, users, today) {
   };
 }
 
-export function qcSummary(qcLogs) {
-  const qcInspected = qcLogs.reduce((s, r) => s + Number(r.inspected || r.checked || 0), 0);
-  const totalPass = qcLogs.reduce((s, r) => s + Number(r.passed || 0), 0);
-  const recentBatches = [...qcLogs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5).map((b) => {
-    const insp = Number(b.inspected || b.checked || 0);
-    const pass = Number(b.passed || 0);
-    return { ...b, pct: insp ? (pass / insp) * 100 : 0 };
-  });
-  return {
-    qcInspected,
-    qcBatches: qcLogs.length,
-    qcPassRate: qcInspected ? ((totalPass / qcInspected) * 100).toFixed(1) : "0.0",
-    recentBatches,
-  };
-}
-
 /**
  * Invoices by where they stand. Overdue is its own bucket (open and past due),
  * so the four buckets never count an invoice twice.
@@ -366,5 +350,3 @@ export const shortDate = (iso) => {
   const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 };
-
-export const plural = (n, one, many = `${one}s`) => (n === 1 ? one : many);

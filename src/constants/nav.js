@@ -43,7 +43,6 @@ export const NAV_GROUPS = [
     label: "Operations",
     items: [
       { id: "production", to: "/production", label: "Production",           Icon: Icons.Production, desc: "Pipeline from order to dispatch", can: section("production") },
-      { id: "qc",         to: "/qc",         label: "Quality Control",      Icon: Icons.QC,         desc: "Inspections and defects by batch", can: section("quality_control") },
       { id: "inventory",  to: "/inventory",  label: "Inventory & Library",  Icon: Icons.Inventory,  desc: "Stock, fabrics and tech packs",   can: anyOf("inventory", "library") },
     ],
   },
@@ -51,7 +50,7 @@ export const NAV_GROUPS = [
     id: "finance",
     label: "Finance",
     items: [
-      { id: "sales",     to: "/sales",     label: "Sales",     Icon: Icons.Sales,   desc: "Live pipeline of orders",          can: section("sales") },
+      { id: "sales",     to: "/sales",     label: "Sales",     Icon: Icons.Sales,   desc: "Orders, customers and what is owed", can: section("sales") },
       { id: "finance",   to: "/finance",   label: "Finance",   Icon: Icons.Finance, desc: "Expenses, ledger, P&L and bank",   can: section("finance") },
       { id: "purchases", to: "/purchases", label: "Purchases", Icon: Icons.Cart,    desc: "Saved supplier purchases",         can: section("purchases") },
       {

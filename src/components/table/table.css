@@ -1,0 +1,178 @@
+/* ══════════════════════════════════════════════════════════════════
+   DATA TABLE — components/table/DataTable.jsx and Bar.jsx   (everything is `.dt-*`)
+
+   The table that goes inside a glass pane (`.kb-tile`): a fixed head over a body that
+   scrolls inside the pane, never the page and never sideways. It reads the page's `--kb-*`
+   tokens, so light, dark and the tones follow.
+
+   Columns are sized in px from a CSS variable (`--dt-cols`) that the component writes, so the
+   head and every row share one template and line up. The last track is empty and takes the
+   spare width: the cells stay together on the left instead of drifting to the window's edges.
+
+   A row is a button (a stretched `.dt-hit`); a control inside a cell that must be pressed on its
+   own carries `.dt-act` to sit above it, the way a tile's controls sit above its link.
+══════════════════════════════════════════════════════════════════ */
+
+.dt { flex: 1 1 0; min-height: 0; min-width: 0; display: flex; flex-direction: column; font-size: 13px; color: var(--kb-ink-2); }
+
+/* ── Head ───────────────────────────────────────────────────────── */
+
+.dt-head, .dt-row { display: grid; grid-template-columns: var(--dt-cols); column-gap: 16px; align-items: center; padding-inline: 16px; }
+.dt-head {
+  flex: none; padding-block: 6px 8px; border-bottom: 1px solid var(--kb-line);
+  font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--kb-ink-3);
+}
+/* the body reserves room for the slim scrollbar (12px), so the head leaves the same room and the heads sit over their columns */
+@media (pointer: fine) { .dt-head { padding-right: 28px; } }
+.dt-th { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-th.is-sorted { color: var(--kb-ink); }
+.dt-sort {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer;
+}
+.dt-end .dt-sort { flex-direction: row-reverse; }
+.dt-sort:hover { color: var(--kb-ink); }
+.dt-sort:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 3px; box-shadow: none; border-radius: 6px; }
+.dt-sort-i { flex: none; opacity: 0; transition: opacity .15s, transform .18s var(--kb-ease); }
+.dt-sort:hover .dt-sort-i, .is-sorted .dt-sort-i { opacity: .85; }
+.dt-sort-i.is-up { transform: rotate(180deg); }
+
+/* ── Body ───────────────────────────────────────────────────────── */
+
+.dt-body { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.dt-row { position: relative; min-height: 54px; padding-block: 7px; border-bottom: 1px solid var(--kb-line); transition: background-color .12s; }
+.dt-row:last-child { border-bottom: 0; }
+.dt-row.is-open { cursor: pointer; }
+@media (hover: hover) { .dt-row.is-open:hover { background: var(--kb-well); } }
+.dt-row.is-active { background: var(--kb-chip); }
+.dt-row:has(.dt-hit:focus-visible) { background: var(--kb-well); box-shadow: inset 0 0 0 2px var(--kb-accent); }
+.dt-row--skel { pointer-events: none; }
+.dt-row--skel .kb-skel { height: 11px; }
+
+.dt-hit {
+  position: absolute; inset: 0; z-index: 1; display: block; width: 100%; height: 100%; margin: 0; padding: 0;
+  border: 0; border-radius: 0; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.dt-hit:focus-visible { outline: none; box-shadow: none; border-radius: 0; }
+.dt-act { position: relative; z-index: 2; }
+
+.dt-cell { min-width: 0; }
+.dt-end { justify-self: end; text-align: right; }
+
+/* a heading across the row (the ledger's categories), a subtotal, a grand total */
+.dt-group { min-height: 34px; padding-block: 5px; background: var(--kb-well); }
+.dt-group .dt-cell { grid-column: 1 / -1; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kb-ink-2); }
+.dt-sum { min-height: 40px; font-weight: 600; color: var(--kb-ink); border-bottom-color: var(--kb-line-hi); }
+.dt-total { min-height: 46px; font-weight: 700; color: var(--kb-ink); border-top: 2px solid var(--kb-line-hi); }
+
+.dt-empty { flex: 1 1 auto; min-height: 180px; display: flex; flex-direction: column; justify-content: center; }
+.dt-empty .kb-empty { padding: 24px 16px; font-size: 13px; }
+
+/* ── What goes in a cell ────────────────────────────────────────── */
+
+.dt-two { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dt-lead { flex: none; display: grid; place-items: center; }
+.dt-two-t { min-width: 0; display: grid; gap: 1px; }
+.dt-two-t > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 600; letter-spacing: -.005em; color: var(--kb-ink); }
+.dt-two-t > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
+.dt-id { font-family: var(--mono); font-size: 11.5px; }
+
+.dt-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dt-strong { font-size: 14px; font-weight: 600; color: var(--kb-ink); }
+.dt-unit { margin-left: 3px; font-size: 12px; font-weight: 400; color: var(--kb-ink-3); }
+.dt-dim { color: var(--kb-ink-3); }
+.dt-good { color: var(--kb-good); }
+.dt-bad { color: var(--kb-bad); }
+.dt-warn { color: var(--kb-warn); }
+.dt-stack { display: grid; justify-items: end; gap: 2px; min-width: 0; }
+.dt-stack > small { font-size: 11.5px; font-weight: 400; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dt-clip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a small picture at the head of a row (a swatch, a sample photo) */
+.dt-thumb {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; overflow: hidden; border-radius: 9px;
+  background: var(--kb-chip); color: var(--kb-accent); font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  box-shadow: inset 0 0 0 1px var(--kb-line);
+}
+.dt-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* the one button a row may carry besides itself */
+.dt-mini {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); cursor: pointer; white-space: nowrap;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.dt-mini:hover { background: var(--kb-well); color: var(--kb-ink); }
+.dt-mini:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+/* ── The bar above a table ──────────────────────────────────────── */
+
+.dt-search { position: relative; display: inline-flex; align-items: center; }
+.dt-search > svg { position: absolute; left: 11px; color: var(--kb-faint); pointer-events: none; }
+.dt-search input {
+  width: clamp(150px, 18vw, 240px); height: 32px; padding: 0 12px 0 32px;
+  border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent;
+  color: var(--kb-ink); font: 400 13px/1 var(--font);
+}
+.dt-search input::placeholder { color: var(--kb-ink-3); opacity: 1; }
+.dt-search input:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+.dt-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.dt-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.dt-chip i { font-style: normal; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--kb-ink-3); }
+.dt-chip:hover:not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.dt-chip.is-on { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+.dt-chip.is-on i { color: inherit; }
+.dt-chip--warn:not(.is-on) i { color: var(--kb-warn); font-weight: 700; }
+.dt-chip--bad:not(.is-on) i { color: var(--kb-bad); font-weight: 700; }
+.dt-chip:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+.dt-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.dt-tab {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink-2); font: 500 13px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.dt-tab i { font-style: normal; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink-3); }
+.dt-tab:hover:not([aria-selected="true"]) { background: var(--kb-well); color: var(--kb-ink); }
+.dt-tab[aria-selected="true"] { background: var(--kb-accent); border-color: var(--kb-accent); color: var(--kb-on-accent); }
+.dt-tab[aria-selected="true"] i { color: inherit; opacity: .8; }
+.dt-tab:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.dt-tabs-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--kb-line-hi); }
+.ksel.dt-tabsel { display: none; }
+
+/* ── A narrower window (a tablet, a small laptop pane): the tab pills would wrap, so they become a dropdown ── */
+
+@media (max-width: 1099px) {
+  .dt-tabs { display: none; }
+  .ksel.dt-tabsel { display: inline-flex; max-width: none; }
+}
+
+/* ── Phone: the page scrolls and the list grows ── */
+
+@media (max-width: 768px) {
+  .dt { flex: none; }
+  .dt-body { flex: 0 0 auto; overflow: visible; scrollbar-gutter: auto; }      /* flex-basis 0 would collapse it: the pane has no height of its own here */
+  .dt-head { padding-right: 16px; }
+  .dt-row { min-height: 58px; }
+  .dt-search { flex: 1 1 0; min-width: 0; }
+  .dt-search input { width: 100%; }
+}
+
+/* a finger: bigger targets, same density for a mouse */
+@media (pointer: coarse) {
+  .dt-chip { height: 36px; padding: 0 14px; }
+  .dt-tab { height: 40px; }
+  .dt-search input { height: 40px; }
+  .dt-mini { height: 36px; padding: 0 14px; }
+  .dt-sort { min-height: 32px; }
+  .dt-row { min-height: 60px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dt-row, .dt-sort-i, .dt-chip, .dt-tab, .dt-mini { transition: none; }
+}

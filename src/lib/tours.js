@@ -51,32 +51,16 @@ export const TOURS = {
         title: "Every job starts as an order",
         body:
           "Open the order the day it's confirmed, not the day cutting starts. Batches, "
-          + "QC logs, issued stock and the order's P&L all hang off this record — anything "
+          + "issued stock and the order's P&L all hang off this record — anything "
           + "logged before the order exists has nowhere to attach.",
       },
       {
-        anchor: "production-tabs",
+        anchor: "production-pipeline",
         title: "Then move it along here",
         body:
-          "Pipeline shows every live order by stage. Batch Tracking is where cut quantities "
-          + "get logged. Move an order on the day the stage actually changes — the delivery "
-          + "dates the directors quote clients are read off these stages.",
-      },
-    ],
-  },
-
-  "qc-log": {
-    label: "Logging a QC check",
-    section: "quality_control",
-    path: "/qc",
-    steps: [
-      {
-        anchor: "qc-form",
-        title: "One log per batch inspected",
-        body:
-          "Pick the batch, the date, how many pieces you checked and how many failed. Log "
-          + "the check even when nothing fails — a batch with no log reads as uninspected, "
-          + "and the defect rate is only meaningful if the clean batches are in there too.",
+          "This strip shows every live order by stage — press a stage to see just those. "
+          + "Open an order to move it on, and do it on the day the stage actually changes — "
+          + "the delivery dates the directors quote clients are read off these stages.",
       },
     ],
   },

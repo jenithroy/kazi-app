@@ -1,351 +1,143 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { fetchAll, updateRow } from "../lib/db";
+/**
+ * Purchases, on the same glass frame as Finance: one screen, the table scrolls in its pane under a head that stays put, a purchase
+ * is typed into and corrected in the card in the middle of the screen. It is the same pane as the Purchases section of Finance
+ * (components/finance/tabs/PurchasesTab.jsx), so a purchase is entered and changed the same way from either; this page adds the
+ * three numbers over it, where the spending went, and the way back to Finance.
+ *
+ * What it reads, who may change it, the numbering and every write are the old page's. (What is new: a purchase can be started here;
+ * before, this page only listed and corrected them and the Finance page entered them.)
+ */
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { BentoGrid, BentoPage, Figure, Money, Sub, Tile } from "../components/bento/Bento";
+import { Icons } from "../components/ui";
+import { RegionSwitch } from "../components/RegionSwitch";
+import PeriodBar, { DateModeSwitch } from "../components/finance/PeriodBar";
+import PurchasesTab from "../components/finance/tabs/PurchasesTab";
+import CategoryRail from "../components/finance/CategoryRail";
+import { FinanceProvider } from "../components/finance/FinanceContext";
+import { plural, useShiftN } from "../components/finance/parts";
+import "../components/finance/finance.css";
+import usePurchasesData from "../hooks/usePurchasesData";
+import useDateMode from "../hooks/useDateMode";
 import { useAuth } from "../context/AuthContext";
+import { useRegion } from "../context/RegionContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { sectionCanEdit, financeTabAllowed, FINANCE_TAB_KEYS } from "../utils/permissions";
-import { createdAfterCutoff } from "../constants";
-import { Icons } from "../components/ui";
-import { DateModeToggle } from "../components/DualDateInput";
-import { useRegion } from "../context/RegionContext";
-import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
-import { FiscalYearSelect, useFiscalYearFilter } from "../components/FiscalYearFilter";
-import { DateRangeSelect, useDateRangeFilter } from "../components/DateRangeFilter";
-import { filterByFiscalYear, filterByDateRange, fiscalYearsIn, isFiscalYearLabel } from "../utils/fiscalYear";
-import { deletePurchaseWithLinks, planPurchaseRenumber, resequencePurchaseExpenseIds } from "../utils/financeRows";
-import {
-  PurchaseRowGroup, initialGroupData, applyItemChange, addLineItem, removeLineItem,
-  itemsTotal, purchaseSubtotal, purchaseVatAmount, purchaseGrandTotal, purchaseItemsPayload,
-} from "../components/PurchaseRowGroup";
+import { filterByDateRange, filterByFiscalYear, fiscalYearsIn, isDateRangeActive, isFiscalYearLabel } from "../utils/fiscalYear";
+import { useFiscalYearFilter } from "../components/FiscalYearFilter";
+import { useDateRangeFilter } from "../components/DateRangeFilter";
+import { describePeriod } from "../lib/period";
 
-function Purchases() {
+const ico = { size: 14, sw: 1.8 };
+
+export default function Purchases() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
-  const { money, moneyAlt } = useCurrency();
-  const canEdit = sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS.purchases);
-
   const { region } = useRegion();
-  const [allPurchases, setPurchases] = useState([]);
+  const { ratesVersion } = useCurrency();
+  const [dateMode, , show] = useDateMode();
+  const data = usePurchasesData();
+  const loading = data.status === "loading";
+
+  const canEdit = sectionCanEdit(profile, "finance") && financeTabAllowed(profile, FINANCE_TAB_KEYS.purchases);
+  const canEditTab = useCallback(() => canEdit, [canEdit]);
+  // A position that cannot open the VAT bills cannot read them either, so "no bill filed" would be true of every VAT purchase: say nothing instead
+  const canSeeBills = financeTabAllowed(profile, FINANCE_TAB_KEYS["vat bills"]);
+
+  const [notice, setNotice] = useState(null);
+  const timer = useRef(0);
+  const notify = useCallback((text, tone = "bad") => {
+    clearTimeout(timer.current);
+    setNotice({ text, tone });
+    timer.current = setTimeout(() => setNotice(null), 7000);
+  }, []);
+
+  // the region says whose purchases, the fiscal year which year of them, a From / To narrows that further
+  const regionPurchases = useMemo(() => filterByRegion(data.purchases, region), [data.purchases, region]);
+  const regionVatBills = useMemo(() => filterByRegion(data.vatBills, region), [data.vatBills, region]);
+  const inventoryItems = useMemo(() => filterByRegion(data.inventoryItems, region), [data.inventoryItems, region]);
   const [fy] = useFiscalYearFilter();
   const fyActive = isFiscalYearLabel(fy);
-  // A custom From/To range, one narrowing step further (see
-  // DateRangeFilter.jsx) — shared with Finance and Billing, so picking a
-  // period on one page shows the same period on the others.
   const [dateRange] = useDateRangeFilter();
-  // The count, the total and the table all read `purchases`, so scoping it
-  // here is the whole of the region, fiscal-year and date-range split on this page.
-  const regionPurchases = useMemo(() => filterByRegion(allPurchases, region), [allPurchases, region]);
   const purchases = useMemo(() => filterByDateRange(filterByFiscalYear(regionPurchases, fy), dateRange), [regionPurchases, fy, dateRange]);
   const yearsHere = useMemo(() => fiscalYearsIn(regionPurchases), [regionPurchases]);
-  const [purchaseDrafts, setPurchaseDrafts] = useState({}); // rowId -> in-progress edit, until Save is pressed
-  const [savingId, setSavingId] = useState(null); // rowId currently being written, or null
-  const [loading, setLoading] = useState(true);
-  // Prefilled when arriving from a Finance-ledger deep link (click a purchase row there)
-  const [searchQuery, setSearchQuery] = useState(location.state?.search || "");
-  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs" — one switch for the whole Date column
-  const [renumbering, setRenumbering] = useState(false);
-  const deletingIdsRef = useRef(new Set());
 
-  // Expense IDs are one series per fiscal year, across every region (migration
-  // 0046), so whether they are in date order has to be judged on all of them,
-  // not just what's on screen. Fixing it is a deliberate act (a button), never
-  // a side effect.
-  const outOfOrder = useMemo(() => planPurchaseRenumber(allPurchases), [allPurchases]);
+  const total = useMemo(() => purchases.reduce((s, p) => s + Number(p.amountNPR || 0), 0), [purchases]);
+  const vatIn = useMemo(() => purchases.reduce((s, p) => s + (p.vatBill === true ? Number(p.vatAmountNPR || 0) : 0), 0), [purchases]);
+  const needs = useMemo(() => {
+    if (!canSeeBills) return 0;
+    const filed = new Set(regionVatBills.map((b) => b.purchaseId).filter(Boolean));
+    return purchases.filter((p) => p.vatBill === true && !filed.has(p.id)).length;
+  }, [purchases, regionVatBills, canSeeBills]);
 
-  function renumberMessage(changes) {
-    const shown = changes.slice(0, 8).map(c => `${c.from || "—"}  →  ${c.to}`).join("\n");
-    const more = changes.length > 8 ? `\n…and ${changes.length - 8} more` : "";
-    return `This will renumber ${changes.length} existing purchase${changes.length !== 1 ? "s" : ""} so the numbers keep following the dates:\n\n${shown}${more}\n\nContinue?`;
-  }
-
-  async function renumberByDate() {
-    if (!outOfOrder.length || !window.confirm(renumberMessage(outOfOrder))) return;
-    setRenumbering(true);
-    try {
-      await resequencePurchaseExpenseIds();
-      await loadPurchases();
-    } catch (err) {
-      console.error("Failed to renumber purchases by date:", err);
-      alert("Could not renumber. Database migration 0046 may not be applied yet.");
-    }
-    setRenumbering(false);
-  }
-
-  async function loadPurchases() {
-    setLoading(true);
-    try {
-      let rows = await fetchAll("finance_purchases");
-      // Newest purchase on top, oldest at the bottom — dates (ISO YYYY-MM-DD)
-      // increase as you go up. expenseId breaks ties on the same day.
-      rows.sort((a, b) =>
-        (b.date || "").localeCompare(a.date || "") ||
-        (b.expenseId || "").localeCompare(a.expenseId || "")
-      );
-      rows = rows.filter(r => createdAfterCutoff(r));
-      setPurchases(rows);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { loadPurchases().catch(console.error); }, []);
-
-  function purchaseRowData(row) {
-    return purchaseDrafts[row.id] || initialGroupData(row);
-  }
-  function updatePurchaseField(row, patch) {
-    setPurchaseDrafts(d => ({ ...d, [row.id]: { ...purchaseRowData(row), ...patch } }));
-  }
-  function updatePurchaseItem(row, idx, patch) {
-    setPurchaseDrafts(d => {
-      const base = purchaseRowData(row);
-      return { ...d, [row.id]: { ...base, items: applyItemChange(base.items, idx, patch) } };
-    });
-  }
-  function addPurchaseItem(row) {
-    setPurchaseDrafts(d => {
-      const base = purchaseRowData(row);
-      return { ...d, [row.id]: { ...base, items: addLineItem(base.items) } };
-    });
-  }
-  function removePurchaseItem(row, idx) {
-    setPurchaseDrafts(d => {
-      const base = purchaseRowData(row);
-      return { ...d, [row.id]: { ...base, items: removeLineItem(base.items, idx) } };
-    });
-  }
-  async function commitPurchaseDraft(row) {
-    if (deletingIdsRef.current.has(row.id) || savingId === row.id) return;
-    const draft = purchaseDrafts[row.id];
-    if (!draft) return;
-    setSavingId(row.id);
-    try {
-      const subtotal = purchaseSubtotal(draft.items);
-      const vatAmount = purchaseVatAmount(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
-      const grandTotal = purchaseGrandTotal(draft.items, draft.vatBill, draft.discountAmt, draft.taxableAmt);
-
-      await updateRow("finance_purchases", row.id, {
-        expenseItem: draft.expenseItem,
-        category: draft.category,
-        paymentType: draft.paymentType || "CASH",
-        bankName: draft.bankName || "Nabil Bank",
-        vatBill: draft.vatBill,
-        discountAmt: Number(draft.discountAmt || 0),
-        taxableAmt: Number(draft.taxableAmt || 0),
-        subtotalNPR: subtotal,
-        vatAmountNPR: vatAmount,
-        amountNPR: grandTotal,
-        date: draft.date,
-        region: draft.region || null,
-        items: purchaseItemsPayload(draft.items)
-      });
-      setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
-      await loadPurchases();
-    } catch (err) {
-      if (deletingIdsRef.current.has(row.id)) return;
-      console.error("Failed to update purchase:", err);
-      alert("Failed to update purchase. Please try again.");
-    } finally {
-      setSavingId(null);
-    }
-  }
-  function cancelPurchaseDraft(row) {
-    setPurchaseDrafts(d => { const nd = { ...d }; delete nd[row.id]; return nd; });
-  }
-  async function deletePurchase(row) {
-    const id = row.id;
-    const expenseId = row.expenseId;
-    deletingIdsRef.current.add(id);
-    if (!window.confirm(`Delete purchase ${expenseId || id}? This will also delete any linked VAT bills, stock entries, and journal records.`)) {
-      deletingIdsRef.current.delete(id);
-      return;
-    }
-    try {
-      setPurchaseDrafts(d => { const nd = { ...d }; delete nd[id]; return nd; });
-      setPurchases(prev => prev.filter(p => p.id !== id));
-
-      // Deleting the purchase alone would strand its VAT bills, stock movements
-      // and journal entries; the cascade lives in utils/financeRows so the
-      // fiscal-year page removes a purchase exactly the same way.
-      await deletePurchaseWithLinks(id, expenseId);
-
-      await loadPurchases();
-    } catch (err) {
-      console.error("Failed to delete purchase:", err);
-      alert("Failed to delete purchase: " + (err.message || "Unknown error"));
-      await loadPurchases();
-    } finally {
-      deletingIdsRef.current.delete(id);
-    }
-  }
-
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return purchases;
-    return purchases.filter(r =>
-      (r.expenseId || "").toLowerCase().includes(q) ||
-      (r.expenseItem || "").toLowerCase().includes(q) ||
-      (r.category || "").toLowerCase().includes(q)
-    );
-  }, [purchases, searchQuery]);
-
-  const total = useMemo(() => purchases.reduce((s, r) => s + Number(r.amountNPR || 0), 0), [purchases]);
+  const newRef = useRef(null);
+  useShiftN(canEdit ? () => newRef.current?.() : null);
+  const ctx = {
+    profile, region, show, status: data.status, loading, reload: data.reload, notify, newRef, canEditTab, canSeeBills,
+    fy, fyActive, dateRange, periodActive: fyActive || isDateRangeActive(dateRange), ratesVersion, dateMode,
+    purchases, regionPurchases, allPurchases: data.purchases, vatBills: regionVatBills, regionVatBills, inventoryItems,
+    goToSource: (path, state) => navigate(path, { state }),
+  };
 
   return (
-    <div className="kfin-wrap">
-      <button
-        type="button"
-        className="ghost-button"
-        style={{ alignSelf: "flex-start" }}
-        onClick={() => {
-          // A draft no longer saves itself when you leave the row (that was the
-          // whole point of the Save button) — so leaving the page entirely has
-          // to ask first, or the edit just vanishes with no button ever pressed.
-          if (Object.keys(purchaseDrafts).length > 0
-            && !window.confirm("You have an unsaved purchase edit. Leave without saving?")) return;
-          navigate("/finance");
-        }}
-      >
-        <Icons.ChevronLeft size={15} sw={2} /> Back to Finance
-      </button>
-
-      <div className="kbil-page-hd">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", width: "100%" }}>
-          <div>
-          <h1 className="kbil-page-title">Purchases</h1>
-          <p className="kbil-page-sub">
-            {purchases.length} record{purchases.length !== 1 ? "s" : ""} · {money(total)}
-            <span style={{ marginLeft: 6 }}>/ {moneyAlt(total)}</span>
-          </p>
+    <FinanceProvider value={ctx}>
+      <BentoPage className="fn-page fn-page--pur">
+        <header className="kb-head">
+          <div className="kb-head-l">
+            <h1>Purchases</h1>
+            <p className="kb-head-sub"><span>{describePeriod({ fy, range: dateRange, mode: dateMode })}</span></p>
           </div>
-          <RegionSwitch untagged={countUntagged(allPurchases)} />
-        </div>
-      </div>
-
-      <div className="kfin-block">
-        <div className="kfin-block-hd">
-          <h2 className="kfin-block-title">
-            Saved Purchases <span className="kfin-block-sub">({filtered.length}{searchQuery ? ` of ${purchases.length}` : ""})</span>
-          </h2>
-        </div>
-
-        {/* Numbers are meant to follow dates. When the series has drifted — purchases
-            filed out of order, or a date edited afterwards — say so and offer the
-            fix, rather than renumbering issued expense IDs unasked. */}
-        {canEdit && outOfOrder.length > 0 && (
-          <div className="kfin-notice" style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ flex: 1, minWidth: 220 }}>
-              ⚠ {outOfOrder.length} expense ID{outOfOrder.length !== 1 ? "s are" : " is"} out of date order.
-            </span>
-            <button type="button" className="kbil-btn-ghost" style={{ fontSize: 12, padding: "5px 12px" }} disabled={renumbering} onClick={renumberByDate}>
-              Renumber by date
+          <div className="kb-head-r fn-head-r">
+            <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
+              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
             </button>
+            <RegionSwitch untagged={countUntagged(data.purchases)} size="sm" />
+            <DateModeSwitch />
+            <PeriodBar years={yearsHere} />
+          </div>
+        </header>
+
+        {notice && (
+          <div className={`fn-banner fn-banner--${notice.tone}`} role={notice.tone === "bad" ? "alert" : "status"}>
+            <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+            <span>{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icons.X size={14} sw={2} aria-hidden="true" /></button>
+          </div>
+        )}
+        {data.status === "ready" && data.failed.length > 0 && (
+          <div className="fn-banner" role="status">
+            <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+            <span>Could not load {data.failed.map((c) => (c === "finance_purchases" ? "purchases" : c === "vat_bills" ? "VAT bills" : "stock items")).join(", ")}, so some figures may be missing or out of date.</span>
           </div>
         )}
 
-        <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <input
-            className="kfin-input"
-            type="text"
-            placeholder="Search by party name, category, or expense ID…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{ maxWidth: 360 }}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-4)", fontSize: 13 }}
-            >✕ Clear</button>
-          )}
-          <DateRangeSelect />
-          <FiscalYearSelect years={yearsHere} />
-        </div>
-
-        {!canEdit && <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ You don't have permission to edit or delete purchases.</div>}
-
-        {loading ? (
-          <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>
-              {fyActive && purchases.length === 0 && regionPurchases.length > 0 ? `No purchases in FY ${fy}` : "No purchases found"}
-            </div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>
-              {fyActive && purchases.length === 0 && regionPurchases.length > 0
-                ? `${regionPurchases.length} purchase${regionPurchases.length !== 1 ? "s" : ""} in other years — pick another year or "All years" to see them.`
-                : searchQuery ? (fyActive ? `Nothing in FY ${fy} matches your search — try clearing it or choosing "All years".` : "Try clearing your search.")
-                : "Add a purchase from the Finance page to see it here."}
-            </div>
+        {data.status === "error" ? (
+          <div className="kb-error" role="alert">
+            <p>Purchases could not load. Check your connection and try again.</p>
+            <button type="button" className="kb-btn kb-btn--ghost" onClick={data.reload}>Try again</button>
           </div>
         ) : (
-          <div className="kfin-tbl-wrap">
-            <table className="kfin-tbl kfin-tbl-compact kfin-tbl--plain">
-              <thead><tr>
-                <th>Expense ID</th>
-                <th>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    Date
-                    <DateModeToggle mode={dateMode} onToggle={() => setDateMode(m => m === "ad" ? "bs" : "ad")} />
-                  </div>
-                </th>
-                <th>Party Name</th><th>Category</th><th>Payment</th><th>VAT Bill</th>
-                <th>Particulars</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount (NPR)</th><th>Total / Action</th>
-              </tr></thead>
-
-              {filtered.map(row => {
-                // Drafts no longer commit on blur — a row stays in purchaseDrafts,
-                // and out of the database, until its own Save button is pressed.
-                const dirty = !!purchaseDrafts[row.id];
-                return (
-                <PurchaseRowGroup
-                  key={row.id}
-                  // The purchase's own stored id (the one Finance issues, search matches and
-                  // the delete prompt quotes) — a position in this list would renumber
-                  // whenever the year, region or search changed.
-                  expenseId={row.expenseId || "—"}
-                  data={purchaseRowData(row)}
-                  dateMode={dateMode}
-                  onFieldChange={patch => canEdit && updatePurchaseField(row, patch)}
-                  onItemChange={(idx, patch) => canEdit && updatePurchaseItem(row, idx, patch)}
-                  onAddItem={() => canEdit && addPurchaseItem(row)}
-                  onRemoveItem={idx => canEdit && removePurchaseItem(row, idx)}
-                  actionCell={canEdit && (
-                    <div className="kbil-tbl-actions">
-                      {dirty ? (
-                        <>
-                          <button className="kbil-tbl-btn kbil-tbl-btn--primary" type="button"
-                            disabled={savingId === row.id}
-                            onMouseDown={e => e.stopPropagation()}
-                            onClick={() => commitPurchaseDraft(row)}>
-                            {savingId === row.id ? "Saving…" : "Save"}
-                          </button>
-                          <button className="kbil-tbl-btn" type="button"
-                            disabled={savingId === row.id}
-                            onMouseDown={e => e.stopPropagation()}
-                            onClick={() => cancelPurchaseDraft(row)}>
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <button className="kbil-tbl-btn kbil-tbl-btn--danger" type="button"
-                          onMouseDown={e => e.stopPropagation()}
-                          onClick={() => deletePurchase(row)}>Delete</button>
-                      )}
-                    </div>
-                  )}
-                />
-                );
-              })}
-            </table>
-          </div>
+          <BentoGrid layout="purchases">
+            <Tile area="t1" icon={<Icons.Cart {...ico} />} title="Spent on purchases" loading={loading} className="fn-t">
+              <Figure><Money npr={total} compact={Math.abs(total) >= 1e7} /></Figure>
+              <Sub><b>{purchases.length}</b> {plural(purchases.length, "bill")}</Sub>
+            </Tile>
+            <Tile area="t2" icon={<Icons.File {...ico} />} title="VAT paid" loading={loading} className="fn-t">
+              <Figure><Money npr={vatIn} compact={Math.abs(vatIn) >= 1e7} /></Figure>
+              <Sub>on the purchases with a VAT bill</Sub>
+            </Tile>
+            <Tile area="t3" tone={needs > 0 ? "amber" : "default"} can={(p) => financeTabAllowed(p, FINANCE_TAB_KEYS["vat bills"])} icon={<Icons.Alert {...ico} />} title="VAT bills to file" loading={loading} className="fn-t">
+              <Figure>{needs}</Figure>
+              <Sub>{needs > 0 ? "purchases with no bill filed" : "every VAT purchase has its bill"}</Sub>
+            </Tile>
+            <CategoryRail purchases={purchases} loading={loading} />
+            <PurchasesTab showRenumber initialQuery={location.state?.search || ""} labelledBy="" />
+          </BentoGrid>
         )}
-      </div>
-    </div>
+      </BentoPage>
+    </FinanceProvider>
   );
 }
-
-export default Purchases;

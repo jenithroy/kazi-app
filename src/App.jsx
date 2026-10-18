@@ -4,7 +4,6 @@ import Dashboard from "./pages/Dashboard";
 import Attendance from "./pages/Attendance";
 import Production from "./pages/Production";
 import Inventory from "./pages/Inventory";
-import QualityControl from "./pages/QualityControl";
 import Finance from "./pages/Finance";
 import FiscalYearTransactions from "./pages/FiscalYearTransactions";
 import Purchases from "./pages/Purchases";
@@ -68,7 +67,6 @@ function App() {
         <Route path="/tasks"       element={<RequireSection section="tasks"><Tasks /></RequireSection>} />
         <Route path="/attendance"  element={<RequireSection section="attendance"><Attendance /></RequireSection>} />
         <Route path="/production"  element={<RequireSection section="production"><Production /></RequireSection>} />
-        <Route path="/qc"          element={<RequireSection section="quality_control"><QualityControl /></RequireSection>} />
         {/* Inventory and Product Library are one merged screen, so either opens it. */}
         <Route path="/inventory"   element={<RequireSection anyOf={["inventory", "library"]}><Inventory /></RequireSection>} />
         <Route path="/sales"       element={<RequireSection section="sales"><Sales /></RequireSection>} />

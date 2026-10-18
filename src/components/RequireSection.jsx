@@ -21,7 +21,6 @@ const SECTION_ROUTES = {
   tasks: "/tasks",
   attendance: "/attendance",
   production: "/production",
-  quality_control: "/qc",
   inventory: "/inventory",
   library: "/inventory",
   sales: "/sales",

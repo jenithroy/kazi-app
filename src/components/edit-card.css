@@ -1,0 +1,214 @@
+/* ══════════════════════════════════════════════════════════════════
+   EDIT CARD — components/EditCard.jsx   (everything is `.ec-*`)
+
+   The card in the middle of the screen that every "edit this" opens. It is the task card's
+   shape: <Modal size="card" glass> (the profile card's glass, components/profile-theme.css) at
+   860px, the thing itself on the left, its numbers on a veiled pane on the right.
+
+   A portalled dialog is outside `.kb`, so it reads the app's base tokens (--ink, --line,
+   --card …) which a glass dialog remaps for dark. Colours that mean something (good, warn,
+   bad, info) are the four `--ec-*` pairs below, so a tag, a strip and a number agree in both themes.
+
+   Loaded before styles.css, so a rule that must beat an old one is written one class more specific.
+══════════════════════════════════════════════════════════════════ */
+
+.kmodal--card.kmodal--ec {
+  --kmodal-w: 860px;
+  --ec-good: var(--mint-deep);  --ec-good-bg: var(--mint-soft);
+  --ec-warn: #7d5512;           --ec-warn-bg: var(--amber-soft);
+  --ec-bad:  #a8442c;           --ec-bad-bg:  var(--terra-soft);
+  --ec-info: #2a4f6f;           --ec-info-bg: var(--blue-soft);
+  --ec-well: rgba(15, 46, 34, .05);
+}
+:root[data-theme="dark"] .kmodal--card.kmodal--ec {
+  --ec-good: #7dd3a8;  --ec-good-bg: rgba(125, 211, 168, .14);
+  --ec-warn: #e6bd70;  --ec-warn-bg: rgba(224, 180, 95, .14);
+  --ec-bad:  #f4ae98;  --ec-bad-bg:  rgba(240, 164, 141, .14);
+  --ec-info: #9cc3e1;  --ec-info-bg: rgba(143, 184, 216, .14);
+  --ec-well: rgba(255, 255, 255, .05);
+}
+
+/* ── The two panes ──────────────────────────────────────────────── */
+
+.ec { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }    /* never squeezed: only a window too short for it scrolls */
+.ec--solo { grid-template-columns: minmax(0, 1fr); }
+.ec-pane { min-width: 0; padding: 20px 24px 22px; }
+.ec-main, .ec-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-content: start; }
+.ec-side { background: var(--pf-side, rgba(15, 46, 34, .045)); border-left: 1px solid var(--line); }
+.ec-wide { grid-column: 1 / -1; }
+.ec--sections .ec-main { padding-top: 16px; }
+.ec--sections { min-height: 540px; }          /* the tallest section, so the card does not change height as you move between them */
+
+/* the switch between a card's sections, at the top of its left pane */
+.ec-sections { min-width: 0; }
+.ec-sections .kregion-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.ec-sections .kregion-seg::-webkit-scrollbar { display: none; }
+
+/* phones, two panes: the halves are tabs (a card with sections has its sections as tabs instead) */
+.ec-tabs.kregion-seg { display: none; }
+
+/* ── Fields ─────────────────────────────────────────────────────── */
+
+.ec-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; color: var(--ink-3); }
+.ec-f > label, .ec-lbl { color: var(--ink-3); }
+.ec-f input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .ec-f textarea {
+  display: block; width: 100%; min-width: 0; max-width: 100%; height: 42px; padding: 0 12px;
+  border: 1.5px solid var(--line-strong); border-radius: 10px; background-color: var(--mg-input, #fff); color: var(--ink);
+  font: 400 14px/1.3 var(--font); letter-spacing: 0; transition: border-color .15s, box-shadow .15s;
+}
+.ec-f textarea { height: auto; min-height: 84px; padding: 10px 12px; line-height: 1.45; resize: vertical; }
+.ec-f input::placeholder, .ec-f textarea::placeholder { color: var(--ink-4); opacity: 1; }
+.ec-f input:hover:not(:disabled):not(:focus), .ec-f textarea:hover:not(:disabled):not(:focus) { border-color: var(--ink-5); }
+.ec-f input:focus-visible, .ec-f textarea:focus-visible {
+  outline: none; border-color: var(--mint-2); border-radius: 10px; box-shadow: 0 0 0 3px rgba(90, 185, 138, .25);
+}
+.ec-f input:disabled, .ec-f textarea:disabled { background-color: var(--bg); color: var(--ink-4); cursor: not-allowed; }
+.ec-f input[type="number"] { -moz-appearance: textfield; appearance: textfield; font-variant-numeric: tabular-nums; }
+.ec-f input[type="number"]::-webkit-outer-spin-button, .ec-f input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ec-f .kregion-seg { align-self: flex-start; }
+.ec-hint { font-size: 12px; font-weight: 400; line-height: 1.4; color: var(--ink-3); }
+
+/* a number with its unit inside the right edge */
+.ec-amt { position: relative; display: block; min-width: 0; }
+.ec-amt.has-unit input { padding-right: 50px; }
+.ec-amt em { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); font-style: normal; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; color: var(--ink-3); pointer-events: none; }
+
+/* a short choice split in parts */
+.ec-seg { display: flex; width: 100%; }
+.ec-seg .kregion-seg-btn { flex: 1 1 0; justify-content: center; padding: 8px 6px; }
+/* the chosen part of any switch in a card (the sections at the top, a short choice): the global rule colours it --mint-deep, which a dark card does not remap, so it read 2.7:1 */
+:root[data-theme="dark"] .kmodal--card.kmodal--ec .kregion-seg-btn.is-on { color: var(--mint); }
+
+/* ── Things to read ─────────────────────────────────────────────── */
+
+.ec-fig { display: flex; align-items: baseline; gap: 6px; font-size: 30px; font-weight: 600; letter-spacing: -.035em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+.ec-fig small { font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+.ec-fig.ec-bad { color: var(--ec-bad); }
+.ec-block { display: grid; gap: 8px; min-width: 0; }
+.ec-cap { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+
+.ec-kv { display: grid; margin: 0; }
+.ec-kv > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.ec-kv > div:first-child { border-top: 0; }
+.ec-kv dt { margin: 0; font-weight: 400; color: var(--ink-3); }
+.ec-kv dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.ec-kv dd small { font-weight: 400; color: var(--ink-3); }
+.ec-good { color: var(--ec-good); }
+.ec-warn { color: var(--ec-warn); }
+.ec-bad { color: var(--ec-bad); }
+.ec-kv dd.ec-good { color: var(--ec-good); }
+.ec-kv dd.ec-warn { color: var(--ec-warn); }
+.ec-kv dd.ec-bad { color: var(--ec-bad); }
+
+.ec-tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: var(--ec-well); color: var(--ink-2); font-size: 11.5px; font-weight: 600; line-height: 1.45; white-space: nowrap; }
+.ec-tag--good { background: var(--ec-good-bg); color: var(--ec-good); }
+.ec-tag--warn { background: var(--ec-warn-bg); color: var(--ec-warn); }
+.ec-tag--bad { background: var(--ec-bad-bg); color: var(--ec-bad); }
+.ec-tag--info { background: var(--ec-info-bg); color: var(--ec-info); }
+
+/* a strip under the fields: the total, or what to do next */
+.ec-strip { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 8px 14px; border-radius: 10px; background: var(--ec-good-bg); color: var(--ec-good); }
+.ec-strip > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 10px; min-width: 0; }
+.ec-strip b { font: 700 15px/1.2 var(--font); font-variant-numeric: tabular-nums; color: inherit; }
+.ec-strip small { font: 500 12px/1.3 var(--font); opacity: .85; }
+.ec-strip.is-quiet { background: transparent; border: 1px dashed var(--line-strong); color: var(--ink-3); }
+.ec-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.ec-note b { font-weight: 600; color: var(--ink-2); }
+
+/* ── A picture, and the place to drop one ───────────────────────── */
+
+.ec-photo { aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: var(--ec-well); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font-size: 28px; font-weight: 600; letter-spacing: .02em; }
+.ec-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ec-photo--empty { aspect-ratio: auto; height: 92px; font-size: 20px; }
+.ec-drop {
+  display: grid; justify-items: center; gap: 3px; padding: 14px 12px; border: 1.5px dashed var(--line-strong); border-radius: 12px; background: transparent;
+  color: var(--ink-3); font: 500 12.5px/1.35 var(--font); text-align: center; cursor: pointer; transition: border-color .15s, background-color .15s;
+}
+.ec-drop:hover:not(:disabled), .ec-drop.is-over { border-color: var(--mint-2); background: var(--ec-well); }
+.ec-drop:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+.ec-drop:disabled { opacity: .55; cursor: progress; }
+.ec-drop small { font-size: 11.5px; font-weight: 400; color: var(--ink-3); }
+
+/* ── Small tables inside a card: a stock history, sizes ─────────── */
+
+.ec-hist { margin: 0; padding: 0; list-style: none; max-height: 224px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 10px; }
+.ec-hist li { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); }
+.ec-hist li:first-child { border-top: 0; }
+.ec-hist time { font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.ec-hist-t { min-width: 0; display: grid; gap: 1px; }
+.ec-hist-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink); }
+.ec-hist-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+.ec-hist-q { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.ec-hist-q small { display: block; font-weight: 400; font-size: 11.5px; color: var(--ink-3); }
+.ec-hist-empty { margin: 0; padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--ink-3); border: 1px dashed var(--line-strong); border-radius: 10px; }
+
+.ec-sizes { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ec-sizes th { padding: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; text-align: right; color: var(--ink-3); }
+.ec-sizes th:first-child, .ec-sizes td:first-child { text-align: left; }
+.ec-sizes td { padding: 3px 0 3px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.ec-sizes td:first-child { padding-left: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.ec-f .ec-sizes td input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { display: inline-block; height: 30px; width: 84px; padding: 0 8px; text-align: right; }
+.ec-sizes tfoot td { padding-top: 8px; border-top: 1.5px solid var(--line-strong); font-weight: 700; color: var(--ink); }
+
+.ec-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ec-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--ec-well); box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.ec-chip button { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink-3); cursor: pointer; }
+.ec-chip button:hover { background: var(--line-strong); color: var(--ink); }
+.ec-chip button:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; border-radius: 50%; }
+.ec-add { display: flex; gap: 8px; }
+.ec-add input { flex: 1 1 auto; }
+
+/* ── Suggestions under a text field (Suggest.jsx) ───────────────── */
+
+.ec-sug { position: relative; display: block; min-width: 0; }
+
+/* ── The footer ─────────────────────────────────────────────────── */
+
+.ec-ft { display: contents; }
+.ec-ft-l { margin-right: auto; }
+.ec-danger { color: var(--ec-bad); }
+.ec-confirm { flex: 1 1 220px; margin: 0 auto 0 0; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+.ec-confirm b { font-weight: 600; color: var(--ink); }
+.primary-button.ec-btn-danger { background: #a8442c; }
+.primary-button.ec-btn-danger:hover:not(:disabled) { filter: brightness(.9); }
+
+/* a short screen (a laptop's browser window): every control a little tighter */
+@media (max-height: 699px) and (min-width: 641px) {
+  .ec-pane { padding: 16px 22px 18px; }
+  .ec-main, .ec-side { gap: 12px 12px; }
+  .ec--sections .ec-main { padding-top: 12px; }
+  .ec-f { gap: 5px; }
+  .ec-f input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { height: 38px; }
+  .ec-pane .ksel--field, .ec-pane .kdp-trigger { height: 38px; }
+  .ec-seg .kregion-seg-btn { padding: 6px 6px; }
+  .ec-f textarea { min-height: 64px; }
+  .ec-fig { font-size: 24px; }
+  .ec-hist { max-height: 168px; }
+}
+
+/* a phone: the sheet. Two panes are two tabs; sections are tabs and each shows its side pane under its main */
+@media (max-width: 640px) {
+  .ec-tabs.kregion-seg { display: flex; flex: none; margin: 12px 16px 0; }
+  .ec-tabs .kregion-seg-btn { flex: 1 1 0; justify-content: center; padding: 9px 10px; }
+  .ec { display: block; }
+  .ec--sections { min-height: 0; }
+  .ec-pane { padding: 14px 16px 16px; }
+  .ec-pane.is-off { display: none; }
+  .ec-side { border-left: 0; border-top: 1px solid var(--line); }
+  .ec-tabs + .ec .ec-side { border-top: 0; background: transparent; }
+  .ec-hist { max-height: 200px; }
+  .ec-f .ec-sizes td input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { width: 72px; }
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .ec-f input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { height: 44px; font-size: 16px; }
+  .ec-f textarea { font-size: 16px; }
+  .ec-f .ec-sizes td input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { height: 38px; }
+}
+@media (max-width: 359px) {
+  .ec-main, .ec-side { grid-template-columns: minmax(0, 1fr); }
+  .ec-sizes td { padding-left: 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ec-f input, .ec-f textarea, .ec-drop { transition: none; }
+}

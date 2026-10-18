@@ -31,6 +31,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { insertRow } from "../lib/db";
 import { useRegion } from "../context/RegionContext";
+import Select from "./Select";
 
 const NEW = "__new__";
 const TYPE_NAME = "__type__";
@@ -51,6 +52,7 @@ export default function CustomerPicker({
   id,                       // lets the caller's <label htmlFor> name whichever control is showing
   className,                // e.g. "kfin-select" — Production relies on a plain <select> picked up
                              // by its form's descendant selector, so this stays optional.
+  glass = false,            // the new look's dropdown (searchable) instead of the browser's own <select>; every choice and rule is the same
 }) {
   const { region } = useRegion();
   const [creating, setCreating] = useState(false);
@@ -215,6 +217,27 @@ export default function CustomerPicker({
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (glass) {
+    // The same choices as the plain list below, in the glass dropdown. There is no native `required` here: the owner's form checks a client was picked.
+    const options = [
+      ...(unlinked ? [{ value: UNLINKED, label: `${valueName} (not linked)` }] : []),
+      ...sorted.map(c => ({ value: c.id, label: c.name })),
+      ...suggestions.map(s => ({ value: FROM_BILLING + s.key, label: s.name, hint: "In Billing, not yet in Customers" })),
+      canCreate ? { value: NEW, label: "+ Add new customer…" } : { value: TYPE_NAME, label: "+ Type a new name…" },
+    ];
+    return (
+      <>
+        <Select
+          id={id} label="Customer" value={valueId || (unlinked ? UNLINKED : "")} placeholder="Select customer…"
+          options={options} searchPlaceholder="Search customers" disabled={disabled || picking}
+          onChange={v => handleSelect({ target: { value: v } })}
+        />
+        {picking && <p className="kcp-status" role="status">Adding to Customers…</p>}
+        {pickError && <p className="kcp-err" role="alert">{pickError}</p>}
+      </>
     );
   }
 

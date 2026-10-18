@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Icons, cn } from "../ui";
 import { Tile } from "../bento/Bento";
-import { STATE_LABEL, addDays, dayTitle, fmtClock, fmtHoursShort, isSat, monthTitle, monthWeeks, stateOf, workedMinutes } from "../../lib/attendance";
+import { STATE_LABEL, addDays, dayTitle, fmtClock, fmtHoursShort, holidayOn, isSat, monthTitle, monthWeeks, stateOf, workedMinutes } from "../../lib/attendance";
 import { parseLocalDate } from "../../constants";
 import { tsDate } from "../../utils/date";
 
@@ -18,9 +18,10 @@ function teamSpeech(iso, c) {
  * The month as a calendar you press days on. Two readings of the same grid:
  *   kind="team"  each day carries a little bar of how many were present, late, on leave, absent
  *   kind="me"    each day is painted with how that day went for you, with the times when there is room
- * The chosen day is outlined; the arrow keys move it, PageUp / PageDown change month.
+ * The chosen day is outlined; the arrow keys move it, PageUp / PageDown change month. A holiday
+ * is drawn like a Saturday (hatched) in the holiday colour, and named in the day's spoken label.
  */
-export default function MonthTile({ kind, month, onMonth, date, onPick, today, byDay, days, loading }) {
+export default function MonthTile({ kind, month, onMonth, date, onPick, today, byDay, days, loading, holidays = [], region }) {
   const grid = useRef(null);
   const keyed = useRef(false);
   const weeks = monthWeeks(month);
@@ -57,6 +58,8 @@ export default function MonthTile({ kind, month, onMonth, date, onPick, today, b
     const n = Number(iso.slice(8, 10));
     const sel = iso === date;
     const future = iso > today;
+    // the team's calendar marks a holiday for any region (the roll call says who it is for); your own marks yours
+    const hol = kind === "team" ? holidays.find((h) => h.start <= iso && iso <= h.end) || null : holidayOn(iso, holidays, region);
     let speech;
     let body = null;
     let tone = "";
@@ -72,7 +75,7 @@ export default function MonthTile({ kind, month, onMonth, date, onPick, today, b
       );
     } else {
       const d = days.get(iso);
-      const state = future ? "none" : stateOf(d?.record, { closed: isSat(iso) });
+      const state = future ? "none" : stateOf(d?.record, { closed: Boolean(hol) || isSat(iso) });
       const inT = fmtClock(tsDate(d?.clock?.clockedInAt));
       const mins = workedMinutes(d?.clock);
       tone = d?.record || state === "closed" ? state : "";
@@ -87,13 +90,15 @@ export default function MonthTile({ kind, month, onMonth, date, onPick, today, b
       );
     }
 
+    if (hol) speech = `${speech} (${hol.name}, holiday)`;
+
     return (
       <button
         key={iso}
         type="button"
         data-sel={sel || undefined}
         tabIndex={sel || (!inMonth && iso === month.start) ? 0 : -1}
-        className={cn("at-cell", tone && `at-cell--${tone}`, sel && "is-sel", iso === today && "is-today", isSat(iso) && "is-sat", future && "is-future")}
+        className={cn("at-cell", tone && `at-cell--${tone}`, sel && "is-sel", iso === today && "is-today", isSat(iso) && !hol && "is-sat", hol && "is-holiday", future && "is-future")}
         aria-label={speech}
         aria-pressed={sel}
         aria-current={iso === today ? "date" : undefined}
@@ -128,6 +133,7 @@ export default function MonthTile({ kind, month, onMonth, date, onPick, today, b
         {kind === "team"
           ? BAR.map(([k, color]) => <span key={k}><i style={{ background: color }} />{k === "leave" ? "Leave" : k[0].toUpperCase() + k.slice(1)}</span>)
           : [["present", "Present"], ["late", "Late"], ["leave", "Leave"], ["absent", "Absent"]].map(([k, label]) => <span key={k}><i className={`at-sw at-sw--${k}`} />{label}</span>)}
+        {holidays.some((h) => h.end >= month.start && h.start <= month.end) && <span><i className="at-sw at-sw--holiday" />Holiday</span>}
       </div>
     </Tile>
   );

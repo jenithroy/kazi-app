@@ -10,13 +10,16 @@
  * saves one person at a time when someone with edit rights changes a status.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { deleteRow, fetchAll, upsertRow } from "../lib/db";
+import { deleteRow, fetchAll, updateRow, upsertRow } from "../lib/db";
+import { addHoliday, holidaysNotSetUp, removeHoliday } from "../lib/holidays";
+import { refreshHolidays, useHolidays } from "../hooks/useHolidays";
 import { useAuth } from "../context/AuthContext";
-import { sectionCanEdit, sectionVisible, tier } from "../utils/permissions";
+import { financeTabAllowed, sectionCanEdit, sectionVisible, tier } from "../utils/permissions";
 import { setEmployeeScheduleOverrides } from "../constants";
 import { Avatar, Icons, hueFromName } from "../components/ui";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import ConfirmDialog from "../components/tasks/ConfirmDialog";
+import HolidayDialog from "../components/attendance/HolidayDialog";
 import ClockTile from "../components/attendance/ClockTile";
 import DayTile from "../components/attendance/DayTile";
 import RosterTile from "../components/attendance/RosterTile";
@@ -64,17 +67,21 @@ export default function Attendance() {
   const [mode, setMode] = useState("day");                 // team: "day" (roll call) | "report"
   const [filter, setFilter] = useState("");
   const [edit, setEdit] = useState(false);
-  const [reportId, setReportId] = useState("");
+  const [reportId, setReportId] = useState("*");                // the report: "*" is everyone, else one person
+  const [holOpen, setHolOpen] = useState(false);
+  const { rows: holidays, status: holStatus } = useHolidays();
   const [busy, setBusy] = useState(() => new Set());
   const [toast, setToast] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const seq = useRef(0);
+  const writes = useRef(0);          // counts this page's own saves, so a poll already in flight when one finishes cannot put the old rows back
   const toastTimer = useRef(0);
 
   /* ── loading ───────────────────────────────────────────── */
 
   const load = useCallback(async ({ silent = false } = {}) => {
     const mine = ++seq.current;
+    const wrote = writes.current;
     if (!silent) setData((d) => ({ ...d, status: d.status === "ready" ? "ready" : "loading" }));
     try {
       const range = [{ field: "date", op: "gte", value: month.start }, { field: "date", op: "lte", value: month.end }];
@@ -85,6 +92,7 @@ export default function Attendance() {
         fetchAll("employees").catch(() => []),         // only the work schedules; the page reads fine without them
       ]);
       if (mine !== seq.current) return;                // a newer look is on its way
+      if (silent && wrote !== writes.current) return;  // a save landed while this poll was out: its snapshot may be older than the save
       setEmployeeScheduleOverrides(employees);         // honour schedules edited in Employee Directory
       setData({
         status: "ready", month: month.start, error: "",
@@ -117,8 +125,9 @@ export default function Attendance() {
   /* ── what is on screen ─────────────────────────────────── */
 
   const meEntry = useMemo(
-    () => ({ personId: me, name: profile?.name || "You", jobRole: profile?.positionLabel || "" }),
-    [me, profile?.name, profile?.positionLabel],
+    // `location` is the side whose holidays are theirs (without it a UK person would be given Nepal's)
+    () => ({ personId: me, name: profile?.name || "You", jobRole: profile?.positionLabel || "", location: profile?.location }),
+    [me, profile?.name, profile?.positionLabel, profile?.location],
   );
   const staff = useMemo(() => (seesTeam ? data.staff : [meEntry]), [seesTeam, data.staff, meEntry]);
   const records = useMemo(() => (seesTeam ? data.records : data.records.filter((r) => r.person_id === me)), [seesTeam, data.records, me]);
@@ -129,28 +138,36 @@ export default function Attendance() {
       staff,
       records: records.filter((r) => r.date === date),
       clocks: clocks.filter((c) => c.date === date),
-      date, today, now,
+      date, today, now, holidays,
     }),
-    [staff, records, clocks, date, today, now],
+    [staff, records, clocks, date, today, now, holidays],
   );
   const summary = useMemo(() => daySummary(roster), [roster]);
   const shown = useMemo(() => (filter ? roster.filter((r) => r.state === filter) : roster), [roster, filter]);
-  const team = useMemo(() => (seesTeam ? teamMonth({ staff, records, clocks, month, today }) : null), [seesTeam, staff, records, clocks, month, today]);
+  const team = useMemo(() => (seesTeam ? teamMonth({ staff, records, clocks, month, today, holidays }) : null), [seesTeam, staff, records, clocks, month, today, holidays]);
   const mine = useMemo(
-    () => personMonth({ records: records.filter((r) => r.person_id === me), clocks: clocks.filter((c) => c.person_id === me), month, today }),
-    [records, clocks, me, month, today],
+    () => personMonth({ records: records.filter((r) => r.person_id === me), clocks: clocks.filter((c) => c.person_id === me), month, today, holidays, region: profile?.location }),
+    [records, clocks, me, month, today, holidays, profile?.location],
   );
   const myDays = useMemo(() => new Map(mine.days.map((d) => [d.iso, d])), [mine]);
   const myRow = roster.find((r) => r.personId === me) || null;
 
   const reportOptions = useMemo(
-    () => staff.filter((s) => s.personId).map((s) => ({
-      value: s.personId, label: s.name, hint: s.jobRole,
-      icon: <Avatar name={s.name} personId={s.personId} hue={hueFromName(s.name)} size={22} />,
-    })).sort((a, b) => a.label.localeCompare(b.label)),
+    () => [
+      { value: "*", label: "Everyone", hint: `${staff.filter((s) => s.personId).length} people`, icon: <Icons.Users size={18} sw={1.8} /> },
+      ...staff.filter((s) => s.personId).map((s) => ({
+        value: s.personId, label: s.name, hint: s.jobRole,
+        icon: <Avatar name={s.name} personId={s.personId} hue={hueFromName(s.name)} size={22} />,
+      })).sort((a, b) => a.label.localeCompare(b.label)),
+    ],
     [staff],
   );
-  const reportPerson = team?.people.find((p) => p.personId === (reportId || me)) || null;
+  const reportPerson = reportId !== "*" ? team?.people.find((p) => p.personId === reportId) || null : null;     // null: everyone
+  const everyone = useMemo(() => {
+    const people = [...(team?.people || [])].sort((a, b) => a.name.localeCompare(b.name));
+    return { people, totals: team || { present: 0, late: 0, cuts: 0, absent: 0, leave: 0, minutes: 0 } };
+  }, [team]);
+  const canPayroll = sectionVisible(profile, "employees") && financeTabAllowed(profile, "payroll");
 
   /* ── moving around ─────────────────────────────────────── */
 
@@ -174,11 +191,17 @@ export default function Attendance() {
     if (next) toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   }, []);
 
-  const keepRow = (saved) => setData((d) => ({
-    ...d,
-    records: d.records.some((r) => r.id === saved.id) ? d.records.map((r) => (r.id === saved.id ? saved : r)) : [...d.records, saved],
-  }));
-  const dropRow = (id) => setData((d) => ({ ...d, records: d.records.filter((r) => r.id !== id) }));
+  const keepRow = (saved) => {
+    writes.current += 1;
+    setData((d) => ({
+      ...d,
+      records: d.records.some((r) => r.id === saved.id) ? d.records.map((r) => (r.id === saved.id ? saved : r)) : [...d.records, saved],
+    }));
+  };
+  const dropRow = (id) => {
+    writes.current += 1;
+    setData((d) => ({ ...d, records: d.records.filter((r) => r.id !== id) }));
+  };
   const working = (id, on) => setBusy((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
 
   /**
@@ -195,7 +218,8 @@ export default function Attendance() {
       status,
       // the same status keeps its hours (turning the cut on or off must not touch them); a new one gets what it means
       hours: status === prev?.status && prev?.hours != null ? Number(prev.hours) || 0 : hoursFor(status, row.worked),
-      note: prev?.note ?? "",
+      // no `note` here on purpose: a status change leaves what somebody wrote alone (an upsert only touches the columns it names),
+      // where sending the copy this page loaded could put back a note somebody has since changed
       loggedBy: profile?.name || "Unknown",
       lateCutApplied: status === "Late" ? (patch.cut ?? prev?.lateCutApplied === true) : false,
       lateMinutes: status === "Late" ? Number(prev?.lateMinutes) || 0 : 0,
@@ -214,7 +238,7 @@ export default function Attendance() {
           if (prev) {
             keepRow(await upsertRow("attendance", {
               date, person_id: row.personId, staffName: row.name, role: row.role,
-              status: prev.status, hours: Number(prev.hours) || 0, note: prev.note ?? "", loggedBy: prev.loggedBy ?? "",
+              status: prev.status, hours: Number(prev.hours) || 0, loggedBy: prev.loggedBy ?? "",
               lateCutApplied: prev.lateCutApplied === true, lateMinutes: Number(prev.lateMinutes) || 0,
             }, ["person_id", "date"]));
           } else {
@@ -255,12 +279,68 @@ export default function Attendance() {
   };
   const onCut = (row) => { if (canEdit && !busy.has(row.personId)) mark(row, { status: "Late", cut: !row.lateCut }); };
 
+  /**
+   * Put a note on a day that has a record (the reason for a leave or an absence, or anything else
+   * worth saying). It changes nothing but the note. Resolves to true, or to a sentence saying what
+   * went wrong. The database lets a person write their own day and an editor anyone's.
+   */
+  async function saveNote(row, text) {
+    const rec = row?.record;
+    if (!rec?.id) return "Nothing has been recorded for this day yet, so there is nothing to put a note on.";
+    try {
+      const saved = await updateRow("attendance", rec.id, { note: text });
+      // a write the database does not allow comes back as the row it was; only the stored note proves it took
+      if (!saved || String(saved.note ?? "") !== text) throw new Error("The database kept the old note.");
+      keepRow(saved);
+      return true;
+    } catch (err) {
+      console.error("Failed to save the note:", err);
+      return "Not saved. Check your connection and try again.";
+    }
+  }
+
+  /** What went wrong with a holiday write, in a sentence. */
+  const holidayProblem = (err) => {
+    const text = String(err?.message || err || "");
+    if (holidaysNotSetUp(err)) return "Holidays are not switched on in the database yet (it needs migration 0059).";
+    if (/row-level security|permission denied/i.test(text)) return "You are not allowed to change holidays.";
+    if (/holidays_once|duplicate key/i.test(text)) return "That holiday is already on the list.";
+    if (/holidays_dates/i.test(text)) return "Those dates do not fit: the last day cannot be before the first, and a holiday runs for at most 60 days.";
+    if (/holidays_name_len/i.test(text)) return "The name has to be 1 to 80 characters.";
+    return "Not saved. Check your connection and try again.";
+  };
+  async function addHolidayRow(input) {
+    try {
+      await addHoliday(input);
+      await refreshHolidays();
+      return true;
+    } catch (err) {
+      console.error("Failed to add the holiday:", err);
+      return holidayProblem(err);
+    }
+  }
+  async function removeHolidayRow(id) {
+    try {
+      await removeHoliday(id);
+      const rows = await refreshHolidays();
+      // a delete the database does not allow removes nothing and says nothing: only the list proves it went
+      return rows?.some((h) => h.id === id) ? "Not removed. You may not be allowed to change holidays." : true;
+    } catch (err) {
+      console.error("Failed to remove the holiday:", err);
+      return holidayProblem(err);
+    }
+  }
+
   /* ── the page ──────────────────────────────────────────── */
 
   const out = summary.absent + summary.none;
+  const offNow = (seesTeam ? (roster.length > 0 && roster.every((r) => r.off) ? roster[0].off : null) : myRow?.off) || null;
+  // "Dashain holiday", but a holiday already called "Spring bank holiday" is not said twice
+  const holidayNow = offNow?.kind === "holiday" ? (/holiday/i.test(offNow.name) ? offNow.name : `${offNow.name} holiday`) : "";
   const sub = seesTeam ? (
     <>
       <span>{dayTitle(date)}</span>
+      {holidayNow && <span>{holidayNow}</span>}
       {summary.total > 0 && <span>{summary.here} in</span>}
       {summary.late > 0 && <span>{summary.late} late</span>}
       {out > 0 && summary.total > 0 && <span className="kb-bad">{out} {date === today ? "not in" : "absent or unmarked"}</span>}
@@ -269,6 +349,7 @@ export default function Attendance() {
   ) : (
     <>
       <span>{dayTitle(date)}</span>
+      {holidayNow && <span>{holidayNow}</span>}
       <span>{mine.present} present</span>
       {mine.late > 0 && <span>{mine.late} late</span>}
       {mine.absent > 0 && <span className="kb-bad">{mine.absent} absent</span>}
@@ -289,6 +370,11 @@ export default function Attendance() {
         </div>
         <div className="kb-head-r">
           {date !== today && <button type="button" className="kb-pillbtn" onClick={backToToday}>Back to today</button>}
+          {(holStatus !== "unavailable" || canEdit) && (
+            <button type="button" className="kb-pillbtn" onClick={() => setHolOpen(true)}>
+              <Icons.Calendar size={13} sw={1.9} aria-hidden="true" /> Holidays
+            </button>
+          )}
           <button type="button" className="kb-pillbtn" onClick={() => load()} aria-label="Refresh attendance">
             <Icons.RefreshCw size={13} sw={1.9} aria-hidden="true" /> Refresh
           </button>
@@ -315,26 +401,41 @@ export default function Attendance() {
             <RosterTile
               rows={roster} shown={shown} filter={filter} onFilter={setFilter}
               date={date} today={today} onStep={(n) => goDate(addDays(date, n))} onToday={backToToday}
-              canEdit={canEdit} edit={edit && canEdit} onEdit={setEdit} busyIds={busy} onSet={onSet} onCut={onCut}
+              canEdit={canEdit} edit={edit && canEdit} onEdit={setEdit} busyIds={busy} onSet={onSet} onCut={onCut} onNote={saveNote}
               toast={toast} mode={mode} onMode={(m) => { setEdit(false); setMode(m); }} loading={loadingTiles}
             />
           ) : (
             <ReportTile
-              options={reportOptions} personId={reportPerson?.personId || ""} onPerson={setReportId} person={reportPerson}
-              month={month} today={today} mode={mode} onMode={setMode} loading={loadingTiles}
+              options={reportOptions} personId={reportPerson ? reportPerson.personId : "*"} onPerson={setReportId} person={reportPerson} everyone={everyone}
+              month={month} today={today} mode={mode} onMode={setMode} loading={loadingTiles} payrollTo={canPayroll ? "/employees?tab=payroll" : null}
             />
           )}
-          <MonthTile kind="team" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} byDay={ready ? team.byDay : NOTHING} loading={firstLoad} />
+          <MonthTile kind="team" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} byDay={ready ? team.byDay : NOTHING} loading={firstLoad} holidays={holidays} />
           <StatsTile kind="team" summary={team} label={monthTitle(month)} loading={loadingTiles} />
         </BentoGrid>
       ) : (
         <BentoGrid layout={layout}>
           <ClockTile profile={profile} onClockChange={() => load({ silent: true })} />
-          <TodayTile row={myRow} date={date} today={today} loading={loadingTiles} />
-          <MonthTile kind="me" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} days={ready ? myDays : NO_DAYS} loading={firstLoad} />
+          <TodayTile row={myRow} date={date} today={today} loading={loadingTiles} onSaveNote={(text) => saveNote(myRow, text)} />
+          <MonthTile kind="me" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} days={ready ? myDays : NO_DAYS} loading={firstLoad} holidays={holidays} region={profile?.location} />
           <StatsTile kind="me" summary={mine} label={monthTitle(month)} loading={loadingTiles} />
           <RecentTile days={mine.days} today={today} date={date} onPick={goDate} loading={loadingTiles} />
         </BentoGrid>
+      )}
+
+      {holOpen && (
+        <HolidayDialog
+          holidays={holidays}
+          status={holStatus}
+          canManage={canEdit}
+          today={today}
+          firstDay={date}
+          defaultRegion={profile?.location === "uk" ? "uk" : "nepal"}
+          onAdd={addHolidayRow}
+          onRemove={removeHolidayRow}
+          onRetry={refreshHolidays}
+          onClose={() => setHolOpen(false)}
+        />
       )}
 
       {confirm && (

@@ -25,6 +25,10 @@ import "./controls.css";
  * calendar. "Today" is the office's today (Kathmandu), not the browser's, so it agrees with
  * the "due today" and "late" the Tasks page shows. Saturday, the day off, is drawn quieter.
  * Click the month's name to jump to another month or year.
+ *
+ * `variant="pill"` is the small version for a page's toolbar (a date range above a table); the
+ * default is the form field. `shortcuts` replaces the buttons under the month: [[label, "YYYY-MM-DD"], …]
+ * (the default ones, Today / Tomorrow / In a week, suit a due date, not a date that has happened).
  */
 
 const FOCUSABLE = "button:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -39,6 +43,8 @@ export default function DatePicker({
   clearable = true,
   align = "start",
   today: todayProp,
+  variant = "field",
+  shortcuts,
   className,
 }) {
   const uid = useId();
@@ -122,12 +128,12 @@ export default function DatePicker({
   const shift = (n) => { keyboard.current = false; setCursor((c) => addMonths(c, n)); };
 
   return (
-    <div className={cn("kdp", open && "is-open", disabled && "is-disabled", className)}>
+    <div className={cn("kdp", variant === "pill" && "kdp--pill", open && "is-open", disabled && "is-disabled", className)}>
       <button
         ref={triggerRef}
         id={id}
         type="button"
-        className="kdp-trigger"
+        className={cn("kdp-trigger", variant === "pill" && "kdp-trigger--pill")}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? `${uid}-pop` : undefined}
@@ -215,9 +221,9 @@ export default function DatePicker({
           )}
 
           <div className="kdp-foot">
-            <button type="button" className="kdp-chip" onClick={() => pick(today)}>Today</button>
-            <button type="button" className="kdp-chip" onClick={() => pick(addDays(today, 1))}>Tomorrow</button>
-            <button type="button" className="kdp-chip" onClick={() => pick(addDays(today, 7))}>In a week</button>
+            {(shortcuts || [["Today", today], ["Tomorrow", addDays(today, 1)], ["In a week", addDays(today, 7)]]).map(([text, iso]) => (
+              <button key={text} type="button" className="kdp-chip" onClick={() => pick(iso)}>{text}</button>
+            ))}
             {clearable && current && <button type="button" className="kdp-chip kdp-chip--quiet" onClick={() => pick("")}>No date</button>}
           </div>
         </div>,

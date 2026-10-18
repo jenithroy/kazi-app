@@ -17,10 +17,13 @@ import { Bank, TrendUp } from "../../components/bento/icons";
 import ClockInCard from "../../components/ClockInCard";
 import { useAuth } from "../../context/AuthContext";
 import { useCurrency } from "../../context/CurrencyContext";
+import { useRegion } from "../../context/RegionContext";
+import { useHolidays } from "../../hooks/useHolidays";
+import { dayOff, holidayOn } from "../../lib/attendance";
 import { updateRow } from "../../lib/db";
 import { todayDate } from "../../utils/date";
 import { financeTabAllowed, marketingTabAllowed, sectionCanEdit, sectionVisible } from "../../utils/permissions";
-import { ago, countByStage, daysFromToday, isInProgress, newestFirst, plural, shortDate, useAssignments } from "./shared";
+import { ago, countByStage, daysFromToday, isInProgress, newestFirst, shortDate, useAssignments } from "./shared";
 
 const ico = { size: 14, sw: 1.8 };
 
@@ -33,6 +36,12 @@ const ico = { size: 14, sw: 1.8 };
  */
 export function AttendanceTile({ area = "today", title = "Attendance today", counts, loading, clock }) {
   const { present = 0, late = 0, leave = 0, absent = 0, total = 0 } = counts || {};
+  // On a holiday or a Saturday nobody is expected, so "everybody absent" would be a lie; say what the day is
+  // (unless somebody was marked in anyway, in which case the count is the news).
+  const { rows: holidays } = useHolidays();
+  const { region } = useRegion();
+  const off = dayOff(todayDate(), holidays, region);
+  const closed = Boolean(off) && present === 0 && leave === 0;
   const parts = [
     // `present` already counts the late arrivals, so the ring takes them out of it once.
     { label: "Present", v: Math.max(0, present - late), color: "var(--kb-good-fill)" },
@@ -43,33 +52,39 @@ export function AttendanceTile({ area = "today", title = "Attendance today", cou
   return (
     <Tile area={area} to="/attendance" section="attendance" icon={<Icons.Attendance {...ico} />} title={title}
       loading={loading} align="top" className={cn("kb-tile--att", clock && "kb-tile--clock")}>
-      <div className="kb-att kb-fill">
-        <div className="kb-att-big">
-          <div className="kb-att-ring">
-            <Ring segments={parts} />
-            <div className="kb-att-c">
-              <b>{present}<i>/{total}</i></b>
-              <span>in today</span>
+      {closed ? (
+        <EmptyNote icon={<Icons.Calendar size={22} sw={1.5} />}>
+          {off.kind === "holiday" ? `${off.name} is a holiday. Nobody is expected in.` : "Saturday: the office is closed."}
+        </EmptyNote>
+      ) : (
+        <div className="kb-att kb-fill">
+          <div className="kb-att-big">
+            <div className="kb-att-ring">
+              <Ring segments={parts} />
+              <div className="kb-att-c">
+                <b>{present}<i>/{total}</i></b>
+                <span>in today</span>
+              </div>
+            </div>
+            <ul className="kb-att-key">
+              {parts.map((s) => (
+                <li key={s.label}>
+                  <span className="kb-dot" style={{ background: s.color }} />
+                  <span className="kb-att-l">{s.label}</span>
+                  <b>{s.v}</b>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="kb-att-stat">
+            <Figure unit={`/${total}`}>{present}</Figure>
+            <div className="kb-att-stat-r">
+              <StackBar parts={parts.map((p) => ({ v: p.v, color: p.color }))} />
+              <p>{parts.filter((p) => p.v > 0).map((p) => `${p.v} ${p.label.toLowerCase()}`).join(" · ") || "No one marked yet"}</p>
             </div>
           </div>
-          <ul className="kb-att-key">
-            {parts.map((s) => (
-              <li key={s.label}>
-                <span className="kb-dot" style={{ background: s.color }} />
-                <span className="kb-att-l">{s.label}</span>
-                <b>{s.v}</b>
-              </li>
-            ))}
-          </ul>
         </div>
-        <div className="kb-att-stat">
-          <Figure unit={`/${total}`}>{present}</Figure>
-          <div className="kb-att-stat-r">
-            <StackBar parts={parts.map((p) => ({ v: p.v, color: p.color }))} />
-            <p>{parts.filter((p) => p.v > 0).map((p) => `${p.v} ${p.label.toLowerCase()}`).join(" · ") || "No one marked yet"}</p>
-          </div>
-        </div>
-      </div>
+      )}
       {clock && <div className="kb-att-clock">{clock}</div>}
     </Tile>
   );
@@ -248,6 +263,7 @@ export function PurchasesTile({ area = "cash", npr = 0, loading }) {
 /** This month's money in and out, and the last seven weeks of spend. */
 export function MoneyTile({ data, loading }) {
   const d = data || {};
+  const { fmt } = useCurrency();
   const month = new Date().toLocaleString("en-GB", { month: "long", year: "numeric" });
   const hasCosts = d.totalCostNPR > 0;
   return (
@@ -256,7 +272,7 @@ export function MoneyTile({ data, loading }) {
         <div><span className="kb-lbl">Revenue</span><Figure><Money npr={d.thisMonthRevNPR} compact /></Figure></div>
         <div><span className="kb-lbl">Expenses</span><Figure tone="bad"><Money npr={d.monthExpNPR} compact /></Figure></div>
       </div>
-      <MiniBars values={d.weeklyExpTrend || []} labels={d.weeklyExpLabels || []} />
+      <MiniBars values={d.weeklyExpTrend || []} labels={d.weeklyExpLabels || []} format={(v) => fmt(v)} />
       <Sub className="kb-h-240">Weekly expenses, last 7 weeks. Payroll and purchases are not in the bars.</Sub>
       <div className="kb-fin-foot kb-h-200">
         <Sub>Payroll <b><Money npr={d.monthPayrollNPR} compact /></b>{d.payrollIsEstimate ? " (est.)" : ""}</Sub>
@@ -286,6 +302,7 @@ export function PayrollTile({ data, loading }) {
 /** Paid invoices over the last thirty days. */
 export function RevenueTile({ data, loading }) {
   const d = data || {};
+  const { fmt } = useCurrency();
   const rev = d.revData || [];
   const peak = Math.max(0, ...rev);
   const peakAt = rev.indexOf(peak);
@@ -293,7 +310,7 @@ export function RevenueTile({ data, loading }) {
     <Tile area="rev" to="/billing" section="billing" icon={<Icons.Finance {...ico} />} title="Revenue"
       note={d.revIsLastMonth ? "last month's paid invoices" : "paid this month"} loading={loading} align="top">
       <Figure><Money npr={d.totalPaidNPR} /></Figure>
-      <Trend values={rev} labels={d.dates30 || []} empty="No paid invoices in the last 30 days" />
+      <Trend values={rev} labels={d.dates30 || []} format={(v) => fmt(v)} empty="No paid invoices in the last 30 days" />
       {peak > 0 && (
         <Sub className="kb-h-200">Last 30 days · best day <b>{d.dates30?.[peakAt]}</b>, <Money npr={peak} compact /></Sub>
       )}
@@ -414,8 +431,11 @@ export function ApprovalsTile({ pending = [], loading }) {
   );
 }
 
-/** Budget requests still waiting for a decision (the view from the people who ask: it is the UK that decides). */
-export function BudgetTile({ pending = [], loading }) {
+/**
+ * Budget requests still waiting for a decision (the view from the people who ask: it is the UK that decides).
+ * `list` is for a tile with room to spare: it names the waiting requests under the count instead of just the first.
+ */
+export function BudgetTile({ pending = [], loading, list = false }) {
   const n = pending.length;
   const first = pending[0];
   return (
@@ -423,7 +443,21 @@ export function BudgetTile({ pending = [], loading }) {
       title="Budget requests" loading={loading}>
       <Figure>{n}</Figure>
       <Sub>{n === 0 ? "Nothing waiting" : <>awaiting <span className="kb-h-90">UK director </span>sign-off</>}</Sub>
-      {first && <Sub className="kb-h-160"><b>{first.title || first.item || "Budget request"}</b> · <Money npr={Number(first.amountNPR || first.amount || 0)} compact /></Sub>}
+      {list && n > 0 ? (
+        <RowList className="kb-fill kb-h-160">
+          {pending.slice(0, 5).map((br) => (
+            <li className="kb-row" key={br.id}>
+              <span className="kb-appr-t">
+                <b>{br.title || br.item || "Budget request"}</b>
+                <span>{br.requestedBy || br.submittedBy || br.name || "—"}</span>
+              </span>
+              <span className="kb-bud-amt"><Money npr={Number(br.amountNPR || br.amount || 0)} compact /></span>
+            </li>
+          ))}
+        </RowList>
+      ) : first && (
+        <Sub className="kb-h-160"><b>{first.title || first.item || "Budget request"}</b> · <Money npr={Number(first.amountNPR || first.amount || 0)} compact /></Sub>
+      )}
     </Tile>
   );
 }
@@ -551,6 +585,8 @@ export function TicketTile({ area = "ticket", done = 0, target = 10, loading }) 
 
 /** The month so far, day by day. */
 export function MyAttendanceTile({ area = "cal", counts, monthAtt = [], loading }) {
+  const { profile } = useAuth();
+  const { rows: holidays } = useHolidays();
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -569,9 +605,12 @@ export function MyAttendanceTile({ area = "cal", counts, monthAtt = [], loading 
     else if (s === "leave") byDay[day] = "leave";
     else if (s === "absent") byDay[day] = "absent";
   });
-  // Saturday is the office's weekly holiday; Sunday is a normal working day.
-  for (let d = 1; d <= todayDay; d++) {
-    if (!byDay[d] && new Date(year, month, d).getDay() === 6) byDay[d] = "weekend";
+  // A holiday is marked all month, so the days still to come show it too. Saturday is the office's
+  // weekly holiday (marked up to today); Sunday is a normal working day.
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (!byDay[d] && holidayOn(iso, holidays, profile?.location)) byDay[d] = "holiday";
+    else if (!byDay[d] && d <= todayDay && new Date(year, month, d).getDay() === 6) byDay[d] = "weekend";
   }
 
   const weeks = Math.ceil((lead + daysInMonth) / 7);
@@ -642,12 +681,19 @@ export function DueSoonTile({ area = "due", orders = [], loading }) {
 }
 
 /** Who is late, away or not in yet, by name. */
-export function WhosOutTile({ area = "money", people = [], loading }) {
+export function WhosOutTile({ area = "money", people: all = [], loading }) {
+  const { rows: holidays } = useHolidays();
+  const { region } = useRegion();
+  const off = dayOff(todayDate(), holidays, region);
+  // on a day off nobody is "not in yet"; only the people somebody marked (leave, absent, late) are worth naming
+  const people = off ? all.filter((p) => p.note !== "Not in yet") : all;
   return (
     <Tile area={area} to="/attendance" section="attendance" icon={<Icons.Employees {...ico} />} title="Not in today"
       note={people.length ? `${people.length}` : undefined} loading={loading} align="top">
       {people.length === 0 ? (
-        <EmptyNote icon={<Icons.Check size={22} sw={1.6} />}>Everyone is in</EmptyNote>
+        off
+          ? <EmptyNote icon={<Icons.Calendar size={22} sw={1.5} />}>{off.kind === "holiday" ? `${off.name} is a holiday` : "Saturday: the office is closed"}</EmptyNote>
+          : <EmptyNote icon={<Icons.Check size={22} sw={1.6} />}>Everyone is in</EmptyNote>
       ) : (
         <RowList className="kb-fill">
           {people.slice(0, 10).map((p, i) => (
@@ -782,31 +828,6 @@ export function StockTile({ area = "stock", items = [], loading }) {
             );
           })}
         </RowList>
-      )}
-    </Tile>
-  );
-}
-
-/** Pass rate across every inspected batch, and the last few batches. */
-export function QcTile({ data, loading }) {
-  const d = data || {};
-  const rate = Number(d.qcPassRate) || 0;
-  const has = d.qcInspected > 0;
-  const tone = rate >= 95 ? "good" : rate >= 90 ? "warn" : "bad";
-  return (
-    <Tile area="qc" to="/qc" section="quality_control" icon={<Icons.QC {...ico} />} title="Quality control" loading={loading}>
-      {has ? (
-        <>
-          <Figure tone={tone} unit="%">{rate.toFixed(1)}</Figure>
-          <Sub>pass rate<span className="kb-h-90"> · {d.qcBatches} {plural(d.qcBatches, "batch", "batches")}</span></Sub>
-          <div className="kb-dots kb-h-140">
-            {(d.recentBatches || []).map((b, i) => (
-              <i key={i} className={b.pct >= 98 ? "" : b.pct >= 92 ? "warn" : "bad"} />
-            ))}
-          </div>
-        </>
-      ) : (
-        <Sub>No inspections logged yet</Sub>
       )}
     </Tile>
   );

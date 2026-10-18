@@ -1,566 +1,270 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { fetchAll, insertRow, updateRow } from "../lib/db";
-import PageHeader from "../components/PageHeader";
-import { useAuth } from "../context/AuthContext";
-import { useCurrency } from "../context/CurrencyContext";
-import { financeTabAllowed, financeTabCanEdit, sectionCanEdit } from "../utils/permissions";
-import { toNPR } from "../utils/currency";
-import {
-  slugToFiscalYear, fiscalYearToSlug, fiscalYearDateRangeAD,
-  fiscalYearForDate, parseFiscalYearLabel, fmtDateBS,
-} from "../utils/fiscalYear";
-import { useRegion } from "../context/RegionContext";
+/**
+ * Transactions by fiscal year (/finance/2083-84): everything that moved in one Nepali fiscal year (Shrawan 1 to the end of Asar) in one
+ * list, whatever kind it is, with what came in, what went out and the net.
+ *
+ *   top row   how many records, money in, money out, the net
+ *   pane      one line each, newest first, filtered by kind and searched; a row opens the same card the rest of Finance uses for that kind
+ *             (an expense, a purchase, a journal entry, a bank transaction, a payroll record); an invoice goes to Billing, which has its editor
+ *
+ * The rows, what counts as money in or out, and who may change which kind are the old page's. What changed: nothing is edited in a row any
+ * more, so there are no unsaved drafts to forget; and an invoice is no longer edited here (Billing does that, and is one press away).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { BentoGrid, BentoPage, EmptyNote, Figure, Money, Sub, Tile } from "../components/bento/Bento";
+import { Icons } from "../components/ui";
+import DataTable from "../components/table/DataTable";
+import { FilterChips, SearchBox } from "../components/table/Bar";
 import { RegionSwitch } from "../components/RegionSwitch";
-import { inRegion } from "../utils/region";
-import {
-  FiscalYearRowGroup, MONTHS, COLL_BY_TYPE, TAB_BY_TYPE,
-  initialRowData, rowDate, rowError, rowUpdates, salesSettlement,
-} from "../components/FiscalYearRowGroup";
-import { applyItemChange, addLineItem, removeLineItem } from "../components/PurchaseRowGroup";
-import { deleteTransaction, removalPrompt } from "../utils/financeRows";
-import { emptyItem } from "../utils/billing.jsx";
+import { DateModeSwitch } from "../components/finance/PeriodBar";
+import FinPane from "../components/finance/FinPane";
+import { FinanceProvider } from "../components/finance/FinanceContext";
+import ExpenseCard from "../components/finance/cards/ExpenseCard";
+import PurchaseCard from "../components/finance/cards/PurchaseCard";
+import JournalCard from "../components/finance/cards/JournalCard";
+import BankCard from "../components/finance/cards/BankCard";
+import PayrollCard from "../components/finance/cards/PayrollCard";
+import { partiesOf } from "../components/finance/tabs/PurchasesTab";
+import { Amt, Chip, ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows } from "../components/finance/parts";
+import "../components/finance/finance.css";
+import useDateMode from "../hooks/useDateMode";
+import { fetchAll } from "../lib/db";
+import { buildRows, withNpr, yearTotals } from "../lib/fiscalYearRows";
+import { useAuth } from "../context/AuthContext";
+import { useRegion } from "../context/RegionContext";
+import { useCurrency } from "../context/CurrencyContext";
+import { financeTabAllowed, financeTabCanEdit, sectionCanEdit, FINANCE_TAB_KEYS } from "../utils/permissions";
+import { fiscalYearDateRangeAD, fiscalYearToSlug, parseFiscalYearLabel, slugToFiscalYear } from "../utils/fiscalYear";
+import { inRegion, countUntagged } from "../utils/region";
 
-const TYPE_STYLE = {
-  Expense: { color: "var(--terra)",     bg: "var(--terra-soft)" },
-  Purchase:{ color: "var(--terra)",     bg: "var(--terra-soft)" },
-  Payroll: { color: "var(--blue)",      bg: "var(--blue-soft)" },
-  Journal: { color: "var(--amber)",     bg: "var(--amber-soft)" },
-  Bank:    { color: "var(--ink-2)",     bg: "var(--bg-2)" },
-  Sales:   { color: "var(--mint-deep)", bg: "var(--mint-soft)" },
-};
-
-function TypePill({ type }) {
-  const t = TYPE_STYLE[type] || { color: "var(--ink-3)", bg: "var(--bg-2)" };
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-      color: t.color, background: t.bg, whiteSpace: "nowrap",
-    }}>
-      {type}
-    </span>
-  );
-}
-
-// A line item belongs to a purchase or an invoice, and the two name their fields
-// differently. Purchases also auto-fill amount from qty × rate; invoice totals
-// are computed from qty × rate directly, so there is no stored amount to keep up.
-function patchItems(type, items, idx, patch) {
-  return type === "Purchase"
-    ? applyItemChange(items, idx, patch)
-    : items.map((it, i) => (i === idx ? { ...it, ...patch } : it));
-}
-function appendItem(type, items) {
-  return type === "Purchase" ? addLineItem(items) : [...items, { ...emptyItem }];
-}
-function dropItem(type, items, idx) {
-  return type === "Purchase" ? removeLineItem(items, idx) : (items.length > 1 ? items.filter((_, i) => i !== idx) : items);
-}
+const TYPES = ["Expense", "Purchase", "Payroll", "Journal", "Bank", "Sales"];
+const TONE = { Sales: "good", Payroll: "info", Journal: "warn" };
+const TAB_OF = { Expense: "expenses", Purchase: "purchases", Payroll: "payroll", Journal: "journal", Bank: "bank" };
+const has = (hay, q) => String(hay || "").toLowerCase().includes(q);
+const ico = { size: 14, sw: 1.8 };
 
 export default function FiscalYearTransactions() {
-  const { fy: fySlug } = useParams();
+  const { fy: slug } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { money, ratesVersion } = useCurrency();
+  const { ratesVersion } = useCurrency();
   const { region } = useRegion();
-  const fiscalYear = slugToFiscalYear(fySlug);
+  const money = useMoney();
+  const [, , show] = useDateMode();
+  const fiscalYear = slugToFiscalYear(slug);
   const fyRange = useMemo(() => fiscalYearDateRangeAD(fiscalYear), [fiscalYear]);
 
   const canExpenses = financeTabAllowed(profile, "expenses");
   const canPurchases = financeTabAllowed(profile, "purchases");
-  const canPayroll   = financeTabAllowed(profile, "payroll");
-  const canJournal   = financeTabAllowed(profile, "journal");
-  const canBank      = financeTabAllowed(profile, "bank");
+  const canPayroll = financeTabAllowed(profile, "payroll");
+  const canJournal = financeTabAllowed(profile, "journal");
+  const canBank = financeTabAllowed(profile, "bank");
   const anyAccess = canExpenses || canPurchases || canPayroll || canJournal || canBank;
-
-  // Editing is gated per kind of row, the same way each record's own page gates
-  // it — seeing a year's transactions is not the same permission as changing
-  // payroll. Invoices belong to Billing, not to a Finance tab.
-  function canEditType(type) {
-    return type === "Sales"
-      ? sectionCanEdit(profile, "billing")
-      : financeTabCanEdit(profile, TAB_BY_TYPE[type]);
-  }
-  const canEditAnything = ["Expense", "Purchase", "Payroll", "Journal", "Bank", "Sales"].some(canEditType);
+  // Editing is gated per kind of row, the same way each record's own section gates it
+  const canEditTab = useCallback((t) => financeTabCanEdit(profile, FINANCE_TAB_KEYS[t]), [profile]);
+  const canEditType = (type) => (type === "Sales" ? sectionCanEdit(profile, "billing") : financeTabCanEdit(profile, TAB_OF[type]));
 
   const [loading, setLoading] = useState(true);
-  // Every transaction, tagged with the fiscal year it falls in. Holding all of
-  // them rather than only the year on screen is what lets the Prev/Next buttons
-  // know which years actually contain anything — and it means changing year is
-  // a re-filter rather than another six round trips.
-  const [loadedRows, setLoadedRows] = useState([]);
-  // An invoice's amount is in its own currency; it is turned into NPR here so a rate that arrives
-  // after the data (or a refreshed one) is picked up without reloading.
-  const allRows = useMemo(
-    () => loadedRows.map(r => (r.docCurrency ? { ...r, amountNPR: toNPR(r.docAmount, r.docCurrency) } : r)),
-    [loadedRows, ratesVersion]
-  );
-  const [accountNames, setAccountNames] = useState([]);
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [search, setSearch] = useState("");
-  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs" — one switch for every date on the page
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState([]);                // every row of every year: stepping to another year is a re-filter, not a re-read
+  const [accounts, setAccounts] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const seq = useRef(0);
 
-  // rowKey -> in-progress edit, held until focus leaves the row group. Writing on
-  // every keystroke would be a request per character and would fight the cursor.
-  const [drafts, setDrafts] = useState({});
-  const [errors, setErrors] = useState({});   // rowKey -> why the last save was refused
-  const [saving, setSaving] = useState(null); // rowKey being written
-  const removingRef = useRef(new Set());
-  const dirtyCount = Object.keys(drafts).length;
-
-  /**
-   * Re-read every source table.
-   *
-   * `quiet` keeps the spinner off: a save or a delete refreshes the list, and
-   * swapping the whole table for "Loading…" after each one would throw away the
-   * scroll position and make a row-by-row pass through a year unusable.
-   */
-  async function load({ quiet = false } = {}) {
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    const mine = ++seq.current;
     if (!quiet) setLoading(true);
     try {
-      // The finance-tab checks below only decide what to bother fetching. RLS
-      // re-applies them server-side, so a tab someone cannot see returns
-      // nothing even if this list were wrong.
-      const [expRows, purRows, payrollRows, journalRows, bankRows, invRows, accRows] = await Promise.all([
-        canExpenses  ? fetchAll("finance_expenses")  : [],
-        canPurchases ? fetchAll("finance_purchases") : [],
-        canPayroll   ? fetchAll("finance_payroll")   : [],
-        canJournal   ? fetchAll("journal_entries")   : [],
-        canBank      ? fetchAll("bank_transactions") : [],
-        canPurchases || canJournal ? fetchAll("invoices") : [],
-        canJournal   ? fetchAll("accounts")          : [],
+      // These checks only decide what to bother fetching: row-level security re-applies them, so a kind someone cannot see comes back empty.
+      const get = (allowed, name) => (allowed ? fetchAll(name) : Promise.resolve([]));
+      const [expRows, purRows, payrollRows, journalRows, bankRows, invRows, accRows, empRows] = await Promise.all([
+        get(canExpenses, "finance_expenses"), get(canPurchases, "finance_purchases"), get(canPayroll, "finance_payroll"),
+        get(canJournal, "journal_entries"), get(canBank, "bank_transactions"), get(canPurchases || canJournal, "invoices"),
+        get(canJournal, "accounts"), get(canPayroll, "employees"),
       ]);
-
-      const out = [];
-      // A row with no usable date belongs to no year, and is dropped rather than
-      // filed under whichever year happens to be current.
-      const push = (date, row) => {
-        const fy = date ? fiscalYearForDate(date) : null;
-        if (fy) out.push({ ...row, fy, date });
-      };
-
-      expRows.forEach(r => push(r.date, {
-        key: `exp-${r.id}`, type: "Expense", src: r, region: r.region,
-        description: `${r.category || "Expense"}${r.note ? " — " + r.note : ""}`,
-        amountNPR: Number(r.amountNPR || 0), sign: -1, counts: true,
-      }));
-
-      purRows.forEach(r => push(r.date, {
-        key: `pur-${r.id}`, type: "Purchase", src: r, region: r.region,
-        description: `${r.expenseItem || r.expenseId || "Purchase"}${r.category ? " — " + r.category : ""}`,
-        amountNPR: Number(r.amountNPR || 0), sign: -1, counts: true,
-      }));
-
-      payrollRows.forEach(r => {
-        const monthIdx = MONTHS.indexOf(r.month);
-        const repDate = r.year && monthIdx >= 0 ? `${r.year}-${String(monthIdx + 1).padStart(2, "0")}-01` : null;
-        push(repDate, {
-          key: `pay-${r.id}`, type: "Payroll", src: r, region: r.region,
-          description: `${r.staffName || "Staff"}${r.role ? " — " + r.role : ""} (${r.month} ${r.year})`,
-          amountNPR: Number(r.grossNPR || r.netNPR || 0), sign: -1, counts: true,
-        });
-      });
-
-      journalRows.forEach(r => push(r.date, {
-        key: `jnl-${r.id}`, type: "Journal", src: r, region: r.region,
-        description: `${r.description || "Journal entry"} (Dr ${r.debitAccount} / Cr ${r.creditAccount})`,
-        amountNPR: Number(r.amountNPR || 0), sign: 0, counts: true,
-      }));
-
-      bankRows.forEach(r => push(r.date, {
-        // The view calls the column "amount", and the stored type is capitalised
-        // ("Credit"/"Debit") — comparing against "credit" made every
-        // transaction an outflow of zero.
-        key: `bnk-${r.id}`, type: "Bank", src: r, region: r.region,
-        description: r.description || "Bank transaction",
-        amountNPR: Number(r.amount ?? 0),
-        sign: String(r.type || "").toLowerCase() === "credit" ? 1 : -1, counts: true,
-      }));
-
-      invRows.forEach(r => {
-        // Cancelled invoices are not transactions; everything else is listed so
-        // it can be corrected here. Only a Paid one is money actually received,
-        // so only a Paid one counts toward the year's figures — exactly as
-        // before this page became editable.
-        if (r.status === "Cancelled") return;
-        const paid = r.status === "Paid";
-        const val = Number(r.totalNPR || 0);
-        push(r.date, {
-          key: `inv-${r.id}`, type: "Sales", src: r, region: r.region,
-          description: `${r.clientName || ""}${r.invoiceNumber ? " — " + r.invoiceNumber : ""}`,
-          // amountNPR is filled in from docAmount/docCurrency once the live rates are known (see allRows).
-          amountNPR: toNPR(val, r.currency), docAmount: val, docCurrency: r.currency,
-          sign: paid ? 1 : 0, counts: paid,
-        });
-      });
-
-      // Newest first by date. fetchAll has no ORDER BY, so rows sharing a date
-      // arrive in whatever order the database happens to hand them back — not
-      // necessarily the order their numbers run in (e.g. INV-005 ahead of
-      // INV-004). Doc numbers follow dates (see resequencePurchaseExpenseIds /
-      // resequenceDocNumbers), so within a day the higher number is the later
-      // one; this mirrors the tiebreak Billing.jsx's own list uses.
-      const seqNum = (entry) => {
-        const raw = entry.type === "Sales" ? entry.src.invoiceNumber
-          : entry.type === "Purchase" ? entry.src.expenseId
-          : "";
-        const m = /(\d+)\s*$/.exec(raw || "");
-        return m ? parseInt(m[1], 10) : -1;
-      };
-      out.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (seqNum(b) - seqNum(a)));
-      setLoadedRows(out);
-      setAccountNames([...new Set(accRows.map(a => a.name).filter(Boolean))]);
+      if (mine !== seq.current) return;
+      setLoaded(buildRows({ expRows, purRows, payrollRows, journalRows, bankRows, invRows }));
+      setAccounts(accRows);
+      setEmployees([...empRows].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+      setFailed(false);
+    } catch (err) {
+      console.error(err);
+      if (mine === seq.current) setFailed(true);
     } finally {
-      if (!quiet) setLoading(false);
+      if (mine === seq.current && !quiet) setLoading(false);
     }
-  }
+  }, [canExpenses, canPurchases, canPayroll, canJournal, canBank]);
 
   useEffect(() => {
     if (!anyAccess) { setLoading(false); return; }
-    load().catch(err => { console.error(err); setLoading(false); });
-    // Deliberately not keyed on fiscalYear — the data covers every year, so
-    // switching year filters what we already have.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anyAccess, canExpenses, canPurchases, canPayroll, canJournal, canBank]);
+    load().catch(console.error);
+  }, [anyAccess, load]);
 
-  /* ── Draft editing ─────────────────────────────────────────────────────── */
+  const allRows = useMemo(() => withNpr(loaded), [loaded, ratesVersion]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => allRows.filter((r) => r.fy === fiscalYear && inRegion(r, region)), [allRows, fiscalYear, region]);
 
-  const rowData = (entry) => drafts[entry.key] || initialRowData(entry.type, entry.src);
-
-  function patchRow(entry, patch) {
-    setDrafts(d => ({ ...d, [entry.key]: { ...rowData(entry), ...patch } }));
-  }
-  function patchRowItem(entry, idx, patch) {
-    setDrafts(d => {
-      const base = rowData(entry);
-      return { ...d, [entry.key]: { ...base, items: patchItems(entry.type, base.items, idx, patch) } };
-    });
-  }
-  function addRowItem(entry) {
-    setDrafts(d => {
-      const base = rowData(entry);
-      return { ...d, [entry.key]: { ...base, items: appendItem(entry.type, base.items) } };
-    });
-  }
-  function removeRowItem(entry, idx) {
-    setDrafts(d => {
-      const base = rowData(entry);
-      return { ...d, [entry.key]: { ...base, items: dropItem(entry.type, base.items, idx) } };
-    });
-  }
-
-  function clearDraft(key) {
-    setDrafts(d => { const nd = { ...d }; delete nd[key]; return nd; });
-  }
-
-  async function saveRow(entry) {
-    if (removingRef.current.has(entry.key)) return;
-    const draft = drafts[entry.key];
-    if (!draft) return;
-
-    const problem = rowError(entry.type, draft);
-    if (problem) {
-      // Keep the draft: discarding it would throw away what was typed and snap
-      // the row back with no explanation of what was wrong with it.
-      setErrors(e => ({ ...e, [entry.key]: problem }));
-      return;
-    }
-
-    setSaving(entry.key);
-    try {
-      await updateRow(COLL_BY_TYPE[entry.type], entry.src.id, rowUpdates(entry.type, draft));
-      // Marking an invoice Paid has to settle its credit as a payment row —
-      // amountPaid on the invoice is a trigger-maintained sum of those rows,
-      // so writing it directly would be recomputed away by the next payment.
-      const settlement = salesSettlement(entry.type, draft, entry.src, { recordedBy: profile?.name });
-      if (settlement) await insertRow("payments", settlement);
-      clearDraft(entry.key);
-      setErrors(e => { const ne = { ...e }; delete ne[entry.key]; return ne; });
-      await load({ quiet: true });
-    } catch (err) {
-      console.error(`Failed to update ${entry.type.toLowerCase()}:`, err);
-      setErrors(e => ({ ...e, [entry.key]: err.message || "Could not save this row." }));
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function removeRow(entry) {
-    const { verb, message } = removalPrompt(entry.type, entry.src);
-    if (!window.confirm(message)) return;
-    removingRef.current.add(entry.key);
-    try {
-      clearDraft(entry.key);
-      setLoadedRows(prev => prev.filter(r => r.key !== entry.key));
-      await deleteTransaction(entry.type, entry.src);
-      await load({ quiet: true });
-    } catch (err) {
-      console.error(`Failed to ${verb.toLowerCase()} ${entry.type.toLowerCase()}:`, err);
-      alert(`Failed to ${verb.toLowerCase()} this record: ${err.message || "Unknown error"}`);
-      await load({ quiet: true });
-    } finally {
-      removingRef.current.delete(entry.key);
-    }
-  }
-
-  /* ── Slicing ───────────────────────────────────────────────────────────── */
-
-  // Year and region are the two things this page is a slice of. Totals, the
-  // type pills and the table all read `rows`, so both cuts land everywhere.
-  const rows = useMemo(
-    () => allRows.filter(r => r.fy === fiscalYear && inRegion(r, region)),
-    [allRows, fiscalYear, region]
-  );
-
-  /**
-   * Fiscal years that actually contain something, oldest first.
-   *
-   * The current year is always included even when empty: it is where a first
-   * transaction will land, so refusing to show it would be strange, and it
-   * keeps the page navigable when the books are brand new.
-   */
-  const yearsWithData = useMemo(() => {
-    const years = new Set(allRows.map(r => r.fy));
-    years.add(fiscalYear);
-    return [...years].sort((a, b) => parseFiscalYearLabel(a).startYear - parseFiscalYearLabel(b).startYear);
+  // Fiscal years that contain something, oldest first. The current one is always there: it is where a first transaction will land.
+  const years = useMemo(() => {
+    const set = new Set(allRows.map((r) => r.fy));
+    set.add(fiscalYear);
+    return [...set].sort((a, b) => parseFiscalYearLabel(a).startYear - parseFiscalYearLabel(b).startYear);
   }, [allRows, fiscalYear]);
+  const here = years.indexOf(fiscalYear);
+  const prevYear = here > 0 ? years[here - 1] : null;
+  const nextYear = here >= 0 && here < years.length - 1 ? years[here + 1] : null;
+  const gotoYear = (label) => { if (label) navigate(`/finance/${fiscalYearToSlug(label)}`); };
 
-  // The next populated year in each direction, or null when there is none.
-  // Stepping to the neighbouring year would strand you on an empty page, and
-  // skipping to the nearest one with records means a gap in the books does not
-  // cut off everything behind it.
-  const here = yearsWithData.indexOf(fiscalYear);
-  const prevYear = here > 0 ? yearsWithData[here - 1] : null;
-  const nextYear = here >= 0 && here < yearsWithData.length - 1 ? yearsWithData[here + 1] : null;
+  const [type, setType] = useState("all");
+  const [query, setQuery] = useState("");
+  const totals = useMemo(() => yearTotals(rows), [rows]);
+  const present = TYPES.filter((t) => rows.some((r) => r.type === t));
+  const q = query.trim().toLowerCase();
+  const found = useMemo(() => rows.filter((r) => !q || has(r.description, q)), [rows, q]);
+  const shown = type === "all" ? found : found.filter((r) => r.type === type);
+  const [capped, more] = usePhoneRows(shown);
+  const typeCount = (t) => found.filter((r) => r.type === t).length;
 
-  const filtered = useMemo(() => {
-    let list = rows;
-    if (typeFilter !== "all") list = list.filter(r => r.type === typeFilter);
-    const q = search.trim().toLowerCase();
-    if (q) list = list.filter(r => r.description.toLowerCase().includes(q));
-    return list;
-  }, [rows, typeFilter, search]);
+  const [card, setCard] = useState(null);                   // a row's key
+  const open = card ? rows.find((r) => r.key === card) || null : null;
+  useEffect(() => { if (card && !loading && !open) setCard(null); }, [card, loading, open]);
 
-  // Only rows that count as money moved feed the figures — an invoice that is
-  // not yet paid is listed and editable, but it is not income.
-  const totals = useMemo(() => {
-    const counted = rows.filter(r => r.counts);
-    const byType = {};
-    for (const r of counted) byType[r.type] = (byType[r.type] || 0) + r.amountNPR;
-    const inflow  = counted.filter(r => r.sign > 0).reduce((s, r) => s + r.amountNPR, 0);
-    const outflow = counted.filter(r => r.sign < 0).reduce((s, r) => s + r.amountNPR, 0);
-    return { byType, inflow, outflow, net: inflow - outflow, uncounted: rows.length - counted.length };
-  }, [rows]);
-
-  function gotoYear(label) {
-    if (!label) return;
-    navigate(`/finance/${fiscalYearToSlug(label)}`);
+  function openRow(r) {
+    if (r.type === "Sales") { navigate("/billing", { state: { search: r.src.invoiceNumber || r.src.clientName, autoEdit: true } }); return; }
+    setCard(r.key);
   }
 
-  const types = ["Expense", "Purchase", "Payroll", "Journal", "Bank", "Sales"].filter(t => rows.some(r => r.type === t));
+  const [notice, setNotice] = useState(null);
+  const timer = useRef(0);
+  const notify = useCallback((text, tone = "bad") => { clearTimeout(timer.current); setNotice({ text, tone }); timer.current = setTimeout(() => setNotice(null), 7000); }, []);
 
+  const ctx = {
+    profile, region, show, loading, reload: () => load({ quiet: true }), notify, canEditTab, accounts, inventoryItems: [], regionVatBills: [], vatBills: [],
+    purchases: [], regionPurchases: [], newRef: { current: null },
+  };
+
+  const columns = useMemo(() => [
+    { id: "date", label: "Date", width: 116, drop: 1, first: "desc", sort: (r) => r.date || "", render: (r) => <span className="dt-num">{show(r.date)}</span> },
+    { id: "type", label: "Kind", width: 100, drop: 3, sort: (r) => r.type, render: (r) => <Chip tone={TONE[r.type]}>{r.type}</Chip> },
+    {
+      // a narrow table has no room for the date or the kind: they go under the description
+      id: "what", label: "What", grow: true, min: 160, max: 600, sort: (r) => r.description.toLowerCase(),
+      render: (r, { dropped }) => (
+        <NameCell main={r.description} rest={r.counts ? "" : "not in the totals: not paid yet"} extra={[dropped.has("date") && show(r.date), dropped.has("type") && r.type]} />
+      ),
+    },
+    {
+      id: "amt", label: "Amount", width: 132, align: "end", first: "desc", sort: (r) => r.amountNPR,
+      render: (r) => (r.sign === 0
+        ? <span className="dt-stack"><span className="dt-num dt-dim">{money(r.amountNPR)}</span></span>
+        : <Amt n={r.amountNPR} strong tone={r.sign > 0 ? "good" : "bad"} sign={r.sign > 0 ? "+ " : "− "} />),
+    },
+  ], [show, money]);
+
+  const csv = useMemo(() => [
+    { label: "Date", value: (r) => r.date }, { label: "Kind", value: (r) => r.type }, { label: "What", value: (r) => r.description },
+    { label: "Amount NPR", value: (r) => r.amountNPR }, { label: "Direction", value: (r) => (r.sign > 0 ? "In" : r.sign < 0 ? "Out" : "") },
+    { label: "Counted", value: (r) => (r.counts ? "Yes" : "No") },
+  ], []);
+
+  const rangeText = fyRange?.startAD && fyRange?.endAD ? `${show(fyRange.startAD)} to ${show(fyRange.endAD)}` : "";
+
+  if (!anyAccess) {
+    return (
+      <BentoPage className="fn-page fn-page--fy">
+        <header className="kb-head"><div className="kb-head-l"><h1>Transactions</h1></div></header>
+        <div className="kb-error" role="status"><p>You don't have permission to view Finance transactions.</p></div>
+      </BentoPage>
+    );
+  }
+
+  const cardType = open?.type;
   return (
-    <div className="kfin-wrap">
-      <button type="button" className="ghost-button" style={{ alignSelf: "flex-start", marginBottom: 12 }} onClick={() => navigate("/finance")}>
-        ← Back to Finance
-      </button>
-
-      <PageHeader
-        title={`Transactions — FY ${fiscalYear}`}
-        description={`${fyRange.startAD} to ${fyRange.endAD} (B.S. Shrawan 1 – Ashar end)`}
-        action={
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <RegionSwitch hint={false} size="sm" />
-            {/* Disabled, with the reason in the tooltip, rather than hidden —
-                a control that vanishes reads as a bug, and the title explains
-                that there is simply nothing recorded further back or forward. */}
-            <button
-              className="ghost-button"
-              style={{ padding: "6px 12px" }}
-              disabled={loading || !prevYear}
-              title={prevYear ? `Go to FY ${prevYear}` : "No earlier transactions recorded"}
-              onClick={() => gotoYear(prevYear)}
-            >
-              ← {prevYear ? `FY ${prevYear}` : "Prev Year"}
-            </button>
-            <button
-              className="ghost-button"
-              style={{ padding: "6px 12px" }}
-              disabled={loading || !nextYear}
-              title={nextYear ? `Go to FY ${nextYear}` : "No later transactions recorded"}
-              onClick={() => gotoYear(nextYear)}
-            >
-              {nextYear ? `FY ${nextYear}` : "Next Year"} →
-            </button>
+    <FinanceProvider value={ctx}>
+      <BentoPage className="fn-page fn-page--fy">
+        <header className="kb-head">
+          <div className="kb-head-l">
+            <h1>Transactions · FY {fiscalYear}</h1>
+            <p className="kb-head-sub"><span>{rangeText}</span></p>
           </div>
-        }
-      />
+          <div className="kb-head-r fn-head-r">
+            <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}><Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance</button>
+            <button type="button" className="kb-pillbtn" disabled={loading || !prevYear} title={prevYear ? `Go to FY ${prevYear}` : "No earlier transactions recorded"} onClick={() => gotoYear(prevYear)}>
+              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> {prevYear ? `FY ${prevYear}` : "Earlier year"}
+            </button>
+            <button type="button" className="kb-pillbtn" disabled={loading || !nextYear} title={nextYear ? `Go to FY ${nextYear}` : "No later transactions recorded"} onClick={() => gotoYear(nextYear)}>
+              {nextYear ? `FY ${nextYear}` : "Later year"} <Icons.ChevronRight size={14} sw={2} aria-hidden="true" />
+            </button>
+            <RegionSwitch hint={false} size="sm" untagged={countUntagged(rows)} />
+            <DateModeSwitch />
+          </div>
+        </header>
 
-      {!anyAccess && (
-        <div className="kfin-notice">ℹ You don't have permission to view Finance transactions.</div>
-      )}
+        {notice && (
+          <div className={`fn-banner fn-banner--${notice.tone}`} role="alert"><Icons.Alert size={16} sw={1.9} aria-hidden="true" /><span>{notice.text}</span></div>
+        )}
 
-      {anyAccess && (
-        <>
-          {/* Summary strip */}
-          <div className="kfin-kpis" style={{ marginBottom: 16 }}>
-            <div className="kfin-kpi">
-              <p className="kfin-kpi-label">Total Records</p>
-              <p className="kfin-kpi-value">{rows.length}</p>
-              {totals.uncounted > 0 && (
-                <p className="kfin-kpi-sub">{totals.uncounted} not counted (unpaid invoices)</p>
+        {failed ? (
+          <div className="kb-error" role="alert">
+            <p>The transactions could not load. Check your connection and try again.</p>
+            <button type="button" className="kb-btn kb-btn--ghost" onClick={() => load()}>Try again</button>
+          </div>
+        ) : (
+          <BentoGrid layout="fy">
+            <Tile area="t1" icon={<Icons.File {...ico} />} title="Records" loading={loading} className="fn-t">
+              <Figure>{rows.length}</Figure>
+              <Sub>{totals.uncounted > 0 ? <><b>{totals.uncounted}</b> not counted (unpaid invoices)</> : "in this fiscal year"}</Sub>
+            </Tile>
+            <Tile area="t2" icon={<Icons.Sales {...ico} />} title="Money in" loading={loading} className="fn-t">
+              <Figure tone="good"><Money npr={totals.inflow} compact={totals.inflow >= 1e7} /></Figure>
+              <Sub>paid sales and bank credits</Sub>
+            </Tile>
+            <Tile area="t3" icon={<Icons.Cart {...ico} />} title="Money out" loading={loading} className="fn-t">
+              <Figure><Money npr={totals.outflow} compact={totals.outflow >= 1e7} /></Figure>
+              <Sub>expenses, purchases, payroll, bank debits</Sub>
+            </Tile>
+            <Tile area="t4" tone={totals.net < 0 ? "terra" : "default"} icon={<Icons.Finance {...ico} />} title={totals.net < 0 ? "Net out" : "Net in"} loading={loading} className="fn-t">
+              <Figure tone={totals.net < 0 ? "bad" : undefined}><Money npr={Math.abs(totals.net)} compact={Math.abs(totals.net) >= 1e7} /></Figure>
+              <Sub>money in less money out</Sub>
+            </Tile>
+
+            <FinPane
+              title="Transactions" note={q || type !== "all" ? `${shown.length} of ${rows.length}` : `${rows.length} ${plural(rows.length, "record")}`} id="fin-pane"
+              tools={(
+                <>
+                  <SearchBox value={query} onChange={setQuery} placeholder="Search transactions" label="Search this year's transactions" />
+                  <FilterChips
+                    label="Which kind" value={type} onChange={setType}
+                    options={[{ value: "all", label: "All", count: found.length }, ...present.map((t) => ({ value: t, label: t, count: typeCount(t) }))]}
+                  />
+                </>
               )}
-            </div>
-            <div className="kfin-kpi">
-              <p className="kfin-kpi-label">Money In (Sales + Bank Credits)</p>
-              <p className="kfin-kpi-value" style={{ color: "var(--mint-deep)" }}>{money(totals.inflow)}</p>
-            </div>
-            <div className="kfin-kpi">
-              <p className="kfin-kpi-label">Money Out (Expenses/Purchases/Payroll/Bank Debits)</p>
-              <p className="kfin-kpi-value" style={{ color: "var(--terra)" }}>{money(totals.outflow)}</p>
-            </div>
-            <div className="kfin-kpi">
-              <p className="kfin-kpi-label">Net</p>
-              <p className="kfin-kpi-value" style={{ color: totals.net >= 0 ? "var(--mint-deep)" : "var(--terra)" }}>{money(totals.net)}</p>
-            </div>
-          </div>
+              actions={<ExportButton name={`transactions-${fiscalYearToSlug(fiscalYear)}`} columns={csv} rows={shown} />}
+              foot={(
+                <Foot>
+                  <FootSum count label={plural(shown.length, "record")} value={shown.length} />
+                  {present.map((t) => <FootSum key={t} label={t} value={money(totals.byType[t] || 0)} />)}
+                </Foot>
+              )}
+            >
+              <DataTable
+                className="fn-dense" label={`Transactions in FY ${fiscalYear}`} rows={capped} rowKey={(r) => r.key} columns={columns}
+                defaultSort={{ id: "date", dir: "desc" }} onOpen={openRow} activeKey={card || undefined}
+                rowLabel={(r) => (r.type === "Sales" ? `Open ${r.description} in Billing` : `Open ${r.type.toLowerCase()}: ${r.description}`)} loading={loading}
+                empty={<EmptyNote icon={<Icons.File size={22} sw={1.5} />}>{rows.length === 0 ? `No transactions found for FY ${fiscalYear}.` : "Nothing matches that."}</EmptyNote>}
+              />
+              {more}
+            </FinPane>
+          </BentoGrid>
+        )}
 
-          {/* Per-type breakdown */}
-          {types.length > 0 && (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-              {types.map(t => (
-                <div key={t} className="kfin-kpi" style={{ flex: "1 1 150px" }}>
-                  <TypePill type={t} />
-                  <p className="kfin-kpi-value" style={{ marginTop: 6, fontSize: 18 }}>{money(totals.byType[t] || 0)}</p>
-                  <p className="kfin-kpi-sub">{rows.filter(r => r.type === t).length} records</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Filters */}
-          <div className="kopl-filters" style={{ marginBottom: 14 }}>
-            <label className="kfin-label" style={{ margin: 0, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: "var(--ink-4)", whiteSpace: "nowrap" }}>Type</span>
-              <select className="kfin-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 13 }}>
-                <option value="all">All types</option>
-                {types.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
-            <input
-              type="text" className="kfin-input" placeholder="Search description…"
-              value={search} onChange={e => setSearch(e.target.value)}
-              style={{ padding: "6px 10px", fontSize: 13, maxWidth: 240 }}
-            />
-          </div>
-
-          {/* Transaction list */}
-          <div className="kfin-block">
-            <div className="kfin-block-hd">
-              <p className="kfin-block-title">
-                Transactions <span className="kfin-block-sub">({filtered.length})</span>
-              </p>
-              <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
-                {saving ? "Saving…"
-                  : dirtyCount ? `${dirtyCount} row${dirtyCount === 1 ? "" : "s"} with unsaved changes — press Save on each`
-                  : canEditAnything ? "Edit any field, then press Save on the row" : ""}
-              </span>
-            </div>
-
-            {!canEditAnything && (
-              <div className="kfin-notice" style={{ marginBottom: 14 }}>ℹ You don't have permission to edit these records.</div>
-            )}
-
-            {loading ? (
-              <p style={{ color: "var(--ink-4)", fontSize: 13 }}>Loading…</p>
-            ) : filtered.length === 0 ? (
-              <p style={{ color: "var(--ink-4)", fontSize: 13 }}>No transactions found for FY {fiscalYear}.</p>
-            ) : (
-              <div className="kfin-tbl-wrap">
-                <table className="kfin-tbl kfin-tbl-compact kfin-tbl--plain">
-                  <thead>
-                    <tr>
-                      <th>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          Date
-                          <button
-                            type="button"
-                            onClick={() => setDateMode(m => m === "ad" ? "bs" : "ad")}
-                            title="Switch between English (A.D.) and Nepali (B.S.) dates"
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 3,
-                              fontSize: 10.5, fontWeight: 600, color: "var(--mint-deep)", cursor: "pointer",
-                              background: "var(--mint-wash)", border: "1px solid rgba(45,155,111,.25)",
-                              borderRadius: 20, padding: "2px 7px 2px 6px", lineHeight: 1.4, textTransform: "none",
-                            }}
-                          >
-                            <span style={{ fontSize: 11 }}>⇄</span>{dateMode === "ad" ? "B.S." : "A.D."}
-                          </button>
-                        </div>
-                      </th>
-                      <th>Type</th>
-                      <th>Description</th>
-                      <th>Detail</th>
-                      <th>Particulars</th>
-                      <th>Qty</th>
-                      <th>Unit</th>
-                      <th>Rate</th>
-                      <th>Amount</th>
-                      <th>Total / Actions</th>
-                    </tr>
-                  </thead>
-
-                  {filtered.map(entry => {
-                    const data = rowData(entry);
-                    const editable = canEditType(entry.type);
-                    const { verb } = removalPrompt(entry.type, entry.src);
-                    return (
-                      <FiscalYearRowGroup
-                        key={entry.key}
-                        type={entry.type}
-                        data={data}
-                        readOnly={!editable}
-                        error={errors[entry.key]}
-                        accountNames={accountNames}
-                        dateMode={dateMode}
-                        onDateModeChange={setDateMode}
-                        onFieldChange={patch => patchRow(entry, patch)}
-                        onItemChange={(idx, patch) => patchRowItem(entry, idx, patch)}
-                        onAddItem={() => addRowItem(entry)}
-                        onRemoveItem={idx => removeRowItem(entry, idx)}
-                        dirty={!!drafts[entry.key]}
-                        saving={saving === entry.key}
-                        onSave={() => editable && saveRow(entry)}
-                        onDiscard={() => { clearDraft(entry.key); setErrors(e => { const ne = { ...e }; delete ne[entry.key]; return ne; }); }}
-                        typeCell={
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
-                            <TypePill type={entry.type} />
-                            <span style={{ fontSize: 10.5, color: "var(--ink-4)" }}>
-                              {dateMode === "bs" ? fmtDateBS(rowDate(entry.type, data)) : (rowDate(entry.type, data) || "—")}
-                            </span>
-                            {!entry.counts && (
-                              <span style={{ fontSize: 10, color: "var(--ink-4)" }} title="Only a paid invoice counts as money received.">
-                                not in totals
-                              </span>
-                            )}
-                          </div>
-                        }
-                        actionCell={editable && (
-                          <div className="kbil-tbl-actions" style={{ marginTop: 2 }}>
-                            <button className="kbil-tbl-btn kbil-tbl-btn--danger" type="button"
-                              onMouseDown={e => e.stopPropagation()}
-                              onClick={() => removeRow(entry)}>{verb}</button>
-                          </div>
-                        )}
-                      />
-                    );
-                  })}
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+        {open && cardType === "Expense" && <ExpenseCard key={open.key} expense={open.src} bill={null} onClose={() => setCard(null)} />}
+        {open && cardType === "Purchase" && <PurchaseCard key={open.key} purchase={open.src} bills={[]} parties={partiesOf(allRows.filter((r) => r.type === "Purchase").map((r) => r.src))} onClose={() => setCard(null)} />}
+        {open && cardType === "Journal" && <JournalCard key={open.key} entry={open.src} onClose={() => setCard(null)} />}
+        {open && cardType === "Bank" && <BankCard key={open.key} txn={open.src} onClose={() => setCard(null)} />}
+        {open && cardType === "Payroll" && (
+          <PayrollCard key={open.key} record={open.src} employees={employees} canEdit={canEditType("Payroll")} profile={profile} reload={() => load({ quiet: true })} onClose={() => setCard(null)} />
+        )}
+      </BentoPage>
+    </FinanceProvider>
   );
 }

@@ -1,1265 +1,362 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * Production, on the same frosted-glass bento frame as the Dashboard, Tasks and Attendance: one
+ * screen, no page scroll, the list scrolls inside its tile. The old page was four tabs (Pipeline,
+ * Order Management, Timeline & Calendar, Batch Tracking); it is one screen now:
+ *
+ *   pipeline strip   the ten stages with their counts; press one to filter the list
+ *   at a glance      open orders, pieces, due this week, what they are worth
+ *   orders           the list, or the same orders on a calendar by delivery date
+ *   needs attention  late, on hold, or waiting on stock
+ *
+ * An order opens in a card (OrderCard) where it is moved on, held, edited and annotated. The sums
+ * live in lib/production.js, the reading in hooks/useProductionData.js; this file keeps what is
+ * selected and does every write (the same writes the old page did, in the same order).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import PageHeader from "../components/PageHeader";
 import { useAuth } from "../context/AuthContext";
-import { sectionCanEdit } from "../utils/permissions";
-import { deleteRow, fetchAll, insertRow, updateRow } from "../lib/db";
-import { uploadPublicFile, deletePublicFile } from "../lib/storage";
-import { roundAmount } from "../utils/format";
-import { useRef } from "react";
-import { todayDate, tsMillis } from "../utils/date";
-import { cn, Pill, Progress, Icons } from "../components/ui";
-import ProductionCalendar from "../components/ProductionCalendar";
-import CustomerPicker from "../components/CustomerPicker";
-import Modal from "../components/Modal";
-import DualDateInput from "../components/DualDateInput";
-import { adToBsParts } from "../utils/fiscalYear";
-import { clientsFromDocuments, sameName } from "../utils/billingClients";
-import MaterialsUsedModal from "../components/MaterialsUsedModal";
-import { orderRefOf } from "../utils/productionConsumption";
-import { notifyStageChange } from "../utils/telegram";
-import { useCurrency } from "../context/CurrencyContext";
 import { useRegion } from "../context/RegionContext";
-import { RegionSwitch, RegionField } from "../components/RegionSwitch";
-import { countUntagged, filterByRegion } from "../utils/region";
-// eslint-disable-next-line no-unused-vars
-import { ORDER_STAGES, ORDER_STATUSES, ATTENDANCE_STATUSES } from "../constants/enums";
-import { awardPoints, resolveUidByName } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
+import { sectionCanEdit } from "../utils/permissions";
+import { deleteRow, insertRow, updateRow } from "../lib/db";
+import { kathmanduDate, todayDate } from "../utils/date";
+import { tsMillis } from "../utils/date";
+import { clientsFromDocuments } from "../utils/billingClients";
+import { notifyStageChange } from "../utils/telegram";
+import { awardPoints, resolveUidByName } from "../utils/rewardService";
+import { orderRefOf } from "../utils/productionConsumption";
+import { countUntagged, filterByRegion } from "../utils/region";
+import { RegionSwitch } from "../components/RegionSwitch";
+import { Icons } from "../components/ui";
+import { BentoGrid, BentoPage } from "../components/bento/Bento";
+import ConfirmDialog from "../components/tasks/ConfirmDialog";
+import MaterialsUsedModal from "../components/MaterialsUsedModal";
+import PipelineTile from "../components/production/PipelineTile";
+import GlanceTile from "../components/production/GlanceTile";
+import OrdersTile from "../components/production/OrdersTile";
+import AttentionTile from "../components/production/AttentionTile";
+import OrderCard from "../components/production/OrderCard";
+import OrderFormDialog, { emptyInvFields } from "../components/production/OrderFormDialog";
+import InvoiceDialog from "../components/production/InvoiceDialog";
+import useProductionData from "../hooks/useProductionData";
+import {
+  LAST_STAGE, MATERIALS_STAGE, STAGES, STAGES_AWAITING_STOCK_DEDUCTION, attention, dueIn30, glance, inMonth,
+  invoiceOf, nextInvoiceNumber, nextOrderNumber, pipelineCounts, selectOrders, stageIndex,
+} from "../lib/production";
+import "../components/production/production.css";
+import "../components/production/production-dialogs.css";
 
 const VAT_RATE = 0.13;
+const NOTICE_MS = 9000;
 
-function dueIn30(fromDate) {
-  const d = fromDate ? new Date(fromDate) : new Date();
-  d.setDate(d.getDate() + 30);
-  return d.toISOString().slice(0, 10);
-}
-
-const emptyInvFields = {
-  clientAddress: "", clientPhone: "", clientPAN: "",
-  dueDate: dueIn30(todayDate()), applyVAT: true, paymentTerms: "Net 30", paymentType: "CASH",
-};
-
-/* ── Batch form defaults ──────────────────────────────── */
-const initialBatchForm = {
-  date: todayDate(), cut: "", stitched: "", passed: "", rejected: "", note: "", region: ""
-};
-
-/* ── Order stages ─────────────────────────────────────── */
-const STAGES = [
-  "Order Received",
-  "Fabric Sourcing",
-  "Cutting",
-  "Stitching",
-  "Finishing & Pressing",
-  "Embellishment",
-  "Quality Check",
-  "Packing",
-  "Shipped",
-  "Delivered"
-];
-
-// Materials come out of stock when finished pieces leave Quality Check, not at
-// Cutting: a piece that is spoiled in stitching gets re-cut, and deducting at
-// Cutting would mean entering that fabric twice.
-const MATERIALS_STAGE = "Quality Check";
-const STAGES_AWAITING_STOCK_DEDUCTION = ["Packing", "Shipped"];
-
-// An order in the Embellishment stage carries any combination of these — one,
-// two, or all three — rather than moving through them as separate stages.
-const EMBELLISHMENT_TYPES = ["Buttoning", "DTF", "Embroidery"];
-
-const FABRIC_TYPES = [
-  "Terry Cotton", "Chinese Terry Fabric", "Rib Fabric", "Fleece", "Jersey",
-  "Denim", "Linen", "Polyester Blend", "Other"
-];
-
-function parseInvoiceDescription(desc) {
-  const firstLine = (desc || "").split("\n")[0] || "";
-  let styleName = firstLine;
-  let fabricType = "Terry Cotton";
-  let colorway = "";
-
-  const colorMatch = firstLine.match(/\(([^)]+)\)$/);
-  let baseDesc = firstLine;
-  if (colorMatch) {
-    colorway = colorMatch[1];
-    baseDesc = firstLine.replace(/\s*\([^)]+\)$/, "");
-  }
-
-  const parts = baseDesc.split(/\s*(?:—|-)\s*/);
-  if (parts.length > 1) {
-    styleName = parts[0].trim();
-    const fabricCandidate = parts[1].trim();
-    if (FABRIC_TYPES.includes(fabricCandidate)) {
-      fabricType = fabricCandidate;
-    } else {
-      fabricType = "Other";
-    }
-  } else {
-    styleName = baseDesc.trim();
-  }
-
-  return { styleName, fabricType, colorway };
-}
-
-const emptyOrderForm = {
-  date: todayDate(),
-  deliveryDate: "",
-  customerName: "",
-  customerId: "",
-  styleName: "",
-  fabricType: "Terry Cotton",
-  colorway: "",
-  quantity: "",
-  pricePerPcNPR: "",
-  invoiceRef: "",
-  assignedTo: "",
-  stage: "Order Received",
-  status: "Active",
-  notes: "",
-  sampleId: "",
-  sampleName: "",
-  // Not entered on the form any more. They are carried through so that saving an
-  // older order does not wipe the fabric figures it was created with.
-  fabricGramsUsed: "",
-  fabricCostPerPcNPR: "",
-  region: ""
-};
-
-function findFabricByNameProd(fabrics, name) {
-  const n = (name || "").trim().toLowerCase();
-  if (!n) return null;
-  return fabrics.find(f => (f.name || "").trim().toLowerCase() === n) || null;
-}
-
-/* ── New / Edit order form: building blocks ──────────────
-   Layout classes are the .kof-* set in styles.css. */
-
-// Label above a control. `w` is how many of the 12 desktop columns it takes (3, 4,
-// 6, 8, or 12 for a whole row); `half` lets a short field sit two-to-a-row on a
-// phone, and is only for fields narrower than a full row.
-function Field({ label, w = 12, half = false, required = false, hint, children }) {
-  return (
-    <label className={cn("kof-f", w < 12 && `kof-c${w}`, half && "kof-h")}>
-      <span className="kof-l">
-        {label}
-        {required && <span className="kof-req" aria-hidden="true">*</span>}
-      </span>
-      {children}
-      {hint && <span className="kfield-hint">{hint}</span>}
-    </label>
-  );
-}
-
-// A date in the form's calendar. The stored value is always an A.D. "YYYY-MM-DD"
-// string (or "" when unset); `mode` only decides how it is shown and entered, and the
-// chip under the field flips it for every date in the form at once (Billing does the
-// same). B.S. entry is DualDateInput's Year/Month/Day dropdowns, except while blank:
-// those have to show some date and would look chosen when nothing is, so a blank one
-// is a button that starts from today (Finance's dates follow the same rule).
-function DateField({ label, w, half, required, value, onChange, mode, onModeChange }) {
-  const blankBs = mode === "bs" && !adToBsParts(value);
-  return (
-    // Three dropdowns need more than half a phone's width, so B.S. takes the whole row.
-    <Field label={label} w={w} half={half && mode !== "bs"} required={required}>
-      <div className="kof-date">
-        {blankBs ? (
-          <div className="kof-date-blank">
-            <button type="button" className="kof-pick" onClick={() => onChange(todayDate())}>
-              Pick date <Icons.Calendar size={16} />
-            </button>
-            <button type="button" className="kof-chip" title="Click to switch calendar" onClick={() => onModeChange("ad")}>
-              <span aria-hidden="true">⇄</span> A.D.
-            </button>
-          </div>
-        ) : (
-          <DualDateInput className="kof-dd" value={value} onChange={onChange} required={required}
-            mode={mode} onModeChange={onModeChange} />
-        )}
-      </div>
-    </Field>
-  );
-}
-
-// An on/off row where the whole row is the button.
-function Switch({ checked, onChange, label, hint }) {
-  return (
-    <button type="button" role="switch" aria-checked={checked}
-      className={cn("kof-switch", checked && "is-on")}
-      onClick={() => onChange(!checked)}>
-      <span className="kof-switch-txt">
-        <span className="kof-switch-l">{label}</span>
-        {hint && <span className="kof-switch-h">{hint}</span>}
-      </span>
-      <span className="kof-track" aria-hidden="true"><span className="kof-knob" /></span>
-    </button>
-  );
-}
-
-// Offers to copy the latest invoice into a blank order. It changes wording once
-// Apply is pressed: on a phone the fields it fills can be below the fold, and a
-// button that appears to do nothing gets pressed twice.
-function SuggestionBanner({ invoice, onApply, onDismiss }) {
-  const [applied, setApplied] = useState(false);
-  const item = invoice.items?.[0];
-  const facts = [
-    invoice.invoiceNumber && `Latest invoice ${invoice.invoiceNumber}`,
-    invoice.clientName,
-    (item?.description || "").split("\n")[0],
-    item?.qty ? `${Number(item.qty).toLocaleString()} pcs` : "",
-    item?.rate ? `NPR ${roundAmount(item.rate).toLocaleString()}/pc` : "",
-  ].filter(Boolean).join(" · ");
-
-  return (
-    <div className="kof-sugg" role="region" aria-label="Smart recommendation">
-      <span className="kof-sugg-ico" aria-hidden="true">
-        {applied ? <Icons.Check size={18} /> : <Icons.Billing size={18} />}
-      </span>
-      <div className="kof-sugg-txt" aria-live="polite">
-        <strong>{applied ? "Recommendation applied" : "Smart recommendation"}</strong>
-        <span>{applied ? "Check the details below before saving." : facts}</span>
-      </div>
-      <div className="kof-sugg-act">
-        {!applied && (
-          <button type="button" className="kof-btn kof-btn--solid"
-            onClick={() => { onApply(); setApplied(true); }}>
-            Apply
-          </button>
-        )}
-        <button type="button" className="kof-btn" onClick={onDismiss}>{applied ? "Done" : "Dismiss"}</button>
-      </div>
-    </div>
-  );
-}
-
-// The invoice or challan an order belongs to, picked from the ones that exist: a
-// typed reference can point at nothing. Newest first, cancelled ones left out.
-// Invoice and challan numbers restart every fiscal year, so a number that turns up
-// more than once is shown with its year. A reference an older order already carries
-// that matches nothing listed (typed by hand before this was a picker) stays as its
-// own option, so opening and saving that order cannot blank it.
-// When `customer` is given, the list narrows to that customer's own documents —
-// by customerId for invoices, or by name for challans, which have no such column
-// at all. A value already on the order that falls outside that narrowed list is
-// never dropped silently: it is shown as "not found" (doesn't exist anywhere) or
-// "different customer" (exists, just not theirs), so a mismatch is something the
-// person sees and can decide about, not something that quietly vanishes.
-function DocumentRefSelect({ value, onChange, invoices, challans, locked, customer }) {
-  const newestFirst = (a, b) => (b.date || "").localeCompare(a.date || "");
-  const usable = d => !/^cancel/i.test(d.status || "");
-  const prep = (rows, numberField) => rows
-    .filter(usable)
-    .map(d => ({ ...d, number: d[numberField] }))
-    .filter(d => d.number)
-    .sort(newestFirst);
-  const allInv = prep(invoices, "invoiceNumber");
-  const allCh = prep(challans, "challanNumber");
-
-  const belongsToCustomer = d => !customer || d.customerId === customer.id || sameName(d.clientName, customer.name);
-  const inv = customer ? allInv.filter(belongsToCustomer) : allInv;
-  const ch = customer ? allCh.filter(belongsToCustomer) : allCh;
-
-  const count = {};
-  [...inv, ...ch].forEach(d => { count[d.number] = (count[d.number] || 0) + 1; });
-  const label = d => [
-    count[d.number] > 1 && d.fiscalYear ? `${d.number} (FY ${d.fiscalYear})` : d.number,
-    d.clientName,
-    Number(d.totalNPR) > 0 ? `NPR ${roundAmount(d.totalNPR).toLocaleString()}` : null,
-  ].filter(Boolean).join(" · ");
-
-  const selectedDoc = value ? [...allInv, ...allCh].find(d => d.number === value) : null;
-  const missing = value && !selectedDoc;
-  const elsewhere = value && selectedDoc && !count[value];
-  return (
-    <select value={locked ? "" : value} disabled={locked} onChange={e => onChange(e.target.value)}>
-      <option value="">{locked ? "New invoice — numbered when you save" : "— None —"}</option>
-      {missing && !locked && <option value={value}>{value} (not found)</option>}
-      {elsewhere && !locked && <option value={value}>{value} — {selectedDoc.clientName} (different customer)</option>}
-      {inv.length > 0 && (
-        <optgroup label="Invoices">
-          {inv.map(d => <option key={d.id} value={d.number}>{label(d)}</option>)}
-        </optgroup>
-      )}
-      {ch.length > 0 && (
-        <optgroup label="Challans">
-          {ch.map(d => <option key={d.id} value={d.number}>{label(d)}</option>)}
-        </optgroup>
-      )}
-    </select>
-  );
-}
-
-function InvoiceTotals({ quantity, price, applyVAT }) {
-  if (!(Number(quantity) > 0 && Number(price) > 0)) return null;
-  const sub = Number(quantity) * Number(price);
-  const vat = applyVAT ? sub * VAT_RATE : 0;
-  return (
-    <dl className="kof-tot">
-      <div><dt>Subtotal</dt><dd>NPR {roundAmount(sub).toLocaleString()}</dd></div>
-      {applyVAT && <div><dt>VAT 13%</dt><dd>NPR {roundAmount(vat).toLocaleString()}</dd></div>}
-      <div className="kof-tot-total"><dt>Total</dt><dd>NPR {roundAmount(sub + vat).toLocaleString()}</dd></div>
-    </dl>
-  );
-}
-
-/* ── Invoice modal (existing orders) ─────────────────── */
-function InvoiceModal({ order, fields, setFields, onClose, onSubmit, saving }) {
-  const qty  = Number(order.quantity || 0);
-  const rate = Number(order.pricePerPcNPR || 0);
-  const sub  = qty * rate;
-  const vat  = fields.applyVAT ? sub * VAT_RATE : 0;
-  const tot  = sub + vat;
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kbrf-modal" style={{ maxWidth: 520 }}>
-        <div className="kbrf-modal-hd">
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>Issue Invoice</div>
-            <div style={{ fontSize: 12, color: "var(--ink-4)", fontWeight: 400, marginTop: 2 }}>
-              {order.orderId} · {order.customerName}
-            </div>
-          </div>
-          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
-        </div>
-
-        {/* Line item preview */}
-        <div className="kprod-inv-line-preview">
-          <div className="kprod-inv-line-row">
-            <span style={{ flex: 1, fontSize: 13, color: "var(--ink)" }}>
-              {order.styleName}{order.fabricType ? ` — ${order.fabricType}` : ""}{order.colorway ? ` (${order.colorway})` : ""}
-            </span>
-            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{qty.toLocaleString()} pcs × NPR {roundAmount(rate).toLocaleString()}</span>
-          </div>
-        </div>
-
-        <div className="kprod-inv-grid" style={{ marginTop: 16 }}>
-          <label className="kprod-inv-label">
-            Client Address
-            <input className="kprod-inv-input" type="text" placeholder="Street, City, Country"
-              value={fields.clientAddress}
-              onChange={e => setFields(f => ({ ...f, clientAddress: e.target.value }))} />
-          </label>
-          <label className="kprod-inv-label">
-            Client Phone
-            <input className="kprod-inv-input" type="text" placeholder="+977 ..."
-              value={fields.clientPhone}
-              onChange={e => setFields(f => ({ ...f, clientPhone: e.target.value }))} />
-          </label>
-          <label className="kprod-inv-label">
-            PAN / Tax No.
-            <input className="kprod-inv-input" type="text" placeholder="VAT / PAN number"
-              value={fields.clientPAN}
-              onChange={e => setFields(f => ({ ...f, clientPAN: e.target.value }))} />
-          </label>
-          <label className="kprod-inv-label">
-            Due Date
-            <input className="kprod-inv-input" type="date"
-              value={fields.dueDate}
-              onChange={e => setFields(f => ({ ...f, dueDate: e.target.value }))} />
-          </label>
-          <label className="kprod-inv-label">
-            Payment Terms
-            <select className="kprod-inv-input" value={fields.paymentTerms}
-              onChange={e => setFields(f => ({ ...f, paymentTerms: e.target.value }))}>
-              <option>Net 15</option><option>Net 30</option>
-              <option>Net 45</option><option>Net 60</option>
-              <option>Due on Receipt</option>
-            </select>
-          </label>
-          <label className="kprod-inv-label">
-            Payment Type
-            <select className="kprod-inv-input" value={fields.paymentType}
-              onChange={e => setFields(f => ({ ...f, paymentType: e.target.value }))}>
-              <option value="CASH">Cash</option>
-              <option value="Bank">Bank</option>
-              <option value="Credit">Credit</option>
-            </select>
-          </label>
-          <label className="kprod-inv-label">
-            <div className="kprod-inv-vat-row">
-              <span>Apply VAT (13%)</span>
-              <button type="button"
-                className={cn("kadm-toggle", fields.applyVAT && "kadm-toggle--on")}
-                onClick={() => setFields(f => ({ ...f, applyVAT: !f.applyVAT }))}>
-                <span className="kadm-toggle-knob" />
-              </button>
-            </div>
-          </label>
-        </div>
-
-        {/* Totals */}
-        <div className="kprod-inv-totals">
-          <div className="kprod-inv-totals-row">
-            <span>Subtotal</span><span>NPR {roundAmount(sub).toLocaleString()}</span>
-          </div>
-          {fields.applyVAT && (
-            <div className="kprod-inv-totals-row">
-              <span>VAT 13%</span><span>NPR {roundAmount(vat).toLocaleString()}</span>
-            </div>
-          )}
-          <div className="kprod-inv-totals-row kprod-inv-totals-total">
-            <span>Total</span><span>NPR {roundAmount(tot).toLocaleString()}</span>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
-          <button className="ghost-button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" disabled={saving} onClick={() => onSubmit(order, fields)}>
-            {saving ? "Issuing…" : "Issue Invoice (Draft)"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Pipeline columns (6-stage view) ─────────────────── */
-const PIPELINE_COLS = [
-  {
-    id: "received",
-    label: "Order Received",
-    stages: ["Order Received"],
-    accent: "var(--blue)",
-    tone: "blue"
-  },
-  {
-    id: "cutting",
-    label: "Cutting",
-    stages: ["Fabric Sourcing", "Cutting"],
-    accent: "var(--amber)",
-    tone: "amber"
-  },
-  {
-    id: "stitching",
-    label: "Stitching",
-    stages: ["Stitching", "Finishing & Pressing"],
-    accent: "var(--terra)",
-    tone: "terra"
-  },
-  {
-    id: "embellishment",
-    label: "Embellishment",
-    stages: ["Embellishment"],
-    accent: "#db2777",
-    tone: "terra"
-  },
-  {
-    id: "qc",
-    label: "QC",
-    stages: ["Quality Check"],
-    accent: "var(--mint-2)",
-    tone: "mint"
-  },
-  {
-    id: "dispatch",
-    label: "Dispatch",
-    stages: ["Packing", "Shipped", "Delivered"],
-    accent: "#5b8af5",
-    tone: "blue"
-  },
-];
-
-function colForStage(stage) {
-  return PIPELINE_COLS.find(c => c.stages.includes(stage)) || PIPELINE_COLS[0];
-}
-
-function orderPriority(order) {
-  if (!order.deliveryDate) return { label: "Normal", tone: "neutral" };
-  const days = Math.ceil((new Date(order.deliveryDate) - new Date()) / 86400000);
-  if (days <= 5)  return { label: "Urgent", tone: "terra"   };
-  if (days <= 12) return { label: "High",   tone: "amber"  };
-  return              { label: "Normal", tone: "neutral" };
-}
-
-function stageProgress(stage) {
-  const idx = STAGES.indexOf(stage);
-  return idx < 0 ? 0 : Math.round((idx / (STAGES.length - 1)) * 100);
-}
-
-function orderStatusBadge(status) {
-  const map = {
-    Active:    "badge-ok",
-    "On Hold": "badge-warn",
-    Completed: "badge-muted",
-    Cancelled: "badge-danger"
-  };
-  return <span className={map[status] || "badge-muted"}>{status}</span>;
-}
-
-/* ── Embellishment picker ─────────────────────────────── */
-function EmbellishmentPicker({ order, canEdit, onUpdate }) {
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const selected = Array.isArray(order.embellishments) ? order.embellishments : [];
-  const all = selected.length === EMBELLISHMENT_TYPES.length;
-
-  async function save(next) {
-    if (!canEdit || saving) return;
-    setSaving(true);
-    try {
-      await updateRow("orders", order.id, { embellishments: next });
-      await onUpdate?.();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Keep the stored order matching EMBELLISHMENT_TYPES so chips read consistently.
-  function toggle(type) {
-    const next = selected.includes(type)
-      ? selected.filter(t => t !== type)
-      : EMBELLISHMENT_TYPES.filter(t => selected.includes(t) || t === type);
-    save(next);
-  }
-
-  const label = selected.length === 0
-    ? "None selected"
-    : all
-      ? "All three"
-      : selected.join(" · ");
-
-  return (
-    <div style={{ position: "relative", marginTop: 8 }} onClick={e => e.stopPropagation()}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>
-        Embellishment
-      </div>
-      <button
-        type="button"
-        className="ghost-button"
-        style={{ fontSize: 11, padding: "4px 8px", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}
-        disabled={!canEdit}
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-      >
-        <span style={{ color: selected.length ? "var(--ink)" : "var(--ink-4)" }}>{saving ? "Saving…" : label}</span>
-        <span style={{ color: "var(--ink-4)" }}>{open ? "▴" : "▾"}</span>
-      </button>
-      {open && (
-        <div style={{
-          position: "absolute", zIndex: 30, top: "100%", left: 0, right: 0, marginTop: 4,
-          background: "var(--card)", border: "1px solid var(--line-strong)",
-          borderRadius: "var(--r-input)", boxShadow: "var(--shadow-2)", padding: 4
-        }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 6px", fontSize: 11.5, fontWeight: 600, borderBottom: "1px solid var(--line)", cursor: canEdit ? "pointer" : "default" }}>
-            <input
-              type="checkbox"
-              checked={all}
-              disabled={!canEdit || saving}
-              onChange={() => save(all ? [] : [...EMBELLISHMENT_TYPES])}
-            />
-            All three
-          </label>
-          {EMBELLISHMENT_TYPES.map(type => (
-            <label key={type} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 6px", fontSize: 11.5, cursor: canEdit ? "pointer" : "default" }}>
-              <input
-                type="checkbox"
-                checked={selected.includes(type)}
-                disabled={!canEdit || saving}
-                onChange={() => toggle(type)}
-              />
-              {type}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Pipeline card ────────────────────────────────────── */
-function PipelineCard({ order, col, expanded, onToggle, onAdvance, onReverse, onEdit, canEdit, stockState, onMaterials, profile, onUpdate }) {
-  const pri = orderPriority(order);
-  const pct = stageProgress(order.stage);
-  const [dispatching, setDispatching] = useState(false);
-  const [dispatchMsg, setDispatchMsg] = useState(null); // { type: "success"|"error", text }
-  const [latestAssignment, setLatestAssignment] = useState(null);
-  const [assignmentLoading, setAssignmentLoading] = useState(false);
-
-  // Load latest assignment when card is expanded
+/** The office's today, kept current so "late" flips at midnight without a reload. */
+function useToday() {
+  const [today, setToday] = useState(() => kathmanduDate());
   useEffect(() => {
-    if (!expanded) return;
-    setAssignmentLoading(true);
-    fetchAll("order_assignments", {
-      filters: [{ field: "orderId", value: order.id }],
-      orderBy: "assignedAt", orderDir: "desc", limit: 1,
-    }).then(rows => {
-      setLatestAssignment(rows[0] || null);
-    }).catch(() => {}).finally(() => setAssignmentLoading(false));
-  }, [expanded, order.id]);
-
-  async function handleDispatch(e) {
-    e.stopPropagation();
-    setDispatching(true);
-    setDispatchMsg(null);
-    try {
-      const dispatchStage = httpsCallable(getFunctions(), "dispatchStage");
-      const result = await dispatchStage({ orderId: order.id, stage: order.stage });
-      const workerName = result?.data?.workerName || "worker";
-      setDispatchMsg({ type: "success", text: `Dispatched to ${workerName}` });
-    } catch (err) {
-      setDispatchMsg({ type: "error", text: err.message || "Dispatch failed" });
-    } finally {
-      setDispatching(false);
-    }
-  }
-
-  return (
-    <div
-      className="kprod-card"
-      draggable={canEdit}
-      onDragStart={e => e.dataTransfer.setData("orderId", order.id)}
-      onClick={onToggle}
-    >
-      <div className="kprod-card-h">
-        <span className="kprod-id">{order.orderId}</span>
-        <Pill tone={pri.tone}>{pri.label}</Pill>
-      </div>
-      <div className="kprod-card-c">{order.customerName}</div>
-      <div className="kprod-card-p">{order.styleName}</div>
-      {stockState && (
-        <div>
-          <Pill tone={stockState === "deducted" ? "mint" : "amber"}>
-            {stockState === "deducted" ? "Stock deducted" : "Stock not deducted"}
-          </Pill>
-        </div>
-      )}
-      {order.stage === "Embellishment" && (order.embellishments?.length > 0) && (
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {order.embellishments.map(t => (
-            <span key={t} style={{
-              fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: "var(--r-pill)",
-              background: "#fdf2f8", color: "#9d174d", border: "1px solid #fbcfe8"
-            }}>{t}</span>
-          ))}
-        </div>
-      )}
-      <div className="kprod-card-bar">
-        <Progress pct={pct} h={4} color={col.accent} track="rgba(15,46,34,.07)" />
-      </div>
-      <div className="kprod-card-foot">
-        <span>{Number(order.quantity || 0).toLocaleString()} pcs</span>
-        {order.deliveryDate && (
-          <span className="kprod-card-due">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-            </svg>
-            {order.deliveryDate}
-          </span>
-        )}
-      </div>
-
-      {expanded && (
-        <div
-          style={{ marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 8, fontSize: 11 }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div style={{ color: "var(--ink-3)", marginBottom: 2 }}>
-            {order.fabricType}{order.colorway ? ` · ${order.colorway}` : ""}
-          </div>
-          <div style={{ color: "var(--ink-3)" }}>
-            Stage: <strong style={{ color: "var(--ink)" }}>{order.stage}</strong>
-          </div>
-          {order.invoiceRef && (
-            <div style={{ color: "var(--ink-4)", marginTop: 2 }}>Ref: {order.invoiceRef}</div>
-          )}
-
-          {order.stage === "Embellishment" && (
-            <EmbellishmentPicker order={order} canEdit={canEdit} onUpdate={onUpdate} />
-          )}
-
-          {/* Current assignment */}
-          {assignmentLoading ? (
-            <div style={{ color: "var(--ink-4)", marginTop: 4 }}>Loading assignment…</div>
-          ) : latestAssignment ? (
-            <div style={{ color: "var(--ink-4)", marginTop: 4 }}>
-              Assigned: <strong style={{ color: "var(--ink-2)" }}>{latestAssignment.workerName}</strong>
-              {" "}({latestAssignment.status})
-            </div>
-          ) : null}
-
-          {canEdit && (
-            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              {order.status === "Active" && (
-                <>
-                  <button
-                    className="ghost-button"
-                    style={{ fontSize: 11, padding: "3px 8px" }}
-                    onClick={e => { e.stopPropagation(); onReverse(); }}
-                    disabled={STAGES.indexOf(order.stage) === 0}
-                  >← Back</button>
-                  <button
-                    className="primary-button"
-                    style={{ fontSize: 11, padding: "3px 8px" }}
-                    onClick={e => { e.stopPropagation(); onAdvance(); }}
-                    disabled={STAGES.indexOf(order.stage) === STAGES.length - 1}
-                  >{STAGES.indexOf(order.stage) === STAGES.length - 2 ? "Deliver" : "Next →"}</button>
-                </>
-              )}
-              {onMaterials && order.status === "Active" && (
-                <button
-                  className="ghost-button"
-                  style={{ fontSize: 11, padding: "3px 8px" }}
-                  onClick={e => { e.stopPropagation(); onMaterials(); }}
-                >Materials used</button>
-              )}
-              <button
-                className="ghost-button"
-                style={{ fontSize: 11, padding: "3px 8px" }}
-                onClick={e => { e.stopPropagation(); onEdit(); }}
-              >Edit</button>
-              {order.status === "Active" && (
-                <button
-                  className="ghost-button"
-                  style={{ fontSize: 11, padding: "3px 8px", borderColor: "var(--mint-deep)", color: "var(--mint-deep)" }}
-                  onClick={handleDispatch}
-                  disabled={dispatching}
-                >{dispatching ? "Dispatching…" : "Dispatch"}</button>
-              )}
-            </div>
-          )}
-
-          {/* Dispatch feedback message */}
-          {dispatchMsg && (
-            <div style={{
-              marginTop: 6,
-              fontSize: 11,
-              padding: "4px 8px",
-              borderRadius: 6,
-              background: dispatchMsg.type === "success" ? "var(--mint-soft)" : "var(--terra-soft)",
-              color: dispatchMsg.type === "success" ? "var(--mint-deep)" : "var(--terra)",
-            }}>
-              {dispatchMsg.text}
-            </div>
-          )}
-
-          {order.stageHistory?.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Stage History</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                {order.stageHistory.slice(-5).map((h, i) => (
-                  <div key={i} style={{ fontSize: 11, color: "var(--ink-3)", display: "flex", gap: 8 }}>
-                    <span style={{ fontFamily: "var(--mono)", color: "var(--ink-5)" }}>{h.date}</span>
-                    <span>{h.stage}</span>
-                    <span style={{ color: "var(--ink-4)" }}>by {h.by}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <OrderNotesSection
-            order={order}
-            canEdit={canEdit}
-            profile={profile}
-            onUpdate={onUpdate}
-          />
-        </div>
-      )}
-    </div>
-  );
+    const id = setInterval(() => setToday(kathmanduDate()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  return today;
 }
 
-/* ── Image compression helper ───────────────────────── */
-function compressImage(file, maxWidth = 2000, maxHeight = 2000, quality = 0.85) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = event => {
-      const img = new Image();
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+const findFabric = (fabrics, name) => {
+  const n = (name || "").trim().toLowerCase();
+  return n ? fabrics.find((f) => (f.name || "").trim().toLowerCase() === n) || null : null;
+};
 
-        if (width > height) {
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width = Math.round((width * maxHeight) / height);
-            height = maxHeight;
-          }
-        }
-
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-
-        canvas.toBlob(
-          blob => {
-            if (!blob) {
-              reject(new Error("Canvas conversion to Blob failed"));
-              return;
-            }
-            const compressedFile = new File([blob], file.name, {
-              type: "image/jpeg",
-              lastModified: Date.now()
-            });
-            resolve(compressedFile);
-          },
-          "image/jpeg",
-          quality
-        );
-      };
-      img.onerror = err => reject(err);
-      img.src = event.target.result;
-    };
-    reader.onerror = err => reject(err);
-  });
-}
-
-/* ── Notes and Attachments Section ─────────────────── */
-function OrderNotesSection({ order, canEdit, profile, onUpdate }) {
-  const [noteText, setNoteText] = useState("");
-  const [file, setFile] = useState(null);
-  const [compressing, setCompressing] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef(null);
-
-  async function handleFileChange(e) {
-    const selected = e.target.files[0];
-    if (!selected) {
-      setFile(null);
-      return;
-    }
-
-    if (selected.type.startsWith("image/")) {
-      setCompressing(true);
-      setFile(selected);
-      try {
-        const compressed = await compressImage(selected);
-        setFile(compressed);
-      } catch (err) {
-        console.warn("Image compression failed, using original file:", err);
-      } finally {
-        setCompressing(false);
-      }
-    } else {
-      setFile(selected);
-    }
-  }
-
-  async function handleAddNote(e) {
-    e.preventDefault();
-    if (!noteText.trim() && !file) return;
-    setUploading(true);
-    let imageUrl = null;
-    let storagePath = null;
-
-    try {
-      if (file) {
-        const uploaded = await uploadPublicFile("production-attachments", `production-notes/${order.id}`, file);
-        imageUrl = uploaded.url;
-        storagePath = uploaded.path;
-      }
-
-      const newNote = {
-        id: `note_${Date.now()}`,
-        text: noteText.trim(),
-        date: todayDate(),
-        by: profile?.name || "Unknown",
-        ...(imageUrl ? { imageUrl, storagePath } : {})
-      };
-
-      const updatedNotes = [...(order.notesList || []), newNote];
-      await updateRow("orders", order.id, { notesList: updatedNotes });
-      setNoteText("");
-      setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      if (onUpdate) onUpdate();
-    } catch (err) {
-      console.error("Failed to add note:", err);
-      alert("Failed to add note: " + err.message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handleDeleteNote(noteId, storagePath) {
-    if (!window.confirm("Are you sure you want to delete this note?")) return;
-    try {
-      await deletePublicFile("production-attachments", storagePath);
-      const updatedNotes = (order.notesList || []).filter(n => n.id !== noteId);
-      await updateRow("orders", order.id, { notesList: updatedNotes });
-      if (onUpdate) onUpdate();
-    } catch (err) {
-      console.error("Failed to delete note:", err);
-      alert("Failed to delete note: " + err.message);
-    }
-  }
-
-  return (
-    <div style={{ marginTop: 12, borderTop: "1px dashed var(--line-strong)", paddingTop: 10 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>
-        Notes &amp; Attachments
-      </div>
-
-      {/* Notes List */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-        {(!order.notesList || order.notesList.length === 0) ? (
-          <span style={{ fontSize: 11, color: "var(--ink-4)", fontStyle: "italic" }}>No notes added yet.</span>
-        ) : (
-          order.notesList.map(n => (
-            <div key={n.id} style={{ background: "var(--bg-surface-soft, #f8faf8)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 11.5 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--ink-4)", fontSize: 10, marginBottom: 4 }}>
-                <span><strong>{n.by}</strong> · {n.date}</span>
-                {canEdit && (
-                  <button
-                    onClick={() => handleDeleteNote(n.id, n.storagePath)}
-                    style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: 10, padding: 0 }}
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-              {n.text && <div style={{ color: "var(--ink)", whiteSpace: "pre-wrap" }}>{n.text}</div>}
-              {n.imageUrl && (
-                <div style={{ marginTop: 6 }}>
-                  <a href={n.imageUrl} target="_blank" rel="noopener noreferrer">
-                    <img
-                      src={n.imageUrl}
-                      alt="Attachment"
-                      style={{ maxWidth: "100%", maxHeight: 600, borderRadius: 6, border: "1px solid var(--line-strong)", cursor: "zoom-in" }}
-                    />
-                  </a>
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Add Note Form */}
-      {canEdit && (
-        <form onSubmit={handleAddNote} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <textarea
-            placeholder="Write a note..."
-            value={noteText}
-            onChange={e => setNoteText(e.target.value)}
-            rows={2}
-            style={{
-              width: "100%",
-              borderRadius: 6,
-              border: "1px solid var(--line-strong)",
-              padding: "6px 8px",
-              fontSize: 11.5,
-              fontFamily: "var(--font)",
-              resize: "vertical"
-            }}
-          />
-          {file && (
-            <div style={{ position: "relative", display: "inline-flex", marginTop: 4, marginBottom: 4, alignSelf: "flex-start" }}>
-              <img
-                src={URL.createObjectURL(file)}
-                alt="Upload preview"
-                style={{ height: 180, borderRadius: 6, border: "1px solid var(--line-strong)", objectFit: "cover" }}
-              />
-              <button
-                type="button"
-                onClick={() => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
-                style={{
-                  position: "absolute",
-                  top: -6,
-                  right: -6,
-                  background: "var(--danger, #dc2626)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "50%",
-                  width: 16,
-                  height: 16,
-                  fontSize: 10,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: "bold",
-                  lineHeight: 1
-                }}
-                title="Remove image"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <label style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--ink-3)" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/>
-                <polyline points="21 15 16 10 5 21"/>
-              </svg>
-              {compressing ? "Optimizing image..." : file ? file.name.slice(0, 15) + "..." : "Attach Picture"}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                disabled={compressing || uploading}
-                style={{ display: "none" }}
-              />
-            </label>
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={uploading || compressing || (!noteText.trim() && !file)}
-              style={{ fontSize: 10.5, padding: "4px 10px" }}
-            >
-              {uploading ? "Uploading..." : "Add Note"}
-            </button>
-          </div>
-        </form>
-      )}
-    </div>
-  );
-}
-
-/* ── Main component ───────────────────────────────────── */
-function Production() {
+export default function Production() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "production");
   // Stock rows are gated on the inventory section by the database, so deducting
   // materials needs inventory edit rights on top of production edit rights.
   const canDeductStock = canEdit && sectionCanEdit(profile, "inventory");
-  const { fmt: fmtC, money } = useCurrency();
   const { showPointsToast } = useReward();
   const { region } = useRegion();
+  const today = useToday();
+  const monthKey = today.slice(0, 7);
 
-  const [activeTab, setActiveTab] = useState("pipeline");
-  const [currentMonthOnly, setCurrentMonthOnly] = useState(false);
+  const data = useProductionData({ canDeductStock });
+  const { status, error: loadError, reload, reloadOrders, addCustomer } = data;
+  const allOrders = data.orders;
 
-  const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`; // "YYYY-MM"
-  const currentMonthName = now.toLocaleDateString("en-US", { month: "long", year: "numeric" }); // "June 2026"
-  const inCurrentMonth = (date) => (date || "").slice(0, 7) === currentMonthKey;
+  /* ── what is on screen ─────────────────────────────────── */
 
-  /* ── Batch state ── */
-  const [allBatches, setBatches] = useState([]);
-  const [batchForm, setBatchForm] = useState(initialBatchForm);
-  const [saving, setSaving] = useState(false);
+  const [view, setView] = useState("open");            // "open" | "closed"
+  const [stage, setStage] = useState("");              // one stage of the working list, or ""
+  const [quick, setQuick] = useState("");              // overdue | week | nodate | hold | stock | ""
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState("list");            // "list" | "calendar"
+  const [monthOnly, setMonthOnly] = useState(false);
 
-  /* ── Fix 3: page-level error state (auto-clears after 5s) ── */
-  const [pageError, setPageError] = useState("");
-  function showError(msg) {
-    setPageError(msg);
-    setTimeout(() => setPageError(""), 5000);
-  }
+  /* ── dialogs, and what is being done ───────────────────── */
 
-  /* ── Order state ── */
-  const [allOrders, setOrders] = useState([]);
-  const [orderForm, setOrderForm] = useState(emptyOrderForm);
-  const [showOrderForm, setShowOrderForm] = useState(false);
-  const [savingOrder, setSavingOrder] = useState(false);
-  const [editingOrder, setEditingOrder] = useState(null);
-  const [expandedOrder, setExpandedOrder] = useState(null);
-  // One calendar for every date in the order form — see DateField. It lives here rather
-  // than in the form so the choice survives closing and reopening it.
-  const [dateMode, setDateMode] = useState("ad"); // "ad" | "bs"
-  const [employees, setEmployees] = useState([]);
-  const [orderCosts, setOrderCosts] = useState({});
-  const [labourRatePerUnit, setLabourRatePerUnit] = useState(null);
-  const [allFabrics, setFabrics] = useState([]);
-  const [allSamples, setSamples] = useState([]);
-  const [allCustomers, setCustomers] = useState([]);
-  const [allChallans, setChallans] = useState([]);
-  const [allQuotations, setQuotations] = useState([]);
+  const [cardId, setCardId] = useState(null);
+  const [form, setForm] = useState(null);              // { order: the one being edited or null, back: reopen its card after }
+  const [invoiceFor, setInvoiceFor] = useState(null);
+  const [materials, setMaterials] = useState(null);    // { order, advancing }
+  const [confirm, setConfirm] = useState(null);
+  // One calendar for every date in the order form (A.D. or B.S.). It lives here rather than in the
+  // form so the choice survives closing and reopening it.
+  const [dateMode, setDateMode] = useState("ad");
+  const [busy, setBusy] = useState(() => new Map());   // order id -> how many changes to it are in flight
+  const [notice, setNotice] = useState(null);          // { text, bad, undo }: what just happened
+  const [actionError, setActionError] = useState("");
+  const noticeTimer = useRef(0);
+  const ordersRef = useRef(allOrders);
+  ordersRef.current = allOrders;
 
-  /* ── Pipeline drag state ── */
-  const [dragOver, setDragOver] = useState(null);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const say = useCallback((next) => {
+    clearTimeout(noticeTimer.current);
+    setNotice(next);
+    if (next) noticeTimer.current = setTimeout(() => setNotice(null), NOTICE_MS);
+  }, []);
+  const working = (id, on) => setBusy((m) => {
+    const n = new Map(m);
+    const count = (n.get(id) || 0) + (on ? 1 : -1);
+    if (count > 0) n.set(id, count); else n.delete(id);
+    return n;
+  });
 
-  /* ── Show completed toggle ── */
-  const [showCompleted, setShowCompleted] = useState(false);
+  /* ── region-scoped views of everything ─────────────────────
+     The switch in the header is the only thing between the raw rows and the page, so every tile,
+     count and dropdown narrows to one arm of the business without any of them having to know that.
+     Rows with no region set appear on both sides (see utils/region.js). The unfiltered rows stay in
+     scope for the two jobs that must span both: numbering the next order and invoice, which has to
+     be unique across the company, and counting what is still untagged. */
 
-  /* ── Invoice state ── */
-  const [issueInvoice,    setIssueInvoice]    = useState(false);
-  const [invFields,       setInvFields]       = useState(emptyInvFields);
-  const [allInvoices,     setInvoices]        = useState([]);
-  const [invoiceModal,    setInvoiceModal]    = useState(null); // order object
-  const [savingInvoice,   setSavingInvoice]   = useState(false);
-  const [invModalFields,  setInvModalFields]  = useState(emptyInvFields);
-
-  /* ── Materials-used state ── */
-  const [materialsModal, setMaterialsModal] = useState(null); // { order, advancing }
-  const [deductedRefs,   setDeductedRefs]   = useState(() => new Set()); // order refs with stock already deducted
-
-  /* ── Region-scoped views of everything above ────────────
-     The switch in the header is the only thing between the raw rows and the
-     page, so every board, table, stat and dropdown below narrows to one arm of
-     the business without any of them having to know that. Rows with no region
-     set appear on both sides -- see utils/region.js for why.
-
-     The all* originals stay in scope for the two jobs that must span both:
-     issuing the next order/batch/invoice number, which has to be unique across
-     the company, and reporting how much is still untagged. */
-  const orders   = useMemo(() => filterByRegion(allOrders,   region), [allOrders,   region]);
-  const batches  = useMemo(() => filterByRegion(allBatches,  region), [allBatches,  region]);
-  const fabrics  = useMemo(() => filterByRegion(allFabrics,  region), [allFabrics,  region]);
-  const samples  = useMemo(() => filterByRegion(allSamples,  region), [allSamples,  region]);
-  const invoices = useMemo(() => filterByRegion(allInvoices, region), [allInvoices, region]);
-  const challans = useMemo(() => filterByRegion(allChallans, region), [allChallans, region]);
-  const quotations = useMemo(() => filterByRegion(allQuotations, region), [allQuotations, region]);
-  // Clients who have been invoiced, sent a challan or quoted in Billing but were
-  // never added to Customers, so the customer picker offers them too. Checked against
-  // every customer, not just this region's, so one filed on the other side is not
-  // offered again as new.
+  const orders = useMemo(() => filterByRegion(allOrders, region), [allOrders, region]);
+  const invoices = useMemo(() => filterByRegion(data.invoices, region), [data.invoices, region]);
+  const challans = useMemo(() => filterByRegion(data.challans, region), [data.challans, region]);
+  const quotations = useMemo(() => filterByRegion(data.quotations, region), [data.quotations, region]);
+  const samples = useMemo(() => filterByRegion(data.samples, region), [data.samples, region]);
+  const fabrics = useMemo(() => filterByRegion(data.fabrics, region), [data.fabrics, region]);
+  const customers = useMemo(() => filterByRegion(data.customers, region), [data.customers, region]);
+  // Clients who have been invoiced, sent a challan or quoted in Billing but were never added to
+  // Customers, so the customer picker offers them too. Checked against every customer, not just this
+  // region's, so one filed on the other side is not offered again as new.
   const billingClients = useMemo(
-    () => clientsFromDocuments([...invoices, ...challans, ...quotations], allCustomers),
-    [invoices, challans, quotations, allCustomers],
+    () => clientsFromDocuments([...invoices, ...challans, ...quotations], data.customers),
+    [invoices, challans, quotations, data.customers],
   );
-  const customers = useMemo(() => filterByRegion(allCustomers, region), [allCustomers, region]);
-
-  /* ── Recommendation state & helpers ── */
-  const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
-
   const latestInvoice = useMemo(() => {
-    if (!invoices || invoices.length === 0) return null;
-    const sorted = [...invoices].sort((a, b) => {
-      const timeA = tsMillis(a.createdAt) || (a.date ? new Date(a.date).getTime() : 0);
-      const timeB = tsMillis(b.createdAt) || (b.date ? new Date(b.date).getTime() : 0);
-      return timeB - timeA;
-    });
-    return sorted[0];
+    if (!invoices.length) return null;
+    const stamp = (i) => tsMillis(i.createdAt) || (i.date ? new Date(i.date).getTime() : 0);
+    return [...invoices].sort((a, b) => stamp(b) - stamp(a))[0];
   }, [invoices]);
 
-  useEffect(() => {
-    if (showOrderForm) {
-      setDismissedSuggestion(false);
-    }
-  }, [showOrderForm]);
+  // "deducted" once any production stock-out exists for the order; "pending" for an active order that
+  // is past Quality Check with nothing deducted yet (the usual cause is an order entered late).
+  const stockStateFor = useCallback((order) => {
+    if (!canDeductStock) return null;
+    if (data.deductedRefs.has(orderRefOf(order))) return "deducted";
+    if (order.status === "Active" && STAGES_AWAITING_STOCK_DEDUCTION.includes(order.stage)) return "pending";
+    return null;
+  }, [canDeductStock, data.deductedRefs]);
 
-  function applyInvoiceSuggestion() {
-    if (!latestInvoice) return;
-    const firstItem = latestInvoice.items?.[0] || {};
-    const parsed = parseInvoiceDescription(firstItem.description || "");
+  const scoped = useMemo(() => (monthOnly ? orders.filter((o) => inMonth(o, monthKey)) : orders), [orders, monthOnly, monthKey]);
+  const stockPending = useMemo(() => new Set(scoped.filter((o) => stockStateFor(o) === "pending").map((o) => o.id)), [scoped, stockStateFor]);
+  const counts = useMemo(() => pipelineCounts(scoped), [scoped]);
+  const stats = useMemo(() => glance(scoped, today), [scoped, today]);
+  const attn = useMemo(() => attention(scoped, today, stockPending), [scoped, today, stockPending]);
+  const rows = useMemo(
+    () => selectOrders(scoped, { view, stage, query, quick, today, stockPending }),
+    [scoped, view, stage, query, quick, today, stockPending],
+  );
+  // how many the list would hold before the search box and the quick filter narrowed it
+  const base = useMemo(
+    () => selectOrders(scoped, { view, stage, today, stockPending }).length,
+    [scoped, view, stage, today, stockPending],
+  );
 
-    // The invoice carries only the client's typed name. Link the order to the customer
-    // of that name when there is one, so it does not come out as "(not linked)" while
-    // the same customer sits in the list.
-    const customer = customers.find(c => sameName(c.name, latestInvoice.clientName));
+  const cardOrder = cardId ? allOrders.find((o) => o.id === cardId) || null : null;
 
-    setOrderForm(f => ({
-      ...f,
-      customerId: customer?.id || "",
-      customerName: customer?.name || latestInvoice.clientName || "",
-      styleName: parsed.styleName,
-      fabricType: parsed.fabricType,
-      colorway: parsed.colorway,
-      quantity: firstItem.qty || "",
-      pricePerPcNPR: firstItem.rate || "",
-      invoiceRef: latestInvoice.invoiceNumber || "",
-      notes: latestInvoice.note || "",
-    }));
+  const pickStage = (nextView, nextStage) => { setView(nextView); setStage(nextStage); setQuick(""); };
+  const showQuick = (key) => { setView("open"); setStage(""); setQuick(key); setMode("list"); };
+  const clearAll = () => { setQuery(""); setQuick(""); setMonthOnly(false); };
 
-    if (latestInvoice.clientAddress || latestInvoice.clientPhone || latestInvoice.clientPAN) {
-      setIssueInvoice(true);
-      setInvFields(f => ({
-        ...f,
-        clientAddress: latestInvoice.clientAddress || "",
-        clientPhone: latestInvoice.clientPhone || "",
-        clientPAN: latestInvoice.clientPAN || "",
-        dueDate: latestInvoice.dueDate || dueIn30(todayDate()),
-        applyVAT: latestInvoice.applyVAT ?? true,
-        paymentTerms: latestInvoice.paymentTerms || "Net 30",
-      }));
-    }
-  }
+  /* ── writes ────────────────────────────────────────────── */
 
-  async function loadData() {
-    const [batchRowsRaw, orderRowsRaw, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows, challanRows, quotationRows, deductionRows] = await Promise.all([
-      fetchAll("production"),
-      fetchAll("orders"),
-      fetchAll("employees"),
-      fetchAll("invoices"),
-      fetchAll("order_costs"),
-      fetchAll("finance_payroll"),
-      fetchAll("fabrics"),
-      fetchAll("samples"),
-      fetchAll("customers"),
-      // Challans and quotations are only read to offer them (as an order's document,
-      // and for the client names on them). A role that cannot read them still gets
-      // the invoices.
-      fetchAll("challans").catch(() => []),
-      fetchAll("quotations").catch(() => []),
-      // Which orders already had their materials deducted. Only asked for by
-      // people who can act on it: the database returns nothing to anyone without
-      // inventory access, which would read as "nothing deducted".
-      canDeductStock
-        ? fetchAll("stock_movements", { filters: [{ field: "source", value: "production" }] }).catch(() => [])
-        : Promise.resolve([]),
-    ]);
-    setDeductedRefs(new Set(deductionRows.map(m => m.sourceId).filter(Boolean)));
-    setChallans(challanRows);
-    setQuotations(quotationRows);
-    setFabrics(fabricRows);
-    setSamples(sampleRows);
-    setCustomers(customerRows);
-    const batchRows = [...batchRowsRaw];
-    batchRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    setBatches(batchRows);
-
-    const orderRows = [...orderRowsRaw];
-    orderRows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    setOrders(orderRows);
-
-    setEmployees(empRows.filter(e => e.status !== "Inactive"));
-    setInvoices(invRows);
-
-    // Keyed by the order it belongs to, which is what the cards look up.
-    const costs = {};
-    costRows.forEach(c => { if (c.orderId) costs[c.orderId] = c; });
-    setOrderCosts(costs);
-
-    // Auto labour rate: last month payroll ÷ units produced
-    const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    const now = new Date();
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthName = MONTHS[lastMonth.getMonth()];
-    const lastMonthYear = lastMonth.getFullYear();
-    const lastMonthKey = lastMonth.toISOString().slice(0, 7);
-
-    const empData = empRows;
-    const prodWorkers = new Set(empData.filter(e => e.isProductionWorker).map(e => (e.name || "").toLowerCase()));
-    const lastMonthPayroll = payrollData
-      .filter(p => p.month === lastMonthName && Number(p.year) === lastMonthYear)
-      .filter(p => prodWorkers.size === 0 || prodWorkers.has((p.staffName || "").toLowerCase()))
-      .reduce((s, p) => s + Number(p.netNPR || 0), 0);
-
-    const lastMonthUnits = batchRows
-      .filter(b => (b.date || "").slice(0, 7) === lastMonthKey)
-      .reduce((s, b) => s + Number(b.passed || 0), 0);
-
-    if (lastMonthPayroll > 0 && lastMonthUnits > 0) {
-      setLabourRatePerUnit(lastMonthPayroll / lastMonthUnits);
+  /** Runs one change to one order with its row marked busy; a failure is said, not swallowed. */
+  async function runOn(order, fn, failText) {
+    working(order.id, true);
+    setActionError("");
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      console.error(failText, err);
+      setActionError(`${failText} ${err?.message || "Check your connection and try again."}`);
+      return false;
+    } finally {
+      working(order.id, false);
     }
   }
 
-  function nextInvoiceNumber(currentInvoices) {
-    // Company-wide, for the same reason as batch ids.
-    const list = currentInvoices ?? allInvoices;
-    const nums = list.map(i => parseInt((i.invoiceNumber || "INV000").replace("INV-", ""), 10)).filter(n => !isNaN(n));
-    return `INV-${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
+  async function performAdvance(order) {
+    const curIdx = stageIndex(order.stage);
+    if (curIdx >= LAST_STAGE) return null;
+    const newStage = STAGES[curIdx + 1];
+    const newStatus = newStage === "Delivered" ? "Completed" : order.status;
+    const history = [...(order.stageHistory || []), { stage: newStage, date: todayDate(), by: profile?.name || "Unknown" }];
+    await updateRow("orders", order.id, { stage: newStage, status: newStatus, stageHistory: history });
+    notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: newStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
+    // Asks the Telegram worker-assignment function ("dispatchStage": give this stage to the least-loaded free
+    // worker and message them) to do that for the new stage. It is not delivery, and it has never assigned
+    // anyone (order_assignments is empty), so a move does not wait for it.
+    try {
+      httpsCallable(getFunctions(), "dispatchStage")({ orderId: order.id, stage: newStage })
+        .catch((err) => console.warn("Dispatch skipped:", err?.message || err));
+    } catch (err) {
+      console.warn("Dispatch skipped:", err?.message || err);
+    }
+    await reloadOrders();
+    // The move has happened; a hiccup awarding points must not make it look as if it had not.
+    try {
+      if (profile?.name) {
+        const uid = await resolveUidByName(profile.name);
+        if (uid) {
+          if (newStage === "Delivered") {
+            const day = new Date(); day.setHours(0, 0, 0, 0);
+            const isOnTime = order.deliveryDate && day <= new Date(order.deliveryDate);
+            const pts = await awardPoints({
+              uid, displayName: profile.name, eventType: "order_delivered", sourceId: `${order.id}_delivered`,
+              reason: order.orderId || order.id, bonusPoints: isOnTime ? 20 : 0,
+            });
+            if (pts) showPointsToast(pts, `Order ${order.orderId || order.id} delivered`);
+          } else {
+            const pts = await awardPoints({
+              uid, displayName: profile.name, eventType: "order_stage_advanced", sourceId: `${order.id}_${newStage}`,
+              reason: `${order.orderId || order.id} → ${newStage}`,
+            });
+            if (pts) showPointsToast(pts, `${order.orderId || order.id} → ${newStage}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Could not award points:", err?.message || err);
+    }
+    return newStage;
+  }
+
+  async function moveOn(order) {
+    let to = null;
+    const ok = await runOn(order, async () => { to = await performAdvance(order); }, `Could not move ${order.orderId} on.`);
+    if (ok && to) say({ text: `${order.orderId}: ${order.stage} → ${to}`, undo: () => undoMove(order.id, to) });
+  }
+
+  // Coming out of Quality Check is when materials leave stock: ask which ones were used before the
+  // order moves on. Orders whose materials were already deducted, and people without inventory
+  // access, go straight through.
+  function advance(order) {
+    if (canDeductStock && order.stage === MATERIALS_STAGE && !data.deductedRefs.has(orderRefOf(order))) {
+      setMaterials({ order, advancing: true });
+      return undefined;
+    }
+    return moveOn(order);
+  }
+
+  async function reverseStage(order) {
+    const curIdx = stageIndex(order.stage);
+    if (curIdx <= 0) return;
+    const newStage = STAGES[curIdx - 1];
+    const history = [...(order.stageHistory || []), { stage: `↩ Reverted to ${newStage}`, date: todayDate(), by: profile?.name || "Unknown" }];
+    await updateRow("orders", order.id, { stage: newStage, status: "Active", stageHistory: history });
+    await reloadOrders();
+  }
+
+  const stepBack = (order) => runOn(order, () => reverseStage(order), `Could not move ${order.orderId} back.`);
+
+  // Undo of a move on: only while the order is still where the move left it, or it would drag back
+  // somebody else's later move.
+  async function undoMove(id, expected) {
+    say(null);
+    const cur = ordersRef.current.find((o) => o.id === id);
+    // Moving on to Delivered also completed the order, so that is the one status Undo may find besides Active.
+    const stillRunning = cur && (cur.status === "Active" || (expected === "Delivered" && cur.status === "Completed"));
+    if (!cur || cur.stage !== expected || !stillRunning) {
+      say({ text: `Can't undo: ${cur?.orderId || "that order"} has changed since.`, bad: true });
+      return;
+    }
+    const ok = await runOn(cur, () => reverseStage(cur), `Could not undo the move of ${cur.orderId}.`);
+    if (ok) say({ text: `${cur.orderId}: back to ${STAGES[stageIndex(expected) - 1]}` });
+  }
+
+  const setStatus = (order, next) => {
+    if (next === "Cancelled") {
+      setConfirm({
+        title: `Cancel ${order.orderId}?`,
+        label: "Cancel order",
+        busyLabel: "Cancelling…",
+        text: `${order.customerName || "This order"} stays on the books as cancelled. You can reactivate it later.`,
+        run: async () => {
+          try {
+            await updateRow("orders", order.id, { status: "Cancelled" });
+            await reloadOrders();
+            return true;
+          } catch (err) {
+            console.error("Failed to cancel order:", err);
+            return { ok: false, message: err?.message || "Could not cancel the order." };
+          }
+        },
+      });
+      return undefined;
+    }
+    return runOn(order, async () => {
+      await updateRow("orders", order.id, { status: next });
+      await reloadOrders();
+    }, `Could not change ${order.orderId}.`);
+  };
+
+  const askDelete = (order) => setConfirm({
+    title: `Delete ${order.orderId}?`,
+    label: "Delete order",
+    busyLabel: "Deleting…",
+    text: `This removes ${order.orderId}${order.customerName ? ` (${order.customerName})` : ""} for good, with its notes and history. It cannot be undone. To keep it on the books, cancel it instead.`,
+    run: async () => {
+      try {
+        await deleteRow("orders", order.id);
+        setCardId(null);
+        await reload();
+        return true;
+      } catch (err) {
+        console.error("Failed to delete order:", err);
+        return { ok: false, message: err?.message || "Could not delete the order." };
+      }
+    },
+  });
+
+  const saveEmbellishments = (order, next) => runOn(order, async () => {
+    await updateRow("orders", order.id, { embellishments: next });
+    await reloadOrders();
+  }, `Could not save the embellishments of ${order.orderId}.`);
+
+  async function reschedule(order, { date, deliveryDate }) {
+    try {
+      // A blank delivery date is written as null: "" is not a date, and the column refuses it.
+      await updateRow("orders", order.id, { date, deliveryDate: deliveryDate || null, updatedAt: new Date().toISOString() });
+      await reloadOrders();
+      return { ok: true };
+    } catch (err) {
+      console.error("Failed to reschedule order:", err);
+      return { ok: false, message: `Could not save the new dates: ${err?.message || "try again"}` };
+    }
   }
 
   function buildInvoiceDoc(order, fields, invNumber, orderId) {
-    const qty  = Number(order.quantity || 0);
+    const qty = Number(order.quantity || 0);
     const rate = Number(order.pricePerPcNPR || 0);
     const subtotal = qty * rate;
-    const vatAmt   = fields.applyVAT ? subtotal * VAT_RATE : 0;
-    const total    = subtotal + vatAmt;
+    const vatAmt = fields.applyVAT ? subtotal * VAT_RATE : 0;
     return {
       invoiceNumber:  invNumber,
       date:           order.date || todayDate(),
-      dueDate:        fields.dueDate || dueIn30(order.date),
+      dueDate:        fields.dueDate || dueIn30(order.date, today),
       fiscalYear:     "",
       paymentTerms:   fields.paymentTerms || "Net 30",
       clientName:     order.customerName || "",
-      // The order already knows which customer it is for (orders read it as
-      // customer_id, the form as customerId); carry it so the invoice is not the one
-      // record of that sale left unlinked.
+      // The order already knows which customer it is for (orders read it as customer_id, the form as
+      // customerId); carry it so the invoice is not the one record of that sale left unlinked.
       customerId:     order.customerId || order.customer_id || null,
       clientPAN:      fields.clientPAN || "",
       clientAddress:  fields.clientAddress || "",
@@ -1277,1135 +374,273 @@ function Production() {
       }],
       subtotalNPR:    subtotal,
       vatAmountNPR:   vatAmt,
-      totalNPR:       total,
+      totalNPR:       subtotal + vatAmt,
       linkedOrderId:  orderId || null,
       createdBy:      profile?.name || "Unknown",
     };
   }
 
-  useEffect(() => { loadData().catch(console.error); }, [canDeductStock]);
-
-  /* ── Batch helpers ── */
-  const nextBatchId = useMemo(() => {
-    // Across both regions: two arms of one company must not both mint B001.
-    const max = allBatches.reduce((m, b) => {
-      const n = Number(String(b.batchId || "").replace("B", ""));
-      return isNaN(n) ? m : Math.max(m, n);
-    }, 0);
-    return `B${String(max + 1).padStart(3, "0")}`;
-  }, [allBatches]);
-
-  async function submitBatch(e) {
-    e.preventDefault();
-    if (!canEdit) return;
-    setSaving(true);
+  /** Issue an invoice for an order that exists already. */
+  async function issueInvoice(order, fields) {
     try {
-      const passed  = Number(batchForm.passed  || 0);
-      const rejected = Number(batchForm.rejected || 0);
-      const batchRef = await insertRow("production", {
-        batchId: nextBatchId,
-        date: batchForm.date,
-        cut: Number(batchForm.cut || 0),
-        stitched: Number(batchForm.stitched || 0),
-        passed,
-        rejected,
-        note: batchForm.note,
-        region: batchForm.region || null,
-        loggedBy: profile?.name || "Unknown",
-      });
-      setBatchForm(initialBatchForm);
-      await loadData();
-      // Award QC points to the logger
-      const total = passed + rejected;
-      if (total > 0 && profile?.name) {
-        const uid = await resolveUidByName(profile.name);
-        if (uid) {
-          const passRate = passed / total;
-          let qcEventType = null;
-          if (passRate === 1) qcEventType = "qc_batch_perfect";
-          else if (passRate >= 0.9) qcEventType = "qc_batch_good";
-          if (qcEventType) {
-            const pts = await awardPoints({
-              uid,
-              displayName: profile.name,
-              eventType: qcEventType,
-              sourceId: batchRef.id,
-              reason: `Batch ${nextBatchId}`,
-            });
-            if (pts) showPointsToast(pts, `Batch ${nextBatchId} QC`);
-          }
+      const invNum = nextInvoiceNumber(data.invoices);   // company-wide, for the same reason as order numbers
+      const invDoc = buildInvoiceDoc(order, fields, invNum, order.id);
+      await insertRow("invoices", { ...invDoc, region: order.region || null });
+      await updateRow("orders", order.id, { invoiceRef: invNum });
+      await reload();
+      return { ok: true };
+    } catch (err) {
+      console.error("Failed to issue invoice:", err);
+      return { ok: false, message: `Could not issue the invoice: ${err?.message || "try again"}` };
+    }
+  }
+
+  /** The new / edit order form's save. Resolves to `{ ok, message }`. */
+  async function saveOrder({ form: f, issueInvoice: withInvoice, invFields, editing }) {
+    if (status !== "ready") return { ok: false, message: "The page has not finished loading, so the next order number is not known yet. Try again in a moment." };
+    const total = Number(f.quantity || 0) * Number(f.pricePerPcNPR || 0);
+    const materialCostTotalNPR = Number(f.quantity || 0) * Number(f.fabricCostPerPcNPR || 0);
+    try {
+      // A fabric type typed here that isn't in the priced Fabrics library yet gets saved there (no
+      // price set) so it's available, and priceable, next time, instead of being a one-off value
+      // disconnected from Inventory.
+      const typedFabricName = (f.fabricType || "").trim();
+      if (typedFabricName && !findFabric(fabrics, typedFabricName)) {
+        await insertRow("fabrics", {
+          name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
+          weight: "", status: "In Stock", swatchImageUrl: "",
+          region: f.region || region,
+        });
+      }
+
+      if (editing) {
+        await updateRow("orders", editing.id, {
+          customerName:  f.customerName,
+          customer_id:   f.customerId || null,
+          styleName:     f.styleName,
+          fabricType:    f.fabricType,
+          colorway:      f.colorway,
+          quantity:      Number(f.quantity || 0),
+          pricePerPcNPR: Number(f.pricePerPcNPR || 0),
+          totalValueNPR: total,
+          deliveryDate:  f.deliveryDate || null,       // "" is not a date: a blank one is written as null
+          // assigned_to is a foreign key into people; the view exposes the joined name as
+          // assignedTo, which is read-only.
+          assigned_to:   f.assignedTo || null,
+          invoiceRef:    f.invoiceRef,
+          notes:         f.notes,
+          sampleId:            f.sampleId || null,
+          sampleName:          f.sampleName,
+          fabricGramsUsed:     Number(f.fabricGramsUsed || 0),
+          fabricCostPerPcNPR:  Number(f.fabricCostPerPcNPR || 0),
+          materialCostTotalNPR,
+          region:              f.region || null,
+        });
+      } else {
+        const orderId = nextOrderNumber(allOrders);        // across both regions: two arms must not both mint ORD-060
+        const invNum = withInvoice ? nextInvoiceNumber(data.invoices) : null;
+        const orderDoc = {
+          ...f,
+          orderId,
+          // Defaults to the side you are looking at, which is nearly always the answer; the form
+          // field is there for when it is not.
+          region:        f.region || region,
+          deliveryDate:  f.deliveryDate || null,       // "" is not a date: a blank one is written as null
+          quantity:      Number(f.quantity || 0),
+          pricePerPcNPR: Number(f.pricePerPcNPR || 0),
+          totalValueNPR: total,
+          fabricGramsUsed:    Number(f.fabricGramsUsed || 0),
+          fabricCostPerPcNPR: Number(f.fabricCostPerPcNPR || 0),
+          materialCostTotalNPR,
+          stageHistory:  [{ stage: "Order Received", date: todayDate(), by: profile?.name || "Unknown" }],
+          createdBy:     profile?.name || "Unknown",
+          // The order carries the invoice NUMBER as invoiceRef; invoiceNumber is the invoice
+          // document's own field, not the order's.
+          ...(invNum ? { invoiceRef: invNum } : {}),
+        };
+        delete orderDoc.assignedTo;
+        orderDoc.assigned_to = f.assignedTo || null;
+        orderDoc.sampleId = f.sampleId || null;
+        // customerId is the form's own key; the column is customer_id, and toRow() drops anything it
+        // cannot map rather than erroring, so the link has to be spelled out here or it silently
+        // never persists.
+        delete orderDoc.customerId;
+        orderDoc.customer_id = f.customerId || null;
+        const orderRef = await insertRow("orders", orderDoc);
+        if (withInvoice && invNum) {
+          const invDoc = buildInvoiceDoc({ ...f, quantity: orderDoc.quantity }, invFields, invNum, orderRef.id);
+          await insertRow("invoices", { ...invDoc, region: orderDoc.region || null });
         }
       }
-    } catch (err) {
-      console.error("Failed to save batch:", err);
-      showError("Failed to save batch. Please check your connection and try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  /* ── Order helpers ── */
-  function nextOrderId() {
-    const nums = orders.map(o => parseInt((o.orderId || "ORD000").replace("ORD-", ""), 10)).filter(n => !isNaN(n));
-    return `ORD-${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
-  }
-
-  function selectOrderSample(sampleId) {
-    const sample = samples.find(s => s.id === sampleId);
-    setOrderForm(f => ({
-      ...f,
-      sampleId: sampleId || "",
-      sampleName: sample?.name || "",
-      fabricType: f.fabricType || sample?.fabric_used || f.fabricType,
-      colorway: f.colorway || sample?.color || f.colorway,
-    }));
-  }
-
-  async function submitOrder(e) {
-    e.preventDefault();
-    // The picker's `required` select is unmounted while its inline "add new
-    // customer" panel is open, so the browser cannot enforce this for us at
-    // exactly the moment a half-finished customer is on screen.
-    if (!(orderForm.customerName || "").trim()) {
-      showError("Pick a customer, or finish adding the new one, before saving the order.");
-      return;
-    }
-    setSavingOrder(true);
-    const total = Number(orderForm.quantity || 0) * Number(orderForm.pricePerPcNPR || 0);
-    const materialCostTotalNPR = Number(orderForm.quantity || 0) * Number(orderForm.fabricCostPerPcNPR || 0);
-    try {
-
-    // A fabric type typed here that isn't in the priced Fabrics library yet gets
-    // saved there (no price set) so it's available — and priceable — next time,
-    // instead of being a one-off value disconnected from Inventory.
-    const typedFabricName = (orderForm.fabricType || "").trim();
-    if (typedFabricName && !findFabricByNameProd(fabrics, typedFabricName)) {
-      await insertRow("fabrics", {
-        name: typedFabricName, pricePerKg: null, composition: "", gsm: null,
-        weight: "", status: "In Stock", swatchImageUrl: "",
-        region: orderForm.region || region,
-      });
-    }
-
-    if (editingOrder) {
-      // Edit existing order
-      await updateRow("orders", editingOrder.id, {
-        customerName:  orderForm.customerName,
-        customer_id:   orderForm.customerId || null,
-        styleName:     orderForm.styleName,
-        fabricType:    orderForm.fabricType,
-        colorway:      orderForm.colorway,
-        quantity:      Number(orderForm.quantity || 0),
-        pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
-        totalValueNPR: total,
-        deliveryDate:  orderForm.deliveryDate,
-        // assigned_to is a foreign key into people; the view exposes the
-        // joined name as assignedTo, which is read-only.
-        assigned_to:   orderForm.assignedTo || null,
-        invoiceRef:    orderForm.invoiceRef,
-        notes:         orderForm.notes,
-        sampleId:            orderForm.sampleId || null,
-        sampleName:          orderForm.sampleName,
-        fabricGramsUsed:     Number(orderForm.fabricGramsUsed || 0),
-        fabricCostPerPcNPR:  Number(orderForm.fabricCostPerPcNPR || 0),
-        materialCostTotalNPR,
-        region:              orderForm.region || null,
-      });
-      setEditingOrder(null);
-    } else {
-      // Create new order
-      const orderId = nextOrderId();
-      const invNum  = issueInvoice ? nextInvoiceNumber() : null;
-      const orderDoc = {
-        ...orderForm,
-        orderId,
-        // Defaults to the side you are looking at, which is nearly always the
-        // answer; the form field above is there for when it is not.
-        region:        orderForm.region || region,
-        quantity:      Number(orderForm.quantity || 0),
-        pricePerPcNPR: Number(orderForm.pricePerPcNPR || 0),
-        totalValueNPR: total,
-        fabricGramsUsed:    Number(orderForm.fabricGramsUsed || 0),
-        fabricCostPerPcNPR: Number(orderForm.fabricCostPerPcNPR || 0),
-        materialCostTotalNPR,
-        stageHistory:  [{ stage: "Order Received", date: todayDate(), by: profile?.name || "Unknown" }],
-        createdBy:     profile?.name || "Unknown",
-        // The order carries the invoice NUMBER as invoiceRef; invoiceNumber
-        // is the invoice document's own field, not the order's.
-        ...(invNum ? { invoiceRef: invNum } : {}),
-      };
-      delete orderDoc.assignedTo;
-      orderDoc.assigned_to = orderForm.assignedTo || null;
-      orderDoc.sampleId = orderForm.sampleId || null;
-      // customerId is the form's own key; the column is customer_id, and
-      // toRow() drops anything it cannot map rather than erroring, so the
-      // link has to be spelled out here or it silently never persists.
-      delete orderDoc.customerId;
-      orderDoc.customer_id = orderForm.customerId || null;
-      const orderRef = await insertRow("orders", orderDoc);
-      if (issueInvoice && invNum) {
-        const invDoc = buildInvoiceDoc(
-          { ...orderForm, quantity: orderDoc.quantity },
-          invFields, invNum, orderRef.id
-        );
-        await insertRow("invoices", { ...invDoc, region: orderDoc.region || null });
-      }
-    }
-
-      setOrderForm(emptyOrderForm);
-      setIssueInvoice(false);
-      setInvFields(emptyInvFields);
-      setShowOrderForm(false);
-      await loadData();
+      await reload();
+      return { ok: true };
     } catch (err) {
       console.error("Failed to save order:", err);
-      showError("Failed to save order. Please check your connection and try again.");
-    } finally {
-      setSavingOrder(false);
+      return { ok: false, message: "Failed to save the order. Please check your connection and try again." };
     }
   }
 
-  // Every way out of the order form — ✕, Cancel, Escape, a click on the backdrop —
-  // discards the draft the same way.
-  function closeOrderForm() {
-    setShowOrderForm(false);
-    setEditingOrder(null);
-    setIssueInvoice(false);
-    setInvFields(emptyInvFields);
-    setOrderForm(emptyOrderForm);
-  }
+  /* ── opening and closing things ────────────────────────── */
 
-  function handleOpenEditOrder(order) {
-    setEditingOrder(order);
-    setOrderForm({
-      date:          order.date || todayDate(),
-      deliveryDate:  order.deliveryDate || "",
-      customerName:  order.customerName || "",
-      customerId:    order.customer_id || "",
-      styleName:     order.styleName || "",
-      fabricType:    order.fabricType || "Terry Cotton",
-      colorway:      order.colorway || "",
-      quantity:      order.quantity || "",
-      pricePerPcNPR: order.pricePerPcNPR || "",
-      invoiceRef:    order.invoiceRef || "",
-      assignedTo:    order.assigned_to || "",
-      stage:         order.stage || "Order Received",
-      status:        order.status || "Active",
-      notes:         order.notes || "",
-      sampleId:            order.sampleId || "",
-      sampleName:          order.sampleName || "",
-      fabricGramsUsed:     order.fabricGramsUsed || "",
-      fabricCostPerPcNPR:  order.fabricCostPerPcNPR || "",
-      region:              order.region || "",
-    });
-    setShowOrderForm(true);
-  }
+  const openCard = (order) => { setActionError(""); setCardId(order.id); };
+  const closeCard = () => setCardId(null);
+  const openNew = () => { if (status === "ready") setForm({ order: null, back: false }); };
+  const openEdit = (order) => { setCardId(null); setForm({ order, back: true }); };
+  const closeForm = (saved) => {
+    const back = form?.back && form.order;
+    setForm(null);
+    if (back) setCardId(form.order.id);
+    if (saved && !back) say({ text: "Order added." });
+  };
 
-  /* ── Issue invoice for existing order ── */
-  async function issueInvoiceForOrder(order, fields) {
-    setSavingInvoice(true);
-    const invNum = nextInvoiceNumber();
-    const invDoc = buildInvoiceDoc(order, fields, invNum, order.id);
-    await insertRow("invoices", invDoc);
-    await updateRow("orders", order.id, { invoiceRef: invNum });
-    setInvoiceModal(null);
-    await loadData();
-    setSavingInvoice(false);
-  }
+  /* ── the page ──────────────────────────────────────────── */
 
-  // Coming out of Quality Check is when materials leave stock: ask which ones
-  // were used before the order moves on. Orders
-  // whose materials were already deducted, and people without inventory access,
-  // go straight through.
-  function advanceStage(order) {
-    if (canDeductStock && order.stage === MATERIALS_STAGE && !deductedRefs.has(orderRefOf(order))) {
-      setMaterialsModal({ order, advancing: true });
-      return;
-    }
-    return performAdvance(order);
-  }
-
-  async function handleMaterialsDone() {
-    const { order, advancing } = materialsModal;
-    setMaterialsModal(null);
-    if (advancing) await performAdvance(order);
-    else await loadData();
-  }
-
-  // "deducted" once any production stock-out exists for the order; "pending" for
-  // an active order that is past Quality Check with nothing deducted yet (the
-  // usual cause is dragging it across the board instead of using Advance).
-  function stockStateFor(order) {
-    if (!canDeductStock) return null;
-    if (deductedRefs.has(orderRefOf(order))) return "deducted";
-    if (order.status === "Active" && STAGES_AWAITING_STOCK_DEDUCTION.includes(order.stage)) return "pending";
-    return null;
-  }
-
-  async function performAdvance(order) {
-    const curIdx = STAGES.indexOf(order.stage);
-    if (curIdx >= STAGES.length - 1) return;
-    const newStage = STAGES[curIdx + 1];
-    const newStatus = newStage === "Delivered" ? "Completed" : order.status;
-    const history = [...(order.stageHistory || []), { stage: newStage, date: todayDate(), by: profile?.name || "Unknown" }];
-    await updateRow("orders", order.id, { stage: newStage, status: newStatus, stageHistory: history });
-    notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: newStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
-    // Auto-dispatch the new stage to the next available worker
-    try {
-      const dispatchFn = httpsCallable(getFunctions(), "dispatchStage");
-      await dispatchFn({ orderId: order.id, stage: newStage });
-    } catch (err) {
-      console.warn("Dispatch skipped:", err.message);
-    }
-    await loadData();
-    if (profile?.name) {
-      const uid = await resolveUidByName(profile.name);
-      if (uid) {
-        if (newStage === "Delivered") {
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          const isOnTime = order.deliveryDate && today <= new Date(order.deliveryDate);
-          const bonusPoints = isOnTime ? 20 : 0;
-          const pts = await awardPoints({
-            uid,
-            displayName: profile.name,
-            eventType: "order_delivered",
-            sourceId: order.id + "_delivered",
-            reason: order.orderId || order.id,
-            bonusPoints,
-          });
-          if (pts) showPointsToast(pts, `Order ${order.orderId || order.id} delivered`);
-        } else {
-          const pts = await awardPoints({
-            uid,
-            displayName: profile.name,
-            eventType: "order_stage_advanced",
-            sourceId: order.id + "_" + newStage,
-            reason: `${order.orderId || order.id} → ${newStage}`,
-          });
-          if (pts) showPointsToast(pts, `${order.orderId || order.id} → ${newStage}`);
-        }
-      }
-    }
-  }
-
-  async function reverseStage(order) {
-    const curIdx = STAGES.indexOf(order.stage);
-    if (curIdx <= 0) return;
-    const newStage = STAGES[curIdx - 1];
-    const history = [...(order.stageHistory || []), { stage: `↩ Reverted to ${newStage}`, date: todayDate(), by: profile?.name || "Unknown" }];
-    await updateRow("orders", order.id, { stage: newStage, status: "Active", stageHistory: history });
-    await loadData();
-  }
-
-  async function updateOrderStatus(order, status) {
-    await updateRow("orders", order.id, { status });
-    await loadData();
-  }
-
-  async function deleteOrder(order) {
-    if (!window.confirm(`Are you sure you want to permanently delete order ${order.orderId}?`)) return;
-    await deleteRow("orders", order.id);
-    await loadData();
-  }
-
-  async function moveOrderToCol(orderId, col) {
-    const order = orders.find(o => o.id === orderId);
-    if (!order || !canEdit) return;
-    const targetStage = col.stages[0];
-    if (order.stage === targetStage) return;
-    const history = [...(order.stageHistory || []), { stage: targetStage, date: todayDate(), by: profile?.name || "Unknown" }];
-    await updateRow("orders", orderId, { stage: targetStage, status: "Active", stageHistory: history });
-    notifyStageChange({ orderId: order.orderId, customerName: order.customerName, stage: targetStage, quantity: order.quantity, updatedBy: profile?.name || "Unknown" });
-    await loadData();
-  }
-
-  const filteredOrdersForList = useMemo(() => {
-    return orders.filter(o => !currentMonthOnly || inCurrentMonth(o.date) || inCurrentMonth(o.deliveryDate));
-  }, [orders, currentMonthOnly, currentMonthKey]);
-
-  const filteredBatches = useMemo(() => {
-    return batches.filter(b => !currentMonthOnly || inCurrentMonth(b.date));
-  }, [batches, currentMonthOnly, currentMonthKey]);
-
-  /* ── Stats ── */
-  const orderStats = useMemo(() => ({
-    total: filteredOrdersForList.length,
-    active: filteredOrdersForList.filter(o => o.status === "Active").length,
-    completed: filteredOrdersForList.filter(o => o.status === "Completed").length,
-    totalUnits: filteredOrdersForList.filter(o => o.status === "Active").reduce((s, o) => s + Number(o.quantity || 0), 0),
-    totalValue: filteredOrdersForList.reduce((s, o) => s + Number(o.totalValueNPR || 0), 0)
-  }), [filteredOrdersForList]);
+  const ready = status === "ready";
+  const sub = ready ? (
+    <>
+      <span>{stats.open} open</span>
+      {stats.units > 0 && <span>{stats.units.toLocaleString()} pcs</span>}
+      {stats.overdue > 0 && <span className="kb-bad">{stats.overdue} late</span>}
+      {!canEdit && <span>View only</span>}
+    </>
+  ) : status === "error" ? null : <span>Loading…</span>;
+  const title = view === "closed" ? "Finished and cancelled" : stage || "Open orders";
 
   return (
-    <>
-      <PageHeader
-        title="Production"
-        description="Track the full garment pipeline — from order through dispatch."
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <RegionSwitch untagged={countUntagged(activeTab === "batches" ? allBatches : allOrders)} />
-            {(activeTab === "orders" || activeTab === "pipeline") && canEdit && (
-              <button className="primary-button" data-tour="new-order" onClick={() => setShowOrderForm(true)}>
-                + New Order
-              </button>
-            )}
-          </div>
-        }
-      />
-
-      {!canEdit && <p className="banner-warning">UK admin view-only mode enabled.</p>}
-      {/* Fix 3: error banner */}
-      {pageError && (
-        <p className="banner-warning" style={{ background: "var(--terra-soft, #fdf2ef)", color: "var(--terra)", borderColor: "rgba(196,101,74,.3)" }}>
-          {pageError}
-        </p>
-      )}
-
-      {/* ── Tabs & Monthly View Toggle ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        <div className="tab-row" data-tour="production-tabs" style={{ marginBottom: 0 }}>
-          <button
-            className={cn("tab-button", activeTab === "pipeline" && "active")}
-            onClick={() => setActiveTab("pipeline")}
-          >
-            Pipeline
-          </button>
-          <button
-            className={cn("tab-button", activeTab === "orders" && "active")}
-            onClick={() => setActiveTab("orders")}
-          >
-            Order Management
-          </button>
-          <button
-            className={cn("tab-button", activeTab === "calendar" && "active")}
-            onClick={() => setActiveTab("calendar")}
-          >
-            Timeline &amp; Calendar
-          </button>
-          <button
-            className={cn("tab-button", activeTab === "batches" && "active")}
-            onClick={() => setActiveTab("batches")}
-          >
-            Batch Tracking
-          </button>
+    <BentoPage className="pr-page">
+      <header className="kb-head">
+        <div className="kb-head-l">
+          <h1>Production</h1>
+          <p className="kb-head-sub">{sub}</p>
         </div>
-
-        {activeTab !== "calendar" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>
-              Current Month Only ({currentMonthName})
-            </span>
-            <button
-              type="button"
-              className={cn("kadm-toggle", currentMonthOnly && "kadm-toggle--on")}
-              onClick={() => setCurrentMonthOnly(v => !v)}
-              style={{ display: "flex", alignItems: "center" }}
-            >
-              <span className="kadm-toggle-knob" />
+        <div className="kb-head-r">
+          <RegionSwitch untagged={countUntagged(allOrders)} />
+          {canEdit && (
+            <button type="button" className="kb-btn kb-btn--primary pr-newbtn" data-tour="new-order" onClick={openNew} disabled={!ready}>
+              <Icons.Plus size={14} sw={2.2} aria-hidden="true" /> New order
             </button>
-          </div>
-        )}
-      </div>
-
-      {/* ══════════════════ PIPELINE KANBAN ══════════════════ */}
-      {activeTab === "pipeline" && (
-        <>
-          {/* Mini stats strip */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-            {[
-              { label: "Total Orders",      value: orderStats.total },
-              { label: "Active",            value: orderStats.active },
-              { label: "Completed",         value: orderStats.completed },
-              { label: "Units in Pipeline", value: orderStats.totalUnits.toLocaleString() },
-            ].map(s => (
-              <div key={s.label} className="kprod-ministat" style={{
-                background: "var(--card)", borderRadius: "var(--r-card)", border: "1.5px solid var(--line)",
-                padding: "10px 18px", display: "flex", flexDirection: "column", gap: 2,
-                boxShadow: "var(--shadow-1)"
-              }}>
-                <span style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600, letterSpacing: ".03em" }}>{s.label.toUpperCase()}</span>
-                <span style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2 }}>{s.value}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Board */}
-          <div className="kprod-board">
-            {PIPELINE_COLS.map(col => {
-              const colOrders = filteredOrdersForList.filter(
-                o => col.stages.includes(o.stage) &&
-                     o.status !== "Cancelled" &&
-                     o.status !== "Completed"
-              );
-              const isOver = dragOver === col.id;
-
-              return (
-                <div
-                  key={col.id}
-                  className="kprod-col"
-                  style={isOver ? { outline: `2px dashed ${col.accent}`, outlineOffset: -2 } : undefined}
-                  onDragOver={e => { e.preventDefault(); setDragOver(col.id); }}
-                  onDragLeave={() => setDragOver(null)}
-                  onDrop={e => {
-                    e.preventDefault();
-                    setDragOver(null);
-                    const orderId = e.dataTransfer.getData("orderId");
-                    if (orderId) moveOrderToCol(orderId, col);
-                  }}
-                >
-                  <div className="kprod-col-h">
-                    <span className="kprod-col-l" style={{ color: col.accent }}>{col.label}</span>
-                    <span className="kprod-col-c">{colOrders.length}</span>
-                  </div>
-                  <div className="kprod-col-body">
-                    {colOrders.length === 0 ? (
-                      <div className="kprod-empty">No orders here</div>
-                    ) : colOrders.map(order => (
-                      <PipelineCard
-                        key={order.id}
-                        order={order}
-                        col={col}
-                        expanded={expandedOrder === order.id}
-                        onToggle={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
-                        onAdvance={() => advanceStage(order)}
-                        onReverse={() => reverseStage(order)}
-                        onEdit={() => handleOpenEditOrder(order)}
-                        canEdit={canEdit}
-                        stockState={stockStateFor(order)}
-                        onMaterials={canDeductStock ? () => setMaterialsModal({ order, advancing: false }) : undefined}
-                        profile={profile}
-                        onUpdate={loadData}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {/* ══════════════════ ORDER MANAGEMENT ══════════════════ */}
-      {activeTab === "orders" && (
-        <>
-          {/* Summary */}
-          <section className="stats-grid">
-            <article className="stat-card">
-              <p className="stat-title">Total Orders</p>
-              <h3 className="stat-value">{orderStats.total}</h3>
-              <p className="stat-note">{orderStats.active} active</p>
-            </article>
-            <article className="stat-card">
-              <p className="stat-title">Completed</p>
-              <h3 className="stat-value">{orderStats.completed}</h3>
-            </article>
-            <article className="stat-card">
-              <p className="stat-title">Units in Pipeline</p>
-              <h3 className="stat-value">{orderStats.totalUnits.toLocaleString()}</h3>
-              <p className="stat-note">active orders only</p>
-            </article>
-            <article className="stat-card">
-              <p className="stat-title">Total Order Value</p>
-              <h3 className="stat-value">{money(orderStats.totalValue)}</h3>
-            </article>
-          </section>
-
-
-
-          {/* Order list */}
-          {orders.length === 0 ? (
-            <section className="panel">
-              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No orders yet. Create your first production order above.</p>
-            </section>
-          ) : (() => {
-            const activeOrders = filteredOrdersForList.filter(o => o.status === "Active" || o.status === "On Hold");
-            const doneOrders   = filteredOrdersForList.filter(o => o.status === "Completed" || o.status === "Cancelled");
-
-            const renderOrderCard = (order) => {
-                const curIdx = STAGES.indexOf(order.stage);
-                const pct = Math.round((curIdx / (STAGES.length - 1)) * 100);
-                const isExpanded = expandedOrder === order.id;
-
-                return (
-                  <section key={order.id} className="panel" style={{ padding: "20px 24px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--accent)", fontSize: "1rem" }}>{order.orderId}</span>
-                          {orderStatusBadge(order.status)}
-                          {stockStateFor(order) === "deducted" && <Pill tone="mint">Stock deducted</Pill>}
-                          {stockStateFor(order) === "pending" && <Pill tone="amber">Stock not deducted</Pill>}
-                          {order.invoiceNumber
-                            ? <span className="kprod-inv-badge">
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                {order.invoiceNumber}
-                              </span>
-                            : canEdit && <button className="kprod-inv-issue-btn" type="button"
-                                onClick={() => { setInvoiceModal(order); setInvModalFields({ ...emptyInvFields, dueDate: dueIn30(order.date) }); }}>
-                                + Invoice
-                              </button>
-                          }
-                        </div>
-                        <p style={{ fontWeight: 600, fontSize: "1rem", marginTop: 4 }}>{order.customerName}</p>
-                        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: 2 }}>
-                          {order.quantity?.toLocaleString()} pcs · {order.styleName} · {order.fabricType}
-                          {order.colorway ? ` · ${order.colorway}` : ""}
-                          {order.totalValueNPR ? ` · ${money(order.totalValueNPR)}` : ""}
-                        </p>
-                        {(order.deliveryDate || order.assignedTo || order.invoiceRef) && (
-                          <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginTop: 3 }}>
-                            {order.deliveryDate ? `Due: ${order.deliveryDate}` : ""}
-                            {order.assignedTo ? `  ·  ${order.assignedTo}` : ""}
-                            {order.invoiceRef ? `  ·  Ref: ${order.invoiceRef}` : ""}
-                          </p>
-                        )}
-                      </div>
-                      <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "4px 10px" }}
-                        onClick={() => setExpandedOrder(isExpanded ? null : order.id)}>
-                        {isExpanded ? "Collapse" : "Details"}
-                      </button>
-                    </div>
-
-                    {/* Stage progress */}
-                    <div style={{ marginTop: 20, marginBottom: 8 }}>
-                      <div style={{ height: 6, background: "#dde8dd", borderRadius: 99, overflow: "hidden", marginBottom: 16 }}>
-                        <div style={{ height: "100%", width: `${pct}%`, background: "var(--accent)", borderRadius: 99, transition: "width 0.3s" }} />
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", position: "relative" }}>
-                        {STAGES.map((stage, idx) => {
-                          const done = idx < curIdx;
-                          const current = idx === curIdx;
-                          return (
-                            <div key={stage} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
-                              <div style={{
-                                width: 28, height: 28, borderRadius: "50%",
-                                background: done ? "var(--accent)" : current ? "var(--accent-soft)" : "#dde8dd",
-                                color: done || current ? "#fff" : "var(--text-muted)",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                fontWeight: 700, fontSize: "0.75rem",
-                                border: current ? "3px solid var(--accent)" : "3px solid transparent",
-                                marginBottom: 6
-                              }}>
-                                {done ? "✓" : idx + 1}
-                              </div>
-                              <span style={{
-                                fontSize: "0.72rem", textAlign: "center", lineHeight: 1.3,
-                                color: done || current ? "var(--text-main)" : "var(--text-muted)",
-                                fontWeight: current ? 700 : done ? 500 : 400,
-                                maxWidth: 64
-                              }}>
-                                {stage}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {canEdit && (
-                      <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                        {order.status === "Active" && (
-                          <>
-                            <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
-                              onClick={() => reverseStage(order)} disabled={curIdx === 0}>
-                              ← Previous Stage
-                            </button>
-                            <button className="primary-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
-                              onClick={() => advanceStage(order)} disabled={curIdx === STAGES.length - 1}>
-                              {curIdx === STAGES.length - 2 ? "Mark Delivered" : "Advance Stage →"}
-                            </button>
-                          </>
-                        )}
-                        {order.status === "Active" && (
-                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--warn)", borderColor: "rgba(230,81,0,0.35)" }}
-                            onClick={() => updateOrderStatus(order, "On Hold")}>
-                            Hold
-                          </button>
-                        )}
-                        {order.status === "On Hold" && (
-                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--ok)", borderColor: "rgba(46,125,50,0.4)" }}
-                            onClick={() => updateOrderStatus(order, "Active")}>
-                            Resume
-                          </button>
-                        )}
-                        {(order.status === "Active" || order.status === "On Hold") && (
-                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--danger)", borderColor: "rgba(220,38,38,0.4)" }}
-                            onClick={() => {
-                              if (window.confirm(`Cancel order ${order.orderId}?`)) updateOrderStatus(order, "Cancelled");
-                            }}>
-                            Cancel Order
-                          </button>
-                        )}
-                        {order.status === "Cancelled" && (
-                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--ok)", borderColor: "rgba(46,125,50,0.4)" }}
-                            onClick={() => updateOrderStatus(order, "Active")}>
-                            Reactivate
-                          </button>
-                        )}
-                        {canDeductStock && order.status === "Active" && (
-                          <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
-                            onClick={() => setMaterialsModal({ order, advancing: false })}>
-                            Materials used
-                          </button>
-                        )}
-                        <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px" }}
-                          onClick={() => handleOpenEditOrder(order)}>
-                          Edit
-                        </button>
-                        <button className="ghost-button" style={{ fontSize: "0.82rem", padding: "5px 14px", color: "var(--danger)", borderColor: "rgba(220,38,38,0.4)" }}
-                          onClick={() => deleteOrder(order)}>
-                          Delete
-                        </button>
-                      </div>
-                    )}
-
-                    {isExpanded && (() => {
-                      const costKey = order.orderId || order.id;
-                      const costs = orderCosts[costKey] || {};
-                      const revenue = Number(order.totalValueNPR || 0);
-                      const mat = Number(costs.material || 0);
-                      const hasManualLabour = costs.labour != null && costs.labour !== "";
-                      const autoLab = (!hasManualLabour && labourRatePerUnit)
-                        ? Math.round(labourRatePerUnit * Number(order.quantity || 0))
-                        : 0;
-                      const lab = hasManualLabour ? Number(costs.labour) : autoLab;
-                      const labIsAuto = !hasManualLabour && autoLab > 0;
-                      const ovh = Number(costs.overhead || 0);
-                      const shp = Number(costs.shipping || 0);
-                      const totalCost = mat + lab + ovh + shp;
-                      const profit = revenue - totalCost;
-                      const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : null;
-                      const hasCosts = totalCost > 0;
-                      return (
-                        <div style={{ marginTop: 14, padding: "12px 14px", background: "var(--bg-2)", borderRadius: 10, border: "1px solid var(--line)" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 10 }}>P&L</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10 }}>
-                            {[
-                              { label: "Revenue", value: fmtC(revenue), color: "var(--mint-deep)" },
-                              { label: "Materials", value: hasCosts ? fmtC(mat) : "—", color: "var(--ink-3)" },
-                              { label: labIsAuto ? "Labour ⚡" : "Labour", value: (hasCosts || labIsAuto) ? fmtC(lab) : "—", color: "var(--ink-3)" },
-                              { label: "Overhead", value: hasCosts ? fmtC(ovh) : "—", color: "var(--ink-3)" },
-                              { label: "Shipping", value: hasCosts ? fmtC(shp) : "—", color: "var(--ink-3)" },
-                              { label: "Profit", value: (hasCosts || labIsAuto) ? fmtC(profit) : "—", color: (hasCosts || labIsAuto) ? (profit >= 0 ? "var(--mint-deep)" : "var(--terra)") : "var(--ink-4)" },
-                              ...(margin !== null && (hasCosts || labIsAuto) ? [{ label: "Margin", value: `${margin}%`, color: Number(margin) >= 20 ? "var(--mint-deep)" : Number(margin) >= 0 ? "var(--amber)" : "var(--terra)" }] : []),
-                            ].map(({ label, value, color }) => (
-                              <div key={label} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                <span style={{ fontSize: 10, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</span>
-                                <span style={{ fontSize: 14, fontWeight: 600, color, fontFamily: "var(--mono)" }}>{value}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {labIsAuto && (
-                            <p style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 6 }}>
-                              ⚡ Labour auto-calculated from last month's payroll ÷ units
-                            </p>
-                          )}
-                          {!hasCosts && !labIsAuto && (
-                            <p style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 8 }}>
-                              No payroll data yet — enter costs in Finance → Order P&L
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {isExpanded && (
-                      <div style={{ marginTop: 16, borderTop: "1.5px solid var(--line)", paddingTop: 14 }}>
-                        <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.05em", marginBottom: 8 }}>STAGE HISTORY</p>
-                        {(order.stageHistory || []).map((h, i) => (
-                          <div key={i} style={{ display: "flex", gap: 12, fontSize: "0.83rem", padding: "3px 0", borderBottom: "1px solid var(--line)" }}>
-                            <span style={{ color: "var(--text-muted)", minWidth: 90 }}>{h.date}</span>
-                            <span style={{ fontWeight: 500 }}>{h.stage}</span>
-                            <span style={{ color: "var(--text-muted)", marginLeft: "auto" }}>{h.by}</span>
-                          </div>
-                        ))}
-                        {order.notes && (
-                          <p style={{ marginTop: 10, fontSize: "0.85rem", color: "var(--text-muted)", padding: "8px 12px", background: "var(--bg-surface-soft)", borderRadius: 8 }}>
-                            {order.notes}
-                          </p>
-                        )}
-                        <OrderNotesSection
-                          order={order}
-                          canEdit={canEdit}
-                          profile={profile}
-                          onUpdate={loadData}
-                        />
-                      </div>
-                    )}
-                  </section>
-                );
-            };
-
-            return (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-                {/* ── Active / On Hold orders ── */}
-                {activeOrders.length === 0 ? (
-                  <section className="panel" style={{ padding: "24px", textAlign: "center" }}>
-                    <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                      No active orders in progress.
-                    </p>
-                  </section>
-                ) : activeOrders.map(renderOrderCard)}
-
-                {/* ── Completed / Cancelled section ── */}
-                {doneOrders.length > 0 && (
-                  <div>
-                    <button
-                      onClick={() => setShowCompleted(v => !v)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        background: "none", border: "none", cursor: "pointer",
-                        padding: "6px 2px", marginBottom: 10, color: "var(--text-muted)",
-                        fontSize: "0.82rem", fontWeight: 600
-                      }}
-                    >
-                      <span style={{
-                        display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        width: 18, height: 18, borderRadius: "50%",
-                        background: "var(--bg-2)", color: "var(--ink-3)",
-                        fontSize: 10, fontWeight: 700, transition: "transform .2s",
-                        transform: showCompleted ? "rotate(90deg)" : "rotate(0deg)"
-                      }}>▶</span>
-                      Completed &amp; Cancelled
-                      <span style={{
-                        background: "var(--bg-2)", color: "var(--ink-3)",
-                        borderRadius: 20, padding: "1px 8px", fontSize: "0.78rem", fontWeight: 700
-                      }}>{doneOrders.length}</span>
-                    </button>
-
-                    {showCompleted && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 12, opacity: 0.8 }}>
-                        {doneOrders.map(renderOrderCard)}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </>
-      )}
-
-      {/* ══════════════════ TIMELINE & CALENDAR ══════════════════ */}
-      {activeTab === "calendar" && (
-        <ProductionCalendar 
-          orders={orders} 
-          canEdit={canEdit} 
-          onUpdate={loadData} 
-        />
-      )}
-
-      {/* ══════════════════ BATCH TRACKING ══════════════════ */}
-      {activeTab === "batches" && (
-        <>
-          <section className="panel">
-            <h3>Add Batch ({nextBatchId})</h3>
-            <form className="grid-form" onSubmit={submitBatch}>
-              <label>
-                Date
-                <input type="date" value={batchForm.date} required disabled={!canEdit}
-                  onChange={e => setBatchForm(f => ({ ...f, date: e.target.value }))} />
-              </label>
-              <label>
-                Cut
-                <input type="number" value={batchForm.cut} required disabled={!canEdit}
-                  onChange={e => setBatchForm(f => ({ ...f, cut: e.target.value }))} />
-              </label>
-              <label>
-                Stitched
-                <input type="number" value={batchForm.stitched} required disabled={!canEdit}
-                  onChange={e => setBatchForm(f => ({ ...f, stitched: e.target.value }))} />
-              </label>
-              <label>
-                Passed
-                <input type="number" value={batchForm.passed} required disabled={!canEdit}
-                  onChange={e => setBatchForm(f => ({ ...f, passed: e.target.value }))} />
-              </label>
-              <label>
-                Rejected
-                <input type="number" value={batchForm.rejected} required disabled={!canEdit}
-                  onChange={e => setBatchForm(f => ({ ...f, rejected: e.target.value }))} />
-              </label>
-              <RegionField
-                value={batchForm.region}
-                disabled={!canEdit}
-                onChange={v => setBatchForm(f => ({ ...f, region: v }))}
-                hint="Which arm of the business ran this batch."
-              />
-              <label className="full-width">
-                Note
-                <input type="text" value={batchForm.note} disabled={!canEdit}
-                  onChange={e => setBatchForm(f => ({ ...f, note: e.target.value }))} />
-              </label>
-              <button type="submit" className="primary-button" disabled={!canEdit || saving}>
-                {saving ? "Saving…" : "Add Batch"}
-              </button>
-            </form>
-          </section>
-
-          <section className="panel">
-            <h3>All Batches</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Batch</th><th>Date</th><th>Cut</th><th>Stitched</th>
-                    <th>Passed</th><th>Rejected</th><th>Pass Rate</th><th>Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBatches.length === 0 ? (
-                    <tr>
-                      <td colSpan="8" style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px" }}>
-                        No batches found for this month.
-                      </td>
-                    </tr>
-                  ) : filteredBatches.map(batch => {
-                    const inspected = Number(batch.passed || 0) + Number(batch.rejected || 0);
-                    const passRate = inspected ? ((Number(batch.passed || 0) / inspected) * 100).toFixed(1) : "0.0";
-                    return (
-                      <tr key={batch.id}>
-                        <td style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--accent)" }}>{batch.batchId}</td>
-                        <td>{batch.date}</td>
-                        <td>{batch.cut}</td>
-                        <td>{batch.stitched}</td>
-                        <td>{batch.passed}</td>
-                        <td>{batch.rejected}</td>
-                        <td>
-                          <span style={{ color: Number(passRate) >= 90 ? "var(--ok)" : Number(passRate) >= 75 ? "var(--warn)" : "var(--danger)", fontWeight: 600 }}>
-                            {passRate}%
-                          </span>
-                        </td>
-                        <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>{batch.note}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-
-      {/* ── Materials used: confirm and deduct stock ── */}
-      {materialsModal && (
-        <MaterialsUsedModal
-          order={materialsModal.order}
-          advancing={materialsModal.advancing}
-          onClose={() => { setMaterialsModal(null); loadData(); }}
-          onDone={handleMaterialsDone}
-        />
-      )}
-
-      {/* ── Invoice modal for existing orders ── */}
-      {invoiceModal && (
-        <InvoiceModal
-          order={invoiceModal}
-          fields={invModalFields}
-          setFields={setInvModalFields}
-          onClose={() => setInvoiceModal(null)}
-          onSubmit={issueInvoiceForOrder}
-          saving={savingInvoice}
-        />
-      )}
-      {/* ── Order Form Modal (New / Edit) ──
-          Shell, scrolling and phone bottom-sheet behaviour live in components/Modal.jsx;
-          the layout classes are .kof-* in styles.css. */}
-      {showOrderForm && canEdit && (
-        <Modal
-          size="lg"
-          title={editingOrder ? `Edit Order — ${editingOrder.orderId}` : "New Production Order"}
-          onClose={closeOrderForm}
-          onSubmit={submitOrder}
-          footer={
-            <>
-              {/* submitOrder reports through pageError, which on the page sits behind
-                  this dialog's backdrop, so a failed save has to be said in here. */}
-              {pageError && <p className="kmodal-msg kmodal-msg--err" role="alert">{pageError}</p>}
-              <button type="button" className="ghost-button" onClick={closeOrderForm}>Cancel</button>
-              <button type="submit" className="primary-button" disabled={savingOrder}>
-                {savingOrder ? "Saving…" : editingOrder ? "Save Changes" : issueInvoice ? "Create Order + Invoice" : "Create Order"}
-              </button>
-            </>
-          }
-        >
-          {latestInvoice && !dismissedSuggestion && !editingOrder && (
-            <SuggestionBanner
-              invoice={latestInvoice}
-              onApply={applyInvoiceSuggestion}
-              onDismiss={() => setDismissedSuggestion(true)}
-            />
           )}
+        </div>
+      </header>
 
-          <div className="kof">
-            <h3 className="kof-sec">Customer &amp; dates</h3>
-            <div className="kof-f">
-              <label className="kof-l" htmlFor="kof-customer">
-                Customer<span className="kof-req" aria-hidden="true">*</span>
-              </label>
-              <CustomerPicker
-                id="kof-customer"
-                customers={customers}
-                suggestions={billingClients}
-                valueId={orderForm.customerId}
-                valueName={orderForm.customerName}
-                onChange={({ id, name }) => setOrderForm(f => ({ ...f, customerId: id, customerName: name }))}
-                onCustomerCreated={c => setCustomers(list => [...list, c])}
-                canCreate={sectionCanEdit(profile, "customers")}
-              />
-            </div>
-            <DateField label="Order Date" w={6} half required
-              value={orderForm.date} onChange={v => setOrderForm(f => ({ ...f, date: v }))}
-              mode={dateMode} onModeChange={setDateMode} />
-            <DateField label="Delivery Date" w={6} half
-              value={orderForm.deliveryDate} onChange={v => setOrderForm(f => ({ ...f, deliveryDate: v }))}
-              mode={dateMode} onModeChange={setDateMode} />
-
-            <h3 className="kof-sec">Garment</h3>
-            <Field label="Style / Item Name" w={6} required>
-              <input type="text" value={orderForm.styleName} required placeholder="e.g. Men's Hoodie"
-                onChange={e => setOrderForm(f => ({ ...f, styleName: e.target.value }))} />
-            </Field>
-            <Field label="Sample" w={6}>
-              <select value={orderForm.sampleId} onChange={e => selectOrderSample(e.target.value)}>
-                <option value="">— None —</option>
-                {samples.map(s => <option key={s.id} value={s.id}>{s.name}{s.product_type ? ` (${s.product_type})` : ""}</option>)}
-              </select>
-            </Field>
-            <Field label="Fabric Type" w={6} half>
-              <input type="text" list="prod-fabric-names" value={orderForm.fabricType} placeholder="e.g. Terry Cotton"
-                onChange={e => setOrderForm(f => ({ ...f, fabricType: e.target.value }))} />
-              <datalist id="prod-fabric-names">
-                {fabrics.map(f => <option key={f.id} value={f.name} />)}
-                {FABRIC_TYPES.map(t => <option key={t} value={t} />)}
-              </datalist>
-            </Field>
-            <Field label="Colorway" w={6} half>
-              <input type="text" value={orderForm.colorway} placeholder="e.g. Black, Navy, Olive"
-                onChange={e => setOrderForm(f => ({ ...f, colorway: e.target.value }))} />
-            </Field>
-
-            <h3 className="kof-sec">Quantity &amp; price</h3>
-            <Field label="Quantity (pcs)" w={6} half required>
-              <input type="number" min="1" inputMode="numeric" value={orderForm.quantity} required placeholder="0"
-                onChange={e => setOrderForm(f => ({ ...f, quantity: e.target.value }))} />
-            </Field>
-            <Field label="Price per Piece (NPR)" w={6} half>
-              <input type="number" min="0" step="any" inputMode="decimal" value={orderForm.pricePerPcNPR} placeholder="0"
-                onChange={e => setOrderForm(f => ({ ...f, pricePerPcNPR: e.target.value }))} />
-            </Field>
-
-            <h3 className="kof-sec">Assignment &amp; notes</h3>
-            <Field label="Assigned To" w={4}>
-              <select value={orderForm.assignedTo} onChange={e => setOrderForm(f => ({ ...f, assignedTo: e.target.value }))}>
-                <option value="">— Select —</option>
-                {employees.map(em => <option key={em.id} value={em.id}>{em.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Initial Stage" w={4}>
-              <select value={orderForm.stage} onChange={e => setOrderForm(f => ({ ...f, stage: e.target.value }))}>
-                {STAGES.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </Field>
-            <RegionField
-              className="kof-f kof-c4"
-              value={orderForm.region}
-              onChange={v => setOrderForm(f => ({ ...f, region: v }))}
-              hint="Which arm of the business this order belongs to."
-            />
-            <Field label="Invoice / Challan" w={6}
-              hint={
-                invoices.length + challans.length === 0
-                  ? "No invoices or challans yet. Create them in Billing."
-                  : orderForm.customerId
-                  ? `Showing ${orderForm.customerName}'s documents.`
-                  : "Pick a customer above to narrow this to their documents."
-              }>
-              <DocumentRefSelect
-                value={orderForm.invoiceRef}
-                onChange={v => setOrderForm(f => ({ ...f, invoiceRef: v }))}
-                invoices={invoices}
-                challans={challans}
-                locked={issueInvoice && !editingOrder}
-                customer={orderForm.customerId ? { id: orderForm.customerId, name: orderForm.customerName } : null}
-              />
-            </Field>
-            <Field label="Notes" w={6}>
-              <input type="text" value={orderForm.notes} placeholder="Optional notes"
-                onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))} />
-            </Field>
-
-            {/* ── Issue invoice with this order (new orders only) ── */}
-            {!editingOrder && (
-              <>
-                <h3 className="kof-sec"><Icons.Billing size={13} /> Invoice</h3>
-                <Switch
-                  checked={issueInvoice}
-                  onChange={setIssueInvoice}
-                  label="Issue invoice with this order"
-                  hint="Optional. Creates the invoice at the same time as the order."
-                />
-              </>
-            )}
-
-            {issueInvoice && !editingOrder && (
-              <div className="kof kof-inv">
-                <Field label="Client Address">
-                  <input type="text" autoComplete="off" placeholder="Street, City, Country"
-                    value={invFields.clientAddress}
-                    onChange={e => setInvFields(f => ({ ...f, clientAddress: e.target.value }))} />
-                </Field>
-                <Field label="Client Phone" w={6} half>
-                  <input type="tel" autoComplete="off" placeholder="+977 ..."
-                    value={invFields.clientPhone}
-                    onChange={e => setInvFields(f => ({ ...f, clientPhone: e.target.value }))} />
-                </Field>
-                <Field label="PAN / Tax No." w={6} half>
-                  <input type="text" autoComplete="off" placeholder="VAT / PAN number"
-                    value={invFields.clientPAN}
-                    onChange={e => setInvFields(f => ({ ...f, clientPAN: e.target.value }))} />
-                </Field>
-                <DateField label="Due Date" w={6} half
-                  value={invFields.dueDate} onChange={v => setInvFields(f => ({ ...f, dueDate: v }))}
-                  mode={dateMode} onModeChange={setDateMode} />
-                <Field label="Payment Terms" w={3} half>
-                  <select value={invFields.paymentTerms}
-                    onChange={e => setInvFields(f => ({ ...f, paymentTerms: e.target.value }))}>
-                    <option>Net 15</option>
-                    <option>Net 30</option>
-                    <option>Net 45</option>
-                    <option>Net 60</option>
-                    <option>Due on Receipt</option>
-                  </select>
-                </Field>
-                <Field label="Payment Type" w={3} half>
-                  <select value={invFields.paymentType}
-                    onChange={e => setInvFields(f => ({ ...f, paymentType: e.target.value }))}>
-                    <option value="CASH">Cash</option>
-                    <option value="Bank">Bank</option>
-                    <option value="Credit">Credit</option>
-                  </select>
-                </Field>
-                <div className="kof-vat">
-                  <Switch
-                    checked={invFields.applyVAT}
-                    onChange={v => setInvFields(f => ({ ...f, applyVAT: v }))}
-                    label="Apply VAT (13%)"
-                  />
-                  <InvoiceTotals
-                    quantity={orderForm.quantity}
-                    price={orderForm.pricePerPcNPR}
-                    applyVAT={invFields.applyVAT}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </Modal>
+      {loadError && ready && (
+        <div className="pr-banner" role="status">
+          <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+          <span>{loadError}</span>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => reload()}>Try again</button>
+        </div>
       )}
-    </>
+      {actionError && (
+        <div className="pr-banner is-bad" role="alert">
+          <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+          <span>{actionError}</span>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => setActionError("")}>Dismiss</button>
+        </div>
+      )}
+
+      {status === "error" ? (
+        <div className="kb-error" role="alert">
+          <p>Production could not load: {loadError}</p>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => reload()}>Try again</button>
+        </div>
+      ) : (
+        <BentoGrid layout="prod">
+          <PipelineTile counts={counts} view={view} stage={stage} onPick={pickStage} loading={!ready} />
+          <GlanceTile stats={stats} onQuick={showQuick} loading={!ready} />
+          <OrdersTile
+            rows={rows} base={base} title={title} view={view} mode={mode} query={query} quick={quick} monthOnly={monthOnly}
+            today={today} canEdit={canEdit} busyIds={busy} hasOrders={scoped.length > 0} loading={!ready} notice={notice}
+            onQuery={setQuery} onQuick={setQuick} onMode={setMode} onMonthOnly={setMonthOnly}
+            onOpen={openCard} onAdvance={advance} onClearAll={clearAll} onNoDate={() => showQuick("nodate")}
+          />
+          <AttentionTile items={attn} today={today} showStock={canDeductStock} onOpen={openCard} onQuick={showQuick} loading={!ready} />
+        </BentoGrid>
+      )}
+
+      {cardOrder && (
+        <OrderCard
+          order={cardOrder}
+          today={today}
+          canEdit={canEdit}
+          canDeductStock={canDeductStock}
+          stockState={stockStateFor(cardOrder)}
+          costs={data.orderCosts[cardOrder.orderId || cardOrder.id]}
+          labourRatePerUnit={data.labourRatePerUnit}
+          invoice={invoiceOf(cardOrder, data.invoices)}
+          busy={busy.has(cardOrder.id)}
+          error={actionError}
+          profile={profile}
+          onClose={closeCard}
+          onAdvance={advance}
+          onReverse={stepBack}
+          onStatus={setStatus}
+          onEdit={openEdit}
+          onDelete={askDelete}
+          onMaterials={(order) => setMaterials({ order, advancing: false })}
+          onInvoice={(order) => setInvoiceFor(order)}
+          onReschedule={(dates) => reschedule(cardOrder, dates)}
+          onEmbellishments={(next) => saveEmbellishments(cardOrder, next)}
+          onNotesChanged={reloadOrders}
+        />
+      )}
+
+      {form && canEdit && (
+        <OrderFormDialog
+          order={form.order}
+          today={today}
+          samples={samples}
+          fabrics={fabrics}
+          employees={data.employees}
+          customers={customers}
+          billingClients={billingClients}
+          invoices={invoices}
+          challans={challans}
+          latestInvoice={latestInvoice}
+          canCreateCustomer={sectionCanEdit(profile, "customers")}
+          dateMode={dateMode}
+          onDateMode={setDateMode}
+          onCustomerCreated={addCustomer}
+          onSave={saveOrder}
+          onClose={closeForm}
+        />
+      )}
+
+      {invoiceFor && (
+        <InvoiceDialog
+          order={invoiceFor}
+          initial={{ ...emptyInvFields(today), dueDate: dueIn30(invoiceFor.date, today) }}
+          today={today}
+          onSubmit={(fields) => issueInvoice(invoiceFor, fields)}
+          onClose={() => setInvoiceFor(null)}
+        />
+      )}
+
+      {materials && (
+        <MaterialsUsedModal
+          order={materials.order}
+          advancing={materials.advancing}
+          onClose={() => { setMaterials(null); reload(); }}
+          onDone={async ({ deducted } = {}) => {
+            const { order, advancing } = materials;
+            setMaterials(null);
+            if (advancing) await moveOn(order);
+            // a deduction is in the stock ledger now: read it back, or the order keeps saying "not deducted"
+            if (deducted || !advancing) await reload();
+          }}
+        />
+      )}
+
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          confirmLabel={confirm.label}
+          busyLabel={confirm.busyLabel}
+          onConfirm={confirm.run}
+          onClose={() => setConfirm(null)}
+        >
+          {confirm.text}
+        </ConfirmDialog>
+      )}
+    </BentoPage>
   );
 }
-
-export default Production;

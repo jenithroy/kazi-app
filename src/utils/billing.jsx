@@ -311,17 +311,6 @@ export function planRenumber(type, docs) {
   return changes;
 }
 
-export function statusBadge(status) {
-  const map = {
-    Estimated: "kbil-badge kbil-badge--muted", Draft: "kbil-badge kbil-badge--muted",
-    Sent: "kbil-badge kbil-badge--warn", Dispatched: "kbil-badge kbil-badge--warn",
-    Partial: "kbil-badge kbil-badge--partial",
-    Paid: "kbil-badge kbil-badge--ok", Delivered: "kbil-badge kbil-badge--ok", Accepted: "kbil-badge kbil-badge--ok",
-    Cancelled: "kbil-badge kbil-badge--danger", Rejected: "kbil-badge kbil-badge--danger",
-  };
-  return <span className={map[status] || "kbil-badge kbil-badge--muted"}>{status}</span>;
-}
-
 export function formatDescription(desc) {
   if (!desc) return "—";
 

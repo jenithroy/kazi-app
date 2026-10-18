@@ -21,8 +21,6 @@
 // used a few short names, which `sections.aliases` records; anything not found
 // falls through unchanged.
 const STATIC_ALIASES = {
-  qc: "quality_control",
-  "quality-control": "quality_control",
   "order-management": "orders",
   "employees-hr": "employees",
   "admin-panel": "admin",
