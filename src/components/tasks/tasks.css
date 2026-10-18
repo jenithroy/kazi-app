@@ -67,6 +67,8 @@
 }
 
 .tk-tabs { display: none; }
+.tk-tabbar { display: none; }      /* a phone's section tabs and the "+" that adds a section (the phone block below shows them) */
+.tk-ctrls { display: contents; }   /* the header's two switches are plain members of its row; the phone block gives them a line of their own */
 
 /* a section: a glass pane with its own scrolling list of cards */
 .kb-tile.tk-col { flex: 0 0 clamp(264px, 24vw, 316px); scroll-snap-align: start; padding: 12px 8px 8px 12px; gap: 6px; }
@@ -330,12 +332,35 @@
 
 /* a phone: the page scrolls, one section at a time, the rail's tiles stacked below */
 @media (max-width: 768px) {
+  /* the header: the title and New task on one line, the two switches (whose tasks, which region) on the next,
+     small enough to sit side by side; adding a section moves to the "+" after the tabs */
+  .tk-page .kb-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 12px; }
+  .tk-page .kb-head-l { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .tk-page .kb-head-r { display: contents; }
+  .tk-page .tk-newbtn { grid-column: 2; grid-row: 1; height: 34px; padding: 0 15px; }
+  .tk-page .tk-sectionbtn { display: none; }
+  .tk-page .tk-ctrls { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+  .tk-page .tk-ctrls .kregion-switch { width: auto; flex: 0 1 auto; justify-content: flex-start; gap: 8px; }
+  .tk-page .tk-ctrls .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
+  .tk-page .tk-ctrls .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: 32px; padding: 0 10px; font-size: 12.5px; }
+  /* the "N untagged" hint: the page's own warning colours, so it is not a bright cream chip on a dark page */
+  .tk-page .tk-ctrls .kregion-untagged {
+    padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent);
+  }
+
   .tk-layout { display: flex; flex-direction: column; flex: 0 0 auto; }
   .tk-board { display: block; overflow: visible; }
+  .tk-tabbar { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
   .tk-tabs {
-    display: flex; gap: 6px; margin: 0 -2px 10px; padding: 2px; overflow-x: auto; scrollbar-width: none;
+    display: flex; flex: 1 1 auto; min-width: 0; gap: 6px; margin: 0 0 0 -2px; padding: 2px; overflow-x: auto; scrollbar-width: none;
   }
   .tk-tabs::-webkit-scrollbar { display: none; }
+  .tk-tabadd {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 34px; height: 34px; padding: 0 9px;
+    border: 1px dashed var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
+    font: 500 13px/1 var(--font); cursor: pointer;
+  }
+  .tk-tabadd:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
   .tk-tab {
     flex: none; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 13px;
     border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
@@ -348,10 +373,13 @@
   .kb-tile.tk-col { display: none; flex: none; width: 100%; padding: 12px; }
   .kb-tile.tk-col.is-active { display: flex; }
   .tk-col-body { flex: 0 0 auto; overflow: visible; margin-right: 0; padding-right: 0; }
+  /* the rail's tiles take their height from what is in them. The Done tile's own rule (flex: 1 1 0, for the
+     desktop rail) is one class more specific than `.tk-rail > .kb-tile`, so it has to be named here too:
+     left alone it squashed to its heading, and the next tile was drawn over it */
   .tk-rail { flex-direction: column; }
-  .tk-rail > .kb-tile { flex: none; height: auto; min-height: 0; }
-  .tk-rail > .kb-tile.tk-rt--grow { min-height: 0; }
-  .tk-scroll { flex: 0 0 auto; overflow: visible; margin-right: 0; padding-right: 0; }
+  .tk-rail > .kb-tile, .tk-rail > .kb-tile.tk-rt--grow { flex: 0 0 auto; height: auto; min-height: 0; }
+  /* a long Done list scrolls in its own box (about five rows) instead of pushing the page down; at either end the page takes over */
+  .tk-scroll { flex: 0 0 auto; max-height: 264px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: auto; margin-right: -6px; padding-right: 6px; }
   .tk-card { padding-right: 6px; }
   .tk-tick { width: 28px; height: 28px; }
   .tk-ibtn { width: 36px; height: 36px; }

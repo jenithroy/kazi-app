@@ -522,26 +522,30 @@ function Tasks() {
             <p className="kb-head-sub">{ready ? sub : <span>Loading…</span>}</p>
           </div>
           <div className="kb-head-r">
-            {!ownTasksOnly && (
-              <div className="kregion-seg" role="radiogroup" aria-label="Whose tasks">
-                {[["mine", "Mine"], ["all", "Everyone"]].map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="radio"
-                    aria-checked={effectiveScope === id}
-                    className={cn("kregion-seg-btn", effectiveScope === id && "is-on")}
-                    onClick={() => setScope(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-            <RegionSwitch untagged={countUntagged(allTasks)} size="sm" />
+            {/* the two switches: on a wide screen they are plain members of this row; on a phone they share a line of their own */}
+            <div className="tk-ctrls">
+              {!ownTasksOnly && (
+                <div className="kregion-seg" role="radiogroup" aria-label="Whose tasks">
+                  {[["mine", "Mine"], ["all", "Everyone"]].map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={effectiveScope === id}
+                      className={cn("kregion-seg-btn", effectiveScope === id && "is-on")}
+                      onClick={() => setScope(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <RegionSwitch untagged={countUntagged(allTasks)} size="sm" />
+            </div>
             {canEdit && (
               <>
-                <button type="button" className="kb-pillbtn" onClick={() => setSectionDialog({ mode: "create" })}>
+                {/* a phone adds a section from the "+" at the end of its section tabs instead */}
+                <button type="button" className="kb-pillbtn tk-sectionbtn" onClick={() => setSectionDialog({ mode: "create" })}>
                   <Icons.Plus size={13} sw={2.2} /> Section
                 </button>
                 <button
@@ -602,13 +606,21 @@ function Tasks() {
         ) : (
           <div className="tk-layout">
             <div className="tk-board" data-tour="task-board">
-              {ready && columns.length > 1 && (
-                <div className="tk-tabs" role="tablist" aria-label="Sections">
-                  {columns.map((c) => (
-                    <button key={c.id} type="button" role="tab" className="tk-tab" aria-selected={shownSection === c.id} onClick={() => setActiveSection(c.id)}>
-                      {c.label} <span className="tk-count">{byColumn[c.id]?.length || 0}</span>
+              {/* a phone's section tabs (hidden on a wide screen), with a "+" to add a section for whoever may */}
+              {ready && columns.length > 0 && (columns.length > 1 || canEdit) && (
+                <div className="tk-tabbar">
+                  <div className="tk-tabs" role="tablist" aria-label="Sections">
+                    {columns.map((c) => (
+                      <button key={c.id} type="button" role="tab" className="tk-tab" aria-selected={shownSection === c.id} onClick={() => setActiveSection(c.id)}>
+                        {c.label} <span className="tk-count">{byColumn[c.id]?.length || 0}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {canEdit && (
+                    <button type="button" className="tk-tabadd" aria-label="Add a section" title="Add a section" onClick={() => setSectionDialog({ mode: "create" })}>
+                      <Icons.Plus size={15} sw={2.2} aria-hidden="true" />
                     </button>
-                  ))}
+                  )}
                 </div>
               )}
 
