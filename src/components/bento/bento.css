@@ -574,6 +574,11 @@
 .kb-ringbtn.is-press { cursor: pointer; background: var(--kb-chip); }
 .kb-ringbtn.is-press .kb-ring-track { stroke: var(--kb-accent); stroke-opacity: .34; }
 .kb-ringbtn.is-press .kb-ringbtn-l { color: var(--kb-accent); font-weight: 600; }
+/* a ring that can be pressed (to try again) and is showing an error keeps the error colours: the pressable rules just above
+   come later than the error ones and have the same weight, so without these it was drawn mint inside a red ring */
+.kb-ringbtn--err.is-press { background: var(--kb-bad-bg); }
+.kb-ringbtn--err.is-press .kb-ring-track { stroke: var(--kb-bad-fill); stroke-opacity: .3; }
+.kb-ringbtn--err.is-press .kb-ringbtn-l { color: var(--kb-bad); }
 @media (hover: hover) { .kb-ringbtn.is-press:hover .kb-ring-track { stroke-opacity: .7; } .kb-ringbtn.is-press:hover { filter: brightness(1.04); } }
 .kb-ringbtn.is-press:active { transform: scale(.97); }
 .kb-ringbtn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 3px; box-shadow: none; border-radius: 50%; }

@@ -107,7 +107,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     if (variant !== "ring") return;
     if (status === "success" && !autoConfirmed.current) {
       autoConfirmed.current = true;
-      confirmClockIn(false);
+      confirmClockIn();
     } else if (status !== "success" && status !== "saving") {
       autoConfirmed.current = false;
     }
@@ -140,7 +140,9 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     }
   };
 
-  const confirmClockIn = async (isBypass = false) => {
+  // Only reached from a reading that passed startClock (close enough, accurate enough): there is no way
+  // to clock in without one, on purpose. Someone whose phone cannot get a fix is marked by hand by an admin.
+  const confirmClockIn = async () => {
     try {
       setStatus("saving");
       // Double check to prevent duplicates
@@ -158,12 +160,9 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
           lat: clockCoords?.lat ?? null,
           lng: clockCoords?.lng ?? null,
           accuracyM: clockCoords?.accuracy ?? null,
-          distanceToSiteM: isBypass ? (clockDist ?? null) : clockDist,
+          distanceToSiteM: clockDist,
           clockedInAt: new Date().toISOString(),
         };
-        if (isBypass) {
-          clockData.bypassUsed = true;
-        }
         const saved = await insertRow("clock_ins", clockData);
         docId = saved.id;
         setClockInDocId(docId);
@@ -186,7 +185,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
         role: profile?.positionLabel || "",
         status: statusCalc.status,
         hours: 8,
-        note: isBypass ? "GPS clock-in (low-accuracy bypass)" : "GPS clock-in",
+        note: "GPS clock-in",
         loggedBy: "GPS",
         lateCutApplied: statusCalc.lateCutApplied,
         lateMinutes: statusCalc.lateMinutes,
@@ -320,9 +319,8 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
       tone = "err"; pct = 100; press = retry; main = <Icons.Alert size={28} sw={1.7} />;
       label = status === "gps-error" ? "No location" : "Weak GPS";
       note = status === "gps-error"
-        ? "Check the location permission for this browser or phone."
-        : `Accuracy ${clockCoords?.accuracy} m; it needs to be under ${GPS_ACCURACY_THRESHOLD_M} m.`;
-      extra = act("ghost", "Clock in anyway", () => confirmClockIn(true));
+        ? "Allow location for this site in your browser or phone settings, then press to try again."
+        : `Accuracy ${clockCoords?.accuracy} m; it needs to be under ${GPS_ACCURACY_THRESHOLD_M} m. Move outdoors, then press to try again.`;
     } else if (status === "clocked") {
       tone = "ok"; pct = Math.min(100, (elapsed / (8 * 3600000)) * 100);
       main = say(clockInDate ? fmtElapsed(elapsed) : "In"); label = "on the clock";
@@ -373,10 +371,6 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     );
     const away = clockDist && clockDist !== 9999 ? `${(clockDist / 1000).toFixed(2)} km` : "too far";
     const retry = () => { setStatus("idle"); setClockDist(null); };
-    const anyway = [
-      btn("ghost", "Try again", startClock),
-      btn("primary", "Clock in anyway", () => confirmClockIn(true)),
-    ];
 
     let tone = "";
     let Icon = Icons.MapPin;
@@ -398,19 +392,19 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     } else if (status === "success") {
       Icon = Icons.Check; tone = "ok"; headline = "You're at the workshop";
       detail = `${clockDist} m from the office, inside the ${RADIUS} m geofence.`;
-      acts = [btn("ghost", "Cancel", retry), btn("primary", "Confirm clock-in", () => confirmClockIn(false))];
+      acts = [btn("ghost", "Cancel", retry), btn("primary", "Confirm clock-in", () => confirmClockIn())];
     } else if (status === "far") {
       Icon = Icons.Alert; tone = "err"; headline = "Outside the workshop geofence";
       detail = `You are ${away} away. Move within ${RADIUS} m to clock in.`;
       acts = btn("ghost", "Try again", retry);
     } else if (status === "low-accuracy") {
       Icon = Icons.Alert; tone = "err"; headline = "GPS signal too weak";
-      detail = `Accuracy ${clockCoords?.accuracy} m; it needs to be under ${GPS_ACCURACY_THRESHOLD_M} m. Move outdoors, or clock in anyway.`;
-      acts = anyway;
+      detail = `Accuracy ${clockCoords?.accuracy} m; it needs to be under ${GPS_ACCURACY_THRESHOLD_M} m. Move outdoors and try again.`;
+      acts = btn("ghost", "Try again", startClock);
     } else if (status === "gps-error") {
       Icon = Icons.Alert; tone = "err"; headline = "Location unavailable";
-      detail = "Check the location permission for this browser or phone, or clock in anyway.";
-      acts = anyway;
+      detail = "Allow location for this site in your browser or phone settings, then try again.";
+      acts = btn("ghost", "Try again", startClock);
     } else if (status === "clocked") {
       Icon = Icons.Check; tone = "ok"; headline = `Clocked in at ${clockedAtStr || "—"}`;
       detail = confirmingOut
