@@ -1,723 +1,353 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchAll, upsertRow } from "../lib/db";
+/**
+ * Attendance, on the same frosted-glass bento frame as the Dashboard and Tasks: one screen, no
+ * page scroll, lists scroll inside their tiles. What it shows depends on who is looking:
+ *
+ *   team page   position tier 2+ with Attendance: clock-in (if they may edit), the day's ring and
+ *               filter key, the roll call (or one person's report), the team calendar and the month
+ *   staff page  everyone else: clock-in, today, their own month as a calendar, counts, recent days
+ *
+ * The sums live in lib/attendance.js. This file loads the month, keeps what is selected, and
+ * saves one person at a time when someone with edit rights changes a status.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deleteRow, fetchAll, upsertRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
-import { sectionCanEdit } from "../utils/permissions";
-import { todayDate, isSaturday, tsDate, tsTime } from "../utils/date";
-import { haversineDistance } from "../utils/geo";
-import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, getEmployeeScheduleForDate, calculateAttendanceStatus, parseLocalDate, setEmployeeScheduleOverrides } from "../constants";
-import { Pill, Icons, cn } from "../components/ui";
-import ClockInCard from "../components/ClockInCard";
+import { sectionCanEdit, sectionVisible, tier } from "../utils/permissions";
+import { setEmployeeScheduleOverrides } from "../constants";
+import { Avatar, Icons, hueFromName } from "../components/ui";
+import { BentoGrid, BentoPage } from "../components/bento/Bento";
+import ConfirmDialog from "../components/tasks/ConfirmDialog";
+import ClockTile from "../components/attendance/ClockTile";
+import DayTile from "../components/attendance/DayTile";
+import RosterTile from "../components/attendance/RosterTile";
+import ReportTile from "../components/attendance/ReportTile";
+import MonthTile from "../components/attendance/MonthTile";
+import StatsTile from "../components/attendance/StatsTile";
+import TodayTile from "../components/attendance/TodayTile";
+import RecentTile from "../components/attendance/RecentTile";
+import {
+  STATE_LABEL, addDays, buildRoster, dateInMonth, dayTitle, daySummary, hoursFor, isoFromDate, monthOf,
+  monthTitle, personMonth, shiftMonth, stateOf, teamMonth,
+} from "../lib/attendance";
+import "../components/attendance/attendance.css";
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const STATUS_OPTIONS = ["Present", "Absent", "Late", "Half-day", "Leave"];
+const POLL_MS = 60000;      // attendance is not in the realtime feed, so the page looks again every minute
+const TOAST_MS = 9000;
+const NOTHING = {};         // what the calendar is given while a month is still loading
+const NO_DAYS = new Map();
 
-function statusTone(s) {
-  switch (s) {
-    case "Present":  return "mint";
-    case "Late":     return "amber";
-    case "Absent":   return "terra";
-    case "Leave":    return "blue";
-    default:         return "neutral";
-  }
-}
-
-function initials(name = "") {
-  return name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() || "?";
-}
-
-function hueFromName(name = "") {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
-}
-
-function toLocalISOString(date) {
-  const d = new Date(date);
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 10);
-}
-
-
-
-/* ─── Monthly Calendar View Component ──────────────── */
-function MonthCalendar({ currentMonthDate, setCurrentMonthDate, selectedDate, setSelectedDate, monthRecords }) {
-  const year = currentMonthDate.getFullYear();
-  const month = currentMonthDate.getMonth();
-  
-  const firstDay = new Date(year, month, 1).getDay();
-  const offset = firstDay === 0 ? 6 : firstDay - 1; // Mon-Sun (Mon is 0 index for us)
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  
-  const grid = [];
-  for (let i = 0; i < offset; i++) grid.push(null);
-  for (let i = 1; i <= daysInMonth; i++) {
-    grid.push(toLocalISOString(new Date(year, month, i)));
-  }
-
-  // Aggregate counts per date
-  const counts = {};
-  monthRecords.forEach(r => {
-    if (!counts[r.date]) counts[r.date] = { present: 0, late: 0, absent: 0, leave: 0 };
-    if (r.status === "Present" || r.status === "Half-day") counts[r.date].present++;
-    else if (r.status === "Late") counts[r.date].late++;
-    else if (r.status === "Absent") counts[r.date].absent++;
-    else if (r.status === "Leave") counts[r.date].leave++;
-  });
-
-  return (
-    <div className="kazi-card" style={{ padding: "20px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{currentMonthDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</h3>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month - 1, 1))}>← Prev</button>
-          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month + 1, 1))}>Next →</button>
-        </div>
-      </div>
-      
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
-        {DAY_LABELS.map(d => <div key={d} style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-4)", textTransform: "uppercase" }}>{d}</div>)}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
-        {grid.map((dateStr, idx) => {
-          if (!dateStr) return <div key={`empty-${idx}`} style={{ minHeight: 60, background: "var(--bg)", borderRadius: 8 }} />;
-          
-          const isSelected = dateStr === selectedDate;
-          const isToday = dateStr === todayDate();
-          const dayNum = parseInt(dateStr.slice(-2), 10);
-          const c = counts[dateStr] || { present: 0, late: 0, absent: 0, leave: 0 };
-          
-          return (
-            <button 
-              key={dateStr}
-              onClick={() => setSelectedDate(dateStr)}
-              style={{
-                minHeight: 65, padding: "6px", display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "space-between", borderRadius: 8,
-                background: isSelected ? "var(--mint-soft)" : "var(--bg-2)",
-                border: `1.5px solid ${isSelected ? "var(--mint-2)" : isToday ? "var(--line-strong)" : "transparent"}`,
-                cursor: "pointer", transition: "all 0.2s"
-              }}
-            >
-              <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: isToday ? "var(--mint-deep)" : "var(--ink)" }}>{dayNum}</span>
-              <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "center", marginTop: 4 }}>
-                {c.present > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--mint-2)" }} title={`${c.present} Present`} />}
-                {c.late > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--amber-2)" }} title={`${c.late} Late`} />}
-                {c.absent > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--terra-2)" }} title={`${c.absent} Absent`} />}
-                {c.leave > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--blue-2)" }} title={`${c.leave} Leave`} />}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 12, marginTop: 16, justifyContent: "center", fontSize: 11, color: "var(--ink-4)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--mint-2)" }}/> Present</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--amber-2)" }}/> Late</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--terra-2)" }}/> Absent</div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Employee Monthly Report ──────────────────────── */
-// Whole minutes between clock-in and clock-out; null until both exist. Read from
-// the clock_ins row rather than attendance.hours, which holds an 8h placeholder
-// for anyone who hasn't clocked out (and for Absent/Leave rows saved by admin).
-function workedMinutes(clk) {
-  const inAt = tsDate(clk?.clockedInAt);
-  const outAt = tsDate(clk?.clockedOutAt);
-  if (!inAt || !outAt) return null;
-  return Math.max(0, Math.round((outAt - inAt) / 60000));
-}
-
-function fmtMinutes(min) {
-  return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
-}
-
-function SummaryStat({ label, value, color }) {
-  return (
-    <div style={{ minWidth: 84 }}>
-      <div style={{ fontSize: 10.5, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: color || "var(--ink)" }}>{value}</div>
-    </div>
-  );
-}
-
-function EmployeeMonthReport({ staff, staffId, setStaffId, currentMonthDate, setCurrentMonthDate, monthRecords }) {
-  const [monthClockIns, setMonthClockIns] = useState([]);
-  const [loadingClocks, setLoadingClocks] = useState(false);
-
-  const year  = currentMonthDate.getFullYear();
-  const month = currentMonthDate.getMonth();
-  const monthStart = toLocalISOString(new Date(year, month, 1));
-  const monthEnd   = toLocalISOString(new Date(year, month + 1, 0));
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
+/** The current moment, refreshed on a timer, so "today" and "in for 3h" keep up without a reload. */
+function useNow(ms) {
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    if (!staffId) { setMonthClockIns([]); return; }
-    setLoadingClocks(true);
-    fetchAll("clock_ins", { filters: [
-      { field: "person_id", value: staffId },
-      { field: "date", op: "gte", value: monthStart },
-      { field: "date", op: "lte", value: monthEnd },
-    ] }).then(setMonthClockIns)
-      .catch(err => { console.error("Failed to load clock-ins for report:", err); setMonthClockIns([]); })
-      .finally(() => setLoadingClocks(false));
-  }, [staffId, monthStart, monthEnd]);
-
-  const attByDate = {};
-  monthRecords.filter(r => r.person_id === staffId).forEach(r => { attByDate[r.date] = r; });
-  const clockByDate = {};
-  monthClockIns.forEach(c => { clockByDate[c.date] = c; });
-
-  const days = [];
-  for (let i = 1; i <= daysInMonth; i++) {
-    if (new Date(year, month, i).getDay() === 6) continue; // Saturdays are the office holiday — excluded from the report
-    days.push(toLocalISOString(new Date(year, month, i)));
-  }
-
-  // A past day with a clock-in but no clock-out counts as Absent. Today is
-  // exempt — they may simply still be at work.
-  const today = todayDate();
-  const attFor = d => {
-    const att = attByDate[d];
-    const clk = clockByDate[d];
-    const missedClockOut = d < today && tsDate(clk?.clockedInAt) && !tsDate(clk?.clockedOutAt);
-    if (!missedClockOut) return att;
-    return { ...att, status: "Absent", lateCutApplied: false, note: att?.note || "No clock-out" };
-  };
-
-  const summary = days.reduce((acc, d) => {
-    const att = attFor(d);
-    if (att) {
-      if (att.status === "Present" || att.status === "Half-day") acc.present++;
-      else if (att.status === "Late") { acc.late++; if (att.lateCutApplied) acc.cuts++; }
-      else if (att.status === "Absent") acc.absent++;
-      else if (att.status === "Leave") acc.leave++;
-    }
-    acc.minutes += workedMinutes(clockByDate[d]) ?? 0;
-    return acc;
-  }, { present: 0, late: 0, absent: 0, leave: 0, cuts: 0, minutes: 0 });
-
-  return (
-    <div className="kazi-card" style={{ overflow: "hidden" }}>
-      <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <select
-            value={staffId}
-            onChange={e => setStaffId(e.target.value)}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 13, fontFamily: "var(--font)" }}
-          >
-            <option value="">Select employee…</option>
-            {/* person_id is the key attendance and clock_ins are recorded against.
-                `uid`/`id` on this view are the Firebase-era id, which is null for
-                anyone added since the migration — selecting by it matches nothing. */}
-            {staff.filter(s => s.personId)
-                  .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-                  .map(s => <option key={s.personId} value={s.personId}>{s.name}</option>)}
-          </select>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{currentMonthDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</span>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month - 1, 1))}>← Prev</button>
-          <button className="ghost-button" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setCurrentMonthDate(new Date(year, month + 1, 1))}>Next →</button>
-        </div>
-      </div>
-
-      {!staffId ? (
-        <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🗓️</div>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>Select an employee to see their monthly attendance</div>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 20, padding: "14px 20px", borderBottom: "1px solid var(--line)" }}>
-            <SummaryStat label="Present"      value={summary.present} color="var(--mint-deep)" />
-            <SummaryStat label="Late"         value={summary.late}    color="var(--amber-deep)" />
-            <SummaryStat label="Salary cuts"  value={summary.cuts}    color="var(--terra)" />
-            <SummaryStat label="Absent"       value={summary.absent}  color="var(--terra)" />
-            <SummaryStat label="Leave"        value={summary.leave}   color="var(--blue-2)" />
-            <SummaryStat label="Total hours"  value={fmtMinutes(summary.minutes)} />
-          </div>
-
-          {loadingClocks ? (
-            <div style={{ padding: "16px 20px" }}>
-              {[1,2,3,4,5].map(i => <div key={i} className="kskel kskel-row" />)}
-            </div>
-          ) : (
-            <div className="table-wrap katt-table-wrap">
-              <table>
-                <thead>
-                  <tr><th>Date</th><th>Status</th><th>Clock-in</th><th>Clock-out</th><th>Hours</th><th>Note</th></tr>
-                </thead>
-                <tbody>
-                  {days.map(d => {
-                    const att = attFor(d);
-                    const clk = clockByDate[d];
-                    const inT  = tsTime(clk?.clockedInAt,  null);
-                    const outT = tsTime(clk?.clockedOutAt, null);
-                    const mins = workedMinutes(clk);
-                    const dateLabel = parseLocalDate(d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-                    return (
-                      <tr key={d}>
-                        <td style={{ fontSize: 12.5 }}>{dateLabel}</td>
-                        <td>
-                          {att ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <Pill tone={statusTone(att.status)} dot>{att.status}</Pill>
-                              {att.status === "Late" && att.lateCutApplied && (
-                                <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Cut</span>
-                              )}
-                            </div>
-                          ) : <span style={{ color: "var(--ink-4)", fontSize: 12 }}>—</span>}
-                        </td>
-                        <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{inT  || "—"}</td>
-                        <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{outT || "—"}</td>
-                        <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>{mins != null ? fmtMinutes(mins) : "—"}</td>
-                        <td style={{ fontSize: 12, color: "var(--ink-4)" }}>{att?.note || ""}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
+    const id = setInterval(() => setNow(new Date()), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+  return now;
 }
 
-/* ─── Main Component ──────────────────────────────── */
-function Attendance() {
+export default function Attendance() {
   const { profile } = useAuth();
-  const canEdit  = sectionCanEdit(profile, "attendance");
-  const isEmployee = profile?.role === "employee" || profile?.role === "nepal_staff";
-  // Hardcoded: Deepa (Accountant, nepal_staff) needs the Employee Report for payroll
-  // without the full daily-log edit rights over everyone else that the admin view grants.
-  const isDeepa = profile?.email?.toLowerCase() === "deepasunam581@gmail.com";
+  const me = profile?.personId || "";
+  // The database lets position tier 2+ with Attendance read everyone's rows and tier 2+ with edit
+  // change them; anyone else only ever gets their own. The page shows exactly that and no more.
+  const seesTeam = tier(profile) >= 2 && sectionVisible(profile, "attendance");
+  const canEdit = tier(profile) >= 2 && sectionCanEdit(profile, "attendance");
+  const canClock = !seesTeam || canEdit;
 
-  const today = todayDate();
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [currentMonthDate, setCurrentMonthDate] = useState(parseLocalDate(today));
+  const now = useNow(60000);
+  const today = isoFromDate(now);
 
-  const [rows,       setRows]       = useState([]);
-  const [saving,     setSaving]     = useState(false);
-  const [loading,    setLoading]    = useState(true);
-  const [message,    setMessage]    = useState("");
-  const [clockIns,   setClockIns]   = useState([]);
-  const [editingRow, setEditingRow] = useState(null);
-  const [monthRecords, setMonthRecords] = useState([]);
-  const [confirmPending, setConfirmPending] = useState(null);
-  const [staffList,  setStaffList]  = useState([]);
-  const [viewMode,   setViewMode]   = useState("daily"); // daily | employee
-  const [reportStaffId, setReportStaffId] = useState("");
+  const [month, setMonth] = useState(() => monthOf(isoFromDate(new Date())));
+  const [date, setDate] = useState(() => isoFromDate(new Date()));
+  const [data, setData] = useState({ status: "loading", month: "", staff: [], records: [], clocks: [], error: "" });
+  const [mode, setMode] = useState("day");                 // team: "day" (roll call) | "report"
+  const [filter, setFilter] = useState("");
+  const [edit, setEdit] = useState(false);
+  const [reportId, setReportId] = useState("");
+  const [busy, setBusy] = useState(() => new Set());
+  const [toast, setToast] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const seq = useRef(0);
+  const toastTimer = useRef(0);
 
-  useEffect(() => {
-    loadAll().catch(err => {
-      console.error("Failed to load attendance data:", err);
-      setMessage("Could not load attendance data. Please refresh.");
-    });
-  }, [selectedDate, currentMonthDate]);
+  /* ── loading ───────────────────────────────────────────── */
 
-  async function loadAll() {
-    setLoading(true);
-    
-    // Calculate month bounds for calendar data
-    const year = currentMonthDate.getFullYear();
-    const month = currentMonthDate.getMonth();
-    const monthStart = toLocalISOString(new Date(year, month, 1));
-    const monthEnd = toLocalISOString(new Date(year, month + 1, 0));
-
-    // No role filter any more: who appears here follows from the position
-    // matrix, and RLS already limits people to the rows this person may
-    // see — someone without the employees section sees only themselves.
-    const [staffAll, monthAtt, selectedAtt, clockRows, empRows] = await Promise.all([
-      fetchAll("users"),
-      fetchAll("attendance", { filters: [
-        { field: "date", op: "gte", value: monthStart },
-        { field: "date", op: "lte", value: monthEnd },
-      ] }),
-      fetchAll("attendance", { filters: [{ field: "date", value: selectedDate }] }),
-      fetchAll("clock_ins",  { filters: [{ field: "date", value: selectedDate }] }),
-      fetchAll("employees"),
-    ]);
-
-    // Honour work schedules edited in Employee Directory → Schedule
-    setEmployeeScheduleOverrides(empRows);
-
-    const staff = staffAll.filter(m => m.status !== "Inactive");
-    setStaffList(staff);
-
-    setMonthRecords(monthAtt);
-    setClockIns(clockRows);
-
-    const attMap = Object.fromEntries(selectedAtt.map(r => [r.person_id, r]));
-    const closedDefault = isSaturday(selectedDate) ? "Closed" : "Absent";
-
-    setRows(staff.map(m => {
-      const rec = attMap[m.personId];
-      return {
-        id:             rec?.id             || "",
-        staffId:        m.personId,
-        staffName:      m.name,
-        role:           m.jobRole,
-        status:         rec?.status         || closedDefault,
-        hours:          rec?.hours          ?? 8,
-        note:           rec?.note           || "",
-        lateCutApplied: rec?.lateCutApplied || false,
-        lateMinutes:    rec?.lateMinutes    || 0,
-      };
-    }));
-    setLoading(false);
-  }
-
-  async function saveRows() {
-    if (!canEdit) return;
-    setSaving(true); setMessage("");
+  const load = useCallback(async ({ silent = false } = {}) => {
+    const mine = ++seq.current;
+    if (!silent) setData((d) => ({ ...d, status: d.status === "ready" ? "ready" : "loading" }));
     try {
-      // One row per person per day, enforced by a unique constraint — so a
-      // re-save updates the day rather than adding a second record.
-      await Promise.all(rows.map(row => {
-        if (row.status === "Closed" && !row.id) return null; // Saturday placeholder
-        return upsertRow("attendance", {
-          date: selectedDate,
-          person_id: row.staffId,
-          staffName: row.staffName,
-          role: row.role,
-          status: row.status,
-          hours: Number(row.hours || 0),
-          note: row.note,
-          loggedBy: profile?.name || "Unknown",
-          lateCutApplied: row.status === "Late" ? (row.lateCutApplied ?? false) : false,
-          lateMinutes: row.status === "Late" ? (row.lateMinutes ?? 0) : 0,
-        }, ["person_id", "date"]);
-      }));
-      setMessage("Attendance saved.");
-      await loadAll();
-    } catch (err) { console.error("Failed to save attendance:", err); setMessage("Could not save attendance. Please check your connection and try again."); }
-    finally { setSaving(false); }
-  }
+      const range = [{ field: "date", op: "gte", value: month.start }, { field: "date", op: "lte", value: month.end }];
+      const [staffAll, records, clocks, employees] = await Promise.all([
+        seesTeam ? fetchAll("users") : Promise.resolve([]),
+        fetchAll("attendance", { filters: range }),
+        fetchAll("clock_ins", { filters: range }),
+        fetchAll("employees").catch(() => []),         // only the work schedules; the page reads fine without them
+      ]);
+      if (mine !== seq.current) return;                // a newer look is on its way
+      setEmployeeScheduleOverrides(employees);         // honour schedules edited in Employee Directory
+      setData({
+        status: "ready", month: month.start, error: "",
+        staff: staffAll.filter((m) => m.status !== "Inactive"), records, clocks,
+      });
+    } catch (err) {
+      console.error("Failed to load attendance data:", err);
+      if (mine !== seq.current) return;
+      setData((d) => (d.status === "ready" && d.month === month.start
+        ? { ...d, error: "Could not refresh just now. This is what was loaded last." }
+        : { ...d, status: "error", error: err?.message || "Could not load attendance." }));
+    }
+  }, [month.start, month.end, seesTeam]);
 
-  const myClockIn  = clockIns.find(c => c.person_id === profile?.personId);
-  const myRow      = rows.find(r => r.staffId === profile?.personId);
+  useEffect(() => { load(); }, [load]);
 
-  /* ─── Employee view ─────────────────────────────── */
-  if (isEmployee) {
-    return (
-        <div className="kscr fade-in">
-          <div className="kph">
-            <div><h2>Attendance</h2><p>Your daily log · {parseLocalDate(today).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div>
-            {isDeepa && (
-              <div className="kph-a" style={{ display: "flex", gap: 6 }}>
-                <button
-                  className={viewMode === "daily" ? "primary-button" : "ghost-button"}
-                  style={{ padding: "6px 14px", fontSize: 12.5 }}
-                  onClick={() => setViewMode("daily")}
-                >
-                  My Attendance
-                </button>
-                <button
-                  className={viewMode === "employee" ? "primary-button" : "ghost-button"}
-                  style={{ padding: "6px 14px", fontSize: 12.5 }}
-                  onClick={() => setViewMode("employee")}
-                >
-                  Employee report
-                </button>
-              </div>
-            )}
-          </div>
+  const isThisMonth = month.start === monthOf(today).start;
+  useEffect(() => {
+    if (!isThisMonth) return undefined;
+    const look = () => { if (!document.hidden) load({ silent: true }); };
+    const id = setInterval(look, POLL_MS);
+    document.addEventListener("visibilitychange", look);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", look); };
+  }, [load, isThisMonth]);
 
-          {isDeepa && viewMode === "employee" ? (
-            <EmployeeMonthReport
-              staff={staffList}
-              staffId={reportStaffId}
-              setStaffId={setReportStaffId}
-              currentMonthDate={currentMonthDate}
-              setCurrentMonthDate={setCurrentMonthDate}
-              monthRecords={monthRecords}
-            />
-          ) : (
-            <>
-              <ClockInCard profile={profile} onClockChange={loadAll} />
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
-              {myRow && myRow.status !== "Closed" && (
-                <div className="kazi-card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(myRow.staffName)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{initials(myRow.staffName)}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{myRow.staffName}</div>
-                    <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
-                      {myRow.role}
-                      {(() => {
-                        const sched = getEmployeeScheduleForDate(myRow.staffName, parseLocalDate(today));
-                        if (!sched) return null;
-                        return ` · Schedule: ${sched.start} - ${sched.end}`;
-                      })()}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <Pill tone={statusTone(myRow.status)} dot>{myRow.status}</Pill>
-                    {myRow.status === "Late" && myRow.lateCutApplied && (
-                      <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Salary Cut</span>
-                    )}
-                    {myRow.status === "Late" && !myRow.lateCutApplied && (
-                      <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace Period</span>
-                    )}
-                    {myClockIn && (
-                      <span style={{ fontSize: 12, color: "var(--ink-3)", fontFamily: "var(--mono)" }}>
-                        {tsTime(myClockIn.clockedInAt)}
-                        {tsDate(myClockIn.clockedOutAt) ? ` → ${tsTime(myClockIn.clockedOutAt)}` : ""}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-    );
-  }
+  const ready = data.status === "ready" && data.month === month.start;
 
-  /* ─── Admin view ────────────────────────────────── */
-  const selectedDateStrFormatted = parseLocalDate(selectedDate).toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month: "long", year: "numeric" });
-  const isSaturdaySelected = isSaturday(selectedDate);
+  /* ── what is on screen ─────────────────────────────────── */
 
-  return (
+  const meEntry = useMemo(
+    () => ({ personId: me, name: profile?.name || "You", jobRole: profile?.positionLabel || "" }),
+    [me, profile?.name, profile?.positionLabel],
+  );
+  const staff = useMemo(() => (seesTeam ? data.staff : [meEntry]), [seesTeam, data.staff, meEntry]);
+  const records = useMemo(() => (seesTeam ? data.records : data.records.filter((r) => r.person_id === me)), [seesTeam, data.records, me]);
+  const clocks = useMemo(() => (seesTeam ? data.clocks : data.clocks.filter((c) => c.person_id === me)), [seesTeam, data.clocks, me]);
+
+  const roster = useMemo(
+    () => buildRoster({
+      staff,
+      records: records.filter((r) => r.date === date),
+      clocks: clocks.filter((c) => c.date === date),
+      date, today, now,
+    }),
+    [staff, records, clocks, date, today, now],
+  );
+  const summary = useMemo(() => daySummary(roster), [roster]);
+  const shown = useMemo(() => (filter ? roster.filter((r) => r.state === filter) : roster), [roster, filter]);
+  const team = useMemo(() => (seesTeam ? teamMonth({ staff, records, clocks, month, today }) : null), [seesTeam, staff, records, clocks, month, today]);
+  const mine = useMemo(
+    () => personMonth({ records: records.filter((r) => r.person_id === me), clocks: clocks.filter((c) => c.person_id === me), month, today }),
+    [records, clocks, me, month, today],
+  );
+  const myDays = useMemo(() => new Map(mine.days.map((d) => [d.iso, d])), [mine]);
+  const myRow = roster.find((r) => r.personId === me) || null;
+
+  const reportOptions = useMemo(
+    () => staff.filter((s) => s.personId).map((s) => ({
+      value: s.personId, label: s.name, hint: s.jobRole,
+      icon: <Avatar name={s.name} personId={s.personId} hue={hueFromName(s.name)} size={22} />,
+    })).sort((a, b) => a.label.localeCompare(b.label)),
+    [staff],
+  );
+  const reportPerson = team?.people.find((p) => p.personId === (reportId || me)) || null;
+
+  /* ── moving around ─────────────────────────────────────── */
+
+  const goDate = (iso) => {
+    setDate(iso);
+    const m = monthOf(iso);
+    if (m.start !== month.start) setMonth(m);
+  };
+  const stepMonth = (by) => {
+    const m = shiftMonth(month, by);
+    setMonth(m);
+    setDate((d) => dateInMonth(m, d, today));
+  };
+  const backToToday = () => goDate(today);
+
+  /* ── saving one person ─────────────────────────────────── */
+
+  const flash = useCallback((next) => {
+    clearTimeout(toastTimer.current);
+    setToast(next);
+    if (next) toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+  }, []);
+
+  const keepRow = (saved) => setData((d) => ({
+    ...d,
+    records: d.records.some((r) => r.id === saved.id) ? d.records.map((r) => (r.id === saved.id ? saved : r)) : [...d.records, saved],
+  }));
+  const dropRow = (id) => setData((d) => ({ ...d, records: d.records.filter((r) => r.id !== id) }));
+  const working = (id, on) => setBusy((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
+
+  /**
+   * Save one person's day. `patch` is { status } or { status: "Late", cut }. Resolves to whether it
+   * saved. Only that person's row is written; the toast offers Undo, which puts the old row back
+   * (or removes the one this created).
+   */
+  const mark = useCallback(async (row, patch) => {
+    const prev = row.record;                           // what is stored now; null when nothing has been marked
+    const status = patch.status ?? prev?.status;
+    const first = row.name.split(" ")[0];
+    const body = {
+      date, person_id: row.personId, staffName: row.name, role: row.role,
+      status,
+      // the same status keeps its hours (turning the cut on or off must not touch them); a new one gets what it means
+      hours: status === prev?.status && prev?.hours != null ? Number(prev.hours) || 0 : hoursFor(status, row.worked),
+      note: prev?.note ?? "",
+      loggedBy: profile?.name || "Unknown",
+      lateCutApplied: status === "Late" ? (patch.cut ?? prev?.lateCutApplied === true) : false,
+      lateMinutes: status === "Late" ? Number(prev?.lateMinutes) || 0 : 0,
+    };
+    working(row.personId, true);
+    try {
+      const saved = await upsertRow("attendance", body, ["person_id", "date"]);
+      // a write the database does not allow can come back as the row it was; only the stored status proves it took
+      if (!saved || saved.status !== status) throw new Error("The database kept the old status.");
+      keepRow(saved);
+
+      const undo = async () => {
+        flash(null);
+        working(row.personId, true);
+        try {
+          if (prev) {
+            keepRow(await upsertRow("attendance", {
+              date, person_id: row.personId, staffName: row.name, role: row.role,
+              status: prev.status, hours: Number(prev.hours) || 0, note: prev.note ?? "", loggedBy: prev.loggedBy ?? "",
+              lateCutApplied: prev.lateCutApplied === true, lateMinutes: Number(prev.lateMinutes) || 0,
+            }, ["person_id", "date"]));
+          } else {
+            await deleteRow("attendance", saved.id);
+            dropRow(saved.id);
+          }
+          flash({ text: `${first}: change undone` });
+        } catch (err) {
+          console.error("Failed to undo attendance change:", err);
+          flash({ text: `Could not undo ${first}'s change. Try again.`, bad: true });
+        } finally {
+          working(row.personId, false);
+        }
+      };
+
+      flash({
+        text: patch.cut !== undefined
+          ? `${first}: 25% cut ${patch.cut ? "on" : "off"}`
+          : `${first}: ${STATE_LABEL[row.state]} → ${STATE_LABEL[stateOf({ status })]}`,
+        undo,
+      });
+      return true;
+    } catch (err) {
+      console.error("Failed to save attendance:", err);
+      flash({ text: `Could not save ${first}. Check your connection and try again.`, bad: true });
+      return false;
+    } finally {
+      working(row.personId, false);
+    }
+  }, [date, profile?.name, flash]);
+
+  const onSet = (row, status) => {
+    if (!canEdit || busy.has(row.personId)) return;
+    if (row.record?.status === status && !row.missedClockOut) return;
+    // taking a late mark off also takes the salary cut off: ask first
+    if (row.lateCut && status !== "Late") { setConfirm({ row, status }); return; }
+    mark(row, { status });
+  };
+  const onCut = (row) => { if (canEdit && !busy.has(row.personId)) mark(row, { status: "Late", cut: !row.lateCut }); };
+
+  /* ── the page ──────────────────────────────────────────── */
+
+  const out = summary.absent + summary.none;
+  const sub = seesTeam ? (
     <>
-      <div className="kscr fade-in">
-        {/* Header */}
-        <div className="kph">
-          <div><h2>Attendance</h2><p>Manage daily logs and clock-ins</p></div>
-          <div className="kph-a">
-            {canEdit && viewMode === "daily" && (
-              <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={saveRows} disabled={saving}>
-                <Icons.Plus size={13} sw={2.2} /> {saving ? "Saving…" : "Save Changes"}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {!canEdit && <p className="banner-warning">UK admin — view only.</p>}
-        {message   && <p className="banner-info">{message}</p>}
-        {viewMode === "daily" && isSaturdaySelected && <p className="banner-info">🏖️ Office closed on Saturdays — attendance isn't required for this date.</p>}
-
-        {/* Admin-role users with Attendance access still need to clock themselves in/out */}
-        {canEdit && (
-          <ClockInCard profile={profile} onClockChange={loadAll} />
-        )}
-
-        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-          <button
-            className={viewMode === "daily" ? "primary-button" : "ghost-button"}
-            style={{ padding: "6px 14px", fontSize: 12.5 }}
-            onClick={() => setViewMode("daily")}
-          >
-            Daily log
-          </button>
-          <button
-            className={viewMode === "employee" ? "primary-button" : "ghost-button"}
-            style={{ padding: "6px 14px", fontSize: 12.5 }}
-            onClick={() => setViewMode("employee")}
-          >
-            Employee report
-          </button>
-        </div>
-
-        {viewMode === "employee" ? (
-          <EmployeeMonthReport
-            staff={staffList}
-            staffId={reportStaffId}
-            setStaffId={setReportStaffId}
-            currentMonthDate={currentMonthDate}
-            setCurrentMonthDate={setCurrentMonthDate}
-            monthRecords={monthRecords}
-          />
-        ) : (
-        <div className="katt-grid">
-          {/* Left: Month Calendar */}
-          <MonthCalendar
-            currentMonthDate={currentMonthDate}
-            setCurrentMonthDate={setCurrentMonthDate}
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            monthRecords={monthRecords}
-          />
-
-          {/* Right: Staff log for selected date */}
-          <div className="kazi-card" style={{ overflow: "hidden" }}>
-            <div style={{ padding: "16px 20px 12px", borderBottom: "1px solid var(--line)" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".05em" }}>Staff log</div>
-              <div style={{ fontSize: 13, color: "var(--ink)", marginTop: 4, fontWeight: 500 }}>{selectedDateStrFormatted}</div>
-            </div>
-            {loading ? (
-              <div style={{ padding: "16px 20px" }}>
-                {[1,2,3,4,5].map(i => <div key={i} className="kskel kskel-row" />)}
-              </div>
-            ) : rows.length === 0 ? (
-              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--ink-4)" }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>No staff records for this date</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>Staff will appear here once added to the system</div>
-              </div>
-            ) : (
-              <div className="table-wrap katt-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Staff</th>
-                      <th>Schedule</th>
-                      <th>Status</th>
-                      <th>Clock-in</th>
-                      <th>Clock-out</th>
-                      <th>Hours</th>
-                      <th>Distance</th>
-                      <th>Method</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, i) => {
-                      const clockRec = clockIns.find(c => c.person_id === row.staffId);
-                      const isEditing = editingRow === i;
-                      const clockedIn  = tsDate(clockRec?.clockedInAt);
-                      const clockedOut = tsDate(clockRec?.clockedOutAt);
-                      const clockTime    = tsTime(clockRec?.clockedInAt,  null);
-                      const clockOutTime = tsTime(clockRec?.clockedOutAt, null);
-                      const workedH = clockedIn && clockedOut
-                        ? Math.max(0, Math.round(((clockedOut - clockedIn) / 3600000) * 10) / 10)
-                        : null;
-                      const distM = clockRec?.distanceToSiteM;
-
-                      return (
-                        <tr key={row.staffId || i}>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                              <div style={{ width: 30, height: 30, borderRadius: "50%", background: `oklch(55% .16 ${hueFromName(row.staffName)})`, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                                {initials(row.staffName)}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: 13 }}>{row.staffName}</div>
-                                <div style={{ fontSize: 11, color: "var(--ink-4)" }}>{row.role}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ fontSize: 12, color: "var(--ink-3)", verticalAlign: "middle" }}>
-                            {(() => {
-                              const sched = getEmployeeScheduleForDate(row.staffName, parseLocalDate(selectedDate));
-                              if (!sched) return "—";
-                              return `${sched.start} - ${sched.end}`;
-                            })()}
-                          </td>
-                          <td>
-                            {isEditing && canEdit ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                <select value={row.status} onChange={e => {
-                                  const newStatus = e.target.value;
-                                  const oldStatus = row.status;
-                                  if (newStatus !== oldStatus && oldStatus === "Late") {
-                                    setConfirmPending({ rowIndex: i, oldStatus, newStatus });
-                                  } else {
-                                    setRows(cur => cur.map((r,j) => j===i ? {
-                                      ...r,
-                                      status: newStatus,
-                                      lateCutApplied: newStatus === "Late" ? r.lateCutApplied : false
-                                    } : r));
-                                  }
-                                }}
-                                  style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12, fontFamily: "var(--font)", width: "100px" }}>
-                                  {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-                                </select>
-                                {row.status === "Late" && (
-                                  <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--terra)", marginTop: 4, cursor: "pointer", fontWeight: 500 }}>
-                                    <input type="checkbox" checked={row.lateCutApplied || false} 
-                                      onChange={e => setRows(cur => cur.map((r,j) => j===i ? {...r, lateCutApplied: e.target.checked} : r))} />
-                                    25% Salary Cut
-                                  </label>
-                                )}
-                              </div>
-                            ) : row.status === "Closed" ? (
-                              <span style={{ fontSize: 12, color: "var(--ink-4)", fontStyle: "italic" }}>Office closed</span>
-                            ) : (
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                <Pill tone={statusTone(row.status)} dot>{row.status}</Pill>
-                                {row.status === "Late" && row.lateCutApplied && (
-                                  <span style={{ fontSize: 10, background: "var(--terra-soft)", color: "var(--terra)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>25% Cut</span>
-                                )}
-                                {row.status === "Late" && !row.lateCutApplied && (row.lateMinutes > 0 ? (
-                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }} title={`${row.lateMinutes}m late`}>Grace (&lt;15m)</span>
-                                ) : (
-                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500 }}>Grace</span>
-                                ))}
-                                {row.status === "Late" && row.lateMinutes > 0 && (
-                                  <span style={{ fontSize: 10, background: "var(--amber-soft)", color: "var(--amber-deep)", padding: "2px 6px", borderRadius: 4, fontWeight: 500, fontFamily: "var(--mono)" }}>
-                                    {row.lateMinutes}m late
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockTime || "—"}</td>
-                          <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{clockOutTime || "—"}</td>
-                          <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
-                            {workedH != null ? `${workedH}h` : "—"}
-                          </td>
-                          <td style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--ink-3)" }}>
-                            {distM != null ? `${distM}m` : "—"}
-                          </td>
-                          <td>
-                            {clockTime ? (
-                              <Pill tone="ghost" icon={<Icons.MapPin size={11}/>}>GPS</Pill>
-                            ) : canEdit && isEditing ? (
-                              <span style={{ fontSize: 11, color: "var(--ink-4)", fontStyle: "italic" }}>manual</span>
-                            ) : "—"}
-                          </td>
-                          <td>
-                            {canEdit ? (
-                              isEditing ? (
-                                <div style={{ display: "flex", gap: 6 }}>
-                                  <button className="ghost-button" style={{ padding: "3px 10px", fontSize: 11 }} onClick={() => { saveRows(); setEditingRow(null); }}>Save</button>
-                                  <button className="ghost-button" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditingRow(null)}>✕</button>
-                                </div>
-                              ) : (
-                                <button className="ghost-button" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setEditingRow(i)}>Edit</button>
-                              )
-                            ) : null}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-        )}
-
-      </div>
-
-      {/* ─── Late-status change confirmation modal ─── */}
-      {confirmPending && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-          <div style={{ background: "var(--bg)", borderRadius: 12, padding: "24px 28px", maxWidth: 380, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Change attendance status?</div>
-            <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 20 }}>
-              Changing from <strong>{confirmPending.oldStatus}</strong> → <strong>{confirmPending.newStatus}</strong> will remove the late salary deduction record for this staff member.
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="ghost-button" onClick={() => setConfirmPending(null)}>Cancel</button>
-              <button style={{ background: "var(--terra)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}
-                onClick={() => {
-                  const { rowIndex, newStatus } = confirmPending;
-                  setRows(cur => cur.map((r, j) => j === rowIndex ? { ...r, status: newStatus, lateCutApplied: false } : r));
-                  setConfirmPending(null);
-                }}>
-                Yes, change status
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <span>{dayTitle(date)}</span>
+      {summary.total > 0 && <span>{summary.here} in</span>}
+      {summary.late > 0 && <span>{summary.late} late</span>}
+      {out > 0 && summary.total > 0 && <span className="kb-bad">{out} {date === today ? "not in" : "absent or unmarked"}</span>}
+      {!canEdit && <span>View only</span>}
+    </>
+  ) : (
+    <>
+      <span>{dayTitle(date)}</span>
+      <span>{mine.present} present</span>
+      {mine.late > 0 && <span>{mine.late} late</span>}
+      {mine.absent > 0 && <span className="kb-bad">{mine.absent} absent</span>}
     </>
   );
-}
 
-export default Attendance;
+  const layout = seesTeam ? (canClock ? "att-team" : "att-view") : "att-me";
+  const loadingTiles = !ready;
+  // The calendar keeps its frame (and the keyboard focus in it) while another month loads; only the very first load blanks it.
+  const firstLoad = !data.month;
+
+  return (
+    <BentoPage className="at-page">
+      <header className="kb-head">
+        <div className="kb-head-l">
+          <h1>Attendance</h1>
+          <p className="kb-head-sub">{ready ? sub : data.status === "error" ? null : <span>Loading…</span>}</p>
+        </div>
+        <div className="kb-head-r">
+          {date !== today && <button type="button" className="kb-pillbtn" onClick={backToToday}>Back to today</button>}
+          <button type="button" className="kb-pillbtn" onClick={() => load()} aria-label="Refresh attendance">
+            <Icons.RefreshCw size={13} sw={1.9} aria-hidden="true" /> Refresh
+          </button>
+        </div>
+      </header>
+
+      {data.error && data.status === "ready" && (
+        <div className="at-banner" role="status">
+          <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+          <span>{data.error}</span>
+        </div>
+      )}
+
+      {data.status === "error" ? (
+        <div className="kb-error" role="alert">
+          <p>Attendance could not load: {data.error}</p>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => load()}>Try again</button>
+        </div>
+      ) : seesTeam ? (
+        <BentoGrid layout={layout}>
+          {canClock && <ClockTile profile={profile} onClockChange={() => load({ silent: true })} />}
+          <DayTile rows={roster} summary={summary} filter={filter} onFilter={setFilter} date={date} today={today} loading={loadingTiles} />
+          {mode === "day" ? (
+            <RosterTile
+              rows={roster} shown={shown} filter={filter} onFilter={setFilter}
+              date={date} today={today} onStep={(n) => goDate(addDays(date, n))} onToday={backToToday}
+              canEdit={canEdit} edit={edit && canEdit} onEdit={setEdit} busyIds={busy} onSet={onSet} onCut={onCut}
+              toast={toast} mode={mode} onMode={(m) => { setEdit(false); setMode(m); }} loading={loadingTiles}
+            />
+          ) : (
+            <ReportTile
+              options={reportOptions} personId={reportPerson?.personId || ""} onPerson={setReportId} person={reportPerson}
+              month={month} today={today} mode={mode} onMode={setMode} loading={loadingTiles}
+            />
+          )}
+          <MonthTile kind="team" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} byDay={ready ? team.byDay : NOTHING} loading={firstLoad} />
+          <StatsTile kind="team" summary={team} label={monthTitle(month)} loading={loadingTiles} />
+        </BentoGrid>
+      ) : (
+        <BentoGrid layout={layout}>
+          <ClockTile profile={profile} onClockChange={() => load({ silent: true })} />
+          <TodayTile row={myRow} date={date} today={today} loading={loadingTiles} />
+          <MonthTile kind="me" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} days={ready ? myDays : NO_DAYS} loading={firstLoad} />
+          <StatsTile kind="me" summary={mine} label={monthTitle(month)} loading={loadingTiles} />
+          <RecentTile days={mine.days} today={today} date={date} onPick={goDate} loading={loadingTiles} />
+        </BentoGrid>
+      )}
+
+      {confirm && (
+        <ConfirmDialog
+          title="Take off the salary cut?"
+          confirmLabel="Change status"
+          busyLabel="Saving…"
+          onConfirm={() => mark(confirm.row, { status: confirm.status })}
+          onClose={() => setConfirm(null)}
+        >
+          {confirm.row.name} was marked late with a 25% salary cut on {dayTitle(date)}. Making them {STATE_LABEL[stateOf({ status: confirm.status })].toLowerCase()} takes the cut off too. You can undo it straight after.
+        </ConfirmDialog>
+      )}
+    </BentoPage>
+  );
+}

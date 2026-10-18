@@ -335,6 +335,8 @@ Each entry lists the key problems, the target layout on desktop and phone, and w
 
 ### 8.3 Attendance — [Attendance.jsx](src/pages/Attendance.jsx) (692) + [ClockInCard](src/components/ClockInCard.jsx) (465)
 
+> **Redone 2026-10-18** in the glass look, with a different layout from the one planned below (see [DESIGN.md](DESIGN.md), *The Attendance page*). The wide clock card is gone (`ClockInCard` keeps its ring and strip), the Late → confirm flow and `lateCutApplied` are kept, a status change saves only that person (bug #4), and the hard-coded `isDeepa` check is gone (bug #15). What follows is the original plan, kept for the record.
+
 - **Problems:**
   - 9-column staff log is 780 px wide
   - calendar column fixed at 350 px
@@ -654,7 +656,7 @@ These are **not** mixed into design commits. Unless you say otherwise, each beco
 | 1 | **High** | Inventory | Local `async function deleteRow` shadows the imported db `deleteRow` and calls itself forever. **Deleting stock items, processes, tech packs and samples fails.** |
 | 2 | **High** | Production | `nextOrderId` counts only the region-filtered orders, so **order IDs can repeat across UK and Nepal.** |
 | 3 | **High** | Production | The list checks `order.invoiceNumber`, but orders store `invoiceRef`. **"+ Invoice" always shows, so an order can be invoiced twice.** |
-| 4 | **High** | Attendance | The per-row Save calls `saveRows`, which upserts **every** row, so saving one person writes Absent records for everyone without one. |
+| 4 | **High** | Attendance | The per-row Save calls `saveRows`, which upserts **every** row, so saving one person writes Absent records for everyone without one. **Fixed 2026-10-18** (the rewrite saves one person at a time and shows "No record" for the unmarked). |
 | 5 | Med | Tasks | Clicking a card always opens the Edit modal and can save, even for roles without tasks edit rights (RLS may still block the write). |
 | 6 | Med | Finance | The bank form saves `amountNPR`, but the Bank KPI strip reads `t.amount`, so manually added transactions count as 0. |
 | 7 | Med | Purchases | The displayed ID is `EXP${index+1}` instead of `row.expenseId`, so it doesn't match what the ledger searches for. |
@@ -665,7 +667,7 @@ These are **not** mixed into design commits. Unless you say otherwise, each beco
 | 12 | Med | MarketingCalendar | New items start with `id: null`, so edits made before the insert returns are lost; clicking any day inserts a row; no permission checks. |
 | 13 | Low | Finance | Balance-sheet check compares floats with `===`; `setActiveTab` is called during render. |
 | 14 | Low | QC | `QC${allLogs.length+1}` IDs collide if a log is ever deleted. |
-| 15 | Low | Attendance | Employee report access is gated by one hard-coded email (`isDeepa`), not a permission. |
+| 15 | Low | Attendance | Employee report access is gated by one hard-coded email (`isDeepa`), not a permission. **Fixed 2026-10-18** (removed: it never showed anyone else's data, because the database only returns a staff member's own rows). |
 | 16 | Low | BankBalanceWidget | Visibility is a hard-coded name allowlist (`zen`, `finn`, `wilson`, `admin`), not a permission. |
 | 17 | Low | Budget | `submitBudget` / `submitReq` have no try/finally, so the button sticks on "Submitting…" after a failure. |
 | 18 | Low | Billing | Empty state and CSV header say "Invoice" on the Challan and Quotation tabs. |

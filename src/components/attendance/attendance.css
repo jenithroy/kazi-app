@@ -1,0 +1,384 @@
+/* ══════════════════════════════════════════════════════════════════
+   ATTENDANCE — the page's own parts (everything is `.at-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then a grid of glass tiles. Which
+   grid depends on who is looking:
+     att-team   clock-in, the day's ring, the roll call (or report), the calendar, the month
+     att-view   the same without the clock-in (someone who may look but not edit)
+     att-me     clock-in, today, their own month as a calendar, counts, recent days
+   Inside a tile everything reads the `--kb-*` tokens, so light, dark and the tones follow.
+
+   Loaded after bento.css. The grids are written `.kb-grid.kb-grid--att-…` (one class more than
+   bento's own `.kb-grid` rules) so they win in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grids ────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--att-team { grid-template-areas:
+  "clock clock clock roster roster roster roster roster roster month month month"
+  "clock clock clock roster roster roster roster roster roster month month month"
+  "day   day   day   roster roster roster roster roster roster stats stats stats"
+  "day   day   day   roster roster roster roster roster roster stats stats stats"; }
+
+.kb-grid.kb-grid--att-view { grid-template-areas:
+  "day day day roster roster roster roster roster roster month month month"
+  "day day day roster roster roster roster roster roster month month month"
+  "day day day roster roster roster roster roster roster stats stats stats"
+  "day day day roster roster roster roster roster roster stats stats stats"; }
+
+.kb-grid.kb-grid--att-me { grid-template-areas:
+  "clock clock clock month  month  month  month  month  month  stats  stats  stats"
+  "clock clock clock month  month  month  month  month  month  stats  stats  stats"
+  "today today today month  month  month  month  month  month  recent recent recent"
+  "today today today month  month  month  month  month  month  recent recent recent"; }
+
+/* Tablet: six columns. The page is taller than the window needs so the roll call has room; a
+   shorter window scrolls it in the shell rather than crushing the tiles. */
+@media (max-width: 1023px) {
+  .kb.at-page { min-height: 980px; }
+  .kb-grid.kb-grid--att-team, .kb-grid.kb-grid--att-view, .kb-grid.kb-grid--att-me {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(10, minmax(0, 1fr));
+  }
+  .kb-grid.kb-grid--att-team { grid-template-areas:
+    "clock  clock  clock  day   day   day"
+    "clock  clock  clock  day   day   day"
+    "clock  clock  clock  day   day   day"
+    "roster roster roster roster roster roster"
+    "roster roster roster roster roster roster"
+    "roster roster roster roster roster roster"
+    "roster roster roster roster roster roster"
+    "month  month  month  stats stats  stats"
+    "month  month  month  stats stats  stats"
+    "month  month  month  stats stats  stats"; }
+  .kb-grid.kb-grid--att-view { grid-template-areas:
+    "day   day   day   stats stats stats"
+    "day   day   day   stats stats stats"
+    "day   day   day   stats stats stats"
+    "roster roster roster roster roster roster"
+    "roster roster roster roster roster roster"
+    "roster roster roster roster roster roster"
+    "roster roster roster roster roster roster"
+    "month month month month month month"
+    "month month month month month month"
+    "month month month month month month"; }
+  .kb-grid.kb-grid--att-me { grid-template-areas:
+    "clock  clock  clock  today  today  today"
+    "clock  clock  clock  today  today  today"
+    "clock  clock  clock  today  today  today"
+    "month  month  month  month  month  month"
+    "month  month  month  month  month  month"
+    "month  month  month  month  month  month"
+    "month  month  month  month  month  month"
+    "stats  stats  stats  recent recent recent"
+    "stats  stats  stats  recent recent recent"
+    "stats  stats  stats  recent recent recent"; }
+}
+
+/* Phone: two columns, the page scrolls, and every tile grows with what is in it. */
+@media (max-width: 768px) {
+  .kb.at-page { min-height: 0; }
+  .kb-grid.kb-grid--att-team, .kb-grid.kb-grid--att-view, .kb-grid.kb-grid--att-me {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+  }
+  .kb-grid.kb-grid--att-team { grid-template-areas: "clock clock" "day day" "roster roster" "month month" "stats stats"; }
+  .kb-grid.kb-grid--att-view { grid-template-areas: "day day" "roster roster" "month month" "stats stats"; }
+  .kb-grid.kb-grid--att-me   { grid-template-areas: "clock clock" "today today" "month month" "stats stats" "recent recent"; }
+}
+
+/* ── Small shared pieces ──────────────────────────────────────── */
+
+.at-dim { color: var(--kb-faint); }
+.at-note { flex: none; margin: 0; font-size: 12px; line-height: 1.4; color: var(--kb-ink-3); }
+
+.at-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.at-banner > svg { flex: none; color: var(--kb-warn); }
+
+/* the row of controls at the top of the roll call and the report */
+.at-bar { flex: none; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.at-bar-l, .at-bar-r, .at-daynav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.at-daynav { flex-wrap: nowrap; }
+.at-daynav-t { font-size: 14px; font-weight: 600; letter-spacing: -.01em; color: var(--kb-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.at-nav {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--kb-ink-3); cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+.at-nav:hover { background: var(--kb-well); color: var(--kb-ink); }
+.at-nav:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 50%; }
+
+.kb-pillbtn.at-small { height: 28px; padding: 0 11px; font-size: 12px; gap: 5px; }
+.kb-pillbtn.is-on { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+
+/* Roll call | Report */
+.at-seg { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--kb-well); border: 1px solid var(--kb-line); }
+.at-seg-btn {
+  height: 24px; padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--kb-ink-3);
+  font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer; transition: background-color .15s, color .15s;
+}
+.at-seg-btn:hover:not(.is-on) { color: var(--kb-ink); }
+.at-seg-btn.is-on { background: var(--kb-surface); color: var(--kb-accent); box-shadow: var(--kb-shadow); }
+.at-seg-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 999px; }
+
+/* ── The clock-in tile ────────────────────────────────────────── */
+
+.at-clock .kb-ringbtn-main { font-size: 19cqmin; }
+.at-clock .kb-ringbtn-main svg { width: 24cqmin; height: 24cqmin; }
+
+/* ── The roll call ────────────────────────────────────────────── */
+
+/* column heads and rows share their cell widths, so they line up whatever the tile's width */
+.at-th {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 4px 6px;
+  border-bottom: 1px solid var(--kb-line);
+  font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--kb-ink-3);
+}
+@media (pointer: fine) { .at-th { padding-right: 16px; } }       /* the slim scrollbar's width, so the columns still line up */
+
+.at-list, .at-days {
+  flex: 1 1 0; min-height: 0; margin: 0; padding: 0; list-style: none;
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+/* a list that scrolls can be reached and scrolled from the keyboard */
+.at-list:focus-visible, .at-days:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; border-radius: 10px; }
+.at-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 4px; border-bottom: 1px solid var(--kb-line); }
+.at-row:last-child { border-bottom: 0; }
+.at-row.is-busy { opacity: .6; }
+
+.at-c-name { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.at-who { min-width: 0; display: grid; gap: 1px; }
+.at-who b { font-size: 13px; font-weight: 600; color: var(--kb-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-who > span { font-size: 11.5px; color: var(--kb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-c-st { flex: none; width: 132px; min-width: 0; display: grid; gap: 2px; justify-items: start; }
+.at-sub { max-width: 100%; font-size: 11px; line-height: 1.3; color: var(--kb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-c-time, .at-c-hrs, .at-c-dist { flex: none; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--kb-ink-2); white-space: nowrap; }
+.at-c-time { width: 46px; }
+.at-c-hrs { width: 76px; }
+.at-c-hrs.is-live { color: var(--kb-accent); font-weight: 500; }       /* still clocked in: the time is running */
+.at-c-dist { width: 56px; }
+.at-th .at-c-time, .at-th .at-c-hrs, .at-th .at-c-dist { font-size: 10.5px; color: var(--kb-ink-3); }
+
+/* edit mode: the status becomes five buttons, and the times step aside to make room */
+.at-roster.is-edit .at-c-st { flex: 0 1 auto; width: auto; }
+.at-roster.is-edit .at-c-time, .at-roster.is-edit .at-c-hrs, .at-roster.is-edit .at-c-dist { display: none; }
+.at-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.at-chip {
+  height: 26px; padding: 0 10px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent;
+  color: var(--kb-ink-2); font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.at-chip:hover:not([aria-disabled="true"]):not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.at-chip[aria-disabled="true"] { cursor: progress; }
+.at-chip:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 999px; }
+.at-chip.is-on { color: var(--kb-ink); }
+.at-chip--present.is-on, .at-chip--half.is-on { background: var(--kb-good-bg); border-color: color-mix(in srgb, var(--kb-good) 45%, transparent); color: color-mix(in srgb, var(--kb-good) 72%, var(--kb-ink)); }
+.at-chip--late.is-on { background: var(--kb-warn-bg); border-color: color-mix(in srgb, var(--kb-warn) 45%, transparent); color: var(--kb-warn); }
+.at-chip--leave.is-on { background: var(--kb-info-bg); border-color: color-mix(in srgb, var(--kb-info) 45%, transparent); color: var(--kb-info); }
+.at-chip--absent.is-on, .at-chip--cut.is-on { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 45%, transparent); color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
+.at-chip--cut { border-style: dashed; }
+/* in a narrow tile the buttons take a line of their own under the name */
+@container kb (max-width: 579px) {
+  .at-roster.is-edit .at-th { display: none; }
+  .at-roster.is-edit .at-row { flex-wrap: wrap; row-gap: 6px; }
+  .at-roster.is-edit .at-c-st { flex: 1 1 100%; }
+  .at-roster.is-edit .at-chips { justify-content: flex-start; }
+}
+
+/* what just changed, with Undo; the same quiet strip the Tasks page uses */
+.at-toast {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px;
+  border-radius: 10px; background: var(--kb-chip); color: var(--kb-ink); font-size: 12.5px;
+}
+.at-toast.is-bad { background: var(--kb-bad-bg); }
+.at-toast button {
+  display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 4px 8px; border-radius: 6px;
+  color: var(--kb-accent); font: 600 12.5px/1 var(--font); cursor: pointer;
+}
+.at-toast button:hover { text-decoration: underline; text-underline-offset: 2px; }
+.at-toast button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+
+/* ── A person's days (the report, and the staff page's recent days) ── */
+
+.at-day { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 6px 4px; }
+.at-days > li, .kb-list > .at-day-li { border-bottom: 1px solid var(--kb-line); }
+.at-days > li:last-child, .kb-list > .at-day-li:last-child { border-bottom: 0; }
+.kb-list > .at-day-li { flex: 0 0 auto; width: 100%; }
+.at-day-li { padding: 0; }
+.at-day-btn {
+  width: 100%; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background-color .15s;
+}
+.at-day-btn:hover { background: var(--kb-well); }
+.at-day-li.is-active .at-day-btn { background: var(--kb-chip); }
+.at-day-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; border-radius: 8px; }
+.at-day.is-future, .at-day-li.is-future { opacity: .55; }
+.at-day-d { flex: none; width: 84px; font-size: 12.5px; color: var(--kb-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.at-day-s { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.at-days .at-day-s, .at-th .at-day-s { flex: none; width: 150px; }
+.at-day-in { display: none; flex: none; width: 44px; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--kb-ink-2); }
+@container kb (max-width: 359px) { .at-day-in { display: inline; } }
+.at-th .at-day-in { display: none; }
+.at-day-t { flex: none; width: 104px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--kb-ink-2); white-space: nowrap; }
+.at-day-h { flex: none; width: 70px; text-align: right; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--kb-ink-2); white-space: nowrap; }
+.at-day-n { flex: 1 1 0; min-width: 0; font-size: 12px; color: var(--kb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-th .at-day-d, .at-th .at-day-s, .at-th .at-day-t, .at-th .at-day-h, .at-th .at-day-n { font-size: 10.5px; color: var(--kb-ink-3); }
+
+/* the report's counts */
+.at-sums { flex: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.at-sums > div { display: flex; flex-direction: column-reverse; gap: 3px; min-width: 0; padding: 7px 9px; border-radius: 10px; background: var(--kb-well); }
+.at-sums dt { font-size: 11px; color: var(--kb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.at-sums dd { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--kb-ink); white-space: nowrap; }
+.at-sums .is-warn dd { color: var(--kb-warn); }
+.at-sums .is-bad dd { color: var(--kb-bad); }
+.at-sums .is-info dd { color: var(--kb-info); }
+@container kb (max-width: 459px) { .at-sums { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* ── The day's ring and its key ───────────────────────────────── */
+
+.at-key { gap: 1px; }
+.kb-att-key.at-key li { padding: 0; }
+.at-key-btn {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--kb-ink-2); font: 400 12.5px/1.3 var(--font); text-align: left; cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+.at-key-btn:hover { background: var(--kb-well); }
+.at-key-btn.is-on { background: var(--kb-chip); color: var(--kb-accent); }
+.at-key-btn b { margin-left: auto; padding-left: 6px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
+.at-key-btn.is-on b { color: var(--kb-accent); }
+.at-key-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 8px; }
+
+/* tall enough, the people who are not in are named under the ring */
+.at-notin { flex: 1 1 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 2px; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--kb-line); }
+.at-notin .kb-row { padding: 6px 0; }
+@container kb (max-height: 459px) { .at-notin { display: none; } }
+@container kb (min-height: 460px) { .at-daytile .kb-att-ring { --ring: clamp(76px, calc(100cqh - 250px), 240px); } }
+/* a narrow tile (a 1024px-wide window): a smaller ring so the key keeps room for its words */
+@container kb (max-width: 239px) {
+  .at-daytile .kb-att-ring { width: min(var(--ring), 42cqw); }
+  .at-daytile .kb-att-big { gap: 10px; }
+  .at-daytile .kb-att-key { min-width: 0; }
+  .at-key-btn { gap: 6px; padding: 4px; }
+}
+
+/* ── Your day ─────────────────────────────────────────────────── */
+
+.at-state { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: var(--kb-well); }
+.at-state-ic { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: var(--kb-mute-bg); color: var(--kb-ink-2); }
+.at-state b { display: block; font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; color: var(--kb-ink); }
+.at-state span { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35; color: var(--kb-ink-3); }
+.at-state--present, .at-state--half { background: var(--kb-good-bg); }
+.at-state--present .at-state-ic, .at-state--half .at-state-ic { background: var(--kb-good-fill); color: #fff; }
+.at-state--late { background: var(--kb-warn-bg); }
+.at-state--late .at-state-ic { background: var(--kb-warn-fill); color: #fff; }
+.at-state--leave { background: var(--kb-info-bg); }
+.at-state--leave .at-state-ic { background: var(--kb-info-fill); color: #fff; }
+.at-state--absent { background: var(--kb-bad-bg); }
+.at-state--absent .at-state-ic { background: var(--kb-bad-fill); color: #fff; }
+@container kb (max-height: 219px) { .at-state { padding: 8px 10px; } .at-state-ic { width: 32px; height: 32px; } .at-state b { font-size: 17px; } }
+
+.at-facts { flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.at-facts > div { display: grid; gap: 2px; min-width: 0; padding: 7px 10px; border-radius: 10px; background: var(--kb-well); }
+.at-facts > div:last-child:nth-child(odd) { grid-column: span 2; }
+/* a short tile drops the least useful facts first (these set `display`, so they do not use the kb-h-* helpers) */
+@container kb (max-height: 239px) { .at-facts > .is-h240 { display: none; } }
+@container kb (max-height: 299px) { .at-facts > .is-h300 { display: none; } }
+.at-facts dt { font-size: 11px; color: var(--kb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.at-facts dd { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--kb-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── The calendar ─────────────────────────────────────────────── */
+
+.at-calnav { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.at-calnav-t { font-size: 14px; font-weight: 600; letter-spacing: -.01em; color: var(--kb-ink); }
+
+.at-cal { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.at-cal-dow, .at-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.at-cal-dow { flex: none; }
+.at-cal-dow > span { text-align: center; font-size: 10.5px; font-weight: 500; color: var(--kb-ink-3); }
+.at-cal-dow > .is-sat { opacity: .7; }
+.at-d1 { display: none; }
+@container kb (max-width: 299px) { .at-d1 { display: inline; } }
+.at-cal-grid { flex: 1 1 0; min-height: 0; grid-template-rows: repeat(var(--weeks, 5), minmax(0, 1fr)); }
+
+.at-cell {
+  position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 2px;
+  padding: 4px 5px; border: 1px solid transparent; border-radius: 9px; overflow: hidden;
+  background: var(--kb-well); color: var(--kb-ink-2); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color .15s, background-color .15s, box-shadow .15s;
+}
+.at-cell:hover { border-color: var(--kb-line-hi); }
+.at-cell:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 9px; }
+.at-cell-n { font-size: 12px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.at-cell.is-today .at-cell-n { color: var(--kb-accent); }
+.at-cell.is-today::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--kb-accent); }
+.at-cell.is-sel { border-color: var(--kb-accent); box-shadow: 0 0 0 1px var(--kb-accent); }
+.at-cell.is-sat { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--kb-well) 5px 8px); }
+.at-cell.is-future:not(.is-sat) { background: transparent; border-color: var(--kb-line); }
+.at-cell.is-future:not(.is-sel) .at-cell-n { color: var(--kb-ink-3); font-weight: 500; }
+.at-blank { min-width: 0; }
+
+/* the team's little bar: who was present, late, away, absent that day */
+.at-cell-bar { display: flex; gap: 2px; width: 100%; height: 4px; }
+.at-cell-bar i { display: block; min-width: 2px; border-radius: 99px; }
+.at-cell-bar i.is-none { background: var(--kb-track); }
+
+/* your own days are painted with how they went */
+.at-cell--present, .at-cell--half { background: var(--kb-good-bg); color: var(--kb-good); }
+.at-cell--half::before { content: "½"; position: absolute; top: 3px; right: 6px; font-size: 11px; font-weight: 600; line-height: 1; }
+.at-cell--half.is-today::before { right: 17px; }
+.at-cell--late { background: var(--kb-warn-bg); color: var(--kb-warn); }
+.at-cell--leave { background: var(--kb-info-bg); color: var(--kb-info); }
+.at-cell--absent { background: var(--kb-bad-bg); color: var(--kb-bad); }
+.at-cell-t, .at-cell-h { font-size: 11px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.at-cell-t::before, .at-cell-h::before { content: attr(data-v); }
+.at-cell-t { margin-top: auto; }
+.at-cell-h { opacity: .8; }
+@container kb (max-width: 459px) { .at-cell-t, .at-cell-h { display: none; } }
+@container kb (max-height: 379px) { .at-cell-h { display: none; } }
+@container kb (max-height: 279px) { .at-cell-t { display: none; } }
+
+.at-cal-key { flex: none; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--kb-ink-3); }
+.at-cal-key span { display: inline-flex; align-items: center; gap: 6px; }
+.at-cal-key i { width: 9px; height: 9px; border-radius: 3px; }
+@container kb (max-height: 299px) { .at-cal-key { display: none; } }
+.at-sw--present { background: var(--kb-good-bg); box-shadow: inset 0 0 0 1.5px var(--kb-good-fill); }
+.at-sw--late { background: var(--kb-warn-bg); box-shadow: inset 0 0 0 1.5px var(--kb-warn-fill); }
+.at-sw--leave { background: var(--kb-info-bg); box-shadow: inset 0 0 0 1.5px var(--kb-info-fill); }
+.at-sw--absent { background: var(--kb-bad-bg); box-shadow: inset 0 0 0 1.5px var(--kb-bad-fill); }
+
+/* ── The month in numbers ─────────────────────────────────────── */
+
+.at-stat-top { flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.at-stat-top > div { display: grid; gap: 4px; min-width: 0; }
+.at-kv { flex: none; display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.at-kv li { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; color: var(--kb-ink-2); }
+.at-kv b { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
+@container kb (max-height: 199px) { .at-kv { display: none; } }
+.at-late { flex: 1 1 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 2px; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--kb-line); }
+.at-late .kb-row { padding: 6px 0; }
+@container kb (max-height: 419px) { .at-late { display: none; } }
+
+/* ── Phone: the page scrolls, so lists show every row and fixed heights come back ── */
+
+@media (max-width: 768px) {
+  .at-list, .at-days { flex: 0 0 auto; overflow: visible; scrollbar-gutter: auto; }
+  .at-th { padding-right: 4px; }
+  .at-cal { flex: 0 0 auto; }
+  .at-cal-grid { flex: 0 0 auto; grid-template-rows: none; grid-auto-rows: 46px; }
+  .at-notin, .at-late { display: grid; }
+  .at-notin { flex: 0 0 auto; }
+  .at-late { flex: 0 0 auto; }
+  .at-clock .kb-clockring { min-height: 140px; }
+  .at-nav { width: 36px; height: 36px; }
+  .at-chip { height: 32px; padding: 0 12px; }
+  .at-key-btn { padding: 8px; }
+  .at-seg-btn { height: 28px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .at-cell, .at-chip, .at-seg-btn, .at-nav, .at-key-btn, .at-day-btn { transition: none; }
+}

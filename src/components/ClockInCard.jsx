@@ -3,7 +3,7 @@ import { fetchAll, insertRow, updateRow, upsertRow } from "../lib/db";
 import { haversineDistance } from "../utils/geo";
 import { WORK_SITE, GEOFENCE_RADIUS_M, GPS_ACCURACY_THRESHOLD_M, calculateAttendanceStatus, setEmployeeScheduleOverrides } from "../constants";
 import { todayDate, isSaturday, tsDate } from "../utils/date";
-import { Icons, Btn, Card, Pill } from "./ui";
+import { Icons } from "./ui";
 import { awardPoints } from "../utils/rewardService";
 import { useReward } from "../context/RewardContext";
 import { getCurrentPosition, hapticSuccess } from "../utils/native";
@@ -21,12 +21,12 @@ function fmtElapsed(ms) {
 }
 
 /**
- * `variant` picks how it is drawn; what it does is the same in all three.
- *   card   the full card (Attendance page)
+ * `variant` picks how it is drawn; what it does is the same in both.
+ *   ring   one circle: press it and it clocks you in (no separate confirm step). `showTime` puts
+ *          the time of day in the circle while it waits to be pressed (the Attendance page)
  *   strip  one compact line at the foot of another tile (managers, beside the team's attendance)
- *   ring   one circle: press it and it clocks you in (no separate confirm step)
  */
-export default function ClockInCard({ profile, onClockChange, variant = "card" }) {
+export default function ClockInCard({ profile, onClockChange, variant = "ring", showTime = false }) {
   const today = todayDate();
   const isOfficeClosedToday = isSaturday(today);
   // Attendance and clock-ins are keyed by the person's row in `people`, not by
@@ -293,6 +293,8 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
     let pct = 0;        // how much of the circle is drawn
     let busy = false;   // spinning: something is in flight
     let main = <Icons.MapPin size={28} sw={1.7} />;
+    let mainText = "";  // the words in `main`, if it has any: the button's spoken name has to start with what is seen on it
+    const say = (words) => { mainText = words; return <span>{words}</span>; };
     let label = "";
     let note = "";
     let press = null;   // what the circle does when pressed
@@ -305,13 +307,14 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
       note = "Saturday is the company holiday.";
     } else if (status === "idle") {
       label = "Clock in"; press = startClock; note = `We check you are within ${RADIUS} m of the workshop.`;
+      if (showTime) main = say(fmtHM(clockTime));
     } else if (status === "locating") {
       busy = true; main = <Icons.Crosshair size={28} sw={1.7} />; label = "Locating"; note = "Finding your position…";
     } else if (status === "success" || status === "saving") {
       busy = true; main = <Icons.Check size={28} sw={1.9} />; label = "Clocking in"; note = "Saving your clock-in…";
     } else if (status === "far") {
       tone = "err"; pct = 100; press = retry;
-      main = <span>{clockDist && clockDist !== 9999 ? `${(clockDist / 1000).toFixed(1)} km` : "Far"}</span>; label = "Too far";
+      main = say(clockDist && clockDist !== 9999 ? `${(clockDist / 1000).toFixed(1)} km` : "Far"); label = "Too far";
       note = `Move within ${RADIUS} m of the workshop, then press to try again.`;
     } else if (status === "low-accuracy" || status === "gps-error") {
       tone = "err"; pct = 100; press = retry; main = <Icons.Alert size={28} sw={1.7} />;
@@ -322,13 +325,13 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
       extra = act("ghost", "Clock in anyway", () => confirmClockIn(true));
     } else if (status === "clocked") {
       tone = "ok"; pct = Math.min(100, (elapsed / (8 * 3600000)) * 100);
-      main = <span>{clockInDate ? fmtElapsed(elapsed) : "In"}</span>; label = "on the clock";
+      main = say(clockInDate ? fmtElapsed(elapsed) : "In"); label = "on the clock";
       note = `In at ${clockedAtStr || "—"}`;
       extra = confirmingOut
         ? <>{act("ghost", "Cancel", () => setConfirmingOut(false))}{act("primary", "Confirm clock-out", handleClockOut)}</>
         : act("ghost", "Clock out", () => setConfirmingOut(true));
     } else if (status === "clocked_out") {
-      tone = "ok"; pct = 100; main = <span>{workedHours != null ? `${workedHours}h` : "Done"}</span>; label = "day complete";
+      tone = "ok"; pct = 100; main = say(workedHours != null ? `${workedHours}h` : "Done"); label = "day complete";
       note = `${clockedAtStr || "—"} to ${clockedOutAtStr || "—"}`;
       extra = act("ghost", "Clock back in", handleClockBackIn);
     }
@@ -340,7 +343,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
           className={`kb-ringbtn${tone ? ` kb-ringbtn--${tone}` : ""}${press ? " is-press" : ""}`}
           onClick={press && !busy ? press : undefined}
           aria-disabled={!press || busy || undefined}
-          aria-label={`${label}. ${note}`}
+          aria-label={`${[mainText, label].filter(Boolean).join(" ")}. ${note}`}
         >
           <svg viewBox="0 0 100 100" aria-hidden="true">
             <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" className="kb-ring-track" />
@@ -351,7 +354,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
             {busy && <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" strokeLinecap="round" className="kb-ringbtn-spin" strokeDasharray={`${C * 0.22} ${C}`} />}
           </svg>
           <span className="kb-ringbtn-c">
-            <span className="kb-ringbtn-main">{main}</span>
+            <span className="kb-ringbtn-main">{main}</span>{" "}
             <span className="kb-ringbtn-l">{label}</span>
           </span>
         </button>
@@ -364,7 +367,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
   }
 
   // The strip. Same state, same handlers, drawn for a tile (see .kb-clock in bento.css).
-  if (variant !== "card") {
+  if (variant === "strip") {
     const btn = (kind, label, onClick, disabled) => (
       <button type="button" className={`kb-btn kb-btn--${kind} kb-act`} onClick={onClick} disabled={disabled}>{label}</button>
     );
@@ -433,206 +436,5 @@ export default function ClockInCard({ profile, onClockChange, variant = "card" }
     );
   }
 
-  if (status === "checking_status") {
-    return (
-      <Card pad={false} className="kem-clock" style={{ padding: "32px 24px", display: "flex", justifyContent: "center", alignItems: "center" }}>
-        <div style={{ color: "var(--ink-4)" }}>Verifying attendance status…</div>
-      </Card>
-    );
-  }
-
-  if (isOfficeClosedToday && status === "idle") {
-    return (
-      <Card pad={false} className="kem-clock" style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center" }}>
-        <Icons.Check size={26} sw={1.8} style={{ color: "var(--mint-deep)" }} />
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Office closed today</div>
-        <div style={{ fontSize: 13, color: "var(--ink-4)" }}>Saturdays are a company holiday — no clock-in needed.</div>
-      </Card>
-    );
-  }
-
-  const isBypassing = status === "low-accuracy";
-
-  return (
-    <Card pad={false} className="kem-clock">
-      <div className="kem-clock-grid">
-        {/* Ring */}
-        <div className="kem-clock-ring">
-          <div className="kem-clock-rings">
-            <svg viewBox="0 0 200 200" width="200" height="200">
-              <defs>
-                <linearGradient id="clk-g" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="var(--mint)" />
-                  <stop offset="100%" stopColor="var(--mint-deep)" />
-                </linearGradient>
-              </defs>
-              <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(15,46,34,.06)" strokeWidth="3" strokeDasharray="3 4"/>
-              {status !== "idle" && status !== "checking_status" && (
-                <circle cx="100" cy="100" r="78" fill="none"
-                  stroke={status === "far" || status === "gps-error" ? "var(--terra)" : "url(#clk-g)"} strokeWidth="10"
-                  strokeDasharray={`${(ringPct/100)*490} 490`} strokeLinecap="round"
-                  transform="rotate(-90 100 100)" style={{ transition: "stroke-dasharray .6s ease" }}/>
-              )}
-              {(status === "locating" || status === "saving") && (
-                <circle cx="100" cy="100" r="60" fill="none" stroke="var(--mint)" strokeWidth="2"
-                  strokeDasharray="20 380" style={{ transformOrigin: "100px 100px", animation: "spin 1.2s linear infinite" }}/>
-              )}
-              <circle cx="100" cy="100" r="64" fill="#fff"/>
-            </svg>
-            <div className="kem-clock-inner">
-              {status === "idle"         && <><Icons.MapPin size={24} sw={1.8}/><div className="kem-clock-inner-l">Ready to clock in</div></>}
-              {status === "locating"     && <><Icons.Crosshair size={26} sw={1.8}/><div className="kem-clock-inner-l">Locating…</div></>}
-              {status === "saving"       && <><Icons.Crosshair size={26} sw={1.8}/><div className="kem-clock-inner-l">Saving…</div></>}
-              {status === "success"      && <><div className="num-xl mono" style={{fontSize:26,color:"var(--mint-deep)"}}>{clockDist}m</div><div className="kem-clock-inner-l">from workshop</div></>}
-              {status === "far"          && <><div className="num-xl mono" style={{fontSize:22,color:"var(--terra)"}}>{clockDist && clockDist !== 9999 ? `${(clockDist/1000).toFixed(2)}km` : "—"}</div><div className="kem-clock-inner-l">out of range</div></>}
-              {status === "low-accuracy" && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>Weak GPS</div></>}
-              {status === "gps-error"    && <><Icons.Alert size={26} style={{color:"var(--terra)"}}/><div className="kem-clock-inner-l" style={{color:"var(--terra)"}}>GPS Error</div></>}
-              {status === "clocked"      && (clockInDate
-                ? <><div className="num-xl mono" style={{fontSize:22,color:"var(--mint-deep)"}}>{fmtElapsed(clockTime - clockInDate)}</div><div className="kem-clock-inner-l">on the clock</div></>
-                : <><Icons.Check size={28} sw={2.2} style={{color:"var(--mint-deep)"}}/><div className="kem-clock-inner-l">Clocked in</div></>)}
-              {status === "clocked_out"  && <><div className="num-xl mono" style={{fontSize:24,color:"var(--mint-deep)"}}>{workedHours != null ? `${workedHours}h` : "✓"}</div><div className="kem-clock-inner-l">day complete</div></>}
-            </div>
-          </div>
-        </div>
-
-        {/* Side Info */}
-        <div className="kem-clock-side" data-tour="clock-in">
-          <div className="kem-clock-head">
-            <div>
-              <div className="kem-clock-name">Hi {profile?.name?.split(" ")[0]},</div>
-              <div className="kem-clock-time">
-                <span className="num-xl mono" style={{fontSize:32}}>{clockTime.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</span>
-                <span className="kem-clock-zone">Kathmandu</span>
-              </div>
-            </div>
-            <div className="kem-clock-geo">
-              <Icons.Wifi size={14} sw={1.8}/>
-              <span>GPS · Geofence {RADIUS}m</span>
-            </div>
-          </div>
-
-          {status === "idle" && (
-            <>
-              <p className="kem-clock-msg">Tap to verify you're at the workshop. Clock-in is GPS-checked and your time is stamped server-side.</p>
-              <div className="kem-clock-actions">
-                <Btn kind="mint" size="lg" icon={<Icons.MapPin size={16} sw={2}/>} onClick={startClock}>Clock in</Btn>
-              </div>
-            </>
-          )}
-
-          {status === "locating" && (
-            <div className="kem-clock-actions"><Btn kind="soft" size="lg" disabled>Locating…</Btn></div>
-          )}
-
-          {status === "saving" && (
-            <div className="kem-clock-actions"><Btn kind="soft" size="lg" disabled>Saving log…</Btn></div>
-          )}
-
-          {status === "success" && (
-            <>
-              <div className="kem-clock-banner kem-clock-banner--ok">
-                <Icons.Check size={18} sw={2.2}/>
-                <div>
-                  <div>You're at the workshop.</div>
-                  <span><strong className="mono">{clockDist}m</strong> from the office · within {RADIUS}m geofence</span>
-                </div>
-              </div>
-              <div className="kem-clock-actions">
-                <Btn kind="ghost" size="md" onClick={() => { setStatus("idle"); setClockDist(null); }}>Cancel</Btn>
-                <Btn kind="mint" size="lg" icon={<Icons.Check size={16} sw={2.2}/>} onClick={() => confirmClockIn(false)}>Confirm clock-in</Btn>
-              </div>
-            </>
-          )}
-
-          {status === "far" && (
-            <>
-              <div className="kem-clock-banner kem-clock-banner--err">
-                <Icons.Alert size={18}/>
-                <div>
-                  <div>You're outside the workshop geofence.</div>
-                  <span>You are <strong className="mono">{clockDist && clockDist !== 9999 ? `${(clockDist/1000).toFixed(2)}km` : "too far"}</strong> away. Move within {RADIUS}m to clock in.</span>
-                </div>
-              </div>
-              <div className="kem-clock-actions">
-                <Btn kind="soft" size="md" onClick={() => { setStatus("idle"); setClockDist(null); }}>Try again</Btn>
-              </div>
-            </>
-          )}
-
-          {status === "low-accuracy" && (
-            <>
-              <div className="kem-clock-banner kem-clock-banner--err">
-                <Icons.Alert size={18}/>
-                <div>
-                  <div>GPS signal too weak</div>
-                  <span>Accuracy: <strong className="mono">{clockCoords?.accuracy}m</strong> (requires &lt;{GPS_ACCURACY_THRESHOLD_M}m). Move outdoors, wait for a signal, or bypass.</span>
-                </div>
-              </div>
-              <div className="kem-clock-actions" style={{ display: "flex", gap: 10 }}>
-                <Btn kind="soft" size="md" onClick={startClock}>Try again</Btn>
-                <Btn kind="primary" size="md" icon={<Icons.Check size={14} sw={2.2}/>} onClick={() => confirmClockIn(true)}>Clock In Anyway</Btn>
-              </div>
-            </>
-          )}
-
-          {status === "gps-error" && (
-            <>
-              <div className="kem-clock-banner kem-clock-banner--err">
-                <Icons.Alert size={18}/>
-                <div>
-                  <div>GPS location unavailable.</div>
-                  <span>Could not determine your location. Please check your browser/phone permissions, or use low-accuracy bypass to clock in.</span>
-                </div>
-              </div>
-              <div className="kem-clock-actions" style={{ display: "flex", gap: 10 }}>
-                <Btn kind="soft" size="md" onClick={startClock}>Try again</Btn>
-                <Btn kind="primary" size="md" icon={<Icons.Check size={14} sw={2.2}/>} onClick={() => confirmClockIn(true)}>Clock In Anyway</Btn>
-              </div>
-            </>
-          )}
-
-          {status === "clocked" && (
-            <>
-              <div className="kem-clock-banner kem-clock-banner--ok">
-                <Icons.Check size={18} sw={2.2}/>
-                <div>
-                  <div>Clocked in at <strong className="mono">{clockedAtStr || "—"}</strong></div>
-                  <span>
-                    {confirmingOut
-                      ? "Clocking out records the end of your work day."
-                      : <>Have a productive day, {profile?.name?.split(" ")[0]}.</>}
-                  </span>
-                </div>
-              </div>
-              <div className="kem-clock-actions" style={{ display: "flex", gap: 10 }}>
-                {confirmingOut ? (
-                  <>
-                    <Btn kind="ghost" size="md" onClick={() => setConfirmingOut(false)}>Cancel</Btn>
-                    <Btn kind="mint" size="md" icon={<Icons.Check size={14} sw={2.2}/>} onClick={handleClockOut}>Confirm clock-out</Btn>
-                  </>
-                ) : (
-                  <Btn kind="outline" size="md" onClick={() => setConfirmingOut(true)}>Clock out</Btn>
-                )}
-              </div>
-            </>
-          )}
-
-          {status === "clocked_out" && (
-            <>
-              <div className="kem-clock-banner kem-clock-banner--ok">
-                <Icons.Check size={18} sw={2.2}/>
-                <div>
-                  <div>Day complete — in <strong className="mono">{clockedAtStr || "—"}</strong> · out <strong className="mono">{clockedOutAtStr || "—"}</strong></div>
-                  <span>{workedHours != null ? <><strong className="mono">{workedHours}h</strong> logged today. </> : null}See you tomorrow, {profile?.name?.split(" ")[0]}.</span>
-                </div>
-              </div>
-              <div className="kem-clock-actions">
-                <Btn kind="ghost" size="md" onClick={handleClockBackIn}>Clock back in</Btn>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
+  return null;
 }

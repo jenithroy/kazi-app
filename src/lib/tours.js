@@ -26,17 +26,17 @@ export const TOURS = {
         anchor: "clock-in",
         title: "Clock in when you arrive",
         body:
-          "Tap this once you're at the workshop. Your phone's GPS is checked against a "
-          + "100m geofence around the office, and the time is stamped by the server — not "
-          + "by your phone's clock, so changing your phone's time does nothing.",
+          "Tap the circle once you're at the workshop. Your phone's GPS is checked against "
+          + "a 100m geofence around the office, and you're clocked in at once.",
       },
       {
         anchor: "clock-in",
         title: "And clock out when you leave",
         body:
-          "The same card turns into Clock out once you're clocked in. Your hours for the "
-          + "day come from the gap between the two, so forgetting to clock out leaves the "
-          + "day incomplete and someone has to fix it by hand.",
+          "Once you're clocked in the circle counts your time, and a Clock out button "
+          + "appears under it. Your hours for the day come from the gap between the two, "
+          + "so forgetting to clock out leaves the day incomplete and someone has to fix "
+          + "it by hand.",
       },
     ],
   },

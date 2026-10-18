@@ -574,27 +574,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kbars-bar span { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--ink-3); }
 .kbars-l { font-size: 10.5px; color: var(--ink-4); text-align: center; }
 
-/* Employee clock-in */
-.kem-clock { background: linear-gradient(135deg, #ffffff 0%, var(--mint-soft) 100%) !important; }
-.kem-clock-grid { display: grid; grid-template-columns: 280px 1fr; gap: 4px; padding: 20px 28px; align-items: center; }
-.kem-clock-ring { display: flex; justify-content: center; }
-.kem-clock-rings { position: relative; width: 200px; height: 200px; color: var(--ink-3); }
-.kem-clock-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--ink-3); text-align: center; }
-.kem-clock-inner-l { font-size: 11.5px; color: var(--ink-4); letter-spacing: .04em; text-transform: uppercase; }
-.kem-clock-side { display: flex; flex-direction: column; gap: 14px; }
-.kem-clock-head { display: flex; justify-content: space-between; align-items: flex-start; }
-.kem-clock-name { font-size: 14px; color: var(--ink-3); margin-bottom: 4px; }
-.kem-clock-time { display: flex; align-items: baseline; gap: 10px; }
-.kem-clock-zone { font-size: 12px; color: var(--ink-4); letter-spacing: .04em; text-transform: uppercase; }
-.kem-clock-geo { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: #fff; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 11.5px; color: var(--ink-3); }
-.kem-clock-msg { margin: 0; font-size: 13.5px; color: var(--ink-3); line-height: 1.5; max-width: 460px; }
-.kem-clock-actions { display: flex; gap: 8px; align-items: center; }
-.kem-clock-banner { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 10px; }
-.kem-clock-banner--ok  { background: var(--mint-soft); color: var(--mint-deep); }
-.kem-clock-banner--err { background: var(--terra-soft); color: #6a2e1c; }
-.kem-clock-banner > div > div { font-weight: 600; font-size: 14px; }
-.kem-clock-banner > div > span { font-size: 12.5px; opacity: .85; display: block; margin-top: 2px; }
-
 /* ══════════════════════════════════════════════════════
    SUB-SCREENS
 ══════════════════════════════════════════════════════ */
@@ -986,10 +965,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   .kph-a { width: 100%; }
   .kph-a > * { width: 100%; }
 }
-
-/* Attendance calendar grid */
-.katt-grid { display: grid; grid-template-columns: 350px 1fr; gap: 20px; align-items: start; }
-@media (max-width: 900px) { .katt-grid { grid-template-columns: 1fr; } }
 
 /* Loading skeletons */
 .kskel { background: linear-gradient(90deg, var(--bg-2) 25%, var(--line) 50%, var(--bg-2) 75%); background-size: 200% 100%; animation: kskel-shimmer 1.4s infinite; border-radius: 6px; }
@@ -3404,15 +3379,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* ── Stats grid ── */
   .stats-grid { grid-template-columns: 1fr 1fr; }
 
-  /* ── Employee clock-in card ── */
-  .kem-clock-grid { grid-template-columns: 1fr; padding: 20px 16px; gap: 16px; }
-  .kem-clock-ring { order: 1; }
-  .kem-clock-side { order: 2; }
-  .kem-clock-rings { width: 160px; height: 160px; }
-  .kem-clock-rings svg { width: 160px; height: 160px; }
-  .kem-clock-msg { font-size: 13px; }
-  .kem-clock-actions { flex-wrap: wrap; }
-
   /* ── Kanban boards ── */
   .kprod-board { grid-template-columns: 1fr; }
   .kprod-col { min-height: auto; }
@@ -3428,7 +3394,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* ── Tables: horizontal scroll ── */
   .table-wrap { -webkit-overflow-scrolling: touch; }
   .table-wrap table { min-width: 560px; }
-  .katt-table-wrap table { min-width: 780px; } /* 9-col attendance log (clock-out + hours) */
   .kinv-table-wrap { -webkit-overflow-scrolling: touch; }
   .kinv-table { min-width: 600px; }
   .kfin-tbl-wrap { -webkit-overflow-scrolling: touch; }
@@ -3579,15 +3544,6 @@ span.kfin-calc-val.kfin-calc-total { color: var(--mint-deep); }
   /* Stats */
   .stats-grid { grid-template-columns: 1fr; }
   .nna-task-stats { grid-template-columns: 1fr 1fr; }
-
-  /* Employee clock-in */
-  .kem-clock-rings { width: 130px; height: 130px; }
-  .kem-clock-rings svg { width: 130px; height: 130px; }
-  .kem-clock-name { font-size: 13px; }
-  .kem-clock-time .num-xl { font-size: 24px !important; }
-  .kem-clock-banner { padding: 10px 12px; }
-  .kem-clock-banner > div > div { font-size: 13px; }
-  .kem-clock-banner > div > span { font-size: 11.5px; }
 
   /* Pipeline */
   .kpipe-rail { grid-template-columns: 1fr; }
