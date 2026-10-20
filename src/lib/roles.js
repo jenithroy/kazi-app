@@ -187,6 +187,13 @@ export const SHARED_DUTIES = [
   },
 ];
 
+/** How the roles sit together, read as three rungs. Company context for the Roles page, not data: nothing branches on it. */
+export const ORG_TIERS = [
+  { tier: "Directors (UK)", desc: "Own the business, set strategy, manage client relationships and finance from the UK." },
+  { tier: "Operations & Accounts (Nepal)", desc: "Run day-to-day ops in Kathmandu — production, billing, payroll, inventory, QC." },
+  { tier: "Delivery team (Nepal)", desc: "Production floor, marketing, content and operations support." },
+];
+
 /* ── Section names and paths, shared with the Bug Report page ── */
 
 export const SECTION_LABEL = {

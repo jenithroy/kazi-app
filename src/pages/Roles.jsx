@@ -1,306 +1,124 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * Roles & Duties, on the same frosted-glass frame as the Dashboard and the other redone pages: one screen, nothing scrolls but the
+ * panes' own lists.
+ *
+ *   left    the roles, grouped by where their people are (UK, Nepal), each with who holds it; your own is open when you arrive
+ *   middle  the open role: what it is for, the people in it, and what it is expected to log (each duty links to the page where it
+ *           is done, and to a "Show me" walk-through where there is one)
+ *   right   what everyone on the Nepal team is asked to do, and how the roles sit together
+ *
+ * The old page was one column 880px wide, left-aligned, four screens tall. Under 1100px the rail gives way to a dropdown in the
+ * card, and on a phone the page scrolls and the tiles stack.
+ *
+ * What the page reads and who may see it is as it always was. The route is ungated: a page telling people what to log is no use if
+ * only directors can open it. `positions` is readable by everyone signed in; the staff directory (`fs_employees`, which returns the
+ * roster to everyone and masks only pay and contact details) is read on its own and allowed to fail, and then the roles and their
+ * duties still draw and the people are left out. Only the words (duties, cadences) are written down, in lib/roles.js, keyed by
+ * role; a role with none says so rather than borrowing somebody else's. The rules are in lib/rolesPage.js.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchAll } from "../lib/db";
-import { Icons, cn } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
-import { dutiesFor, roleKey, SHARED_DUTIES, SECTION_LABEL, SECTION_PATH } from "../lib/roles";
-import { TOURS, tourHref } from "../lib/tours";
+import { BentoGrid, BentoPage } from "../components/bento/Bento";
+import { Icons } from "../components/ui";
+import RoleRail from "../components/roles/RoleRail";
+import RoleCard from "../components/roles/RoleCard";
+import { OrgTile, SharedTile } from "../components/roles/Aside";
+import { activeStaff, countLabel, firstRoleId, groupRoles, holdersOf, jobRoles, myRoleId } from "../lib/rolesPage";
+import "../components/roles/roles.css";
 
-/**
- * Roles.
- *
- * Every role in the company, who holds it, and what that role is expected to
- * log. The roles and the people come from the database — `positions` and
- * `employees`, the same two tables the Admin Panel reads — so a role added or
- * renamed in Admin shows up here without anybody editing this file. An earlier
- * version listed them from the hardcoded TEAM_MEMBERS array and was wrong
- * about names, headcounts and which roles existed at all.
- *
- * Only the duty text is written down, in lib/roles.js, keyed by role. A role
- * with none says so rather than borrowing somebody else's.
- *
- * Two access notes, both deliberate:
- *
- *   - The route is ungated. A page telling people what to log is no use if
- *     only directors can open it.
- *   - `positions` is readable by anyone signed in, but `people` is not: its
- *     RLS gives HR-level roles everybody's rows and everybody else only their
- *     own. So the role names and duties always render, while the member lists
- *     fill in only for those the database lets see them. That is the policy
- *     doing its job, not a bug — widening it is a decision for a migration on
- *     `people`, which is what 0018 says too.
- */
-
-/*
- * Left off the page by name, not by rank.
- *
- * Filtering on tier looked right and was wrong: 0019 promoted `director` to
- * tier 4 so Finn and Zen could reach every page, which put Directors on the
- * same rung as the two roles that exist to keep the app running — so hiding
- * tier 4 hid the owners of the company along with them. These two ids are the
- * actual thing being excluded, so exclude those.
- */
-const NOT_A_JOB = new Set(["system-admin", "developer"]);
-
-function hueFromName(name = "") {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
+/** Read both tables. A failed directory is not a failure of the page: only the roles themselves are needed. */
+async function readAll() {
+  let positions;
+  try {
+    positions = await fetchAll("positions");
+  } catch (e) {
+    return { error: e.message || "Couldn't load roles." };
+  }
+  let staff = null;
+  try {
+    staff = await fetchAll("employees");
+  } catch {
+    staff = null;
+  }
+  return { positions, staff };
 }
-
-const initials = (name = "?") =>
-  name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
-
-/* ── Bits ─────────────────────────────────────────────── */
-
-function Section({ title, sub, children }) {
-  return (
-    <div className="krole-sec">
-      <div className="krole-sec-head">
-        <h3>{title}</h3>
-        {sub && <p>{sub}</p>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Duty({ d }) {
-  const label = SECTION_LABEL[d.section];
-  const path = SECTION_PATH[d.section];
-  return (
-    <li className="krole-duty">
-      <div className="krole-duty-head">
-        <span className="krole-duty-title">{d.what}</span>
-        <span className="krole-cadence">{d.cadence}</span>
-      </div>
-      {d.detail && <p className="krole-duty-detail">{d.detail}</p>}
-      <div className="krole-duty-links">
-        {path && <Link to={path}>{label} →</Link>}
-        {d.tour && TOURS[d.tour] && (
-          <Link className="krole-show" to={tourHref(d.tour)}>
-            <Icons.MapPin size={12} sw={2} /> Show me
-          </Link>
-        )}
-      </div>
-    </li>
-  );
-}
-
-function MemberCard({ m, isYou }) {
-  const hours = m.scheduleStart && m.scheduleEnd ? `${m.scheduleStart}–${m.scheduleEnd}` : null;
-  return (
-    <div className={cn("krole-member", isYou && "krole-member--you")}>
-      <div className="krole-member-av" style={{ background: `oklch(55% .16 ${hueFromName(m.name)})` }}>
-        {initials(m.name)}
-      </div>
-      <div className="krole-member-meta">
-        <div className="krole-member-name">
-          {m.name}
-          {isYou && <span className="krole-you-chip">You</span>}
-        </div>
-        <div className="krole-member-mail">{m.email}</div>
-      </div>
-      {hours && <span className="krole-member-hours" title="Working hours">{hours}</span>}
-    </div>
-  );
-}
-
-function RoleCard({ position, people, myPersonId, directoryVisible }) {
-  const duties = dutiesFor(position);
-  const isMine = people.some(p => p.id === myPersonId);
-
-  return (
-    <article className={cn("krole-card", isMine && "krole-card--mine")}>
-      <header className="krole-card-head">
-        <div className="krole-card-title">
-          <h4>{position.label}</h4>
-        </div>
-        {directoryVisible && (
-          <span className="krole-count">
-            {people.length === 1 ? "1 person" : `${people.length} people`}
-          </span>
-        )}
-      </header>
-
-      {directoryVisible && (
-        <div className="krole-members">
-          {people.length === 0
-            ? <div className="krole-vacant">No one currently in this role.</div>
-            : people.map(m => <MemberCard key={m.id} m={m} isYou={m.id === myPersonId} />)}
-        </div>
-      )}
-
-      {duties === undefined ? (
-        <div className="krole-duties-wrap">
-          <p className="krole-note">Duties for this role haven't been written up yet.</p>
-        </div>
-      ) : duties.length > 0 ? (
-        <div className="krole-duties-wrap">
-          <div className="krole-duties-l">What this role logs</div>
-          <ol className="krole-duties">
-            {duties.map(d => <Duty key={d.what} d={d} />)}
-          </ol>
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-/* ── Page ─────────────────────────────────────────────── */
 
 export default function Roles() {
   const { profile } = useAuth();
   const [positions, setPositions] = useState([]);
-  const [people, setPeople] = useState(null); // null = not readable / not loaded
-  const [loading, setLoading] = useState(true);
+  const [people, setPeople] = useState(null);          // null = not readable, or not read yet
+  const [status, setStatus] = useState("loading");     // loading | ready | error
   const [error, setError] = useState("");
+  const [retrying, setRetrying] = useState(false);
+  const [picked, setPicked] = useState(null);          // the role somebody chose; until then the page opens its own choice
+  const alive = useRef(true);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const pos = await fetchAll("positions");
-        if (!alive) return;
-        setPositions(pos);
-      } catch (e) {
-        if (alive) setError(e.message || "Couldn't load roles.");
-      }
-
-      // Separate, and allowed to fail: most roles cannot read the staff
-      // directory, and the roles themselves should still render when it does.
-      try {
-        const staff = await fetchAll("employees");
-        if (alive) setPeople(staff);
-      } catch {
-        if (alive) setPeople(null);
-      }
-
-      if (alive) setLoading(false);
-    })();
-    return () => { alive = false; };
+  const take = useCallback((res) => {
+    if (!alive.current) return;
+    if (res.error) { setError(res.error); setStatus("error"); return; }
+    setPositions(res.positions);
+    setPeople(res.staff);
+    setStatus("ready");
   }, []);
 
-  const active = useMemo(
-    () => (people || []).filter(p => p.status !== "Inactive" && p.name),
-    [people],
-  );
+  useEffect(() => {
+    alive.current = true;
+    readAll().then(take);
+    return () => { alive.current = false; };
+  }, [take]);
 
-  const roles = useMemo(
-    () => positions
-      .filter(p => !NOT_A_JOB.has(p.id) && !NOT_A_JOB.has(roleKey(p.label)))
-      .sort((a, b) => (a.label || "").localeCompare(b.label || "")),
-    [positions],
-  );
-
-  const holdersOf = (id) => active.filter(p => p.positionId === id);
-
-  // Location comes off the people, so it is only known when the directory is.
-  const locationOf = (id) => {
-    const loc = holdersOf(id).map(p => (p.location || "").toLowerCase());
-    return loc.includes("uk") ? "uk" : loc.length ? "nepal" : null;
+  const retry = async () => {
+    setRetrying(true);
+    try { take(await readAll()); } finally { if (alive.current) setRetrying(false); }
   };
 
+  const loading = status === "loading";
+  const active = useMemo(() => activeStaff(people), [people]);
+  const roles = useMemo(() => jobRoles(positions), [positions]);
   const directoryVisible = active.length > 0;
-  const grouped = directoryVisible;
+  const groups = useMemo(() => groupRoles(roles, active, directoryVisible), [roles, active, directoryVisible]);
+  const myId = profile?.personId;
+  const mineId = useMemo(() => myRoleId(roles, active, myId), [roles, active, myId]);
 
-  const ukRoles = grouped ? roles.filter(r => locationOf(r.id) === "uk") : [];
-  const npRoles = grouped ? roles.filter(r => locationOf(r.id) !== "uk") : roles;
-
-  const renderRoles = (list) => (
-    <div className="krole-cards">
-      {list.map(r => (
-        <RoleCard
-          key={r.id}
-          position={r}
-          people={holdersOf(r.id)}
-          myPersonId={profile?.personId}
-          directoryVisible={directoryVisible}
-        />
-      ))}
-    </div>
+  const selectedId = roles.some((r) => r.id === picked) ? picked : firstRoleId(groups, roles, mineId);
+  const role = roles.find((r) => r.id === selectedId) || null;
+  const holders = role && directoryVisible ? holdersOf(active, role.id) : [];
+  const roleOptions = useMemo(
+    () => roles.map((r) => ({ value: r.id, label: r.label, hint: directoryVisible ? countLabel(holdersOf(active, r.id).length) : undefined })),
+    [roles, active, directoryVisible],
   );
 
   return (
-    <div className="kscr fade-in krole-wrap">
-
-      <div className="kph krole-ph">
-        <div>
-          <h2>Roles</h2>
-          <p>Who's in each role, and what that role is expected to log in the ERP.</p>
+    <BentoPage className="rl-page">
+      <header className="kb-head kb-head--stack">
+        <div className="kb-head-l">
+          <h1>Roles &amp; Duties</h1>
+          <p className="kb-head-sub"><span>Who&apos;s in each role, and what that role is expected to log in the ERP.</span></p>
         </div>
-      </div>
+        <div className="kb-head-r">
+          <div className="kb-head-act">
+            <Link className="kb-pillbtn" to="/bug-report">
+              <Icons.Bug size={14} sw={1.9} aria-hidden="true" /> Report a bug
+            </Link>
+          </div>
+        </div>
+      </header>
 
-      {error && (
-        <p className="banner-warning">{error}</p>
-      )}
-
-      {loading ? (
-        <p className="krole-loading">Loading roles…</p>
-      ) : roles.length === 0 ? (
-        <p className="krole-note">No roles are set up yet.</p>
-      ) : grouped ? (
-        <>
-          {ukRoles.length > 0 && (
-            <Section title="UK">
-              {renderRoles(ukRoles)}
-            </Section>
-          )}
-
-          <Section title="Nepal" sub="operations in Kathmandu">
-            <section className="krole-shared">
-              <div className="krole-shared-l">Everyone on the Nepal team</div>
-              <ol className="krole-duties">
-                {SHARED_DUTIES.map(d => <Duty key={d.what} d={d} />)}
-              </ol>
-            </section>
-            {renderRoles(npRoles)}
-          </Section>
-        </>
+      {status === "error" ? (
+        <div className="kb-error" role="alert">
+          <p>{error} Check your connection and try again.</p>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={retry} disabled={retrying}>{retrying ? "Trying…" : "Try again"}</button>
+        </div>
       ) : (
-        <Section title="All roles">
-          <section className="krole-shared">
-            <div className="krole-shared-l">Everyone on the Nepal team</div>
-            <ol className="krole-duties">
-              {SHARED_DUTIES.map(d => <Duty key={d.what} d={d} />)}
-            </ol>
-          </section>
-          {renderRoles(npRoles)}
-        </Section>
+        <BentoGrid layout="roles">
+          <RoleRail groups={groups} active={active} mineId={mineId} selectedId={selectedId} onPick={setPicked} loading={loading} directoryVisible={directoryVisible} />
+          <RoleCard role={role} roleOptions={roleOptions} onPick={setPicked} holders={holders} directoryVisible={directoryVisible} myId={myId} loading={loading} />
+          <SharedTile loading={loading} />
+          <OrgTile loading={loading} />
+        </BentoGrid>
       )}
-
-      <Section title="How the roles sit together">
-        <div className="krole-org">
-          {[
-            { tier: "Directors (UK)", desc: "Own the business, set strategy, manage client relationships and finance from the UK." },
-            { tier: "Operations & Accounts (Nepal)", desc: "Run day-to-day ops in Kathmandu — production, billing, payroll, inventory, QC." },
-            { tier: "Delivery team (Nepal)", desc: "Production floor, marketing, content and operations support." },
-          ].map(({ tier, desc }) => (
-            <div key={tier} className="krole-org-row">
-              <span className="krole-org-dot" />
-              <div>
-                <div className="krole-org-tier">{tier}</div>
-                <div className="krole-org-desc">{desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Last thing on the page, under the roles — it applies to all of them
-          rather than to any one, and it is what you want in front of somebody
-          who has just read their duties and found one of them doesn't work. */}
-      <Link className="krole-bug" to="/bug-report">
-        <span className="krole-bug-ico"><Icons.Bug size={18} sw={1.8} /></span>
-        <span className="krole-bug-txt">
-          <strong>Anything broken, confusing, or missing — report it.</strong>
-          Every bug, every rough edge, every “it would be much easier if…” goes on the Bug
-          Report page. It reaches the dev team directly, and a screenshot usually makes it
-          fixable the same day. Nothing is too small to be worth reporting.
-        </span>
-        <Icons.ChevronRight size={16} />
-      </Link>
-
-    </div>
+    </BentoPage>
   );
 }

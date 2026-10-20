@@ -1,0 +1,189 @@
+/* ══════════════════════════════════════════════════════════════════
+   ROLES & DUTIES — the page's own parts (everything is `.rl-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then a grid of glass panes:
+
+     left    the roles (a vertical tab list, grouped UK / Nepal)
+     middle  the open role: its name and description, the people in it, what it is expected to log
+     right   what everyone on the Nepal team is asked to do, and how the roles sit together
+
+   Inside a tile everything reads the `--kb-*` tokens, so light, dark and the solid fallback follow. Loaded after bento.css; the
+   grid is written `.kb-grid.kb-grid--roles` (one class more than bento's own `.kb-grid` rules) so it wins at every size.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--roles {
+  grid-template-columns: clamp(220px, 19vw, 264px) minmax(0, 1fr) clamp(270px, 23vw, 330px);
+  /* the organisation tile is as tall as its three lines need; everyone's duties take the rest */
+  grid-template-rows: minmax(0, 1fr) clamp(176px, 28vh, 300px);
+  grid-template-areas:
+    "rail detail shared"
+    "rail detail org";
+}
+
+/* Under 1100px the rail has no room: the card has a dropdown for the same choice, and the two side tiles go under it. A tablet is
+   read like a phone: the page scrolls and every pane grows with what is in it (a card with its own scroll inside a page that
+   scrolls is two scrolls for one thing). The tiles stop being size containers for that, as bento.css does under 769px. */
+@media (max-width: 1099px) {
+  .kb.rl-page { flex: 0 0 auto; min-height: 0; }
+  .kb-grid.kb-grid--roles {
+    flex: 0 0 auto; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas:
+      "detail detail"
+      "shared org";
+  }
+  .kb-tile.rl-rail { display: none; }
+  .kb-tile.rl-detail .rl-pick { display: block; }
+  .kb-tile.rl-detail, .kb-tile.rl-aside { container-type: inline-size; }
+}
+
+/* Phone: one column. */
+@media (max-width: 768px) {
+  .kb-grid.kb-grid--roles { grid-template-columns: minmax(0, 1fr); grid-template-areas: "detail" "shared" "org"; }
+}
+
+/* the header's one link is an <a>, drawn as the pill the other pages' buttons are */
+.kb-head a.kb-pillbtn { text-decoration: none; }
+
+/* ── The rail ─────────────────────────────────────────────────── */
+
+.kb-tile.rl-rail { padding: 10px 8px; gap: 0; }
+.rl-rail-in { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 2px; }
+.rl-skel { height: 44px; width: 100%; border-radius: 12px; }
+.rl-rg { display: flex; flex-direction: column; gap: 2px; }
+.rl-rg-h { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px 5px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--kb-ink-3); }
+.rl-rg-h i { font-style: normal; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+
+.rl-ri {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 10px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--kb-ink-2); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+.rl-ri:hover:not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.rl-ri.is-on { background: var(--kb-accent); color: var(--kb-on-accent); }
+.rl-ri:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; }
+.rl-ri.is-on:focus-visible { outline-color: var(--kb-on-accent); }
+.rl-ri-ch {
+  flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px;
+  background: var(--kb-chip); color: var(--kb-accent); font: 700 11px/1 var(--font); letter-spacing: .02em;
+}
+/* on the open row the chip and the You mark are the reverse of the row: the row's text colour as their fill, the accent as their letters (white on a lighter green was 3.9:1) */
+.rl-ri.is-on .rl-ri-ch { background: var(--kb-on-accent); color: var(--kb-accent); }
+.rl-ri-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rl-ri-t b { font-size: 13px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-ri-t small { font-size: 11.5px; line-height: 1.25; color: var(--kb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-ri.is-on .rl-ri-t small { color: inherit; opacity: .88; }
+
+/* "You": on a role in the rail, on a person in a card */
+.rl-you {
+  flex: none; font-style: normal; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; line-height: 1.5;
+  padding: 0 7px; border-radius: 999px; background: var(--kb-chip); color: var(--kb-accent);
+}
+.rl-ri.is-on .rl-you { background: var(--kb-on-accent); color: var(--kb-accent); }
+
+/* ── The open role ────────────────────────────────────────────── */
+
+.kb-tile.rl-detail { padding: 0; gap: 0; }
+.rl-pick { display: none; flex: none; padding: 12px 16px 0; }
+/* a filter pill drawn full width: the page's own tokens, so it follows light and dark (the form-field variant uses the app's base tokens, which only a dialog remaps) */
+.rl-pick .ksel--pill { width: 100%; max-width: none; height: 40px; padding: 0 12px 0 16px; justify-content: space-between; font-size: 13.5px; font-weight: 600; color: var(--kb-ink); }
+.rl-pick .ksel--pill .ksel-val { text-align: left; }
+.rl-pick .ksel--pill .ksel-chev { opacity: .8; }
+
+.rl-dh { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 16px 18px 12px; border-bottom: 1px solid var(--kb-line); }
+.rl-dh-t { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.rl-dh h2 { margin: 0 4px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -.015em; line-height: 1.25; color: var(--kb-ink); }
+.rl-dh p { margin: 0; max-width: 72ch; font-size: 13px; line-height: 1.5; color: var(--kb-ink-2); }
+
+.rl-body {
+  flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 14px 18px 18px;
+  overflow-y: auto; overscroll-behavior: contain;
+}
+/* once the page scrolls (under 1100px) the card grows with its contents: a flex basis of 0 would collapse it */
+@media (max-width: 1099px) { .rl-body { flex: none; overflow: visible; } }
+
+.rl-sec-h { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--kb-ink-3); }
+.rl-sec-h i { font-style: normal; letter-spacing: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rl-note { margin: 0; max-width: 68ch; font-size: 12.5px; line-height: 1.55; color: var(--kb-ink-3); }
+/* the duties section takes what the people leave, so a role with nothing to list says so in the middle of its card, not at the top of a bare one */
+.rl-grow { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.rl-grow > .rl-duties { flex: none; }
+.rl-empty { flex: 1 1 auto; min-height: 120px; padding: 12px 16px; }
+
+/* the people */
+.rl-mems { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 8px; }
+.rl-mem { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 14px; border-radius: 12px; background: var(--kb-well); border: 1px solid transparent; }
+.rl-mem.is-you { background: var(--kb-chip); border-color: color-mix(in srgb, var(--kb-accent) 26%, transparent); }
+.rl-mem-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rl-mem-t b { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; line-height: 1.3; color: var(--kb-ink); }
+.rl-mem-t small { font-size: 11.5px; line-height: 1.35; color: var(--kb-ink-3); overflow-wrap: anywhere; }
+.rl-mem-h { flex: none; font: 500 11.5px/1 var(--mono); color: var(--kb-ink-2); white-space: nowrap; }
+
+/* the duties: a card each, as many across as the card is wide */
+.rl-duties { list-style: none; margin: 0; padding: 0; counter-reset: duty; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 10px; }
+.rl-duty { counter-increment: duty; position: relative; min-width: 0; padding: 12px 14px 12px 44px; border: 1px solid var(--kb-line); border-radius: 12px; }
+.rl-duty::before {
+  content: counter(duty); position: absolute; left: 14px; top: 12px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--kb-chip); color: var(--kb-accent); font: 700 10.5px/20px var(--font); text-align: center; font-variant-numeric: tabular-nums;
+}
+.rl-duty-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 3px; }
+.rl-duty-t { font-size: 13.5px; font-weight: 650; line-height: 1.35; color: var(--kb-ink); }
+.rl-cad { flex: 0 1 auto; max-width: 100%; padding: 2px 8px; border-radius: 12px; background: var(--kb-mute-bg); color: var(--kb-ink-2); font-size: 10.5px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.rl-duty-d { margin: 0; max-width: 68ch; font-size: 12.5px; line-height: 1.55; color: var(--kb-ink-2); }
+.rl-duty-l { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
+.rl-duty-l a { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--kb-accent); text-decoration: none; }
+.rl-duty-l a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.rl-duty-l a.rl-show {
+  padding: 3px 11px 3px 9px; border: 1px solid color-mix(in srgb, var(--kb-accent) 30%, transparent); border-radius: 999px;
+  background: var(--kb-chip); font-size: 11.5px; font-weight: 650; text-decoration: none; transition: background-color .15s, border-color .15s;
+}
+.rl-duty-l a.rl-show:hover { background: color-mix(in srgb, var(--kb-accent) 18%, transparent); border-color: color-mix(in srgb, var(--kb-accent) 50%, transparent); }
+.rl-duty-l a:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 6px; }
+.rl-duty-l a.rl-show:focus-visible { border-radius: 999px; }
+
+/* ── The two side tiles ───────────────────────────────────────── */
+
+.kb-tile.rl-aside .kb-main { gap: 0; justify-content: flex-start; overflow-y: auto; overscroll-behavior: contain; }
+/* a list that does not fit fades out at the bottom edge, so it reads as "more below" rather than as a cut-off line */
+.kb-tile.rl-aside .kb-main {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent);
+}
+.rl-sd, .rl-org { padding-bottom: 26px; }
+.rl-sd:focus-visible, .rl-org:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; border-radius: 10px; }
+
+/* everyone's duties: a numbered list, not cards */
+.rl-sd { list-style: none; margin: 0; padding: 0; counter-reset: duty; display: flex; flex-direction: column; }
+.rl-sd .rl-duty { padding: 10px 0 10px 30px; border: 0; border-top: 1px solid var(--kb-line); border-radius: 0; }
+.rl-sd .rl-duty:first-child { padding-top: 2px; border-top: 0; }
+.rl-sd .rl-duty::before { left: 0; top: 11px; width: 18px; height: 18px; font-size: 10px; line-height: 18px; }
+.rl-sd .rl-duty:first-child::before { top: 3px; }
+.rl-sd .rl-duty-t { font-size: 13px; }
+.rl-sd .rl-duty-d { font-size: 12px; line-height: 1.5; }
+/* a low tile keeps the title, the cadence and the links, and leaves the explanation to the role's own card */
+@container kb (max-height: 330px) { .rl-sd .rl-duty-d { display: none; } }
+
+/* how the roles sit together */
+.rl-org { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+/* a low tile keeps the three names and leaves out what each one says */
+@container kb (max-height: 250px) { .rl-org span span { display: none; } .rl-org { gap: 8px; } .rl-org i { margin-top: 5px; } }
+.rl-org li { display: flex; align-items: flex-start; gap: 11px; }
+.rl-org i { flex: none; width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: var(--kb-accent); }
+.rl-org b { display: block; font-size: 13px; font-weight: 650; line-height: 1.35; color: var(--kb-ink); }
+.rl-org span span { display: block; margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--kb-ink-2); }
+
+/* ── Touch ────────────────────────────────────────────────────── */
+
+@media (pointer: coarse) {
+  .rl-ri { min-height: 52px; }
+  .rl-duty-l a { min-height: 32px; }
+}
+
+/* ── Narrow windows ───────────────────────────────────────────── */
+
+/* nothing scrolls inside a tile here, so nothing fades or leaves room for a fade (after the rules it undoes: same specificity) */
+@media (max-width: 1099px) {
+  .kb-tile.rl-aside .kb-main { flex: 0 0 auto; -webkit-mask-image: none; mask-image: none; overflow: visible; }
+  .rl-sd, .rl-org { padding-bottom: 0; }
+}
