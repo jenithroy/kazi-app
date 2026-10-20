@@ -1,0 +1,209 @@
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMERS — the page's own parts (everything is `.cu-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then a grid of glass tiles:
+
+     top row   invoiced, collected and still owed (the customers' rows added up)
+     left      the customers, one DataTable in a pane (components/table/)
+     right     a rail of two short lists: who is overdue, and the biggest customers
+
+   A customer opens in the shared EditCard (components/sales/CustomerCard.jsx, which Sales uses too). This sheet only
+   draws what the shared pieces leave to the page: the grid, the money tiles' short form, the pane around the table,
+   a few cell details and the rail. Inside a tile everything reads the `--kb-*` tokens, so light, dark and the tones follow.
+
+   Loaded after bento.css. The grids are written `.kb-grid.kb-grid--customers…` (one class more than bento's own `.kb-grid`
+   rules) so they win in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--customers {
+  grid-template-rows: clamp(84px, 10.5vh, 96px) repeat(3, minmax(0, 1fr));
+  grid-template-areas:
+    "inv  inv  inv  col  col  col  owe  owe  owe  late late late"
+    "cust cust cust cust cust cust cust cust cust late late late"
+    "cust cust cust cust cust cust cust cust cust big  big  big"
+    "cust cust cust cust cust cust cust cust cust big  big  big";
+}
+
+/* A position that cannot open Billing sees no money, so no money tiles and no rail: the directory fills the page. */
+.kb-grid.kb-grid--customers-plain {
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: "cust";
+}
+
+/* Tablet: six columns. The table is tall, the two lists sit side by side under it; a shorter window scrolls in the shell
+   rather than crushing the tiles. */
+@media (max-width: 1023px) {
+  .kb.cu-page { min-height: 980px; }
+  .kb-grid.kb-grid--customers {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px repeat(6, minmax(0, 1fr));
+    grid-template-areas:
+      "inv  inv  col  col  owe  owe"
+      "cust cust cust cust cust cust"
+      "cust cust cust cust cust cust"
+      "cust cust cust cust cust cust"
+      "cust cust cust cust cust cust"
+      "late late late big  big  big"
+      "late late late big  big  big";
+  }
+  .kb-grid.kb-grid--customers-plain { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+}
+
+/* Phone: two columns, the page scrolls, and every tile grows with what is in it. Who is overdue comes before the long list:
+   it is what a person opening this page on their phone is usually after. */
+@media (max-width: 768px) {
+  .kb.cu-page { min-height: 0; }
+  .kb-grid.kb-grid--customers {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas: "inv inv" "col owe" "late late" "cust cust" "big big";
+  }
+  .kb-grid.kb-grid--customers-plain { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: auto; }
+}
+
+/* ── The header and its notices ───────────────────────────────── */
+
+.kb-btn.cu-newbtn { height: 32px; padding: 0 14px; border-radius: 999px; }
+
+.cu-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.cu-banner > svg { flex: none; color: var(--kb-warn); }
+.cu-banner > span { flex: 1 1 auto; min-width: 0; }
+.cu-banner button {
+  flex: none; min-height: 28px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--kb-warn) 40%, transparent); border-radius: 999px;
+  background: transparent; color: var(--kb-warn); font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s;
+}
+.cu-banner button:hover:not(:disabled) { background: var(--kb-well); }
+.cu-banner button:disabled { opacity: .6; cursor: progress; }
+.cu-banner button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+@media (pointer: coarse) { .cu-banner button { min-height: 36px; } }
+
+/* ── Money tiles ──────────────────────────────────────────────── */
+
+/* the thick bar under a figure: there is no room for it in the short row, so it only shows where a tile has grown (a phone) */
+.cu-vis { flex: none; margin-top: auto; }
+@container kb (max-height: 109px) { .cu-vis { display: none; } }
+/* a one-row tile in a short window shares a baseline, as the Dashboard's small tiles do */
+@container kb (max-height: 69px) {
+  .cu-kpi .kb-main { flex-direction: row; align-items: baseline; gap: 0 10px; }
+  .cu-kpi .kb-main > .kb-fig { flex: none; }
+  .cu-kpi .kb-main > .kb-sub { flex: 1 1 0; }
+}
+
+/* what is owed, split into the late part and the part not yet due */
+.cu-split { display: flex; gap: 3px; height: 8px; }
+.cu-split > i { display: block; min-width: 4px; border-radius: 99px; transform-origin: left; animation: kb-grow .7s var(--kb-ease) both; }
+.cu-split > i.is-late { background: var(--kb-bad-fill); }
+.cu-split > i.is-soon { background: var(--kb-warn-fill); }
+
+/* ── The pane around the table ────────────────────────────────── */
+
+/* a pane is a plain tile with no padding of its own: the table's rows carry theirs, the head and the bar here */
+.kb-tile.cu-pane { padding: 0; gap: 0; }
+.kb-tile.cu-pane > .kb-hd { padding: 14px 16px 8px; }
+.kb-tile.cu-pane > .kb-main { gap: 0; }
+.cu-tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; padding: 0 16px 10px; }
+.cu-tools .dt-search { flex: 1 1 200px; min-width: 180px; max-width: 280px; }
+.cu-tools .dt-search input { width: 100%; }
+
+.cu-morerow { flex: none; padding: 10px 16px 6px; }
+.cu-more {
+  width: 100%; height: 36px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
+  font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.cu-more:hover { background: var(--kb-well); color: var(--kb-ink); }
+.cu-more:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+/* a name that opens something, inside a sentence ("add one", "Show everyone") */
+.cu-link {
+  padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
+  font: inherit; letter-spacing: inherit;
+}
+.cu-link:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--kb-faint); }
+.cu-link:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 6px; }
+.cu-pane .kb-empty .cu-link { display: inline; font-weight: 600; color: var(--kb-accent); }
+
+/* ── Inside the cells ─────────────────────────────────────────── */
+
+.cu-quiet { margin-left: 8px; font: 500 11px/1 var(--font); font-style: normal; letter-spacing: 0; color: var(--kb-ink-3); }
+.cu-nocost { font-size: 11.5px; }
+
+/* the money that is owed or late is the page's one red; mixed toward the ink, as the tags are, so it holds 4.5:1 on glass */
+.cu-pane .dt-bad, .cu-pane .cu-owed, .cu-pane .dt-stack > small.cu-late-s { color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
+
+/* how much of it has been paid: a thin bar under the amount */
+.cu-mini { display: block; width: 72px; height: 4px; border-radius: 99px; background: var(--kb-track); overflow: hidden; }
+.cu-mini > i { display: block; height: 100%; border-radius: inherit; background: var(--kb-good-fill); }
+
+/* ── The rail ─────────────────────────────────────────────────── */
+
+/* the Overdue tile's count, which puts the whole list in the table: it reads as the count it is until pointed at. The head's note clips what
+   sticks out of it (`overflow: hidden`, for a long title), which would take the button's focus ring and the edges of its hit area, so a rail
+   tile's note is let out; the button is 28px tall (40px on a touch screen) with negative margins that give back what it takes, so the head
+   does not grow. */
+.kb-tile.cu-rail .kb-note { overflow: visible; }
+.cu-seeall {
+  display: inline-flex; align-items: center; gap: 2px; min-height: 28px; margin: -2px -4px -2px 0; padding: 0 6px 0 8px; border: 0; border-radius: 6px;
+  background: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; transition: background-color .15s, color .15s;
+}
+.cu-seeall:hover { background: var(--kb-well); color: var(--kb-ink); }
+.cu-seeall:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+@media (pointer: coarse) { .cu-seeall { min-height: 40px; margin-block: -8px; } }
+
+/* a rail tile gives its rows 8px of the tile's own padding, and each row button takes it back as its own: the row's hover and bar
+   then reach nearly to the glass's edge while the text lines up with the tile's title. (A negative margin would push the button
+   past the list's clip, and a row that wrapped into the list's hidden second column would show its edge.) */
+.kb-tile.cu-rail { padding-inline: 8px; }
+.kb-tile.cu-rail > .kb-hd { padding-inline: 8px; }
+.cu-rrow { padding: 0; }
+.cu-rbtn {
+  position: relative; isolation: isolate; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 8px; margin: 0; border: 0; border-radius: 9px; background: transparent; color: inherit; font: inherit; text-align: left;
+  cursor: pointer; transition: background-color .15s;
+}
+.cu-rbtn:hover { background: var(--kb-well); }
+.cu-rbtn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -1px; box-shadow: none; border-radius: 9px; }
+.cu-rbtn-t { min-width: 0; display: grid; gap: 1px; }
+.cu-rbtn-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--kb-ink); }
+.cu-rbtn-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
+.cu-rbtn-q { flex: none; font-variant-numeric: tabular-nums; }
+.cu-rbtn-q b { font-size: 13.5px; font-weight: 600; color: var(--kb-ink); white-space: nowrap; }
+.cu-rbtn-q.cu-late b { color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
+
+/* the biggest customers: a row is tinted as far as its share of the biggest's, which says the ranking without a chart of its own */
+.cu-rbtn--bar::before {
+  content: ""; position: absolute; z-index: -1; inset: 0 auto 0 0; width: var(--p, 0%); border-radius: inherit;
+  background: color-mix(in srgb, var(--kb-accent) 17%, transparent); transform-origin: left; animation: kb-grow .7s var(--kb-ease) both;
+}
+.cu-rbtn--bar:hover { background: transparent; }
+.cu-rbtn--bar:hover::before { background: color-mix(in srgb, var(--kb-accent) 26%, transparent); }
+/* the line under a name sits on the tint, which is darker than the plain glass the quiet ink is measured on: one step stronger */
+.cu-rbtn--bar .cu-rbtn-t span { color: var(--kb-ink-2); }
+
+/* ── Phone: the page scrolls, so the pane grows with its rows ── */
+
+@media (max-width: 768px) {
+  .cu-vis { margin-top: 8px; }
+  .kb-tile.cu-rail { padding-inline: 6px; }               /* a phone tile's padding is 14px: 6 here and 8 on each row button */
+  .kb-tile.cu-pane > .kb-hd { padding: 12px 12px 8px; }
+  .cu-tools { padding: 0 12px 8px; }
+  .cu-tools .dt-search { order: -1; flex: 1 1 100%; max-width: none; }      /* the search takes the first line, the filters the next */
+  .cu-tools .dt-search input { font-size: 16px; }          /* the shared search box is 13px: on a phone iOS would zoom in on it */
+  .cu-tools .dt-chips { gap: 4px; }
+  .cu-tools .dt-chip { padding: 0 8px; gap: 4px; }         /* the four filters then fit one line from 360px up (measured) */
+  .cu-morerow { padding: 10px 12px 6px; }
+  /* (the header is the shared stacked kit, kb-head--stack in bento.css) */
+}
+
+/* a finger: a bigger target for a list row, the same density for a mouse */
+@media (pointer: coarse) {
+  .cu-rbtn { min-height: 44px; }
+  .kb-btn.cu-newbtn { height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cu-more, .cu-rbtn { transition: none; }
+  .cu-split > i, .cu-rbtn--bar::before { animation: none !important; }
+}

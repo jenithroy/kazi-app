@@ -109,8 +109,18 @@ function Orders({ c, fmt }) {
  *
  * `onSave(payload, id)` resolves to `{ ok, message }`; `onDelete(customer)` too. The card closes itself on ok and
  * keeps the message on screen otherwise. Merging is a small dialog of its own (`onAskMerge`).
+ *
+ * `seesMoney` / `seesOrders` (both on unless said otherwise): whether this position may read invoices and payments (Billing),
+ * and orders. A position that may not would see noughts, so the card leaves those sections and the numbers out (the orders and the
+ * margin only go with `seesOrders`: a count of nought pieces is not the same as not being able to see them). `canMerge` and
+ * `canDelete` (on unless said otherwise) are for the page to say whether this position may be offered those two: a merge moves
+ * orders, invoices and payments (which takes the right to edit each of them) and a delete leaves them unlinked (which the card can
+ * only count when it can see them all). Sales passes none of these, so its card is as it was.
  */
-export default function CustomerCard({ customer, startSection, canEdit, region, today, onClose, onSave, onAskMerge, onDelete }) {
+export default function CustomerCard({
+  customer, startSection, canEdit, region, today, onClose, onSave, onAskMerge, onDelete,
+  seesMoney = true, seesOrders = true, canMerge = true, canDelete = true,
+}) {
   const { fmt } = useCurrency();
   const uid = useId();
   const id = (k) => `${uid}-${k}`;
@@ -149,7 +159,8 @@ export default function CustomerCard({ customer, startSection, canEdit, region, 
         <input id={id("contact")} value={form.contactPerson} onChange={set("contactPerson")} placeholder="Jane Smith" disabled={ro} />
       </Field>
       <Field label="Email" htmlFor={id("email")}>
-        <input id={id("email")} type="email" value={form.email} onChange={set("email")} placeholder="jane@example.com" disabled={ro} />
+        {/* not type="email": the card is a form, so the browser would refuse to save an old value like "a@x.com, b@x.com" with a bubble of its own */}
+        <input id={id("email")} type="text" inputMode="email" autoComplete="email" value={form.email} onChange={set("email")} placeholder="jane@example.com" disabled={ro} />
       </Field>
       <Field label="Phone" htmlFor={id("phone")}>
         <input id={id("phone")} value={form.phone} onChange={set("phone")} placeholder="+44 20 7946 0958" disabled={ro} />
@@ -219,10 +230,10 @@ export default function CustomerCard({ customer, startSection, canEdit, region, 
       <KV rows={[
         ["Invoiced", fmt(c.invoicedNPR)],
         ["Collected", `${fmt(c.collectedNPR)} · ${Math.round(c.collectedPct)}%`, c.collectedNPR > 0.5 ? "good" : undefined],
-        ["Margin", c.marginPct == null ? "no cost data" : `${c.marginPct.toFixed(1)}%`, c.marginPct == null ? undefined : c.marginPct >= 0 ? "good" : "bad"],
+        ...(seesOrders ? [["Margin", c.marginPct == null ? "no cost data" : `${c.marginPct.toFixed(1)}%`, c.marginPct == null ? undefined : c.marginPct >= 0 ? "good" : "bad"]] : []),
         ["Last paid", c.lastPaidOn ? fmtDay(c.lastPaidOn) : "—"],
         ["Pays in about", c.avgDaysToPay != null ? `${c.avgDaysToPay} ${plural(c.avgDaysToPay, "day")}` : "—"],
-        ["Orders", `${c.orders.length} · ${c.units.toLocaleString()} ${plural(c.units, "piece")}`],
+        ...(seesOrders ? [["Orders", `${c.orders.length} · ${c.units.toLocaleString()} ${plural(c.units, "piece")}`]] : []),
       ]} />
     </>
   );
@@ -230,16 +241,23 @@ export default function CustomerCard({ customer, startSection, canEdit, region, 
   const count = (n) => <span className="sl-count">{n}</span>;
   const sections = [
     { id: "details", label: "Details", main: detailsMain },
-    { id: "invoices", label: <>Invoices {count(c.invoices.length)}</>, main: <Invoices c={c} fmt={fmt} today={today} /> },
-    { id: "payments", label: <>Payments {count(c.payments.length)}</>, main: <Payments c={c} fmt={fmt} /> },
-    { id: "orders", label: <>Orders {count(c.orders.length)}</>, main: <Orders c={c} fmt={fmt} /> },
+    ...(seesMoney ? [
+      { id: "invoices", label: <>Invoices {count(c.invoices.length)}</>, main: <Invoices c={c} fmt={fmt} today={today} /> },
+      { id: "payments", label: <>Payments {count(c.payments.length)}</>, main: <Payments c={c} fmt={fmt} /> },
+    ] : []),
+    ...(seesOrders ? [{ id: "orders", label: <>Orders {count(c.orders.length)}</>, main: <Orders c={c} fmt={fmt} /> }] : []),
   ];
-  // open where the money is: invoices, else orders, else the details
-  const first = startSection || (c.invoices.length ? "invoices" : c.orders.length ? "orders" : "details");
+  // open where asked, else where the money is: invoices, else orders, else the details
+  const first = sections.some((s) => s.id === startSection) ? startSection
+    : seesMoney && c.invoices.length ? "invoices" : seesOrders && c.orders.length ? "orders" : "details";
   const ownRegion = normaliseRegion(c.region);
-  const deleteNote = c.orders.length || c.invoices.length
-    ? `They have ${c.orders.length} ${plural(c.orders.length, "order")} and ${c.invoices.length} ${plural(c.invoices.length, "invoice")}. Those stay, but unlinked, so they drop out of every total on this page. Merge instead if this is a duplicate.`
-    : "They have no orders or invoices.";
+  const deleteNote = !seesMoney || !seesOrders
+    ? "Any orders, invoices and payments they have stay, but unlinked from them."
+    : c.orders.length || c.invoices.length
+      ? `They have ${c.orders.length} ${plural(c.orders.length, "order")} and ${c.invoices.length} ${plural(c.invoices.length, "invoice")}. Those stay, but unlinked, so they drop out of every total on this page. Merge instead if this is a duplicate.`
+      : "They have no orders or invoices.";
+  // a card with only the details has nothing to switch between, and no numbers to put beside them
+  const sectioned = sections.length > 1;
 
   return (
     <EditCard
@@ -247,15 +265,14 @@ export default function CustomerCard({ customer, startSection, canEdit, region, 
       title={c.name}
       subtitle={[c.city, ownRegion ? regionLabel(ownRegion) : ""].filter(Boolean).join(" · ") || undefined}
       canEdit={canEdit}
-      initialSection={first}
-      sections={sections}
-      side={numbers}
+      {...(sectioned ? { initialSection: first, sections } : { main: detailsMain })}
+      side={seesMoney ? numbers : undefined}
       onSave={save}
-      onDelete={() => onDelete(c)}
+      onDelete={canDelete ? () => onDelete(c) : undefined}
       deleteName={c.name}
       deleteNote={deleteNote}
       submitLabel="Save customer"
-      footerExtra={canEdit ? <button type="button" className="ghost-button" onClick={() => onAskMerge(c)}>Merge into…</button> : null}
+      footerExtra={canEdit && canMerge && seesMoney && seesOrders ? <button type="button" className="ghost-button" onClick={() => onAskMerge(c)}>Merge into…</button> : null}
       onClose={onClose}
     />
   );
