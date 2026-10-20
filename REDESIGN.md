@@ -497,6 +497,8 @@ The page was deleted instead of redesigned: the usage log showed 54 opens and no
 
 ### 8.13 Employees & HR — [Employees.jsx](src/pages/Employees.jsx) (1,167) + [SalarySlipModal](src/components/SalarySlipModal.jsx) (606)
 
+> **Redone 2026-10-19** in the glass look with a different layout from the one planned below (see [DESIGN.md](DESIGN.md) "The Employees & HR page" and [FRONTEND_REDO.md](FRONTEND_REDO.md)): one screen with four tiles and one list of people (seven columns, a row opens a card), no Org Chart tab (nobody has a manager set), Payroll stays its own page. The *Preserve* items below were kept: `createEmployeeLogin` (now in `lib/employeesWrites.js`, unchanged), `setEmployeeScheduleOverrides` after every read, the salary slip's printed page and paper preview (byte-identical). The payroll `autoCalculate` and `calcPayroll` belong to Payroll and were not touched.
+
 - `PageHeader` (Salary slip, Add employee), `Tabs` Directory / Org chart / Payroll, back-to-Finance link when arriving from Finance.
 - **Directory:**
   - `StatStrip`, then a `DataTable` with a proposed condensed column set: Name + email, Role, Department, Location, Status, Actions.
@@ -532,6 +534,8 @@ The page was deleted instead of redesigned: the usage log showed 54 opens and no
 - **Preserve:** `rollUp`, overdue and payment-speed maths, sort rules, `handleMerge` field names.
 
 ### 8.15 Marketing calendar — [MarketingCalendar.jsx](src/components/MarketingCalendar.jsx) (719)
+
+> **Redone 2026-10-19** as `src/pages/Marketing.jsx` + `src/components/marketing/` (the file named in this heading is gone), and Meta Ads, which used to share its route, became `src/pages/MetaAds.jsx` + `src/components/meta/`. The *Preserve* line below is superseded: seed-on-empty and save-on-keystroke were dropped on purpose, and the three problems flagged in §11 (the `id: null` race, a day press that inserts a row, no permission checks) are fixed. What changed and why: FRONTEND_REDO.md, "Marketing, what changed on purpose".
 
 - **Rewrite styling off Tailwind** onto the kit and a `kmkt-` prefix. Tailwind is 100% of its styling today and uses a zinc/emerald/violet palette of its own.
 - **Desktop:** ideas inbox rail, toolbar (month nav, New idea, Today), month grid, legend.
@@ -669,11 +673,16 @@ These are **not** mixed into design commits. Unless you say otherwise, each beco
 | 14 | Low | QC | `QC${allLogs.length+1}` IDs collide if a log is ever deleted. **Moot 2026-10-18** (the QC page was removed). |
 | 15 | Low | Attendance | Employee report access is gated by one hard-coded email (`isDeepa`), not a permission. **Fixed 2026-10-18** (removed: it never showed anyone else's data, because the database only returns a staff member's own rows). |
 | 16 | Low | BankBalanceWidget | Visibility is a hard-coded name allowlist (`zen`, `finn`, `wilson`, `admin`), not a permission. |
-| 17 | Low | Budget | `submitBudget` / `submitReq` have no try/finally, so the button sticks on "Submitting…" after a failure. |
+| 17 | Low | Budget | `submitBudget` / `submitReq` have no try/finally, so the button sticks on "Submitting…" after a failure. **Fixed 2026-10-19** (the Budget redo: a send that fails says so, keeps what was typed and can be tried again). |
 | 18 | Low | Billing | Empty state and CSV header say "Invoice" on the Challan and Quotation tabs. **Fixed 2026-10-18** (the Billing redo labels them by tab). |
 | 19 | Low | DocPreview, SalarySlip | `print()` fires twice (onload and timeout), so the print dialog may open twice. SalarySlip also writes unescaped values into the print window. **DocPreview fixed 2026-10-18** (whichever of the two comes first prints, once); SalarySlip not touched. |
 | 20 | Low | Inventory | Skeleton uses a non-existent `pulse` animation; the `kinv-fabric-names` datalist only renders on the Items cost tab, so the tech-pack fabric autocomplete is empty. |
 | 21 | Low | Dashboard | Navigation uses `window.location.href`, a full page reload instead of router navigation. |
+| 22 | Med | Billing | Pressing → Invoice twice, or two people on one quotation, made two invoices: two numbers used and the quotation pointing at only one (and stock out twice, if the quotation's lines name stock items). **Fixed 2026-10-19** (the button is off while one is being made, and the write reads the quotation afresh and refuses one that already has an invoice). |
+| 23 | **High** | Employees | The edit form sent a stale `region` copy of the person's location, and `region` and `location` are the same column, so **a changed location never saved**. **Fixed 2026-10-19** (a save writes only the fields that were changed). |
+| 24 | **High** | Employees | The edit form wrote back every field it had loaded. The directory view returns phone, address, pay, bank, PAN and join date as null for staff who may not see them, so **saving any change as a restricted editor wrote those columns back as empty over the real values**. **Fixed 2026-10-19** (only changed fields are written; fields the viewer cannot see are shown as hidden and never written). |
+| 25 | Med | Employees | A delete that row-level security refused looked done, and the confirmation said only that the person would lose access: deleting also erases their attendance, clock-ins, chat messages, points and photo, and unlinks tasks, orders and payroll records. **Fixed 2026-10-19** (the card names what goes with them and offers Inactive; the delete is read back). |
+| 26 | Low | Employees | Clearing the join date sent "" to a date column (an error); the new person's join date started as the UTC date. **Fixed 2026-10-19** (saved as none; starts as Kathmandu's today). |
 | ? | Question | Inventory | Stock value is `closing × COGS` on Items cost but `closing × unitCostNPR` on Item details. Which is intended? |
 
 ---
