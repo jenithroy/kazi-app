@@ -1,7 +1,11 @@
+import { Suspense, useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { buildNav, CHAT } from "../constants/nav";
+import { preloadQuietly } from "../lib/lazyPages";
 import AppLayout from "./AppLayout";
 import ErrorBoundary from "./ErrorBoundary";
+import PageLoading from "./PageLoading";
 
 /**
  * The signed-in gate.
@@ -16,8 +20,19 @@ import ErrorBoundary from "./ErrorBoundary";
  * declares the section it belongs to (see App.jsx); RequireSection enforces it.
  */
 function ProtectedRoute() {
-  const { authenticated, loading } = useAuth();
+  const { authenticated, loading, profile } = useAuth();
   const location = useLocation();
+
+  // Once somebody is signed in, quietly fetch the pages their menu shows, so moving between pages never waits on the
+  // network (lib/lazyPages.js). Keyed on the person, not the profile object, which is a new one after every refresh.
+  const personId = profile?.personId;
+  useEffect(() => {
+    if (!authenticated) return undefined;
+    const paths = buildNav(profile).flatMap((group) => group.items.map((item) => item.path));
+    if (CHAT.can(profile)) paths.push(CHAT.to);
+    return preloadQuietly(paths);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, personId]);
 
   if (loading) {
     return <div className="full-page-center">Loading KAZI data...</div>;
@@ -30,7 +45,9 @@ function ProtectedRoute() {
   return (
     <AppLayout>
       <ErrorBoundary>
-        <Outlet />
+        <Suspense fallback={<PageLoading />}>
+          <Outlet />
+        </Suspense>
       </ErrorBoundary>
     </AppLayout>
   );

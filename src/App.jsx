@@ -1,26 +1,10 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Attendance from "./pages/Attendance";
-import Production from "./pages/Production";
-import Inventory from "./pages/Inventory";
-import Finance from "./pages/Finance";
-import FiscalYearTransactions from "./pages/FiscalYearTransactions";
-import Purchases from "./pages/Purchases";
-import Tasks from "./pages/Tasks";
-import Budget from "./pages/Budget";
-import Billing from "./pages/Billing";
-import Employees from "./pages/Employees";
-import AdminPanel from "./pages/AdminPanel";
-import Usage from "./pages/Usage";
-import Roles from "./pages/Roles";
-import Customers from "./pages/Customers";
-import Messenger from "./pages/Messenger";
-import Sales from "./pages/Sales";
-import Marketing from "./pages/Marketing";
-import MetaAds from "./pages/MetaAds";
-import BugReport from "./pages/BugReport";
-import Changelog from "./pages/Changelog";
+// Every other page is fetched when it is first needed (and ahead of time, quietly): see lib/lazyPages.js.
+import {
+  Dashboard, Attendance, Production, Inventory, Finance, FiscalYearTransactions, Purchases, Tasks, Budget, Billing,
+  Employees, AdminPanel, Usage, Roles, Customers, Messenger, Sales, Marketing, MetaAds, BugReport, Changelog,
+} from "./lib/lazyPages";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
 import SysPage from "./components/system/SysPage";

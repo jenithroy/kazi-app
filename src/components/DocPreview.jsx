@@ -7,8 +7,6 @@
  * `printRef`, so what the print window copies (`outerHTML`) is the sheet as drawn here.
  */
 import { useLayoutEffect, useRef, useState } from "react";
-import { pdf } from "@react-pdf/renderer";
-import { InvoicePDFDoc } from "./InvoicePDF";
 import DocViewer from "./viewer/DocViewer";
 import { fmtCurrency, fmtCurrencyExact, fmtDate, fmtDateBSLabel, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
 import { roundAmount } from "../utils/format";
@@ -45,8 +43,13 @@ export default function DocPreview({ data, docType, onClose }) {
     setGenerating(true);
     setNotice(null);
     try {
-      // Convert letterhead to base64 so react-pdf can embed it reliably
-      const letterheadData = await fetchAsDataURL(`${window.location.origin}/letterhead.jpg`);
+      // Convert letterhead to base64 so react-pdf can embed it reliably. The PDF maker itself is about 2.6 MB of code, so it
+      // is fetched here, alongside the letterhead, the first time Download PDF is pressed, and not with every page.
+      const [letterheadData, { pdf }, { InvoicePDFDoc }] = await Promise.all([
+        fetchAsDataURL(`${window.location.origin}/letterhead.jpg`),
+        import("@react-pdf/renderer"),
+        import("./InvoicePDF"),
+      ]);
 
       const blob = await pdf(
         <InvoicePDFDoc data={data} docType={docType} letterheadUrl={letterheadData} />
