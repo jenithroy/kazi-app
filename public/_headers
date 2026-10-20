@@ -1,0 +1,16 @@
+# Cloudflare reads this file when the site is deployed (it is copied from public/ into the build).
+# Anything with a hash in its name (/assets) or a version in its path (/fonts/v5) can never change, so the browser
+# keeps it for a year and does not even ask the server whether it is still current. index.html is NOT listed: it
+# must be re-checked on every visit, because it names the current /assets files.
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Pictures keep their names, so cache them for a day and refresh them quietly in the background after that.
+/*.png
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+/*.jpg
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800

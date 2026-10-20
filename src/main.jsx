@@ -12,6 +12,8 @@ import { RewardProvider } from "./context/RewardContext";
 import { RegionProvider } from "./context/RegionContext";
 import { AvatarProvider } from "./context/AvatarContext";
 import "./styles.css";
+// Last, on purpose: it must sit after every other stylesheet. See the note at the top of the file.
+import "./tailwind-reset.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
