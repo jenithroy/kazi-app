@@ -83,7 +83,7 @@ export default function DayBookTab() {
 
   function open(r) {
     if (r.sourceType === "purchase") goToSource("/purchases", { search: r.searchKey });
-    else if (r.sourceType === "invoice") goToSource("/billing", { search: r.searchKey, autoEdit: true });
+    else if (r.sourceType === "invoice") goToSource("/billing", { search: r.searchKey, autoEdit: true, id: r.docId });
     else if (r.sourceType === "expense") openTab("expenses");
     else if (r.sourceType === "bank") openTab("bank");
     else if (r.sourceType === "journal") openTab("journal");

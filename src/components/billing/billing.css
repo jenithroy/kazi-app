@@ -45,6 +45,9 @@
 
 .fn-banner--good { background: var(--kb-good-bg); border-color: color-mix(in srgb, var(--kb-good) 30%, transparent); }
 .fn-banner--good > svg { color: var(--kb-good); }
+/* "Try again" inside a notice: a word on a small outlined button, not the 24px square the dismiss cross is */
+.fn-banner .bl-banner-act { width: auto; height: 26px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--kb-warn) 40%, transparent); color: var(--kb-ink); font: 600 12px/1 var(--font); }
+.fn-banner .bl-banner-act:hover { background: var(--kb-well); color: var(--kb-ink); }
 
 /* ── The table: View and the one thing most often done to the row ─── */
 
@@ -58,10 +61,10 @@
 .bl-dc .ksel-val.is-ph { color: var(--ink-3); }
 .bl-dc .ec-lbl i { color: color-mix(in srgb, var(--ec-bad) 84%, var(--ink)); }
 .bl-dc .ec { grid-template-columns: minmax(0, 1fr) 340px; }
-@media (max-width: 1000px) { .bl-dc .ec { grid-template-columns: minmax(0, 1fr) 280px; } }
+@media (max-width: 1100px) { .bl-dc .ec { grid-template-columns: minmax(0, 1fr) 280px; } }
 
 /* the lines: a block each, the description on top, the numbers under it; the block scrolls inside the card once there are many */
-.bl-lines { gap: 8px; }
+.bl-lines { gap: 8px; container: bl-lines / inline-size; }
 .bl-lines-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .bl-lines-n { font-size: 12px; font-weight: 500; color: var(--ink-3); }
 .bl-lines-body { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
@@ -89,12 +92,22 @@
 .bl-acts-btns { display: grid; gap: 8px; }
 .bl-acts-btns .ghost-button { width: 100%; justify-content: center; }
 
-/* a phone: the two panes are two tabs (EditCard); each line's numbers wrap onto two rows */
+/* Narrow: each line's numbers wrap onto rows. It goes by the width the lines really have, not the screen's: on a tablet the numbers column takes
+   a third of the card, and the one-row layout would be cut off at the edge. An invoice line also carries the stock item, which needs about
+   120px to be readable, so it wraps sooner (the row needs 486px before the stock item, plus the line's own padding). */
+@container bl-lines (max-width: 620px) {
+  .bl-nums--inv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bl-nums--inv > :nth-child(3) { grid-column: 1 / -1; }
+  .bl-nums--inv .bl-amount { text-align: left; align-self: center; }
+}
+@container bl-lines (max-width: 490px) {
+  .bl-nums:not(.bl-nums--inv) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bl-nums:not(.bl-nums--inv) > :nth-child(3) { grid-column: 1 / -1; }
+  .bl-nums:not(.bl-nums--inv) .bl-amount { text-align: left; align-self: center; }
+}
+/* a phone: the two halves are two tabs (EditCard), and the card scrolls as a whole */
 @media (max-width: 640px) {
-  .bl-nums, .bl-nums--inv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bl-nums > :nth-child(3) { grid-column: 1 / -1; }
   .bl-lines-body { max-height: none; overflow: visible; }
-  .bl-amount { text-align: left; align-self: center; }
 }
 
 /* ── Payments ─────────────────────────────────────────────────── */

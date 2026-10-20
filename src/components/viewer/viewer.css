@@ -1,0 +1,188 @@
+/* ══════════════════════════════════════════════════════════════════
+   DOCUMENT VIEWER — components/viewer/DocViewer.jsx   (everything is `.dv-*`)
+
+   A <Modal size="card" glass> as tall as the window allows: the same glass, edge light, scrim and phone bottom sheet as every other
+   card (profile-theme.css, modal-glass.css), with the document on a veiled pane inside it. It is portalled to <body>, outside `.kb`, so
+   it reads the app's base tokens (--ink, --line, --card …) that a glass dialog remaps for dark, plus the `--dv-*` pairs below for what
+   means something (good, warn, bad, info).
+
+   The sheet is a printed document, so it is white in both themes: the veil around it follows the theme, the sheet never does.
+
+   Loaded before styles.css, so a rule that must beat an old one is written with more classes than it.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The dialog ─────────────────────────────────────────────────── */
+
+.kmodal.kmodal--card.kmodal--viewer {
+  --kmodal-w: 1120px;
+  --dv-good: var(--mint-deep);  --dv-good-bg: var(--mint-soft);
+  --dv-warn: #7d5512;           --dv-warn-bg: var(--amber-soft);
+  --dv-bad:  #a8442c;           --dv-bad-bg:  var(--terra-soft);
+  --dv-info: #2a4f6f;           --dv-info-bg: var(--blue-soft);
+  --dv-veil: rgba(15, 46, 34, .085);       /* the stage: a veil on the glass, darker than the card so the white sheet stands off it */
+  --dv-well: rgba(15, 46, 34, .06);
+  --dv-focus: var(--mint-deep);            /* the keyboard ring: the accent, which holds 3:1 on the veil (the base --mint-2 does not) */
+  height: min(calc(100vh - 48px), 1240px);
+  height: min(calc(100dvh - 48px), 1240px);
+}
+:root[data-theme="dark"] .kmodal.kmodal--card.kmodal--viewer {
+  --dv-good: #7dd3a8;  --dv-good-bg: rgba(125, 211, 168, .14);
+  --dv-warn: #e6bd70;  --dv-warn-bg: rgba(224, 180, 95, .14);
+  --dv-bad:  #f4ae98;  --dv-bad-bg:  rgba(240, 164, 141, .14);
+  --dv-info: #9cc3e1;  --dv-info-bg: rgba(143, 184, 216, .14);
+  --dv-veil: rgba(0, 0, 0, .3);
+  --dv-well: rgba(255, 255, 255, .06);
+  --dv-focus: var(--mint);
+}
+
+/* the body is a column that does not scroll: the stage inside it does */
+.kmodal--card.kmodal--viewer .kmodal-body { padding: 0; overflow: hidden; min-height: 0; }
+
+/* ── What it is, who it is for, how it stands ───────────────────── */
+
+.kmodal--viewer .kmodal-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+.dv-num { font: 600 14px/1.2 var(--mono); letter-spacing: 0; color: var(--ink-2); }
+
+.dv-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 0; min-width: 0; }
+.dv-sub > .dv-first { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink-2); }
+.dv-sub > span:not(.dv-tag) + span:not(.dv-tag)::before { content: "·"; margin: 0 7px; color: var(--ink-4); }
+.dv-sub > .dv-tag { margin-left: 8px; }
+.dv-sub > .dv-tag:first-child { margin-left: 0; }
+
+.dv-tag { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; background: var(--dv-well); color: var(--ink-2); font: 600 11.5px/1.45 var(--font); white-space: nowrap; }
+.dv-tag--good { background: var(--dv-good-bg); color: var(--dv-good); }
+.dv-tag--warn { background: var(--dv-warn-bg); color: var(--dv-warn); }
+.dv-tag--bad  { background: var(--dv-bad-bg);  color: var(--dv-bad); }
+.dv-tag--info { background: var(--dv-info-bg); color: var(--dv-info); }
+
+/* ── A thing to know before trusting the sheet ──────────────────── */
+
+.dv-banner {
+  flex: none; display: flex; align-items: flex-start; gap: 9px; padding: 9px 24px;
+  border-bottom: 1px solid var(--line); background: var(--dv-warn-bg); color: var(--dv-warn);
+  font-size: 12.5px; line-height: 1.45;
+}
+.dv-banner > svg { flex: none; margin-top: 1px; }
+
+/* ── The stage ──────────────────────────────────────────────────── */
+
+.dv-stage {
+  flex: 1 1 0; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column;
+  padding: 24px 24px 32px;
+  overflow: auto; overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;           /* the room the sheet fits into does not change when a bar comes and goes */
+  background: var(--dv-veil);
+  touch-action: pan-x pan-y;                     /* a finger scrolls; the two-finger pinch is the viewer's own */
+  outline: none;
+}
+.dv-stage:focus-visible { outline: 2px solid var(--dv-focus); outline-offset: -4px; border-radius: 6px; }
+
+.dv-stage::-webkit-scrollbar { width: 10px; height: 10px; }
+.dv-stage::-webkit-scrollbar-track, .dv-stage::-webkit-scrollbar-corner { background: transparent; }
+.dv-stage::-webkit-scrollbar-thumb { background: rgba(15, 46, 34, .26); border: 2px solid transparent; background-clip: content-box; border-radius: 999px; }
+.dv-stage::-webkit-scrollbar-thumb:hover { background: rgba(15, 46, 34, .4); background-clip: content-box; }
+:root[data-theme="dark"] .dv-stage::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .22); background-clip: content-box; }
+:root[data-theme="dark"] .dv-stage::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .36); background-clip: content-box; }
+@media (pointer: coarse) { .dv-stage { scrollbar-width: thin; scrollbar-color: rgba(15, 46, 34, .3) transparent; } }
+@supports not selector(::-webkit-scrollbar) { .dv-stage { scrollbar-width: thin; scrollbar-color: rgba(15, 46, 34, .3) transparent; } }
+
+/* the sheet's box is as big as the scaled sheet (so the scroll area is exactly its size); the sheet inside it is drawn at its own size
+   and scaled, so it is never re-flowed. margin: auto centres it while it is smaller than the room, and lets its left edge be reached
+   when it is not. */
+.dv-paper {
+  flex: none; margin: auto; position: relative;
+  border-radius: 2px; background: #fff;
+  box-shadow: 0 0 0 1px rgba(15, 46, 34, .1), 0 2px 4px rgba(10, 28, 20, .1), 0 18px 40px -12px rgba(10, 28, 20, .4);
+}
+:root[data-theme="dark"] .dv-paper { box-shadow: 0 0 0 1px rgba(255, 255, 255, .1), 0 2px 6px rgba(10, 28, 20, .7), 0 22px 54px -14px rgba(10, 28, 20, .9); }
+.dv-sheet { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+/* The sheet is a printed page: white, in ink, in both themes. A dark dialog gives the app's tokens their dark values for everything inside
+   it, and the line descriptions on the sheet (`formatDescription`, a frozen helper) are drawn in those tokens, so they went pale on the
+   white page. They are put back to their light values (styles.css `:root`) for the sheet and nothing else. */
+.dv-sheet {
+  color-scheme: light;
+  --ink: #0a1c14; --ink-2: #2b3b33; --ink-3: #5b6a62; --ink-4: #8a978f; --ink-5: #b5bfb8;
+  --bg: #eef2ec; --bg-2: #e6ebe4; --card: #ffffff;
+  --line: rgba(15, 46, 34, .08); --line-strong: rgba(15, 46, 34, .14);
+  --mint-deep: #1f6e4c; --mint-soft: #e6f3ec; --mint-wash: #f2f9f5; --terra-soft: #f5dfd6;
+}
+
+/* The old global `.invoice-page` rule (styles.css) is a card for the opaque dialogs: 760px wide at most, padded, bordered, rounded,
+   scrolling. On the screen that made the copy narrower than the page that prints (794px) and, on a phone, squeezed it to the window.
+   Inside the viewer it is the real sheet: 794 × 1123, as the print window draws it. The print window does not load this sheet. */
+.dv-sheet > .invoice-page {
+  max-width: none; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; overflow: visible;
+  box-shadow: none !important;
+  background-color: #fff; color: #0a1c14; color-scheme: light;
+}
+
+/* ── The footer ─────────────────────────────────────────────────── */
+
+.kmodal--viewer .kmodal-ft { gap: 8px 10px; }
+.dv-msg { margin: 0; }
+.dv-msg--bad  { color: var(--dv-bad); }
+.dv-msg--good { color: var(--dv-good); }
+
+.dv-zoom {
+  margin-right: auto; display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border: 1px solid var(--line-strong); border-radius: 999px;
+}
+.dv-zb {
+  flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--ink-2); cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.dv-zb:hover { background: var(--line); color: var(--ink); }
+.dv-zb[aria-disabled="true"] { opacity: .38; cursor: default; }
+.dv-zb[aria-disabled="true"]:hover { background: transparent; color: var(--ink-2); }
+.dv-zb:focus-visible { outline: 2px solid var(--dv-focus); outline-offset: 1px; box-shadow: none; }
+.dv-pct { min-width: 50px; padding: 0 2px; text-align: center; font: 600 12.5px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.dv-zsep { flex: none; width: 1px; height: 18px; margin: 0 3px; background: var(--line-strong); }
+
+/* the shared primary button goes to --mint-2 on hover, and white on that is 2.4:1 (DESIGN.md, Known gaps 9): here the deep green brightens
+   instead, as the Budget cards do */
+.kmodal--viewer .kmodal-ft .dv-download:hover:not([aria-disabled="true"]) { background: var(--mint-deep); filter: brightness(1.14); }
+.dv-download[aria-disabled="true"] { opacity: .7; cursor: progress; }
+.dv-download[aria-disabled="true"]:hover { background: var(--mint-deep); }
+.dv-spin { animation: dv-spin .9s linear infinite; }
+@keyframes dv-spin { to { transform: rotate(360deg); } }
+
+/* a finger: every control 40px (a tablet and a landscape phone are wider than the phone sheet below, and still touched) */
+@media (pointer: coarse) {
+  .dv-zb { width: 40px; height: 40px; }
+}
+
+/* ── A short window (a laptop's browser) ────────────────────────── */
+
+@media (max-height: 700px) and (min-width: 641px) {
+  .dv-stage { padding: 16px 24px 22px; }
+}
+
+/* ── A phone: the usual bottom sheet, the sheet filling its width ─── */
+
+@media (max-width: 640px) {
+  .kmodal.kmodal--card.kmodal--viewer { height: calc(100dvh - max(12px, env(safe-area-inset-top, 0px))); }
+  .dv-stage { padding: 14px 12px 20px; }
+  .dv-banner { padding: 9px 16px; }
+  .dv-zb { width: 40px; height: 40px; }
+  .dv-pct { min-width: 46px; }
+  .dv-print { min-width: 44px; padding-left: 12px; padding-right: 12px; }
+}
+/* narrow phones: Print is its icon alone, and the zoom takes a row of its own when there is no room beside the buttons */
+@media (max-width: 479px) {
+  .dv-print .dv-lbl { display: none; }
+}
+@media (max-width: 359px) {
+  .dv-zoom { flex: 1 1 100%; margin-right: 0; justify-content: center; }
+}
+/* a landscape phone: every pixel of height is the sheet's */
+@media (max-height: 520px) {
+  .dv-stage { padding: 10px 14px 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-zb { transition: none; }
+  .dv-spin { animation-duration: 1.8s; }
+}

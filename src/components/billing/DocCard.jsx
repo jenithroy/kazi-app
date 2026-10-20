@@ -18,7 +18,7 @@ import DateField from "../finance/DateField";
 import ItemsEditor from "./ItemsEditor";
 import FxDialog from "./FxDialog";
 import useCardForm from "../finance/cards/useCardForm";
-import { advance, enterAdvance, focusFirst, thenAdvance } from "../finance/flow";
+import { enterAdvance, focusAfter, focusFirst, thenAdvance } from "../finance/flow";
 import { useCurrency } from "../../context/CurrencyContext";
 import { COMMON_CURRENCIES, toNPR } from "../../utils/currency";
 import { BANK_NAMES, DOC_TYPES, STATUS_BY_TYPE, fmtCurrency, fmtNPR } from "../../utils/billing.jsx";
@@ -44,9 +44,20 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
   const { form, set, reset, dirty } = useCardForm(() => (doc ? formFromDoc(tab, doc) : { ...newForm(tab), region }));
   const [panError, setPanError] = useState("");
   const [saved, setSaved] = useState("");
+  const [savedWarning, setSavedWarning] = useState("");
+  const [actionError, setActionError] = useState("");        // what went wrong with one of the card's own buttons (a page banner would be behind the card)
   const [fx, setFx] = useState(null);                         // the line whose rate is being converted
+  // What the document was when this card was opened. Saving from a form that no longer matches it (the status or what has been paid changed
+  // meanwhile, here or by someone else) would write the old values back over the new ones, so that save is refused.
+  const opened = useRef(doc ? { status: doc.status, amountPaid: Number(doc.amountPaid || 0), updatedAt: doc.updatedAt || "" } : null);
+  const regionTouched = useRef(false);
   // The client is the first thing to fill in (the modal itself only knows how to focus a text box, and the first one here is the PAN)
   useEffect(() => { focusFirst(root.current?.closest("form"), `#${CSS.escape(`${uid}-client`)}`); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  // A new document is in the region on screen until the person chooses one themselves (the region can change from another tab while the card is open)
+  useEffect(() => {
+    if (!creating || regionTouched.current || !region || form.region === region) return;
+    if (dirty) set({ region }); else reset({ ...form, region });
+  }, [region]);   // eslint-disable-line react-hooks/exhaustive-deps
   const totals = totalsOfForm(form);
   const money = (n) => fmtCurrency(n, form.currency);
   const invoice = tab === "invoice";
@@ -65,6 +76,16 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
   async function save() {
     const again = mode.current === "again";
     mode.current = "close";
+    setSavedWarning("");
+    if (doc && opened.current) {
+      const now = { status: doc.status, amountPaid: Number(doc.amountPaid || 0), updatedAt: doc.updatedAt || "" };
+      if (now.status !== opened.current.status || now.amountPaid !== opened.current.amountPaid || now.updatedAt !== opened.current.updatedAt) {
+        return {
+          ok: false,
+          message: `This ${words.one.replace(/^VAT /, "")} was changed after you opened it (it is now ${now.status}${invoice ? `, ${fmtNPR(toNPR(now.amountPaid, doc.currency))} paid` : ""}). Close it and open it again to see the latest, then make your change.`,
+        };
+      }
+    }
     // The picker's `required` select is unmounted while its inline "add new customer" panel is open, so the browser cannot enforce this
     // at exactly the moment a half-finished client is on screen.
     if (!(form.clientName || "").trim()) return { ok: false, message: "Pick a client, or finish adding the new one, before saving." };
@@ -90,10 +111,11 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
     }
     const res = await saveDoc({ tab, form, editingId: doc?.id || null, plan, profile, region });
     if (!res.ok) return res;
-    if (res.warning) api.notify(res.warning, "warn");
+    if (res.warning && !again) api.notify(res.warning, "warn");
     if (!again) { await api.reload(); return { ok: true }; }
     // the next document starts at once, on the same date and in the same currency; the list catches up behind it
     setSaved(`${res.number} · ${money(totals.total)}`);
+    if (res.warning) setSavedWarning(res.warning);          // the card stays open, so this is said here and not in a banner behind it
     reset({ ...newForm(tab), date: form.date, fiscalYear: fiscalYearForDate(form.date) || form.fiscalYear, currency: form.currency, region: form.region || region });
     setPanError("");
     focusFirst(root.current?.closest("form"), `#${CSS.escape(`${uid}-client`)}`);
@@ -101,8 +123,22 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
     return { ok: true, keepOpen: true };
   }
 
-  const submitNow = (e) => { mode.current = creating ? "again" : "close"; e.target.closest("form")?.requestSubmit(); };
+  // `mode` is read by save() the moment the form submits, which is synchronous: if the browser refuses the submit (a value it will not take) or the
+  // key came from somewhere that does not submit, save() never ran, so "add another" must not stay armed for the next, ordinary Create.
+  const requestSave = (form, kind) => { mode.current = kind; form?.requestSubmit(); mode.current = "close"; };
+  const submitNow = (e) => requestSave(e.target.closest("form"), creating ? "again" : "close");
   const flow = { onKeyDown: (e) => enterAdvance(e, () => submitNow(e)) };
+  // what one of the card's own buttons did: a failure is said in the card
+  const act = async (promise) => { setActionError(""); const res = await promise; if (res && res.ok === false && res.message) setActionError(res.message); };
+  // after a client is chosen (or added on the spot, which removes the panel the cursor was in) the cursor goes on to the next field
+  const afterClient = () => requestAnimationFrame(() => {
+    const form = root.current?.closest("form");
+    const button = form?.querySelector(`#${CSS.escape(`${uid}-client`)}`);
+    const here = document.activeElement;
+    if (button && (!here || here === document.body || !form.contains(here))) button.focus({ preventScroll: true });
+    const el = document.activeElement;
+    if (el && el !== document.body && el.closest("form")) focusAfter(el, el.closest("form"));
+  });
 
   const main = (
     <div className="fn-flow" ref={root} {...flow}>
@@ -119,7 +155,7 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
                 clientPhone: f.clientPhone || picked?.phone || f.clientPhone,
               };
             });
-            advance();
+            afterClient();
           }}
           onCustomerCreated={api.addCustomer}
         />
@@ -191,7 +227,7 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
         <Select
           id={`${uid}-reg`} label="Region" value={form.region || ""} disabled={!editable} searchable={false}
           options={[...(creating ? [] : [{ value: "", label: "Not set" }]), ...REGIONS.map((r) => ({ value: r.id, label: r.label }))]}
-          onChange={thenAdvance((v) => set({ region: v }))}
+          onChange={thenAdvance((v) => { regionTouched.current = true; set({ region: v }); })}
         />
       </Field>
       {tab === "challan" && (
@@ -257,6 +293,7 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
         {!creating && <div className="bl-stat"><Tag tone={statusTone(doc.status)}>{doc.status}</Tag></div>}
       </div>
       {saved && <p className="ec-strip ec-wide" role="status"><span><b>Saved</b><small>{saved}. The next one is ready.</small></span></p>}
+      {savedWarning && <p className="ec-strip is-warn ec-wide" role="alert"><span><b>{savedWarning}</b></span></p>}
       <div className="ec-block ec-wide">
         <span className="ec-cap">Grand total</span>
         <div className="ec-fig">{money(totals.total)}</div>
@@ -276,9 +313,9 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
         <div className="bl-disc">
           <Seg label="Discount as" value={form.discountMode || "pct"} options={DISCOUNT} disabled={!editable} onChange={(v) => set({ discountMode: v })} />
           {(form.discountMode || "pct") === "pct" ? (
-            <NumberInput aria-label="Discount, percent" unit="%" min="0" max="100" step="0.5" value={form.discountPct || 0} disabled={!editable} onChange={(e) => set({ discountPct: e.target.value })} />
+            <NumberInput aria-label="Discount, percent" unit="%" min="0" max="100" value={form.discountPct || 0} disabled={!editable} onChange={(e) => set({ discountPct: e.target.value })} />
           ) : (
-            <NumberInput aria-label="Discount, amount" unit={form.currency || "NPR"} min="0" step="0.01" value={form.discountFlatAmt || 0} disabled={!editable} onChange={(e) => set({ discountFlatAmt: e.target.value })} />
+            <NumberInput aria-label="Discount, amount" unit={form.currency || "NPR"} min="0" value={form.discountFlatAmt || 0} disabled={!editable} onChange={(e) => set({ discountFlatAmt: e.target.value })} />
           )}
         </div>
       </Field>
@@ -303,21 +340,25 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
               ["Credit due", doc.status === "Cancelled" ? "—" : due > 0.005 ? fmtNPR(due) : "Settled", due > 0.005 ? "bad" : "good"],
             ]} />
           )}
+          {actionError && <p className="ec-strip is-warn" role="alert"><span><b>{actionError}</b></span></p>}
           <div className="bl-acts-btns">
-            <button type="button" className="ghost-button" onClick={() => api.view(doc)}>View and print</button>
+            {/* the copy shows what is saved, not what is typed here, so it waits for the save like the other buttons */}
+            <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => api.view(doc)}>View and print</button>
             {editable && invoice && hasPayments(doc) && (
               <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => api.pay(doc)}>
                 {due > 0.005 ? ((doc.amountPaid || 0) > 0 ? "Add payment" : "Record payment") : "Payments"}
               </button>
             )}
             {editable && tab === "challan" && !["Delivered", "Cancelled"].includes(doc.status) && (
-              <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => api.setStatus(doc, "Delivered")}>Mark delivered</button>
+              <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => act(api.setStatus(doc, "Delivered"))}>Mark delivered</button>
             )}
             {editable && tab === "quotation" && !["Accepted", "Rejected", "Cancelled"].includes(doc.status) && (
-              <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => api.setStatus(doc, "Accepted")}>Mark accepted</button>
+              <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => act(api.setStatus(doc, "Accepted"))}>Mark accepted</button>
             )}
             {editable && tab === "quotation" && !doc.relatedInvoice && !["Cancelled", "Rejected"].includes(doc.status) && (
-              <button type="button" className="ghost-button" disabled={dirty} title={actionsHold} onClick={() => api.convert(doc)}>Make a VAT invoice</button>
+              <button type="button" className="ghost-button" disabled={dirty || !!api.convertingId} title={actionsHold} onClick={() => act(api.convert(doc))}>
+                {api.convertingId === doc.id ? "Making the invoice…" : "Make a VAT invoice"}
+              </button>
             )}
           </div>
         </div>
@@ -337,10 +378,11 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
         footerExtra={(
           <>
             {doc && canEdit && doc.status !== "Cancelled" && (
-              <button type="button" className="ghost-button ec-ft-l ec-danger" onClick={() => api.cancel(doc, dirty)}>Cancel this {words.one.replace(/^VAT /, "")}</button>
+              <button type="button" className="ghost-button ec-ft-l ec-danger" onClick={() => act(api.cancel(doc, dirty))}>Cancel this {words.one.replace(/^VAT /, "")}</button>
             )}
+            {/* not a submit button: when Enter or a browser's own rule submits the form it must be Create that is pressed, never this one */}
             {creating && editable && (
-              <button type="submit" className="ghost-button" title="Ctrl + Enter" onClick={() => { mode.current = "again"; }}>Save and add another</button>
+              <button type="button" className="ghost-button" title="Ctrl + Enter" onClick={(e) => requestSave(e.currentTarget.closest("form"), "again")}>Save and add another</button>
             )}
           </>
         )}

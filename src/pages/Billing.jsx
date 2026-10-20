@@ -79,21 +79,14 @@ export default function Billing() {
   }, []);
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  // The A4 copy (DocPreview) is a legal document with its own toolbar, not one of our dialogs: it needs Escape, and focus in and out, by hand.
-  // Escape is taken before the card behind it can see the key, so it closes the copy and nothing else.
+  // The A4 copy (DocPreview) is the document viewer (components/viewer): it takes Escape before the card behind it can see the key, so it
+  // closes the copy and nothing else, and it keeps Tab inside itself. What is left here is to give the cursor back to what opened it.
   const opener = useRef(null);
   const openPreview = useCallback((doc, docType) => { opener.current = document.activeElement; setPreview({ data: doc, docType }); }, []);
   const closePreview = useCallback(() => {
     setPreview(null);
     requestAnimationFrame(() => { const el = opener.current; if (el && el.isConnected) el.focus({ preventScroll: true }); });
   }, []);
-  useEffect(() => {
-    if (!preview) return undefined;
-    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePreview(); } };
-    window.addEventListener("keydown", onKey, true);
-    const raf = requestAnimationFrame(() => document.querySelector("#__kazi_doc_root__ .doc-toolbar button:last-of-type")?.focus());
-    return () => { window.removeEventListener("keydown", onKey, true); cancelAnimationFrame(raf); };
-  }, [preview, closePreview]);
 
   /* ── One region's documents, then one period of them ───────────────
      The region says whose book, the fiscal year which year of it (a document belongs to the year its own Nepali date falls in) and a
@@ -146,50 +139,78 @@ export default function Billing() {
     if (autoDone.current || !location.state?.autoEdit || byKind.invoice.length === 0) return;
     autoDone.current = true;
     const q = (location.state.search || "").toLowerCase();
-    const match = byKind.invoice.find((r) => (r.invoiceNumber || "").toLowerCase() === q) || byKind.invoice.find((r) => (r.clientName || "").toLowerCase() === q);
+    // the invoice's own id, when the link carries it: numbers start again every fiscal year, so a number can name two invoices
+    const match = (location.state.id && data.invoices.find((r) => r.id === location.state.id))
+      || byKind.invoice.find((r) => (r.invoiceNumber || "").toLowerCase() === q) || byKind.invoice.find((r) => (r.clientName || "").toLowerCase() === q);
     if (match) { setTab("invoice"); setCard({ id: match.id }); }
-  }, [byKind.invoice, location.state]);
+  }, [byKind.invoice, data.invoices, location.state]);
 
-  useShiftN(canEdit ? () => setCard({ id: null }) : null);
+  // A kind whose list could not be read cannot be added to or corrected: the numbering and the "this would renumber others" question are judged
+  // on that list, so without it a backdated document would renumber others without asking.
+  const listFailed = data.status === "ready" && data.failed.includes(allOfKind === data.invoices ? "invoices" : allOfKind === data.challans ? "challans" : "quotations");
+  const canWrite = canEdit && !listFailed;
 
-  /* ── What can be done to a saved document without editing it ───────── */
+  useShiftN(canWrite && !preview ? () => setCard({ id: null }) : null);
+
+  /* ── What can be done to a saved document without editing it ─────────
+     Each returns { ok } or { ok: false, message }: a button in a table row shows the message on the page, a button inside a card shows it in
+     the card (a page banner would be hidden behind the card's scrim). */
+  const [convertingId, setConvertingId] = useState(null);
+  const converting = useRef(null);
+  // A payment recorded or taken back from inside a document's card changes what that card was opened with (its status, what is paid): the card
+  // closes with the payment card, so what is saved next is never written from a stale form. (A card with typing in it cannot reach payments.)
+  const payChanged = useRef(false);
   const api = useMemo(() => ({
-    reload: data.reload, notify, ask, addCustomer: data.addCustomer,
+    reload: data.reload, notify, ask, addCustomer: data.addCustomer, convertingId,
     view: (doc) => openPreview(doc, tab),
     pay: (doc) => setPayId(doc.id),
     async setStatus(doc, status) {
       const res = await setDocStatus({ tab, id: doc.id, status });
-      if (!res.ok) { notify(res.message); return; }
+      if (!res.ok) return res;
       await data.reload();
       setCard(null);
+      return res;
     },
     async convert(qt) {
+      if (converting.current) return { ok: false };           // one at a time: a second press while the first is still writing must not make a second invoice
       const qtCurrency = qt.currency || "NPR";
       const yes = await ask({
         title: "Make a VAT invoice?", confirmLabel: "Make the invoice",
         body: <p>{qtCurrency !== "NPR" ? `Convert ${qt.quotationNumber} to a VAT invoice? The invoice will stay in ${qtCurrency}, with the same rates.` : `Convert ${qt.quotationNumber} to a VAT invoice?`}</p>,
       });
-      if (!yes) return;
-      const res = await convertToInvoice({ qt, profile });
-      if (!res.ok) { notify(res.message); return; }
-      await data.reload();
-      setCard(null);
-      setTab("invoice");
-      setChip("all");
-      notify(`Created ${res.number} from ${qt.quotationNumber}.`, "good");
+      if (!yes) return { ok: false, cancelled: true };
+      if (converting.current) return { ok: false };
+      converting.current = qt.id;
+      setConvertingId(qt.id);
+      try {
+        const res = await convertToInvoice({ qt, profile });
+        if (!res.ok) return res;
+        await data.reload();
+        setCard(null);
+        setTab("invoice");
+        setChip("all");
+        notify(`Created ${res.number} from ${qt.quotationNumber}.`, "good");
+        return res;
+      } finally {
+        converting.current = null;
+        setConvertingId(null);
+      }
     },
     async cancel(doc, unsaved) {
       const yes = await ask({
         title: `Cancel this ${words.one.replace(/^VAT /, "")}?`, confirmLabel: "Cancel it", danger: true,
         body: <p>The record is kept, marked Cancelled.{unsaved ? " What you changed in the card and have not saved is lost." : ""}</p>,
       });
-      if (!yes) return;
+      if (!yes) return { ok: false, cancelled: true };
       const res = await cancelDoc({ tab, id: doc.id });
-      if (!res.ok) { notify(res.message); return; }
+      if (!res.ok) return res;
       await data.reload();
       setCard(null);
+      return res;
     },
-  }), [data.reload, data.addCustomer, notify, ask, openPreview, tab, profile, words]);          // eslint-disable-line react-hooks/exhaustive-deps
+  }), [data.reload, data.addCustomer, notify, ask, openPreview, tab, profile, words, convertingId]);          // eslint-disable-line react-hooks/exhaustive-deps
+  // a button in a table row: what went wrong is said on the page
+  const rowAct = useCallback(async (promise) => { const res = await promise; if (res && res.ok === false && res.message) notify(res.message); }, [notify]);
 
   async function renumber() {
     const res = await renumberSeries({ tab, groups: outOfOrder });
@@ -202,16 +223,18 @@ export default function Billing() {
   const columns = useMemo(() => {
     const dueText = (r) => (r.status === "Cancelled" ? "" : creditDue(r) > 0.005 ? `Credit due ${money(creditDue(r))}` : "");
     const quick = (r) => {
-      if (!canEdit || r.status === "Cancelled") return null;
+      if (!canWrite || r.status === "Cancelled") return null;
       if (tab === "invoice" && hasPayments(r)) {
         return <button type="button" className="dt-act dt-mini" onClick={() => setPayId(r.id)}>{creditDue(r) > 0.005 ? ((r.amountPaid || 0) > 0 ? "Add payment" : "Record payment") : "Payments"}</button>;
       }
-      if (tab === "challan" && r.status !== "Delivered") return <button type="button" className="dt-act dt-mini" onClick={() => api.setStatus(r, "Delivered")}>Delivered</button>;
+      if (tab === "challan" && r.status !== "Delivered") return <button type="button" className="dt-act dt-mini" onClick={() => rowAct(api.setStatus(r, "Delivered"))}>Delivered</button>;
       if (tab === "quotation") {
         return (
           <>
-            {!["Accepted", "Rejected"].includes(r.status) && <button type="button" className="dt-act dt-mini" onClick={() => api.setStatus(r, "Accepted")}>Accept</button>}
-            {!r.relatedInvoice && r.status !== "Rejected" && <button type="button" className="dt-act dt-mini" onClick={() => api.convert(r)}>→ Invoice</button>}
+            {!["Accepted", "Rejected"].includes(r.status) && <button type="button" className="dt-act dt-mini" onClick={() => rowAct(api.setStatus(r, "Accepted"))}>Accept</button>}
+            {!r.relatedInvoice && r.status !== "Rejected" && (
+              <button type="button" className="dt-act dt-mini" disabled={!!api.convertingId} onClick={() => rowAct(api.convert(r))}>{api.convertingId === r.id ? "Making…" : "→ Invoice"}</button>
+            )}
           </>
         );
       }
@@ -256,7 +279,7 @@ export default function Billing() {
         ),
       },
     ];
-  }, [tab, invoice, meta, money, show, canEdit, api, openPreview]);
+  }, [tab, invoice, meta, money, show, canWrite, api, openPreview, rowAct]);
 
   const empty = fyActive && byKind[tab].length > 0
     ? `No ${words.many} in FY ${fy} (${byKind[tab].length} in other years).`
@@ -264,17 +287,21 @@ export default function Billing() {
 
   return (
     <BentoPage className="fn-page bl-page">
-      <header className="kb-head">
+      <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Billing</h1>
           <p className="kb-head-sub"><span>{describePeriod({ fy, range: dateRange, mode: dateMode })}</span></p>
         </div>
         <div className="kb-head-r fn-head-r">
-          <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
-            <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
-          </button>
-          <RegionSwitch untagged={countUntagged(allOfKind)} size="sm" />
-          <DateModeSwitch />
+          <div className="kb-head-act">
+            <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
+              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
+            </button>
+          </div>
+          <div className="kb-head-row">
+            <RegionSwitch untagged={countUntagged(allOfKind)} size="sm" />
+            <DateModeSwitch />
+          </div>
           <PeriodBar years={yearsHere} />
         </div>
       </header>
@@ -289,7 +316,11 @@ export default function Billing() {
       {data.status === "ready" && data.failed.length > 0 && (
         <div className="fn-banner" role="status">
           <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
-          <span>Could not load {data.failed.map((c) => (c === "inventory" ? "stock items" : c)).join(", ")}, so some figures may be missing or out of date.</span>
+          <span>
+            Could not load {data.failed.map((c) => (c === "inventory" ? "stock items" : c)).join(", ")}, so some figures may be missing or out of date.
+            {listFailed ? ` ${words.many.replace(/^./, (c) => c.toUpperCase())} cannot be added or changed until they load, because their numbers depend on the whole list.` : ""}
+          </span>
+          <button type="button" className="bl-banner-act" onClick={() => data.reload()}>Try again</button>
         </div>
       )}
 
@@ -338,7 +369,7 @@ export default function Billing() {
             actions={(
               <>
                 <ExportButton name={`${words.many.replace(/\s+/g, "-")}`} columns={csvColumns(tab)} rows={shown} />
-                {canEdit && (
+                {canWrite && (
                   <button type="button" className="kb-btn kb-btn--primary" data-tour="new-doc" onClick={() => setCard({ id: null })} title="Shift + N">
                     <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> New {words.one}
                   </button>
@@ -354,7 +385,7 @@ export default function Billing() {
             )}
           >
             {!canEdit && <p className="fn-viewonly">View only. You do not have permission to raise or change documents.</p>}
-            {canEdit && outOfOrder.length > 0 && (
+            {canWrite && outOfOrder.length > 0 && (
               <div className="fn-note">
                 <Icons.Alert size={15} sw={1.9} aria-hidden="true" />
                 <span>
@@ -379,13 +410,15 @@ export default function Billing() {
       {card && (!card.id || cardDoc) && (
         <DocCard
           key={`${tab}:${card.id || "new"}`} tab={tab} doc={cardDoc} allOfKind={allOfKind} customers={customers} inventoryItems={inventoryItems}
-          canEdit={canEdit} canAddCustomers={canAddCustomers} profile={profile} region={region} api={api} onClose={() => setCard(null)}
+          canEdit={canWrite} canAddCustomers={canAddCustomers} profile={profile} region={region} api={api} onClose={() => setCard(null)}
         />
       )}
       {payDoc && (
         <PaymentCard
           key={payDoc.id} info={payInfo(payDoc)} canEdit={canEdit} profile={profile} api={api}
-          onClose={() => setPayId(null)} onSaved={() => { setPayId(null); setCard(null); }}
+          onChanged={() => { payChanged.current = true; }}
+          onClose={() => { setPayId(null); if (payChanged.current) setCard(null); payChanged.current = false; }}
+          onSaved={() => { setPayId(null); setCard(null); payChanged.current = false; }}
         />
       )}
       {renumbering && (

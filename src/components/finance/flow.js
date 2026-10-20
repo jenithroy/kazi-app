@@ -40,10 +40,25 @@ export function focusAfter(from, root) {
  * data-enter="next" (an address, a line of a bill: Enter moves on, Shift + Enter is a new line).
  */
 export function enterAdvance(e, onLast) {
-  if (e.key !== "Enter" || e.defaultPrevented || e.shiftKey || e.altKey) return;
-  // Ctrl (or Cmd) + Enter is "I am done" from any field: the same as Enter in the last one (a card that handles it itself has already claimed the key)
-  if (e.ctrlKey || e.metaKey) { e.preventDefault(); onLast?.(); return; }
+  if (e.key !== "Enter" || e.defaultPrevented) return;
   const t = e.target;
+  // Ctrl (or Cmd) + Enter is "I am done" from any field: the same as Enter in the last one (a card that handles it itself has already claimed the key)
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) { e.preventDefault(); onLast?.(); return; }
+  // Shift or Alt + Enter is a new line in a text area and nothing else. In a one-line box the browser would otherwise treat it like Enter and submit the
+  // whole form (through whichever submit button comes first), so it is held back here.
+  if (e.shiftKey || e.altKey) {
+    if (t.tagName === "INPUT" && !["file", "radio", "submit", "button"].includes(t.type)) e.preventDefault();
+    return;
+  }
+  // a tick box is a stop on the way through, as it was on the old forms: Enter on it goes on to the next field instead of submitting
+  if (t.tagName === "INPUT" && t.type === "checkbox") {
+    e.preventDefault();
+    const scope = t.closest("form") || document;
+    const next = fieldsIn(scope).find((f) => t.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (next) next.focus();
+    else onLast?.();
+    return;
+  }
   const choice = t.matches?.('[role="radio"]');
   // a text area is a place to type lines, so Enter there is a new line unless it says it is a one-or-two line field (data-enter="next"); Shift + Enter is always a new line
   const textNext = t.tagName === "TEXTAREA" && t.dataset.enter === "next";

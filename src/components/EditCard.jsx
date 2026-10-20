@@ -193,6 +193,25 @@ export default function EditCard({
     onClose();
   }
 
+  // A phone shows one half at a time. A field that is wrong in the half that is hidden cannot be focused, so the browser would stop the save
+  // and say nothing at all: bring that half up and show what is wrong there. (On a wide screen both halves are on show and the browser takes
+  // the person to the field itself.) Several fields can be wrong at once; only the first one is followed.
+  const followingInvalid = useRef(false);
+  const showInvalid = (e) => {
+    const el = e.target;
+    if (sectioned || followingInvalid.current || el.getClientRects?.().length) return;
+    const half = el.closest?.(".ec-pane")?.classList.contains("ec-side") ? "side" : "main";
+    if (half === tab) return;
+    followingInvalid.current = true;
+    setTab(half);
+    requestAnimationFrame(() => {
+      followingInvalid.current = false;
+      if (!el.isConnected) return;
+      el.focus?.({ preventScroll: true });
+      el.reportValidity?.();
+    });
+  };
+
   // Escape backs out of "delete?" first; only a second one closes the card (Modal ignores a key someone handled)
   const stepBack = (e) => {
     if (e.key === "Escape" && ((confirming && !deleting) || discarding)) { e.preventDefault(); back(); }
@@ -259,7 +278,7 @@ export default function EditCard({
         </div>
       )}
 
-      <div className={cn("ec", !hasSide && "ec--solo", sectioned && "ec--sections")}>
+      <div className={cn("ec", !hasSide && "ec--solo", sectioned && "ec--sections")} onInvalidCapture={showInvalid}>
         <div
           className={cn("ec-pane ec-main", !sectioned && hasSide && tab === "side" && "is-off")}
           id={`${paneId}-main`}

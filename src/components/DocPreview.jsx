@@ -1,8 +1,18 @@
-import { useRef, useState } from "react";
+/**
+ * DocPreview: a Billing document (a VAT invoice, a challan or a quotation) as the A4 sheet it prints on, in the document viewer.
+ *
+ * The viewer around it is components/viewer/DocViewer.jsx (the glass dialog, zoom, Print and Download PDF buttons). Everything on the
+ * sheet is a legal record and is exactly what it was: the markup below, the print window's page and the PDF (InvoicePDF.jsx) are not
+ * the viewer's, so none of them changes with how the viewer looks. The sheet is only ever scaled, by the viewer, on a wrapper outside
+ * `printRef`, so what the print window copies (`outerHTML`) is the sheet as drawn here.
+ */
+import { useLayoutEffect, useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import { InvoicePDFDoc } from "./InvoicePDF";
+import DocViewer from "./viewer/DocViewer";
 import { fmtCurrency, fmtCurrencyExact, fmtDate, fmtDateBSLabel, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
 import { roundAmount } from "../utils/format";
+import { statusTone } from "../lib/billing";
 
 const TITLES = {
   invoice:   "Tax Invoice",
@@ -13,6 +23,8 @@ const TITLES = {
 export default function DocPreview({ data, docType, onClose }) {
   const printRef   = useRef(null);
   const [generating, setGenerating] = useState(false);
+  const [notice, setNotice] = useState(null);           // { tone, text }: what the last Download PDF or Print had to say
+  const [tooLong, setTooLong] = useState(false);        // the sheet's content runs past its bottom edge
   const docNum = data.invoiceNumber || data.challanNumber || data.quotationNumber || "—";
   const title  = TITLES[docType] || "Document";
 
@@ -31,6 +43,7 @@ export default function DocPreview({ data, docType, onClose }) {
   /* ── Vector PDF download via @react-pdf/renderer ── */
   async function handleDownloadPDF() {
     setGenerating(true);
+    setNotice(null);
     try {
       // Convert letterhead to base64 so react-pdf can embed it reliably
       const letterheadData = await fetchAsDataURL(`${window.location.origin}/letterhead.jpg`);
@@ -43,10 +56,11 @@ export default function DocPreview({ data, docType, onClose }) {
       a.href    = url;
       a.download = `${docNum}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);      // not at once: a browser that has not started reading the file would lose it
+      setNotice({ tone: "good", text: `${docNum}.pdf is ready. Look in your downloads.` });
     } catch (err) {
       console.error("PDF generation failed:", err);
-      alert("PDF generation failed. Please use Print → Save as PDF instead.");
+      setNotice({ tone: "bad", text: "The PDF could not be made. Press Print and choose Save as PDF instead." });
     } finally {
       setGenerating(false);
     }
@@ -56,7 +70,8 @@ export default function DocPreview({ data, docType, onClose }) {
     const pageEl = printRef.current;
     if (!pageEl) return;
     const printWin = window.open("", "_blank", "width=800,height=1130");
-    if (!printWin) { alert("Please allow pop-ups to print/download."); return; }
+    if (!printWin) { setNotice({ tone: "bad", text: "Your browser blocked the print window. Allow pop-ups for this site, then press Print again." }); return; }
+    setNotice(null);
     const letterheadUrl = new URL("/letterhead.jpg", window.location.origin).href;
     printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title} — ${docNum}</title><style>
 @page { margin: 0; size: A4 portrait; }
@@ -118,42 +133,32 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
   const g  = "#1a5c1a";
   const gb = "#bcdabc";
   const gs = "#deeede";
-  const btnBase = { padding: "8px 18px", borderRadius: 6, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, transition: "opacity .15s" };
+
+  // The sheet has a fixed box for its contents. A document with more lines than it holds is cut off at its bottom edge, here and in
+  // Print (the PDF is laid out on its own and crushes a very long one): say so, rather than let someone send a page that is missing its
+  // last lines. The sheet cannot grow or run on to a second page (it is the legal copy), so the viewer can only warn.
+  useLayoutEffect(() => {
+    const box = printRef.current?.firstElementChild;
+    setTooLong(!!box && box.scrollHeight > box.clientHeight + 1);
+  }, [data, docType]);
+
+  const status = data.status ? { text: data.status, tone: statusTone(data.status) } : null;
 
   return (
-    <div id="__kazi_doc_root__" style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center", background: "rgba(0,0,0,0.55)" }}>
-
-      {/* ── Toolbar ── */}
-      <div className="doc-toolbar" style={{ width: "100%", background: g, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", flexShrink: 0, flexWrap: "wrap", gap: 10 }}>
-        <span style={{ color: "#fff", fontWeight: 600, fontSize: "0.95rem" }}>{title} — {docNum}</span>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={handleDownloadPDF} disabled={generating} style={{ ...btnBase, background: "#fff", color: g, border: "none", opacity: generating ? 0.7 : 1 }}>
-            {generating ? (
-              <>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
-                Generating…
-              </>
-            ) : (
-              <>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
-                Download PDF
-              </>
-            )}
-          </button>
-          <button onClick={openPrintWindow} style={{ ...btnBase, background: "rgba(255,255,255,0.15)", color: "#fff", border: "1.5px solid rgba(255,255,255,0.4)" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-            Print
-          </button>
-          <button onClick={onClose} style={{ ...btnBase, background: "transparent", color: "#fff", border: "1.5px solid rgba(255,255,255,0.35)" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M5 12l6-6M5 12l6 6"/></svg>
-            Go Back
-          </button>
-        </div>
-      </div>
-
-      {/* ── A4 Page ── */}
-      {/* margin:auto (not flex centering) keeps the page's left edge reachable when it overflows on phones */}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", WebkitOverflowScrolling: "touch", width: "100%", padding: "28px 16px", background: "#d4e2d4" }}>
+    <DocViewer
+      title={title}
+      number={docNum}
+      meta={[data.clientName, data.date ? fmtDate(data.date) : ""]}
+      status={status}
+      banner={tooLong ? "This document does not fit on one sheet, so the bottom of it is cut off here and when printing. Check the downloaded PDF before it goes out." : null}
+      notice={notice}
+      busy={generating}
+      onClose={onClose}
+      onPrint={openPrintWindow}
+      onDownload={handleDownloadPDF}
+    >
+      <>
+        {/* ── The sheet: A4 at 96 dpi. Nothing between here and the closing fragment is the viewer's; it is the legal copy. ── */}
         <div ref={printRef} className="invoice-page" style={{ width: 794, minHeight: 1123, margin: "0 auto", position: "relative", backgroundImage: "url('/letterhead.jpg')", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", boxShadow: "0 6px 28px rgba(0,0,0,0.25)", flexShrink: 0, fontFamily: "'Segoe UI', Arial, sans-serif" }}>
           <div style={{ position: "absolute", top: 150, left: 50, right: 50, bottom: 118, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
@@ -320,7 +325,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
 
           </div>
         </div>
-      </div>
-    </div>
+      </>
+    </DocViewer>
   );
 }

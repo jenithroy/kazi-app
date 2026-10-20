@@ -15,13 +15,13 @@ import { enterAdvance, thenAdvance } from "../finance/flow";
 import { deletePayment, loadPayments, recordPayment } from "../../lib/billingWrites";
 import { fmtDate, fmtNPR } from "../../utils/billing.jsx";
 import { toNPR } from "../../utils/currency";
-import { todayDate } from "../../utils/date";
+import { kathmanduDate, todayDate } from "../../utils/date";
 
 const METHODS = ["Bank", "Cash", "Cheque", "Online", "Other"];
 // older rows were saved as "CASH"; show every method the way the dropdown spells it
 const method = (m) => METHODS.find((x) => x.toLowerCase() === String(m).toLowerCase()) || m;
 
-export default function PaymentCard({ info, canEdit, profile, api, onClose, onSaved }) {
+export default function PaymentCard({ info, canEdit, profile, api, onClose, onSaved, onChanged }) {
   const uid = useId();
   const [cur, setCur] = useState({ currentPaid: info.currentPaid, docPaid: info.docPaid });
   const [history, setHistory] = useState([]);
@@ -39,7 +39,8 @@ export default function PaymentCard({ info, canEdit, profile, api, onClose, onSa
   useEffect(() => { let live = true; loadPayments(info.id).then((rows) => { if (live) setHistory(rows); }); return () => { live = false; }; }, [info.id]);
 
   async function save() {
-    if (form.date && form.date > todayDate()) return { ok: false, message: "The date received cannot be in the future." };
+    // "Today" in the date picker is Kathmandu's, and so is the office's: a person in the UK in the evening may be a day behind it, so that day is not the future
+    if (form.date && form.date > kathmanduDate()) return { ok: false, message: "The date received cannot be in the future." };
     const res = await recordPayment({ info: now, amount: form.amount, date: form.date, method: form.method, reference: form.reference, profile });
     if (!res.ok) return res;
     await api.reload();
@@ -61,6 +62,7 @@ export default function PaymentCard({ info, canEdit, profile, api, onClose, onSa
     const res = await deletePayment({ info: now, payment: p });
     if (!res.ok) { setNote(res.message); setDeleting(null); return; }
     setCur((c) => ({ currentPaid: res.remaining, docPaid: Math.max(0, c.docPaid - res.removed) }));
+    onChanged?.();                       // the invoice's status and what is paid have changed: a document card open behind this one is out of date now
     setHistory(await loadPayments(info.id));
     setDeleting(null);
     api.reload().catch(console.error);

@@ -25,7 +25,14 @@ export default function ItemsEditor({ tab, items, currency = "NPR", disabled, in
 
   const setItem = (i, patch) => onChange(items.map((it, k) => (k === i ? { ...it, ...patch } : it)));
   const addItem = () => onChange([...items, { ...emptyItem }]);
-  const removeItem = (i) => onChange(items.filter((_, k) => k !== i));
+  // the × is gone with its line, so the cursor goes to the line that took its place (it would otherwise fall to the page behind the card)
+  const removeItem = (i) => {
+    onChange(items.filter((_, k) => k !== i));
+    requestAnimationFrame(() => {
+      const all = document.querySelectorAll(`[data-lines="${uid}"] [data-role="item-description"]`);
+      all[Math.min(i, all.length - 1)]?.focus();
+    });
+  };
   const focusLastDescription = () => requestAnimationFrame(() => {
     const all = document.querySelectorAll(`[data-lines="${uid}"] [data-role="item-description"]`);
     all[all.length - 1]?.focus();

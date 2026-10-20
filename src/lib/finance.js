@@ -253,7 +253,7 @@ export function cashBankLedger({ purchases, invoices, expenses, bankTxns, entrie
     rowsFor[acct].push({
       date: i.date || "", sortKey: tsMillis(i.createdAt),
       particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
-      sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName,
+      sourceType: "invoice", sourceId: null, searchKey: i.invoiceNumber || i.clientName, docId: i.id,
     });
   });
 
@@ -344,7 +344,7 @@ export function dayBookRows({ purchases, invoices, expenses, bankTxns, entries }
     rows.push({
       date: i.date || "", sortKey: tsMillis(i.createdAt), account: acct,
       particulars: `Sales — ${i.clientName || i.invoiceNumber || ""}`, dr: amt, cr: 0,
-      sourceType: "invoice", searchKey: i.invoiceNumber || i.clientName,
+      sourceType: "invoice", searchKey: i.invoiceNumber || i.clientName, docId: i.id,
     });
   });
 

@@ -64,7 +64,7 @@ export default function LedgerTab() {
   function openLine(r) {
     if (r.opening) { if (data?.accountId) setCard({ kind: "opening" }); return; }
     if (r.sourceType === "purchase") goToSource("/purchases", { search: r.searchKey });
-    else if (r.sourceType === "invoice") goToSource("/billing", { search: r.searchKey, autoEdit: true });
+    else if (r.sourceType === "invoice") goToSource("/billing", { search: r.searchKey, autoEdit: true, id: r.docId });
     else if (r.sourceType === "expense") openTab("expenses");
     else if (r.sourceType === "bank") setCard({ kind: "bank", id: r.sourceId });
     else if (r.sourceType === "journal") setCard({ kind: "journal", id: r.sourceId });

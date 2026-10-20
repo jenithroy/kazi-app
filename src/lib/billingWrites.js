@@ -266,6 +266,11 @@ export async function deletePayment({ info, payment }) {
  */
 export async function convertToInvoice({ qt, profile }) {
   try {
+    // The list on screen can be minutes old, and a second person (or a second tab) may have made the invoice since. Look again before a number is drawn:
+    // a second invoice would use up an invoice number and leave the quotation pointing at only one of them.
+    const fresh = await fetchOne("quotations", qt.id);
+    if (!fresh) return { ok: false, message: "This quotation could not be found. Reload the page and try again." };
+    if (fresh.relatedInvoice) return { ok: false, message: `This quotation already has an invoice (${fresh.relatedInvoice}). Reload the page to see it.` };
     const qtCurrency = qt.currency || "NPR";
     const items = qt.items || [];
     const { subtotal, discountAmt, taxableAmt, vatAmt, total } = calcTotals(items, true, qt.discountPct || 0, qt.discountMode, qt.discountFlatAmt || 0);
