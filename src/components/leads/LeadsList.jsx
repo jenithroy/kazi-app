@@ -10,6 +10,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
+import { SearchBox } from "../table/Bar";
 import { leadPreview, listTime, valueRank } from "../../lib/leadsFormat";
 import LeadAvatar from "./LeadAvatar";
 import ValueBadge from "./ValueBadge";
@@ -23,19 +24,15 @@ function byValueThenRecency(a, b) {
 function LeadRow({ lead, active, onOpen }) {
   const title = lead.name || "Instagram user";
   return (
-    <div
-      className={`kchat-row${active ? " kchat-row--active" : ""}`}
-      onClick={() => onOpen(lead.convo)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen(lead.convo);
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-current={active || undefined}
-    >
+    <div className={`kchat-row${active ? " kchat-row--active" : ""}`}>
+      {/* one button stretched over the row; the lead's score (a button of its own) sits above it */}
+      <button
+        type="button"
+        className="kchat-row-hit"
+        onClick={() => onOpen(lead.convo)}
+        aria-current={active || undefined}
+        aria-label={[title, leadPreview(lead), lead.isMuted ? "you are handling it" : "the bot is replying"].filter(Boolean).join(", ")}
+      />
       <LeadAvatar convo={lead.convo} name={lead.name} profilePic={lead.profilePic} size={40} />
 
       <div className="kchat-row-body">
@@ -94,31 +91,17 @@ export default function LeadsList({ leads, activeConvo, loading, onOpen }) {
   }, [ordered, query]);
 
   return (
-    <div className="kchat-list">
+    <section className="kb-tile kchat-list" style={{ gridArea: "list" }} aria-label="Lead conversations">
       <div className="kchat-list-hd">
         <div>
-          <h3 className="kchat-list-title">Lead inbox</h3>
+          <h2 className="kchat-list-title">Lead inbox</h2>
           <p className="kchat-list-sub">
             {loading ? "Loading…" : `${leads.length} conversation${leads.length === 1 ? "" : "s"}`}
           </p>
         </div>
       </div>
 
-      <div className="kchat-search">
-        <Icons.Search size={13} />
-        <input
-          type="search"
-          placeholder="Search leads"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search leads"
-        />
-        {query && (
-          <button type="button" className="kchat-search-clear" onClick={() => setQuery("")} aria-label="Clear search">
-            <Icons.X size={12} />
-          </button>
-        )}
-      </div>
+      <SearchBox value={query} onChange={setQuery} placeholder="Search leads" label="Search leads" />
 
       <div className="kchat-rows" onMouseEnter={() => setFrozen(true)} onMouseLeave={() => setFrozen(false)}>
         {loading ? (
@@ -142,6 +125,6 @@ export default function LeadsList({ leads, activeConvo, loading, onOpen }) {
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }

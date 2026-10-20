@@ -1,13 +1,15 @@
 /**
- * The small shared pieces of chat: an avatar that knows who is on shift, a
- * popover menu, a modal shell, and the emoji picker.
+ * The small shared pieces of chat: an avatar that knows who is on shift, the popovers (a menu, the emoji picker), a dialog shell,
+ * and the emoji picker.
  *
- * They live together because each is a dozen lines and all four are used by
- * both panes. Anything larger gets its own file.
+ * They live together because each is a dozen lines and all of them are used by both panes. Anything larger gets its own file.
  */
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Avatar, Icons } from "../ui";
+import Modal from "../Modal";
+import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import { hueFor, personFor, threadHue, threadTitle } from "../../lib/chatFormat";
 import { EMOJI_PICKER, QUICK_REACTIONS } from "../../lib/chatFormat";
 
@@ -44,53 +46,73 @@ export function ThreadAvatar({ thread, size = 38 }) {
   );
 }
 
-/* ── popover menu ─────────────────────────────────────── */
+/* ── popovers ─────────────────────────────────────────── */
+
+// what a menu's arrow keys visit: the choices, not the greyed-out line that says when a message was sent
+const CHOICES = '[role="menuitem"]:not(:disabled):not([aria-disabled="true"])';
 
 /**
- * Close on an outside click or Escape -- the two ways anyone dismisses a menu.
+ * Something that opens over the page under a button: a menu, the emoji picker, a lead's score.
  *
- * `triggerRef` is the button that opened it, and clicks on that button are not
- * "outside". Without the exclusion a second click would close the popover here
- * and immediately reopen it in the button's own handler, so the toggle would
- * never appear to close.
+ * It is portalled to <body> and placed from the button's rectangle (hooks/useAnchoredPopover.js), because inside a glass pane or a
+ * scrolling message list it would be clipped. A press anywhere outside closes it, and so does Escape, which closes only the popover
+ * (never the page's own Escape handling) and puts focus back on the button. A menu (`role="menu"`) takes the arrow keys.
+ *
+ * `triggerRef` is the button that opened it: a press on that button is not "outside", or a second click would close the popover here
+ * and reopen it in the button's own handler, so the toggle would never close.
  */
-export function useDismiss(open, onClose, triggerRef) {
-  const ref = useRef(null);
+export function Popover({ open, onClose, triggerRef, className = "", role, label, width, align = "end", estimate = 260, children }) {
+  const popRef = useRef(null);
+  const { pos } = useAnchoredPopover({ open, triggerRef, popRef, onDismiss: onClose, estimate, exactWidth: width, align });
 
   useEffect(() => {
     if (!open) return undefined;
-
-    const onPointer = (e) => {
-      if (triggerRef?.current?.contains(e.target)) return;
-      if (ref.current && !ref.current.contains(e.target)) onClose();
-    };
     const onKey = (e) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      onClose();
+      triggerRef?.current?.focus?.({ preventScroll: true });
     };
-
-    // `mousedown` rather than `click`, so the menu is gone before whatever was
-    // underneath receives the press.
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
+    // the capture phase, so the page behind never sees the Escape that was meant for this popover
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [open, onClose, triggerRef]);
 
-  return ref;
+  const placed = open && !!pos;
+  useEffect(() => {
+    if (placed && role === "menu") popRef.current?.querySelector(CHOICES)?.focus({ preventScroll: true });
+  }, [placed, role]);
+
+  const onMenuKey = (e) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End", "Tab"].includes(e.key)) return;
+    if (e.key === "Tab") { onClose(); return; }
+    const items = [...popRef.current.querySelectorAll(CHOICES)];
+    if (!items.length) return;
+    e.preventDefault();
+    const at = items.indexOf(document.activeElement);
+    const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items[next].focus({ preventScroll: true });
+  };
+
+  if (!placed) return null;
+  return createPortal(
+    <div
+      ref={popRef} className={`ksel-pop kchat-pop${className ? ` ${className}` : ""}`} role={role} aria-label={label}
+      style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width, maxHeight: pos.maxH }}
+      onKeyDown={role === "menu" ? onMenuKey : undefined}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
 }
 
-export function Menu({ open, onClose, triggerRef, align = "right", children, style }) {
-  const ref = useDismiss(open, onClose, triggerRef);
-  if (!open) return null;
+export function Menu({ open, onClose, triggerRef, align = "end", children, label = "Options" }) {
   return (
-    <div ref={ref} className="kchat-menu" style={{ [align]: 0, ...style }} role="menu">
+    <Popover open={open} onClose={onClose} triggerRef={triggerRef} align={align} role="menu" label={label} width={214}>
       {children}
-    </div>
+    </Popover>
   );
 }
 
@@ -109,40 +131,16 @@ export function MenuItem({ icon: Icon, children, onClick, danger, disabled }) {
   );
 }
 
-export const MenuDivider = () => <div className="kchat-menu-sep" />;
+export const MenuDivider = () => <div className="kchat-menu-sep" role="separator" />;
 
-/* ── modal shell ──────────────────────────────────────── */
+/* ── dialog shell ─────────────────────────────────────── */
 
-/**
- * Reuses the app's existing modal classes rather than inventing a chat-only
- * dialog, so a group editor looks like every other form in the ERP.
- */
-export function Dialog({ title, onClose, children, width = 460 }) {
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+/** Every chat dialog is the app's glass dialog (components/Modal.jsx), so it looks and behaves like the rest of the ERP: focus goes in, Escape closes it. */
+export function Dialog({ title, onClose, children, footer, size = "sm" }) {
   return (
-    <div
-      className="kbrf-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="kbrf-modal" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="kbrf-modal-hd">
-          <span>{title}</span>
-          <button type="button" className="kbrf-modal-close" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <Modal title={title} size={size} glass onClose={onClose} footer={footer}>
+      {children}
+    </Modal>
   );
 }
 
@@ -157,9 +155,8 @@ export function Dialog({ title, onClose, children, width = 460 }) {
  * reaction a shop floor actually sends.
  */
 export function EmojiPicker({ onPick, onClose, triggerRef }) {
-  const ref = useDismiss(true, onClose, triggerRef);
   return (
-    <div ref={ref} className="kchat-emoji-pop">
+    <Popover open onClose={onClose} triggerRef={triggerRef} className="kchat-emoji-pop" label="Pick an emoji" width={212} align="start" estimate={300}>
       <div className="kchat-emoji-row">
         {QUICK_REACTIONS.map((emoji) => (
           <button key={emoji} type="button" className="kchat-emoji" onClick={() => onPick(emoji)}>
@@ -175,6 +172,6 @@ export function EmojiPicker({ onPick, onClose, triggerRef }) {
           </button>
         ))}
       </div>
-    </div>
+    </Popover>
   );
 }

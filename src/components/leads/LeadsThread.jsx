@@ -265,7 +265,7 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
   const canSend = !sending && (attachment || draft.trim());
 
   return (
-    <div className="kchat-thread">
+    <section className="kb-tile kchat-thread" style={{ gridArea: "thread" }} aria-label={`Conversation with ${title}`}>
       <header className="kchat-thread-hd">
         <button type="button" className="kchat-back" onClick={onBack} aria-label="Back to conversations">
           <Icons.ChevronLeft size={18} />
@@ -317,7 +317,7 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
         ) : messages.length === 0 ? (
           <div className="kchat-empty">
             <LeadAvatar convo={lead.convo} name={lead.name} profilePic={lead.profilePic} size={52} />
-            <h4>{title}</h4>
+            <h3>{title}</h3>
             <p>No messages archived for this conversation yet.</p>
           </div>
         ) : (
@@ -335,7 +335,7 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
       </div>
 
       {!canPost ? (
-        <div className="kchat-composer kchat-composer--locked">
+        <div className="kchat-composer kchat-composer--locked" role="status">
           <Icons.Alert size={14} />
           <span>Your role can read this conversation but not post to it.</span>
         </div>
@@ -372,6 +372,7 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
             onClick={() => fileRef.current?.click()}
             disabled={!!attachment || recorder.recording}
             title="Attach a photo"
+            aria-label="Attach a photo"
           >
             <Icons.Paperclip size={16} />
           </button>
@@ -382,6 +383,7 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
             onClick={recorder.recording ? recorder.stop : recorder.start}
             disabled={!!attachment}
             title={recorder.recording ? "Stop recording" : "Record a voice note"}
+            aria-label={recorder.recording ? "Stop recording" : "Record a voice note"}
           >
             {recorder.recording ? <Icons.Pause size={16} /> : <Icons.Mic size={16} />}
           </button>
@@ -390,6 +392,7 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
             className="kchat-input"
             rows={1}
             value={draft}
+            aria-label={`Message ${title}`}
             placeholder={attachment ? "Add a caption isn't supported — send as-is" : `Message ${title}`}
             disabled={!!attachment || recorder.recording}
             onChange={(e) => setDraft(e.target.value)}
@@ -400,12 +403,12 @@ export default function LeadsThread({ lead, messages, loading, sending, canPost,
               }
             }}
           />
-          <button type="submit" className="kchat-send" disabled={!canSend} title="Send (Enter)">
+          <button type="submit" className="kchat-send" disabled={!canSend} title="Send (Enter)" aria-label="Send">
             {sending ? <span className="kchat-spin kchat-spin--light" /> : <Icons.Send size={15} />}
           </button>
         </div>
       </form>
       )}
-    </div>
+    </section>
   );
 }

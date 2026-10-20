@@ -22,10 +22,15 @@
  * The page it replaces read `fs_messages`, the abandoned Firestore-era table
  * that migration 0105 describes as holding one test row. Nothing was migrated
  * because there was nothing in it.
+ *
+ * The look is the glass one (components/chat/chat.css): the header holds the title and the two inbox tabs, and under it two panes on
+ * one screen, the conversations on the left and the open conversation on the right. A phone shows one pane at a time. What is read,
+ * who may post, and every write are the hooks' and lib/chat.js's, unchanged.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icons } from "../components/ui";
+import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { useAuth } from "../context/AuthContext";
 import { useTeamChat } from "../hooks/useTeamChat";
 import { useLeadsChat } from "../hooks/useLeadsChat";
@@ -36,6 +41,7 @@ import ThreadList from "../components/chat/ThreadList";
 import ThreadView from "../components/chat/ThreadView";
 import LeadsList from "../components/leads/LeadsList";
 import LeadsThread from "../components/leads/LeadsThread";
+import "../components/chat/chat.css";
 import {
   ConfirmDialog,
   ContactDialog,
@@ -45,6 +51,22 @@ import {
 } from "../components/chat/ChatDialogs";
 
 /* ── page ─────────────────────────────────────────────── */
+
+/** Nothing open on the right: say what to do, and on the team inbox offer the one button that starts a conversation. */
+function EmptyPane({ icon: Icon, title, text, action }) {
+  return (
+    <section className="kb-tile kchat-thread kchat-thread--empty" style={{ gridArea: "thread" }} aria-label="No conversation open">
+      <div className="kchat-empty">
+        <span className="kchat-placeholder-ico">
+          <Icon size={26} sw={1.4} />
+        </span>
+        <h3>{title}</h3>
+        <p>{text}</p>
+        {action}
+      </div>
+    </section>
+  );
+}
 
 export default function Messenger() {
   const { profile } = useAuth();
@@ -98,7 +120,7 @@ export default function Messenger() {
   useEffect(() => {
     if (loading || !threads.length) return;
     if (activeId && threads.some((t) => t.id === activeId)) return;
-    const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 861px)").matches;
+    const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 769px)").matches;
     if (wide) setActiveId(threads[0].id);
   }, [loading, threads, activeId]);
 
@@ -112,7 +134,7 @@ export default function Messenger() {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        document.querySelector(".kchat-list .kchat-search input")?.focus();
+        document.querySelector(".kchat-list .dt-search input")?.focus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -144,48 +166,63 @@ export default function Messenger() {
       onConfirm: () => chat.remove(message.threadId, [message.id]),
     });
 
-  return (
-    <div className="kscr fade-in kchat-shell">
-      {/* Tabs. The team badge counts unread across every conversation, so the
-          page is worth glancing at from another module. */}
-      <div className="kchat-tabs">
-        <button type="button" className={tab === "team" ? "is-on" : ""} onClick={() => setTab("team")}>
-          <Icons.Message size={14} />
-          Team
-          {totalUnread > 0 && <span className="kchat-badge kchat-badge--tab">{totalUnread > 99 ? "99+" : totalUnread}</span>}
-        </button>
-        {canViewLeads && (
-          <button type="button" className={tab === "leads" ? "is-on" : ""} onClick={() => setTab("leads")}>
-            <Icons.Bot size={14} />
-            Leads
-          </button>
-        )}
-      </div>
+  // the two tabs: the arrow keys, Home and End move between them
+  const tabs = canViewLeads ? ["team", "leads"] : ["team"];
+  const onTabKey = (e) => {
+    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key) || tabs.length < 2) return;
+    e.preventDefault();
+    const list = e.currentTarget;          // (the event's own currentTarget is gone by the time the frame comes)
+    const at = tabs.indexOf(tab);
+    const next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (at + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    setTab(tabs[next]);
+    setShowThreadOnMobile(false);
+    requestAnimationFrame(() => list.querySelector('[aria-selected="true"]')?.focus());
+  };
 
-      {tab === "leads" ? (
-        leadsChat.error && (
-          <div className="kchat-error">
-            <Icons.Alert size={14} />
-            <span>{leadsChat.error}</span>
-            <button type="button" onClick={leadsChat.dismissError} aria-label="Dismiss">
-              <Icons.X size={12} />
+  const bannerText = tab === "leads" ? leadsChat.error : error;
+  const dismissBanner = tab === "leads" ? leadsChat.dismissError : chat.dismissError;
+
+  return (
+    <BentoPage className="ch-page">
+      <header className="kb-head">
+        <div className="kb-head-l">
+          <h1>Chat</h1>
+        </div>
+        <div className="kb-head-r">
+          {/* The team badge counts unread across every conversation, so the page is worth glancing at from another module. */}
+          <div className="dt-tabs ch-tabs" role="tablist" aria-label="Which inbox" onKeyDown={onTabKey}>
+            <button
+              type="button" role="tab" id="ch-tab-team" aria-selected={tab === "team"} tabIndex={tab === "team" ? 0 : -1} className="dt-tab"
+              aria-label={totalUnread > 0 ? `Team ${totalUnread} unread` : undefined}   /* starts with the words on screen ("Team 16"), as the name must */
+              onClick={() => { setTab("team"); setShowThreadOnMobile(false); }}
+            >
+              <Icons.Message size={14} aria-hidden="true" />
+              <span>{"Team "}</span>
+              {totalUnread > 0 && <span className="kchat-badge" aria-hidden="true">{totalUnread > 99 ? "99+" : totalUnread}</span>}
             </button>
+            {canViewLeads && (
+              <button
+                type="button" role="tab" id="ch-tab-leads" aria-selected={tab === "leads"} tabIndex={tab === "leads" ? 0 : -1} className="dt-tab"
+                onClick={() => { setTab("leads"); setShowThreadOnMobile(false); }}
+              >
+                <Icons.Bot size={14} aria-hidden="true" />
+                <span>Leads</span>
+              </button>
+            )}
           </div>
-        )
-      ) : (
-        error && (
-          <div className="kchat-error">
-            <Icons.Alert size={14} />
-            <span>{error}</span>
-            <button type="button" onClick={chat.dismissError} aria-label="Dismiss">
-              <Icons.X size={12} />
-            </button>
-          </div>
-        )
+        </div>
+      </header>
+
+      {bannerText && (
+        <div className="fn-banner fn-banner--bad" role="alert">
+          <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+          <span>{bannerText}</span>
+          <button type="button" onClick={dismissBanner} aria-label="Dismiss"><Icons.X size={14} sw={2} aria-hidden="true" /></button>
+        </div>
       )}
 
       {tab === "leads" ? (
-        <div className={`kchat-panes${showThreadOnMobile ? " kchat-panes--thread" : ""}`}>
+        <BentoGrid layout={showThreadOnMobile ? "chat-thread" : "chat"}>
           <LeadsList
             leads={leadsChat.leads}
             activeConvo={leadsChat.activeConvo}
@@ -207,25 +244,21 @@ export default function Messenger() {
               onOpenMedia={setMedia}
             />
           ) : (
-            <div className="kchat-thread kchat-thread--empty">
-              <div className="kchat-empty">
-                <span className="kchat-placeholder-ico">
-                  <Icons.Bot size={26} sw={1.4} />
-                </span>
-                <h4>{leadsChat.loading ? "Loading the lead inbox" : "No conversation open"}</h4>
-                <p>
-                  {leadsChat.loading
-                    ? "One moment."
-                    : leadsChat.leads.length
-                    ? "Pick a conversation on the left."
-                    : "Conversations will appear here as customers DM your Instagram account."}
-                </p>
-              </div>
-            </div>
+            <EmptyPane
+              icon={Icons.Bot}
+              title={leadsChat.loading ? "Loading the lead inbox" : "No conversation open"}
+              text={
+                leadsChat.loading
+                  ? "One moment."
+                  : leadsChat.leads.length
+                  ? "Pick a conversation on the left."
+                  : "Conversations will appear here as customers DM your Instagram account."
+              }
+            />
           )}
-        </div>
+        </BentoGrid>
       ) : (
-        <div className={`kchat-panes${showThreadOnMobile ? " kchat-panes--thread" : ""}`}>
+        <BentoGrid layout={showThreadOnMobile ? "chat-thread" : "chat"}>
           <ThreadList
             threads={threads}
             lastByThread={chat.lastByThread}
@@ -262,28 +295,26 @@ export default function Messenger() {
               onOpenMedia={setMedia}
             />
           ) : (
-            <div className="kchat-thread kchat-thread--empty">
-              <div className="kchat-empty">
-                <span className="kchat-placeholder-ico">
-                  <Icons.Message size={26} sw={1.4} />
-                </span>
-                <h4>{loading ? "Loading your conversations" : "No conversation open"}</h4>
-                <p>
-                  {loading
-                    ? "One moment."
-                    : threads.length
-                    ? "Pick someone on the left, or start a new conversation."
-                    : "Start a conversation with anyone on the staff list."}
-                </p>
-                {!loading && chat.canPost && (
-                  <button type="button" className="primary-button" onClick={() => setComposing(true)}>
+            <EmptyPane
+              icon={Icons.Message}
+              title={loading ? "Loading your conversations" : "No conversation open"}
+              text={
+                loading
+                  ? "One moment."
+                  : threads.length
+                  ? "Pick someone on the left, or start a new conversation."
+                  : "Start a conversation with anyone on the staff list."
+              }
+              action={
+                !loading && chat.canPost ? (
+                  <button type="button" className="kb-btn kb-btn--primary" onClick={() => setComposing(true)}>
                     New conversation
                   </button>
-                )}
-              </div>
-            </div>
+                ) : null
+              }
+            />
           )}
-        </div>
+        </BentoGrid>
       )}
 
       {composing && (
@@ -312,6 +343,6 @@ export default function Messenger() {
       {media && <MediaViewer attachment={media} onClose={() => setMedia(null)} />}
 
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
-    </div>
+    </BentoPage>
   );
 }

@@ -1,10 +1,11 @@
 /**
- * Every modal chat opens: starting a conversation, reshaping a group, the
- * contact card, the media lightbox, and the one confirmation that matters.
+ * Every dialog chat opens: starting a conversation, reshaping a group, the contact card, the photo and video viewer, and the one
+ * confirmation that matters. All but the viewer are the app's glass dialog (ChatBits `Dialog` is components/Modal.jsx).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
+import FinanceConfirm from "../finance/ConfirmDialog";
 import { Dialog, PersonAvatar, ThreadAvatar } from "./ChatBits";
 import { fileSize, myId, personFor, threadTitle } from "../../lib/chatFormat";
 
@@ -21,8 +22,7 @@ function PeopleList({ people, selected, onToggle, multi }) {
 
   return (
     <>
-      <div className="kchat-search kchat-search--flat">
-        <Icons.Search size={13} />
+      <label className="kchat-dlg-search">
         <input
           type="search"
           autoFocus
@@ -31,7 +31,7 @@ function PeopleList({ people, selected, onToggle, multi }) {
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search staff"
         />
-      </div>
+      </label>
 
       <div className="kchat-people">
         {visible.length === 0 ? (
@@ -45,6 +45,7 @@ function PeopleList({ people, selected, onToggle, multi }) {
                 type="button"
                 className={`kchat-person${on ? " kchat-person--on" : ""}`}
                 onClick={() => onToggle(person.id)}
+                aria-pressed={on}
               >
                 <PersonAvatar personId={person.id} size={34} />
                 <span className="kchat-person-body">
@@ -96,55 +97,52 @@ export function NewChatDialog({ directory, canCreateGroup, onClose, onStartDm, o
     );
 
   return (
-    <Dialog title="New conversation" onClose={onClose} width={480}>
+    <Dialog
+      title="New conversation"
+      onClose={onClose}
+      footer={(
+        <>
+          {error && <p className="kmodal-msg kmodal-msg--err" role="alert">{error}</p>}
+          {mode === "group" && (
+            <span className="kchat-dialog-hint">
+              {selected.length < 2
+                ? `Pick ${2 - selected.length} more ${selected.length === 1 ? "person" : "people"}`
+                : `${selected.length + 1} members`}
+            </span>
+          )}
+          <button type="button" className="ghost-button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || (mode === "dm" ? selected.length === 0 : !groupReady)}
+            onClick={() =>
+              run(() => (mode === "dm" ? onStartDm(selected[0]) : onStartGroup(name.trim(), selected)))
+            }
+          >
+            {busy ? "Working…" : mode === "dm" ? "Open conversation" : "Create group"}
+          </button>
+        </>
+      )}
+    >
       {canCreateGroup && (
-        <div className="kchat-tabs kchat-tabs--sm">
-          <button type="button" className={mode === "dm" ? "is-on" : ""} onClick={() => { setMode("dm"); setSelected([]); }}>
+        <div className="kchat-dlg-tabs">
+          <button type="button" className={mode === "dm" ? "is-on" : ""} aria-pressed={mode === "dm"} onClick={() => { setMode("dm"); setSelected([]); }}>
             Direct message
           </button>
-          <button type="button" className={mode === "group" ? "is-on" : ""} onClick={() => { setMode("group"); setSelected([]); }}>
+          <button type="button" className={mode === "group" ? "is-on" : ""} aria-pressed={mode === "group"} onClick={() => { setMode("group"); setSelected([]); }}>
             New group
           </button>
         </div>
       )}
 
       {mode === "group" && (
-        <label className="kbrf-label" style={{ marginBottom: 12 }}>
+        <label className="kchat-dlg-field">
           Group name
-          <input
-            className="kbrf-input"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Cutting floor, Sample room…"
-            maxLength={60}
-          />
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Cutting floor, Sample room…" maxLength={60} />
         </label>
       )}
 
       <PeopleList people={others} selected={selected} onToggle={toggle} multi={mode === "group"} />
-
-      {error && <p className="kchat-dialog-error">{error}</p>}
-
-      <div className="kchat-dialog-foot">
-        {mode === "group" && (
-          <span className="kchat-dialog-hint">
-            {selected.length < 2
-              ? `Pick ${2 - selected.length} more ${selected.length === 1 ? "person" : "people"}`
-              : `${selected.length + 1} members`}
-          </span>
-        )}
-        <button
-          type="button"
-          className="primary-button"
-          disabled={busy || (mode === "dm" ? selected.length === 0 : !groupReady)}
-          onClick={() =>
-            run(() => (mode === "dm" ? onStartDm(selected[0]) : onStartGroup(name.trim(), selected)))
-          }
-        >
-          {busy ? "Working…" : mode === "dm" ? "Open conversation" : "Create group"}
-        </button>
-      </div>
     </Dialog>
   );
 }
@@ -164,10 +162,39 @@ export function GroupDialog({ thread, directory, onClose, onSave }) {
   const removed = thread.memberIds.filter((id) => !selected.includes(id));
 
   return (
-    <Dialog title="Group settings" onClose={onClose} width={480}>
-      <label className="kbrf-label" style={{ marginBottom: 12 }}>
+    <Dialog
+      title="Group settings"
+      onClose={onClose}
+      footer={(
+        <>
+          {error && <p className="kmodal-msg kmodal-msg--err" role="alert">{error}</p>}
+          <span className="kchat-dialog-hint">{selected.length + 1} members</span>
+          <button type="button" className="ghost-button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || !ready}
+            onClick={async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await onSave(thread.id, name.trim(), selected);
+                onClose();
+              } catch (err) {
+                setError(err.message || "That did not save.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Saving…" : "Save group"}
+          </button>
+        </>
+      )}
+    >
+      <label className="kchat-dlg-field">
         Group name
-        <input className="kbrf-input" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
       </label>
 
       <PeopleList
@@ -187,31 +214,6 @@ export function GroupDialog({ thread, directory, onClose, onSave }) {
           history stays with them.
         </p>
       )}
-
-      {error && <p className="kchat-dialog-error">{error}</p>}
-
-      <div className="kchat-dialog-foot">
-        <span className="kchat-dialog-hint">{selected.length + 1} members</span>
-        <button
-          type="button"
-          className="primary-button"
-          disabled={busy || !ready}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              await onSave(thread.id, name.trim(), selected);
-              onClose();
-            } catch (err) {
-              setError(err.message || "That did not save.");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Saving…" : "Save group"}
-        </button>
-      </div>
     </Dialog>
   );
 }
@@ -223,11 +225,11 @@ export function ContactDialog({ thread, onClose }) {
   const person = group ? null : personFor(thread.memberIds[0]);
 
   return (
-    <Dialog title={group ? "Group members" : "Contact"} onClose={onClose} width={420}>
+    <Dialog title={group ? "Group members" : "Contact"} onClose={onClose}>
       <div className="kchat-contact-hd">
         <ThreadAvatar thread={thread} size={56} />
         <div>
-          <h4>{threadTitle(thread)}</h4>
+          <h3>{threadTitle(thread)}</h3>
           <p>{group ? `${thread.memberIds.length + 1} members` : person.role}</p>
         </div>
       </div>
@@ -274,30 +276,54 @@ export function ContactDialog({ thread, onClose }) {
   );
 }
 
-/* ── media lightbox ───────────────────────────────────── */
+/* ── photo and video viewer ───────────────────────────── */
 
+/**
+ * Full screen and dark on purpose (a photo reads best on black). Focus goes to its Close button, Escape and Tab stay inside it, and
+ * focus goes back to what opened it.
+ */
 export function MediaViewer({ attachment, onClose }) {
   const { kind, url, name, size } = attachment;
+  const root = useRef(null);
+  const closeRef = useRef(null);
+  const closing = useRef(onClose);
+  closing.current = onClose;
+
+  useEffect(() => {
+    const opener = document.activeElement;
+    closeRef.current?.focus({ preventScroll: true });
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closing.current(); return; }
+      if (e.key !== "Tab") return;
+      const stops = [...root.current.querySelectorAll("a[href], button:not(:disabled), video[controls]")];
+      if (!stops.length) return;
+      const first = stops[0], last = stops[stops.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => { document.removeEventListener("keydown", onKey, true); opener?.focus?.({ preventScroll: true }); };
+  }, []);
 
   return (
-    <div className="kchat-lightbox" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div ref={root} className="kchat-lightbox" role="dialog" aria-modal="true" aria-label={name || "Attachment"} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="kchat-lightbox-bar">
         <span className="kchat-lightbox-name">
           {name} <span>{fileSize(size)}</span>
         </span>
         <div>
           {url && (
-            <a className="kchat-icon-btn kchat-icon-btn--light" href={url} download={name} title="Download">
+            <a className="kchat-icon-btn kchat-icon-btn--light" href={url} download={name} title="Download" aria-label="Download">
               <Icons.Download size={16} />
             </a>
           )}
-          <button type="button" className="kchat-icon-btn kchat-icon-btn--light" onClick={onClose} title="Close">
+          <button ref={closeRef} type="button" className="kchat-icon-btn kchat-icon-btn--light" onClick={onClose} title="Close" aria-label="Close">
             <Icons.X size={16} />
           </button>
         </div>
       </div>
 
-      <div className="kchat-lightbox-body">
+      <div className="kchat-lightbox-body" onClick={(e) => e.target === e.currentTarget && onClose()}>
         {!url ? (
           <p className="kchat-lightbox-note">This file&rsquo;s link has expired. Refresh the page to fetch a new one.</p>
         ) : kind === "image" ? (
@@ -309,7 +335,7 @@ export function MediaViewer({ attachment, onClose }) {
           <div className="kchat-lightbox-file">
             <Icons.File size={40} sw={1.2} />
             <p>{name}</p>
-            <a className="primary-button" href={url} download={name}>
+            <a className="kb-btn kb-btn--primary" href={url} download={name}>
               Download
             </a>
           </div>
@@ -321,32 +347,11 @@ export function MediaViewer({ attachment, onClose }) {
 
 /* ── confirmation ─────────────────────────────────────── */
 
+/** The shared question dialog (finance/ConfirmDialog): it says why when the answer fails instead of closing as if it had worked. */
 export function ConfirmDialog({ title, body, confirmLabel, onConfirm, onClose }) {
-  const [busy, setBusy] = useState(false);
   return (
-    <Dialog title={title} onClose={onClose} width={400}>
-      <p className="kchat-confirm-body">{body}</p>
-      <div className="kchat-dialog-foot">
-        <button type="button" className="kchat-ghost-btn" onClick={onClose}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="primary-button kchat-danger-btn"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await onConfirm();
-              onClose();
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Working…" : confirmLabel}
-        </button>
-      </div>
-    </Dialog>
+    <FinanceConfirm title={title} confirmLabel={confirmLabel} danger onConfirm={onConfirm} onCancel={onClose}>
+      <p>{body}</p>
+    </FinanceConfirm>
   );
 }

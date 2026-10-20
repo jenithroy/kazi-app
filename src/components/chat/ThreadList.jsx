@@ -5,6 +5,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
+import { SearchBox } from "../table/Bar";
 import { Menu, MenuDivider, MenuItem, ThreadAvatar } from "./ChatBits";
 import {
   listTime,
@@ -20,19 +21,16 @@ function ThreadRow({ thread, last, unread, active, onOpen, onSetRead, onSetFlag,
   const hasUnread = unread > 0;
 
   return (
-    <div
-      className={`kchat-row${active ? " kchat-row--active" : ""}`}
-      onClick={() => onOpen(thread.id)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen(thread.id);
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-current={active || undefined}
-    >
+    <div className={`kchat-row${active ? " kchat-row--active" : ""}`}>
+      {/* The row is one button stretched over it (what the screen reader reads: who, what was last said, how many are unread);
+          the row's menu is a second button above it, so neither is inside the other. */}
+      <button
+        type="button"
+        className="kchat-row-hit"
+        onClick={() => onOpen(thread.id)}
+        aria-current={active || undefined}
+        aria-label={[threadTitle(thread), previewOf(thread, last), hasUnread ? `${unread} unread` : ""].filter(Boolean).join(", ")}
+      />
       <ThreadAvatar thread={thread} size={40} />
 
       <div className="kchat-row-body">
@@ -56,8 +54,7 @@ function ThreadRow({ thread, last, unread, active, onOpen, onSetRead, onSetFlag,
         </div>
       </div>
 
-      {/* Sits above the row's own click target, so opening the menu does not open the thread. */}
-      <div className="kchat-row-menu" onClick={(e) => e.stopPropagation()}>
+      <div className="kchat-row-menu">
         <button
           ref={menuTrigger}
           type="button"
@@ -68,7 +65,7 @@ function ThreadRow({ thread, last, unread, active, onOpen, onSetRead, onSetFlag,
           <Icons.More size={14} />
         </button>
 
-        <Menu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTrigger} style={{ top: 30 }}>
+        <Menu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTrigger} label={`Options for ${threadTitle(thread)}`}>
           <MenuItem
             icon={Icons.Check}
             onClick={() => {
@@ -150,34 +147,20 @@ export default function ThreadList({
     : `${threads.length} conversation${threads.length === 1 ? "" : "s"} · all read`;
 
   return (
-    <div className="kchat-list">
+    <section className="kb-tile kchat-list" style={{ gridArea: "list" }} aria-label="Conversations">
       <div className="kchat-list-hd">
         <div>
-          <h3 className="kchat-list-title">Team chat</h3>
+          <h2 className="kchat-list-title">Team chat</h2>
           <p className="kchat-list-sub">{loading ? "Loading…" : summary}</p>
         </div>
         {canCompose && (
-          <button type="button" className="kchat-compose" onClick={onCompose} title="New conversation">
+          <button type="button" className="kchat-compose" onClick={onCompose} title="New conversation" aria-label="New conversation">
             <Icons.Plus size={15} sw={2.2} />
           </button>
         )}
       </div>
 
-      <div className="kchat-search">
-        <Icons.Search size={13} />
-        <input
-          type="search"
-          placeholder="Search people, groups or messages"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search conversations"
-        />
-        {query && (
-          <button type="button" className="kchat-search-clear" onClick={() => setQuery("")} aria-label="Clear search">
-            <Icons.X size={12} />
-          </button>
-        )}
-      </div>
+      <SearchBox value={query} onChange={setQuery} placeholder="Search people, groups or messages" label="Search conversations" />
 
       <div className="kchat-rows">
         {loading ? (
@@ -197,7 +180,7 @@ export default function ThreadList({
             <Icons.Message size={22} sw={1.4} />
             <p>{query ? `Nothing matches “${query}”.` : "No conversations yet."}</p>
             {!query && canCompose && (
-              <button type="button" className="primary-button" onClick={onCompose}>
+              <button type="button" className="kb-btn kb-btn--primary" onClick={onCompose}>
                 Start one
               </button>
             )}
@@ -218,6 +201,6 @@ export default function ThreadList({
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }

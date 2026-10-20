@@ -104,7 +104,7 @@ export default function Composer({
 
   if (disabled) {
     return (
-      <div className="kchat-composer kchat-composer--locked">
+      <div className="kchat-composer kchat-composer--locked" role="status">
         <Icons.Alert size={14} />
         <span>{disabledReason || "Your role can read this conversation but not post to it."}</span>
       </div>
@@ -194,6 +194,7 @@ export default function Composer({
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
           title="Attach a file"
+          aria-label="Attach a file"
         >
           <Icons.Paperclip size={16} />
         </button>
@@ -205,6 +206,9 @@ export default function Composer({
             className="kchat-icon-btn kchat-icon-btn--lg"
             onClick={() => setEmojiOpen((v) => !v)}
             title="Emoji"
+            aria-label="Emoji"
+            aria-haspopup="true"
+            aria-expanded={emojiOpen}
           >
             <Icons.Smile size={16} />
           </button>
@@ -226,6 +230,7 @@ export default function Composer({
           className="kchat-input"
           rows={rows}
           value={draft}
+          aria-label={`Message ${recipientName}`}
           placeholder={
             replyTo ? "Type your reply" : attachment ? "Add a caption" : `Message ${recipientName}`
           }
@@ -246,7 +251,7 @@ export default function Composer({
           }}
         />
 
-        <button type="submit" className="kchat-send" disabled={!canSend} title="Send (Enter)">
+        <button type="submit" className="kchat-send" disabled={!canSend} title="Send (Enter)" aria-label="Send">
           {busy ? <span className="kchat-spin kchat-spin--light" /> : <Icons.Send size={15} />}
         </button>
       </div>

@@ -1,0 +1,526 @@
+/* ══════════════════════════════════════════════════════════════════
+   CHAT — the Team and Leads inboxes (everything is `.kchat-*`, and `.ch-*` for the page frame)
+
+   Two glass panes on one screen, nothing scrolls but the lists inside them: the conversations on the left, the open
+   conversation on the right (its messages scroll between a header and a message box that stay put). A phone shows one
+   pane at a time, with a Back button. The panes are `.kb-tile`s, so they take the page's glass, dark mode and fallbacks
+   (bento.css); the parts that open over the page (menus, the emoji picker, the lead's score, dialogs, the photo viewer)
+   are portalled to <body>, outside `.kb`, so they carry their own tokens (the dropdown's, controls.css).
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The frame ──────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--chat, .kb-grid.kb-grid--chat-thread {
+  grid-template-columns: clamp(280px, 28%, 380px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "list thread";
+}
+/* two short tabs: pills at every width (the shared tabs turn into a dropdown under 1100px) */
+.ch-tabs.dt-tabs { display: flex; flex-wrap: nowrap; }
+.dt-tab .kchat-badge { margin-left: 2px; }
+.ch-tabs .dt-tab[aria-selected="true"] .kchat-badge { background: var(--kb-on-accent); color: var(--kb-accent); }
+
+@media (max-width: 1023px) {
+  .kb-grid.kb-grid--chat, .kb-grid.kb-grid--chat-thread { grid-template-columns: clamp(250px, 34%, 320px) minmax(0, 1fr); }
+}
+/* A phone: the page scrolls in #root there, so the chat takes the height of the window itself (the top bar is fixed and the page pads 16 above and 24 below)
+   and the message box sits at the bottom of it; one pane at a time. */
+@media (max-width: 768px) {
+  .kb.ch-page { flex: none; min-height: 0; height: calc(100dvh - var(--kn-h) - env(safe-area-inset-top, 0px) - 40px); }
+  .kb-grid.kb-grid--chat, .kb-grid.kb-grid--chat-thread { flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .kb-grid.kb-grid--chat { grid-template-areas: "list"; }
+  .kb-grid.kb-grid--chat-thread { grid-template-areas: "thread"; }
+  .kb-grid--chat > .kchat-thread, .kb-grid--chat-thread > .kchat-list { display: none; }
+}
+
+/* ── The tile around each pane ──────────────────────────────────── */
+
+.kb-tile.kchat-list, .kb-tile.kchat-thread { padding: 0; gap: 0; }
+
+/* ── Avatars ────────────────────────────────────────────────────── */
+
+.kchat-av { position: relative; display: inline-flex; flex: none; }
+.kchat-av-dot {
+  position: absolute; right: -1px; bottom: -1px; border-radius: 50%;
+  background: var(--kb-good-fill); box-shadow: 0 0 0 2px var(--kb-surface);
+}
+.kchat-av-group {
+  position: absolute; right: -3px; bottom: -3px; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: var(--kb-accent); color: var(--kb-on-accent); box-shadow: 0 0 0 2px var(--kb-surface);
+}
+
+/* ── The conversation list ──────────────────────────────────────── */
+
+.kchat-list { min-height: 0; }
+.kchat-list-hd { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 14px 8px 16px; }
+.kchat-list-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; color: var(--kb-ink); }
+.kchat-list-sub { margin: 2px 0 0; font-size: 12px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
+.kchat-compose {
+  flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--kb-accent); color: var(--kb-on-accent); cursor: pointer; transition: filter .15s;
+}
+.kchat-compose:hover { filter: brightness(1.1); }
+.kchat-compose:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 50%; }
+
+.kchat-list .dt-search { display: flex; flex: none; margin: 0 14px 8px; }
+.kchat-list .dt-search input { width: 100%; }
+
+.kchat-rows { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 8px 10px; }
+
+.kchat-row {
+  position: relative; display: flex; align-items: center; gap: 11px; min-width: 0; padding: 9px 10px; border-radius: 12px; cursor: pointer;
+  transition: background-color .15s, box-shadow .15s;
+}
+.kchat-row:hover { background: var(--kb-well); }
+.kchat-row--active, .kchat-row--active:hover {
+  background: var(--kb-chip); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kb-accent) 30%, transparent);
+}
+/* the row is one button stretched over it; anything that must be pressed on its own (the menu, a lead's score) sits above it */
+.kchat-row-hit {
+  position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: inherit;
+  background: transparent; cursor: pointer;
+}
+.kchat-row-hit:focus-visible { outline: none; box-shadow: none; }
+.kchat-row:has(.kchat-row-hit:focus-visible) { outline: 2px solid var(--kb-accent); outline-offset: -2px; }
+
+.kchat-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kchat-row-top, .kchat-row-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.kchat-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 600; color: var(--kb-ink); }
+.kchat-row-name--unread { font-weight: 700; }
+.kchat-row-time { flex: none; font-size: 11px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
+.kchat-row-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; line-height: 1.35; color: var(--kb-ink-3); }
+.kchat-row-preview--unread { color: var(--kb-ink-2); font-weight: 600; }
+.kchat-row-marks { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--kb-faint); }
+
+.kchat-badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--kb-accent); color: var(--kb-on-accent); font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+
+/* the row's menu shows on hover or focus, so a list of twenty is not twenty buttons */
+.kchat-row-menu { position: relative; z-index: 2; flex: none; opacity: 0; transition: opacity .12s; }
+.kchat-row:hover .kchat-row-menu, .kchat-row-menu:focus-within, .kchat-row:has(.kchat-row-hit:focus-visible) .kchat-row-menu { opacity: 1; }
+
+.kchat-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; padding: 5px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--kb-ink-3); cursor: pointer; transition: background-color .12s, color .12s;
+}
+.kchat-icon-btn:hover:not(:disabled) { background: var(--kb-well); color: var(--kb-ink); }
+.kchat-icon-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.kchat-icon-btn:disabled { opacity: .45; cursor: default; }
+.kchat-icon-btn--lg { padding: 8px; }
+
+/* skeleton rows: the list keeps its shape while it loads */
+.kchat-row--skeleton { cursor: default; pointer-events: none; }
+.kchat-skel {
+  display: block; border-radius: 6px; background: linear-gradient(90deg, var(--kb-well) 25%, var(--kb-track) 37%, var(--kb-well) 63%);
+  background-size: 400% 100%; animation: kchat-shimmer 1.4s ease infinite;
+}
+.kchat-skel--av { flex: none; width: 40px; height: 40px; border-radius: 50%; }
+.kchat-skel--line { height: 9px; }
+@keyframes kchat-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* ── The open conversation ──────────────────────────────────────── */
+
+.kchat-thread { min-height: 0; }
+.kchat-thread--empty { align-items: center; justify-content: center; }
+
+.kchat-thread-hd { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--kb-line); }
+.kchat-back { display: none; }
+.kchat-thread-id {
+  display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; margin: -3px; padding: 3px; border: 0; border-radius: 10px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background-color .15s;
+}
+button.kchat-thread-id:hover { background: var(--kb-well); }
+span.kchat-thread-id { cursor: default; }
+.kchat-thread-id:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.kchat-thread-id > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kchat-thread-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; color: var(--kb-ink); }
+.kchat-thread-status { font-size: 12px; color: var(--kb-ink-3); }
+.kchat-thread-status--on { color: color-mix(in srgb, var(--kb-good) 80%, var(--kb-ink)); font-weight: 600; }
+.kchat-thread-actions { position: relative; flex: none; display: flex; align-items: center; gap: 6px; }
+.kchat-muted-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: var(--kb-well);
+  font-size: 11.5px; font-weight: 600; color: var(--kb-ink-3);
+}
+
+/* the scrollback */
+.kchat-scroll { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px 8px; }
+/* a short conversation sits against the message box, as in every messenger; a long one just scrolls */
+.kchat-scroll > :first-child { margin-top: auto; }
+
+.kchat-day-mark { position: relative; display: flex; align-items: center; justify-content: center; margin: 10px 0 14px; }
+.kchat-day-mark::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--kb-line); }
+.kchat-day-mark span {
+  position: relative; padding: 2px 12px; border-radius: 999px; background: var(--kb-surface);
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kb-ink-3);
+}
+
+/* a message */
+.kchat-msg { display: flex; gap: 9px; margin-bottom: 10px; }
+.kchat-msg--run { margin-bottom: 3px; }
+.kchat-msg--mine { flex-direction: row-reverse; }
+.kchat-msg-gutter { flex: none; display: flex; align-items: flex-end; width: 28px; }
+.kchat-msg--mine .kchat-msg-gutter { display: none; }
+.kchat-msg-col { display: flex; flex-direction: column; gap: 3px; min-width: 0; max-width: min(620px, 76%); }
+.kchat-msg--mine .kchat-msg-col { align-items: flex-end; }
+.kchat-msg-author { padding-left: 12px; font-size: 11.5px; font-weight: 600; color: var(--kb-ink-3); }
+.kchat-msg-line { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.kchat-msg--mine .kchat-msg-line { flex-direction: row-reverse; }
+
+.kchat-bubble {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 12px; border-radius: 16px 16px 16px 5px;
+  background: color-mix(in srgb, var(--kb-ink) 8%, transparent); color: var(--kb-ink);
+  font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+.kchat-msg--run .kchat-bubble { border-radius: 16px 16px 16px 9px; }
+.kchat-bubble--mine { border-radius: 16px 16px 5px 16px; background: var(--kb-accent); color: var(--kb-on-accent); }
+.kchat-msg--run .kchat-bubble--mine { border-radius: 16px 16px 9px 16px; }
+.kchat-bubble--gone { background: transparent; border: 1px dashed var(--kb-line-hi); color: var(--kb-ink-3); font-style: italic; }
+.kchat-bubble--media { padding: 4px; }
+.kchat-bubble-text { display: block; }
+
+/* briefly lit when a quoted reply is followed back to its original */
+.kchat-msg--flash .kchat-bubble { animation: kchat-flash 1.2s ease; }
+@keyframes kchat-flash { 0%, 70% { box-shadow: 0 0 0 3px var(--kb-accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
+
+/* a quoted reply (Leads uses the same shape) */
+.kchat-quote, .kchat-lead-quote {
+  display: flex; width: 100%; padding: 5px 9px; border: 0; border-left: 3px solid var(--kb-accent); border-radius: 8px;
+  background: color-mix(in srgb, var(--kb-ink) 7%, transparent); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.kchat-quote { flex-direction: column; gap: 1px; }
+.kchat-lead-quote { align-items: center; gap: 6px; font-size: 12px; color: var(--kb-ink-2); }   /* ink-3 on the tinted quote box is just under 4.5:1 at this size */
+.kchat-lead-quote span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kchat-bubble--mine :is(.kchat-quote, .kchat-lead-quote) {
+  border-left-color: var(--kb-on-accent); background: color-mix(in srgb, var(--kb-on-accent) 18%, transparent); color: var(--kb-on-accent);
+}
+.kchat-quote:disabled { cursor: default; opacity: .75; }
+.kchat-quote-who { font-size: 11.5px; font-weight: 700; color: color-mix(in srgb, var(--kb-accent) 85%, var(--kb-ink)); }
+.kchat-bubble--mine .kchat-quote-who { color: inherit; }
+.kchat-quote-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; color: var(--kb-ink-2); }
+.kchat-bubble--mine .kchat-quote-text { color: inherit; opacity: .9; }
+
+/* a photo, a video, a file */
+.kchat-media {
+  position: relative; display: block; width: 100%; max-width: 300px; padding: 0; border: 0; border-radius: 12px; overflow: hidden;
+  background: var(--kb-well); cursor: pointer;
+}
+.kchat-media:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+.kchat-media img, .kchat-media video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.kchat-media-play {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; margin: auto;
+  border-radius: 50%; background: rgba(10, 28, 20, .6); color: #fff;
+}
+.kchat-media-len { position: absolute; right: 7px; bottom: 7px; padding: 2px 6px; border-radius: 6px; background: rgba(10, 28, 20, .66); color: #fff; font: 500 11px/1.3 var(--mono); }
+
+.kchat-file {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: 1px solid var(--kb-line-hi); border-radius: 12px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.kchat-file:hover { background: var(--kb-well); }
+.kchat-file:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.kchat-file--mine { border-color: color-mix(in srgb, var(--kb-on-accent) 40%, transparent); }
+.kchat-file--mine:hover { background: color-mix(in srgb, var(--kb-on-accent) 14%, transparent); }
+.kchat-file-ico { flex: none; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: var(--kb-chip); color: var(--kb-accent); }
+.kchat-file--mine .kchat-file-ico { background: color-mix(in srgb, var(--kb-on-accent) 22%, transparent); color: var(--kb-on-accent); }
+.kchat-file-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.kchat-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.kchat-file-size { font-size: 11.5px; opacity: .75; }
+
+/* what can be done to a message, on hover (a phone uses a long press, below) */
+.kchat-msg-actions { position: relative; flex: none; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s; }
+.kchat-msg:hover .kchat-msg-actions, .kchat-msg-actions:focus-within { opacity: 1; }
+
+/* reactions: mine is tinted, so a glance says whether I already reacted */
+.kchat-reacts { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 4px; }
+.kchat-react {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink); font: inherit; font-size: 12.5px; line-height: 1.4; cursor: pointer;
+}
+.kchat-react:hover { background: var(--kb-well); }
+.kchat-react:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.kchat-react--mine { background: var(--kb-chip); border-color: color-mix(in srgb, var(--kb-accent) 45%, transparent); }
+.kchat-react-n { font-size: 11px; font-weight: 700; color: var(--kb-ink-2); }
+
+.kchat-msg-meta { display: flex; align-items: center; gap: 5px; padding: 0 5px; font-size: 11px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
+.kchat-edited { font-style: italic; }
+.kchat-read { color: var(--kb-accent); }
+.kchat-sent { color: var(--kb-faint); }
+
+/* editing a message in place */
+.kchat-edit { display: flex; flex-direction: column; gap: 7px; min-width: min(260px, 60vw); }
+.kchat-edit textarea {
+  padding: 7px 10px; border: 1px solid var(--kb-line-hi); border-radius: 10px; background: var(--kb-surface); color: var(--kb-ink);
+  font: inherit; font-size: 13.5px; line-height: 1.5; resize: none;
+}
+.kchat-edit textarea:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.kchat-edit-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.kchat-edit-actions button {
+  height: 30px; padding: 0 13px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
+  font: 600 12.5px/1 var(--font); cursor: pointer;
+}
+.kchat-edit-actions button:hover { background: var(--kb-well); }
+.kchat-edit-actions button:last-child { border-color: var(--kb-accent); background: var(--kb-accent); color: var(--kb-on-accent); }
+.kchat-edit-actions button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+/* "jump to latest" */
+.kchat-jump {
+  position: absolute; left: 50%; bottom: 84px; z-index: 5; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px;
+  height: 30px; padding: 0 14px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: var(--kb-surface); color: var(--kb-ink-2);
+  box-shadow: var(--kb-shadow-hi); font: 600 12.5px/1 var(--font); cursor: pointer;
+}
+.kchat-jump:hover { color: var(--kb-accent); border-color: var(--kb-accent); }
+.kchat-jump:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: var(--kb-shadow-hi); border-radius: 999px; }
+
+/* empty states */
+.kchat-empty {
+  flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 36px 24px;
+  text-align: center; color: var(--kb-ink-3);
+}
+.kchat-empty--sm { padding: 30px 18px; }
+.kchat-empty h3 { margin: 4px 0 0; font-size: 15px; font-weight: 600; color: var(--kb-ink); }
+.kchat-empty p { margin: 0; max-width: 320px; font-size: 13px; line-height: 1.55; }
+.kchat-empty .kb-btn { margin-top: 6px; }
+.kchat-placeholder-ico { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 50%; background: var(--kb-chip); color: var(--kb-accent); }
+
+/* ── The message box ────────────────────────────────────────────── */
+
+.kchat-composer { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--kb-line); }
+.kchat-composer--drop { background: var(--kb-chip); outline: 2px dashed var(--kb-accent); outline-offset: -6px; }
+.kchat-composer--locked { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px; font-size: 12.5px; color: var(--kb-ink-3); }
+
+.kchat-composer-row { display: flex; align-items: flex-end; gap: 6px; }
+.kchat-input {
+  flex: 1 1 auto; min-width: 0; max-height: 180px; padding: 9px 14px; border: 1px solid var(--kb-line-hi); border-radius: 18px;
+  background: color-mix(in srgb, var(--kb-surface) 55%, transparent); color: var(--kb-ink); font: inherit; font-size: 13.5px; line-height: 1.5; resize: none;
+  transition: border-color .15s;
+}
+.kchat-input:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 18px; }
+.kchat-input::placeholder { color: var(--kb-ink-3); opacity: 1; }
+.kchat-input:disabled { opacity: .6; }
+.kchat-send {
+  flex: none; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--kb-accent); color: var(--kb-on-accent); cursor: pointer; transition: filter .15s, opacity .15s;
+}
+.kchat-send:hover:not(:disabled) { filter: brightness(1.1); }
+.kchat-send:disabled { opacity: .4; cursor: default; }
+.kchat-send:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 50%; }
+.kchat-emoji-anchor { position: relative; }
+
+.kchat-reply-bar, .kchat-attach-bar {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 8px; padding: 7px 9px; border-radius: 12px; background: var(--kb-well);
+}
+.kchat-reply-edge { align-self: stretch; width: 3px; border-radius: 2px; background: var(--kb-accent); }
+.kchat-reply-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.kchat-reply-who { font-size: 11.5px; font-weight: 700; color: color-mix(in srgb, var(--kb-accent) 85%, var(--kb-ink)); }
+.kchat-reply-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--kb-ink-2); }
+.kchat-attach-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; }
+.kchat-attach-ico { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: var(--kb-chip); color: var(--kb-accent); }
+.kchat-attach-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.kchat-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--kb-ink); }
+.kchat-attach-size { font-size: 11.5px; color: var(--kb-ink-3); }
+.kchat-composer-note { margin-bottom: 7px; font-size: 12.5px; color: var(--kb-bad); }
+
+.kchat-spin {
+  display: inline-block; flex: none; width: 14px; height: 14px; border: 2px solid var(--kb-faint); border-top-color: transparent; border-radius: 50%;
+  animation: kchat-spin .6s linear infinite;
+}
+.kchat-spin--light { border-color: var(--kb-on-accent); border-top-color: transparent; }
+@keyframes kchat-spin { to { transform: rotate(360deg); } }
+
+.kchat-recording { display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: 12.5px; color: var(--kb-ink-2); }
+.kchat-recording-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--kb-bad-fill); animation: kchat-rec-pulse 1.2s ease-in-out infinite; }
+.kchat-recording-time { font-variant-numeric: tabular-nums; }
+@keyframes kchat-rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* ── Leads: the bot's hand-over, a score, a voice note ─────────── */
+
+.kchat-lead-chip {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px; background: var(--kb-well);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--kb-ink-3);
+}
+.kchat-lead-chip--bot { background: var(--kb-chip); color: color-mix(in srgb, var(--kb-accent) 85%, var(--kb-ink)); }
+.kchat-takeover-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink-2); font: 600 12.5px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.kchat-takeover-btn:hover:not(:disabled) { background: var(--kb-well); color: var(--kb-ink); }
+.kchat-takeover-btn--active { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+.kchat-takeover-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.kchat-takeover-btn:disabled { opacity: .5; cursor: default; }
+.kchat-lead-referral { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--kb-line); font-size: 12px; color: var(--kb-ink-3); }
+
+.kchat-value-anchor { position: relative; z-index: 2; display: inline-flex; flex: none; }
+.kchat-value-chip {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border: 0; border-radius: 999px; background: var(--kb-well); color: var(--kb-ink-3);
+  font: 700 10.5px/1.4 var(--font); cursor: pointer;
+}
+.kchat-value-chip--high { background: var(--kb-bad-bg); color: color-mix(in srgb, var(--kb-bad) 85%, var(--kb-ink)); }
+.kchat-value-chip--medium { background: var(--kb-chip); color: color-mix(in srgb, var(--kb-accent) 85%, var(--kb-ink)); }
+.kchat-value-chip:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+
+/* the voice note: the bubble itself is the pill */
+.kchat-voice { display: flex; align-items: center; gap: 8px; min-width: 190px; max-width: 250px; padding: 2px 2px 2px 0; }
+.kchat-voice-play {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--kb-chip); color: var(--kb-accent); cursor: pointer;
+}
+.kchat-voice--mine .kchat-voice-play { background: color-mix(in srgb, var(--kb-on-accent) 24%, transparent); color: var(--kb-on-accent); }
+.kchat-voice-play:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 50%; }
+.kchat-voice-play svg { margin-left: 1px; }
+.kchat-voice-bars { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; height: 26px; padding: 0; border: 0; background: none; cursor: pointer; }
+.kchat-voice-bars:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+.kchat-voice-bar { flex: 1 1 0; min-width: 1.5px; max-width: 3px; border-radius: 2px; background: var(--kb-faint); transition: height .1s; }
+.kchat-voice-bar--played { background: var(--kb-accent); }
+.kchat-voice--mine .kchat-voice-bar { background: color-mix(in srgb, var(--kb-on-accent) 40%, transparent); }
+.kchat-voice--mine .kchat-voice-bar--played { background: var(--kb-on-accent); }
+.kchat-voice-bars--placeholder { flex: 1 1 auto; align-self: center; height: 2px; border-radius: 2px; background: var(--kb-faint); }
+.kchat-voice-time { flex: none; min-width: 30px; font-size: 11px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
+.kchat-voice--mine .kchat-voice-time { color: inherit; opacity: .85; }
+
+/* ── What opens over the page: menus, the emoji picker, a lead's score ──
+   These are portalled to <body> (they would be clipped inside a glass pane), so they are the dropdown's glass and carry its tokens. */
+
+.kchat-pop { padding: 5px; }
+.kchat-pop[role="menu"] { min-width: 206px; }
+.kchat-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent;
+  color: var(--ink-2); font: 500 13px/1.3 var(--font); text-align: left; cursor: pointer;
+}
+.kchat-menu-item:hover:not(:disabled), .kchat-menu-item:focus-visible { background: var(--pop-hover); color: var(--ink); outline: none; box-shadow: none; }
+.kchat-menu-item--danger { color: color-mix(in srgb, var(--terra) 72%, var(--ink)); }   /* the plain terra is under 4.5:1 on the glass */
+.kchat-menu-item:disabled { opacity: .45; cursor: default; }
+.kchat-menu-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+.kchat-menu-info { padding: 4px 10px 6px; font-size: 11.5px; color: var(--ink-3); }
+.kchat-menu-quick { display: grid; grid-template-columns: repeat(6, 30px); gap: 2px; justify-content: center; padding: 2px; }
+
+/* Fixed sizes on purpose: an emoji glyph is wider than its font-size, so a button sized by its content does not fit a `1fr` cell and the
+   glyphs spill over their neighbours. A square button with centred content, and columns declared in the same unit, cannot disagree. */
+.kchat-emoji-pop { width: 212px; }
+.kchat-emoji-row, .kchat-emoji-grid { display: grid; grid-template-columns: repeat(6, 30px); gap: 2px; justify-content: center; }
+.kchat-emoji-grid { max-height: 220px; overflow-y: auto; }
+.kchat-emoji {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; overflow: hidden;
+  background: transparent; cursor: pointer; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 17px; line-height: 1;
+  transition: background-color .1s, transform .1s;
+}
+.kchat-emoji:hover, .kchat-emoji:focus-visible { background: var(--pop-hover); transform: scale(1.12); outline: none; box-shadow: none; }
+
+.kchat-value-pop { width: 250px; padding: 11px 13px; }
+.kchat-value-pop-score { margin-bottom: 6px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.kchat-value-pop ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 16px; }
+.kchat-value-pop li { font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.kchat-value-pop p { margin: 0; font-size: 12px; color: var(--ink-3); }
+
+/* ── Dialogs (a glass dialog: the base tokens are remapped for dark) ─ */
+
+.kchat-people { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); }
+.kchat-people-empty { margin: 0; padding: 22px; font-size: 13px; text-align: center; color: var(--ink-3); }
+.kchat-person {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent;
+  color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.kchat-person:last-child { border-bottom: 0; }
+.kchat-person:hover:not(.kchat-person--static) { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.kchat-person:focus-visible { outline: 2px solid var(--mint-2); outline-offset: -2px; box-shadow: none; }
+.kchat-person--on { background: var(--mint-soft); }
+.kchat-person--static { cursor: default; }
+.kchat-person-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.kchat-person-name { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.kchat-person-role { font-size: 12px; color: var(--ink-3); }
+.kchat-owner { padding: 1px 6px; border-radius: 999px; background: var(--bg-2); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+.kchat-check {
+  flex: none; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--line-strong); border-radius: 50%; color: transparent;
+}
+.kchat-check--on { border-color: var(--mint-deep); background: var(--mint-deep); color: #fff; }
+
+.kchat-dlg-field { display: block; margin-bottom: 12px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.kchat-dlg-field input, .kchat-dlg-search input {
+  display: block; width: 100%; height: 40px; margin-top: 5px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px;
+  background: var(--mg-input, #fff); color: var(--ink); font: 400 14px/1.3 var(--font);
+}
+.kchat-dlg-search { display: block; margin-bottom: 10px; }
+.kchat-dlg-search input { margin-top: 0; }
+.kchat-dlg-field input:focus-visible, .kchat-dlg-search input:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+.kchat-dlg-field input::placeholder, .kchat-dlg-search input::placeholder { color: var(--ink-3); opacity: 1; }
+.kchat-dlg-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.kchat-dlg-tabs button {
+  height: 32px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--ink-2);
+  font: 500 13px/1 var(--font); cursor: pointer;
+}
+.kchat-dlg-tabs button:hover { background: var(--bg-2); }
+.kchat-dlg-tabs button.is-on { border-color: var(--mint-deep); background: var(--mint-deep); color: #fff; }
+.kchat-dlg-tabs button:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.kchat-dialog-hint { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.kchat-dialog-error { margin: 12px 0 0; font-size: 12.5px; color: var(--terra); }
+.kchat-contact-hd { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.kchat-contact-hd h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink); }
+.kchat-contact-hd p { margin: 3px 0 0; font-size: 13px; color: var(--ink-3); }
+.kchat-facts { display: flex; flex-direction: column; gap: 1px; margin: 0; }
+.kchat-facts > div { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.kchat-facts > div:last-child { border-bottom: 0; }
+.kchat-facts dt { font-size: 12.5px; color: var(--ink-3); }
+.kchat-facts dd { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); text-align: right; word-break: break-word; }
+
+/* ── The photo and video viewer: full screen, dark on purpose ──── */
+
+.kchat-lightbox {
+  position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column;
+  background: rgba(8, 14, 11, .92); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.kchat-lightbox-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 18px; }
+.kchat-lightbox-bar > div { display: flex; gap: 4px; }
+.kchat-lightbox-name { min-width: 0; font-size: 13.5px; font-weight: 600; color: #fff; }
+.kchat-lightbox-name span { margin-left: 7px; font-weight: 400; color: rgba(255, 255, 255, .65); }
+.kchat-icon-btn--light { color: rgba(255, 255, 255, .85); }
+.kchat-icon-btn--light:hover:not(:disabled) { background: rgba(255, 255, 255, .16); color: #fff; }
+.kchat-icon-btn--light:focus-visible { outline-color: #fff; }
+.kchat-lightbox-body { flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 18px 24px; }
+.kchat-lightbox-body img, .kchat-lightbox-body video { max-width: 100%; max-height: 100%; border-radius: 10px; object-fit: contain; }
+.kchat-lightbox-note { color: rgba(255, 255, 255, .8); font-size: 13.5px; }
+.kchat-lightbox-file { display: flex; flex-direction: column; align-items: center; gap: 12px; color: rgba(255, 255, 255, .88); }
+.kchat-lightbox-file p { margin: 0; font-size: 13.5px; }
+.kchat-lightbox-file .kb-btn { text-decoration: none; }
+
+/* ── A phone ────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .kchat-back {
+    display: inline-flex; align-items: center; justify-content: center; margin-left: -5px; padding: 6px; border: 0; border-radius: 9px;
+    background: transparent; color: var(--kb-ink-2); cursor: pointer;
+  }
+  .kchat-back:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+  .kchat-msg-col { max-width: 86%; }
+  /* hover means nothing on a touch screen: a long press raises the same list as the right button */
+  .kchat-msg-actions { display: none; }
+  .kchat-row-menu { opacity: 1; }
+  .kchat-scroll { padding: 12px 12px 6px; }
+  .kchat-composer { padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .kchat-input { font-size: 16px; }                          /* under 16px iOS zooms in when the box is focused */
+  .kchat-thread-hd { padding: 9px 12px; }
+  .kchat-list-hd { padding: 13px 12px 8px 14px; }
+  .kchat-list .dt-search { margin: 0 12px 8px; }
+  .kchat-list .dt-search input { height: 40px; font-size: 16px; }
+  .kchat-jump { bottom: 74px; }
+  .kchat-lightbox-bar { padding: 10px 12px; }
+}
+
+/* ── No glass, no motion ────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .kchat-skel { animation: none; }
+  .kchat-msg--flash .kchat-bubble { animation: none; box-shadow: 0 0 0 3px var(--kb-accent); }
+  .kchat-emoji:hover, .kchat-emoji:focus-visible { transform: none; }
+  .kchat-row, .kchat-compose, .kchat-send, .kchat-takeover-btn, .kchat-msg-actions, .kchat-row-menu { transition: none; }
+  .kchat-recording-dot { animation: none; }
+  .kchat-spin { animation-duration: 1.6s; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .kchat-lightbox { background: rgb(8, 14, 11); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  .kchat-bubble { border: 1px solid CanvasText; }
+  .kchat-row--active { outline: 2px solid Highlight; }
+}

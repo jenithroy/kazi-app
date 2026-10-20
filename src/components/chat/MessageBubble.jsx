@@ -95,6 +95,9 @@ export default function MessageBubble({
   const editRef = useRef(null);
   const pickerTrigger = useRef(null);
   const menuTrigger = useRef(null);
+  const bubbleRef = useRef(null);
+  // What the menu opens from: the "more" button on a desktop, the bubble itself for a right click or a long press (a phone has no hover bar)
+  const menuAnchor = useRef(null);
 
   useEffect(() => {
     if (editing) {
@@ -118,6 +121,7 @@ export default function MessageBubble({
       onContextMenu={(e) => {
         if (!actionable) return;
         e.preventDefault();
+        menuAnchor.current = bubbleRef.current;
         setMenuOpen(true);
       }}
       id={`msg-${message.id}`}
@@ -135,6 +139,7 @@ export default function MessageBubble({
 
         <div className="kchat-msg-line">
           <div
+            ref={bubbleRef}
             className={[
               "kchat-bubble",
               mine ? "kchat-bubble--mine" : "",
@@ -191,7 +196,7 @@ export default function MessageBubble({
                   <button type="button" onClick={() => { setDraft(message.text); setEditing(false); }}>
                     Cancel
                   </button>
-                  <button type="button" className="primary-button" onClick={commitEdit}>
+                  <button type="button" onClick={commitEdit}>
                     Save
                   </button>
                 </div>
@@ -214,29 +219,29 @@ export default function MessageBubble({
               <button type="button" className="kchat-icon-btn" onClick={() => onReply(message)} tabIndex={-1} title="Reply">
                 <Icons.Reply size={14} />
               </button>
-              <button ref={menuTrigger} type="button" className="kchat-icon-btn" onClick={() => setMenuOpen((v) => !v)} tabIndex={-1} title="More">
+              <button ref={menuTrigger} type="button" className="kchat-icon-btn" onClick={() => { menuAnchor.current = menuTrigger.current; setMenuOpen((v) => !v); }} tabIndex={-1} title="More">
                 <Icons.More size={14} />
               </button>
 
               {pickerOpen && (
-                <div className="kchat-pop-anchor">
-                  <EmojiPicker
-                    triggerRef={pickerTrigger}
-                    onClose={() => setPickerOpen(false)}
-                    onPick={(emoji) => {
-                      onReact(message.id, emoji);
-                      setPickerOpen(false);
-                    }}
-                  />
-                </div>
+                <EmojiPicker
+                  triggerRef={pickerTrigger}
+                  onClose={() => setPickerOpen(false)}
+                  onPick={(emoji) => {
+                    onReact(message.id, emoji);
+                    setPickerOpen(false);
+                  }}
+                />
               )}
 
-              <Menu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTrigger} style={{ top: 28 }}>
-                <div className="kchat-menu-quick">
+              <Menu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuAnchor} align={mine ? "end" : "start"} label="Message options">
+                <div className="kchat-menu-quick" role="group" aria-label="Quick reactions">
                   {QUICK_REACTIONS.map((emoji) => (
                     <button
                       key={emoji}
                       type="button"
+                      role="menuitem"
+                      aria-label={`React with ${emoji}`}
                       className="kchat-emoji"
                       onClick={() => {
                         onReact(message.id, emoji);
@@ -274,7 +279,7 @@ export default function MessageBubble({
                   </>
                 )}
                 <MenuDivider />
-                <div className="kchat-menu-info">{messageTimestamp(message)}</div>
+                <div className="kchat-menu-info" role="menuitem" aria-disabled="true">{messageTimestamp(message)}</div>
               </Menu>
             </div>
           )}

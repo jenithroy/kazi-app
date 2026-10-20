@@ -118,7 +118,7 @@ export default function ThreadView({
   const online = threadOnline(thread);
 
   return (
-    <div className="kchat-thread">
+    <section className="kb-tile kchat-thread" style={{ gridArea: "thread" }} aria-label={`Conversation with ${threadTitle(thread)}`}>
       <header className="kchat-thread-hd">
         <button type="button" className="kchat-back" onClick={onBack} aria-label="Back to conversations">
           <Icons.ChevronLeft size={18} />
@@ -150,7 +150,7 @@ export default function ThreadView({
             <Icons.More size={16} />
           </button>
 
-          <Menu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTrigger} style={{ top: 34 }}>
+          <Menu open={menuOpen} onClose={() => setMenuOpen(false)} triggerRef={menuTrigger} label="Conversation options">
             <MenuItem icon={isGroup ? Icons.Users : Icons.Customers} onClick={() => { onOpenContact(); setMenuOpen(false); }}>
               {isGroup ? "View members" : "View contact"}
             </MenuItem>
@@ -181,7 +181,7 @@ export default function ThreadView({
         {messages.length === 0 ? (
           <div className="kchat-empty">
             <ThreadAvatar thread={thread} size={52} />
-            <h4>{threadTitle(thread)}</h4>
+            <h3>{threadTitle(thread)}</h3>
             <p>
               {isGroup
                 ? "Nobody has posted here yet. Say hello."
@@ -231,6 +231,6 @@ export default function ThreadView({
         onSend={(text, attachment) => onSend(thread.id, text, replyTo?.id, attachment)}
         disabled={!canPost}
       />
-    </div>
+    </section>
   );
 }

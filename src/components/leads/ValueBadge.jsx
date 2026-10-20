@@ -3,13 +3,12 @@
  * scored the conversation. */
 
 import { useRef, useState } from "react";
-import { useDismiss } from "../chat/ChatBits";
+import { Popover } from "../chat/ChatBits";
 import { VALUE_TIER_LABEL } from "../../lib/leadsFormat";
 
 export default function ValueBadge({ value }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef(null);
-  const popRef = useDismiss(open, () => setOpen(false), triggerRef);
 
   if (!value?.tier) return null;
 
@@ -23,29 +22,29 @@ export default function ValueBadge({ value }) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
+        aria-haspopup="true"
+        aria-expanded={open}
         title="Why this lead is ranked here"
       >
         {value.tier === "high" && "🔥 "}
         {VALUE_TIER_LABEL[value.tier]}
       </button>
 
-      {open && (
-        <div ref={popRef} className="kchat-value-pop" onClick={(e) => e.stopPropagation()}>
-          <div className="kchat-value-pop-score">
-            {VALUE_TIER_LABEL[value.tier]}
-            {Number.isFinite(value.score) ? ` · ${value.score}/100` : ""}
-          </div>
-          {value.reasons?.length > 0 ? (
-            <ul>
-              {value.reasons.map((reason, i) => (
-                <li key={i}>{reason}</li>
-              ))}
-            </ul>
-          ) : (
-            <p style={{ margin: 0, fontSize: 11, color: "var(--ink-4)" }}>No detail yet.</p>
-          )}
+      <Popover open={open} onClose={() => setOpen(false)} triggerRef={triggerRef} className="kchat-value-pop" label="Why this lead is ranked here" width={250} align="start">
+        <div className="kchat-value-pop-score">
+          {VALUE_TIER_LABEL[value.tier]}
+          {Number.isFinite(value.score) ? ` · ${value.score}/100` : ""}
         </div>
-      )}
+        {value.reasons?.length > 0 ? (
+          <ul>
+            {value.reasons.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>No detail yet.</p>
+        )}
+      </Popover>
     </span>
   );
 }
