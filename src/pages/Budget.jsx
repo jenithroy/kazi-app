@@ -1,561 +1,263 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchAll, insertRow, updateRow } from "../lib/db";
-import PageHeader from "../components/PageHeader";
+/**
+ * Budget & Requirements, on the same frosted-glass bento frame as the Dashboard, Sales and Finance: one screen, no page
+ * scroll, the list scrolls inside its pane.
+ *
+ * It is where the directors see what the office is asking for and say yes or no, so the page opens on what is waiting:
+ *
+ *   top row   what is waiting and what it asks for, how much of it is urgent, how long the longest has waited, and
+ *             what has been approved (each also sets the list's filter)
+ *   below     the requests: Waiting | Approved | Rejected | All, a search, type and urgency. Waiting ones come first,
+ *             the most urgent on top, then the one that has waited longest. A row opens that request's card; on a
+ *             waiting one, Reject and Approve are one press, with an Undo
+ *
+ * The old page had two tabs (budget requests and requirements) and opened on the one with nothing waiting; the dashboard
+ * counts both. Here they are one list. The sums and rules are in lib/budget.js, the writes in lib/budgetWrites.js (each reads
+ * the row back: row-level security drops a refused update without an error), the reads in hooks/useBudgetData.js.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useCurrency } from "../context/CurrencyContext";
-import { toNPR, fromNPR } from "../utils/currency";
-import { cn, Avatar, Pill } from "../components/ui";
-import { roundAmount } from "../utils/format";
-import { tsMillis, tsDate } from "../utils/date";
 import { useRegion } from "../context/RegionContext";
-import { RegionSwitch, RegionField, RegionBadge } from "../components/RegionSwitch";
+import { useCurrency } from "../context/CurrencyContext";
+import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
+import { sectionCanEdit } from "../utils/permissions";
+import { kathmanduDate } from "../utils/date";
+import useMedia from "../hooks/useMedia";
+import { BentoGrid, BentoPage } from "../components/bento/Bento";
+import { Icons } from "../components/ui";
+import useBudgetData from "../hooks/useBudgetData";
+import RequestsPane from "../components/budget/RequestsPane";
+import RequestCard from "../components/budget/RequestCard";
+import NewRequestCard from "../components/budget/NewRequestCard";
+import { ApprovedTile, LongestTile, UrgentTile, WaitingTile } from "../components/budget/Tiles";
+import { useStrip } from "../components/budget/parts";
+import { decide, undo } from "../lib/budgetWrites";
+import { DECIDER_ROLES, countRequests, filterRequests, orderRequests, plural, summarise } from "../lib/budget";
+import "../components/budget/budget.css";
 
-/* ── Constants ─────────────────────────────────────────── */
-const BUDGET_CATEGORIES = ["Equipment", "Materials", "Services", "Training", "Travel", "Other"];
-const REQ_CATEGORIES    = ["Raw Materials", "Tools", "Machinery", "Office Supplies", "Safety Equipment", "Other"];
+const PHONE_ROWS = 8;     // a phone's page scrolls, so the list shows this many until "Show all" is pressed
 
-const emptyBudgetForm = { title: "", category: "Equipment", amountGBP: "", notes: "", urgency: "Medium" };
-const emptyReqForm    = { title: "", category: "Raw Materials", quantity: "", amountNPR: "", amount: "", urgency: "Medium", notes: "", region: "" };
-
-/* ── Helpers ───────────────────────────────────────────── */
-// Pounds and rupees are converted at the live rate (utils/currency), never a fixed one.
-function nprToGbp(npr) {
-  const v = parseFloat(npr);
-  return (!npr || isNaN(v) || v <= 0) ? "" : fromNPR(v, "GBP").toFixed(2);
-}
-
-function hueFromName(name = "") {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return h % 360;
-}
-
-function nextBrId(rows) {
-  const nums = rows.map(r => parseInt((r.brId || "BR-000").replace("BR-", ""), 10)).filter(n => !isNaN(n));
-  return `BR-${String(nums.length ? Math.max(...nums) + 1 : 79).padStart(3, "0")}`;
-}
-
-function formatDate(ts) {
-  const d = tsDate(ts);
-  return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-}
-
-function fmtNPR(n) {
-  return roundAmount(n).toLocaleString("en-IN");
-}
-
-/* ── Urgency pill ──────────────────────────────────────── */
-function UrgencyPill({ urgency }) {
-  const map = { High: "terra", Medium: "amber", Low: "neutral" };
-  const label = { High: "high urgency", Medium: "med urgency", Low: "low urgency" };
-  return <Pill tone={map[urgency] || "neutral"}>{label[urgency] || urgency}</Pill>;
-}
-
-/* ── Budget request card ───────────────────────────────── */
-function BudgetCard({ row, canReview, onApprove, onReject }) {
-  const { fmt, moneyAlt, foreign } = useCurrency();
-  const hue      = hueFromName(row.requestedBy || "");
-  const gbpAmt   = row.amountGBP ?? (row.amount || 0);
-  const nprAmt   = row.amountNPR ?? Math.round(toNPR(gbpAmt, "GBP"));
-  const isPending  = row.status === "Pending";
-  const isApproved = row.status === "Approved";
-  const isRejected = row.status === "Rejected";
-
-  return (
-    <div className={cn("kbrf", isApproved && "kbrf--approved", isRejected && "kbrf--rejected")}>
-      {/* Header: avatar + name + urgency */}
-      <div className="kbrf-h">
-        <Avatar name={row.requestedBy || "?"} hue={hue} size={36} />
-        <div className="kbrf-h-t">
-          <div className="kbrf-h-n">
-            {row.requestedBy || "Unknown"}
-            {row.requestedByRole ? (
-              <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>
-                {" · "}{row.requestedByRole}
-              </span>
-            ) : null}
-          </div>
-          <div className="kbrf-h-r">
-            {row.brId || "BR-???"}
-            {row.createdAt ? ` · ${formatDate(row.createdAt)}` : ""}
-          </div>
-        </div>
-        <UrgencyPill urgency={row.urgency || "Low"} />
-      </div>
-
-      {/* Title + description */}
-      <div>
-        <div className="kbrf-what">{row.title}</div>
-        {row.notes && <p className="kbrf-reason">{row.notes}</p>}
-      </div>
-
-      {/* Amount section */}
-      <div className="kbrf-amt">
-        <div>
-          <div className="kbrf-amt-l">Amount Requested</div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "var(--ink)", lineHeight: 1.1, letterSpacing: "-.02em" }}>
-            {fmt(nprAmt)}
-          </div>
-          <div className="kbrf-amt-s">
-            {moneyAlt(nprAmt)} · 1 {foreign} = {Number(toNPR(1, foreign).toFixed(2))} NPR
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="kbrf-actions">
-          {canReview && isPending ? (
-            <>
-              <button className="kbrf-btn-reject" onClick={() => onReject(row.id)}>
-                <span>✕</span> Reject
-              </button>
-              <button className="kbrf-btn-approve" onClick={() => onApprove(row.id)}>
-                <span>✓</span> Approve
-              </button>
-            </>
-          ) : !isPending ? (
-            <span style={{
-              fontSize: 12, fontWeight: 700, letterSpacing: ".04em",
-              color: isApproved ? "var(--mint-deep)" : "var(--terra)",
-              background: isApproved ? "var(--mint-soft)" : "var(--terra-soft)",
-              padding: "4px 10px", borderRadius: 20
-            }}>
-              {row.status}
-              {row.reviewedBy ? ` · ${row.reviewedBy}` : ""}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Est. Cost cell of the requirements table ──────────── */
-// A requirement is stored with a rupee amount, a pound amount, or both. The header's
-// currency picker formats rupees, so each figure is handed over as rupees — the stored
-// amountNPR, and the stored pounds at the live rate — which keeps each one showing
-// exactly as stored (pounds worked out from rupees can land a penny off the stored
-// figure). A missing one is worked out the same way. The chosen currency is the bold
-// line; the other sits above it, small, where the rupees always were. Away from rupees
-// the stored pounds lead: a currency other than GBP is worked out from them.
-function ReqCost({ row }) {
-  const { currency, money, moneyAlt } = useCurrency();
-  const npr = Number(row.amountNPR) || Math.round(toNPR(Number(row.amount || 0), "GBP"));
-  if (!npr) return "—";
-  const gbpAsNpr = Number(row.amount) ? toNPR(Number(row.amount), "GBP") : npr;
-  const [lead, follow] = currency !== "NPR" ? [gbpAsNpr, npr] : [npr, gbpAsNpr];
-  return (
-    <>
-      <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)" }}>{moneyAlt(follow)}</span>
-      <span style={{ fontWeight: 600 }}>{money(lead)}</span>
-    </>
-  );
-}
-
-/* ── New Request modal ─────────────────────────────────── */
-function NewRequestModal({ onClose, onSubmit, submitting }) {
-  const [form, setForm] = useState(emptyBudgetForm);
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    onSubmit(form);
-  }
-
-  return (
-    <div className="kbrf-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="kbrf-modal">
-        <div className="kbrf-modal-hd">
-          <span>New Budget Request</span>
-          <button className="kbrf-modal-close" onClick={onClose}>✕</button>
-        </div>
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <label className="kbrf-label">
-            Title
-            <input
-              className="kbrf-input" type="text" required
-              placeholder="What do you need? e.g. Replacement overlock machine"
-              value={form.title}
-              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-            />
-          </label>
-          <label className="kbrf-label">
-            Category
-            <select className="kbrf-input" value={form.category}
-              onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-              {BUDGET_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </label>
-          <label className="kbrf-label">
-            Amount (GBP £)
-            <input
-              className="kbrf-input" type="number" min="0" step="1" required
-              placeholder="0"
-              value={form.amountGBP}
-              onChange={e => setForm(f => ({ ...f, amountGBP: e.target.value }))}
-            />
-            {form.amountGBP && (
-              <span style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 3 }}>
-                ≈ NPR {fmtNPR(Math.round(toNPR(Number(form.amountGBP), "GBP")))}
-              </span>
-            )}
-          </label>
-          <label className="kbrf-label">
-            Urgency
-            <select className="kbrf-input" value={form.urgency}
-              onChange={e => setForm(f => ({ ...f, urgency: e.target.value }))}>
-              <option>Low</option>
-              <option>Medium</option>
-              <option>High</option>
-            </select>
-          </label>
-          <label className="kbrf-label">
-            Justification
-            <textarea
-              className="kbrf-input" rows={3} required
-              placeholder="Why is this needed? Include any relevant context."
-              value={form.notes}
-              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              style={{ resize: "vertical", fontFamily: "inherit" }}
-            />
-          </label>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
-            <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
-            <button type="submit" className="primary-button" disabled={submitting}>
-              {submitting ? "Submitting…" : "Submit Request"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ── Main component ─────────────────────────────────────── */
-function Budget() {
+export default function Budget() {
   const { profile } = useAuth();
   const role = profile?.appRole || profile?.role || "employee";
-  const isUkAdmin  = role === "uk_admin";
-  const canReview  = ["uk_admin", "nepal_admin", "super_admin"].includes(role);
-
+  // Who is offered Approve and Reject: the old page's rule (admins), and only with Edit on Budget, which is what the
+  // database checks: pressing the button without it could only fail.
+  const canDecide = DECIDER_ROLES.includes(role) && sectionCanEdit(profile, "budget");
+  const reviewer = profile?.name || "Admin";
   const { region } = useRegion();
+  const { currency, ratesVersion } = useCurrency();
+  const phone = useMedia("(max-width: 768px)");
+  const { rows, state, stale, reload, patch } = useBudgetData();
+  const ready = state === "ready";
 
-  const [tab,        setTab]        = useState(0);
-  const [allBudgetRows, setBudgetRows] = useState([]);
-  const [allReqRows,    setReqRows]    = useState([]);
+  // "today" is the office's date (Kathmandu), and moves on at midnight without a reload
+  const [today, setToday] = useState(() => kathmanduDate());
+  useEffect(() => {
+    const id = setInterval(() => setToday(kathmanduDate()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
-  // Both tabs read these, so the switch in the header reaches the whole page.
-  const budgetRows = useMemo(() => filterByRegion(allBudgetRows, region), [allBudgetRows, region]);
-  const reqRows    = useMemo(() => filterByRegion(allReqRows,    region), [allReqRows,    region]);
-  const [showNew,    setShowNew]    = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [reqForm,    setReqForm]    = useState(emptyReqForm);
-  const [filterUrgency, setFilterUrgency] = useState("All");
-  const [filterStatus,  setFilterStatus]  = useState("Pending");
-  const [showFilter, setShowFilter] = useState(false);
+  const [status, setStatus] = useState("waiting");
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("");
+  const [urgency, setUrgency] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [openId, setOpenId] = useState(null);          // the request whose card is open
+  const [creating, setCreating] = useState(false);     // the new-request card
+  const [busy, setBusy] = useState(null);              // { id, status } while a decision from a row is being written
+  const [banner, setBanner] = useState("");            // a failure from a row's button (a card shows its own)
+  const [strip, offer, clearStrip] = useStrip();
+  const busyRef = useRef(null);
+  const refocus = useRef(null);                        // after a decision from a row: which row of the list gets the cursor
+  const openRef = useRef(null);                        // which card is open now, for a write that finishes after the person has moved on
 
-  async function load() {
-    const all = (await fetchAll("budget_requests"))
-      .sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
-    setBudgetRows(all.filter(r => r.type === "budget" || !r.type));
-    setReqRows(all.filter(r => r.type === "requirement"));
+  /* ── what is on screen ─────────────────────────────────── */
+
+  const regionRows = useMemo(() => filterByRegion(rows, region), [rows, region]);
+  const counts = useMemo(() => countRequests(regionRows), [regionRows]);
+  // ratesVersion: rupees and pounds are converted at the live rate, so new rates mean new sums
+  const sum = useMemo(() => summarise(regionRows, today, currency), [regionRows, today, currency, ratesVersion]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(
+    () => orderRequests(filterRequests(regionRows, { status, urgency, kind, query })),
+    [regionRows, status, urgency, kind, query],
+  );
+
+  const openRow = openId ? regionRows.find((r) => r.id === openId) || null : null;
+  openRef.current = openId;
+  // a request that is gone (or filed on the other side of the switch) closes its card
+  useEffect(() => { if (openId && ready && !openRow) setOpenId(null); }, [openId, ready, openRow]);
+
+  // the list has caught up with a decision made from a row: the cursor goes to the row that took its place
+  // (unless a card has been opened over it since: the cursor stays in the card)
+  useEffect(() => {
+    if (refocus.current == null) return;
+    const at = refocus.current;
+    refocus.current = null;
+    if (document.querySelector(".kmodal")) return;
+    const hits = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-tile="list"] .dt-hit'));
+    hits[Math.min(at, hits.length - 1)]?.focus({ preventScroll: true });
+  }, [list]);
+
+  /* ── the filter, and the tiles that set it ─────────────── */
+
+  const pick = (setter) => (v) => { setter(v); setShowAll(false); };
+
+  function show(next) {
+    setStatus(next.status);
+    setUrgency(next.urgency || "");
+    setKind("");
+    setQuery("");
+    setShowAll(false);
+    // a phone's page scrolls: bring the list to the top of the screen
+    if (phone) {
+      const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      document.querySelector('[data-tile="list"]')?.scrollIntoView({ block: "start", behavior: calm ? "auto" : "smooth" });
+    }
   }
 
-  useEffect(() => { load().catch(console.error); }, []);
+  /* ── writes ────────────────────────────────────────────── */
 
-  /* ── Submit budget request ── */
-  async function submitBudget(form) {
-    setSubmitting(true);
-    const gbp = Number(form.amountGBP) || 0;
-    await insertRow("budget_requests", {
-      type:             "budget",
-      // Numbered across both regions — BR ids are one company-wide sequence.
-      brId:             nextBrId(allBudgetRows),
-      region:           region,
-      title:            form.title,
-      category:         form.category,
-      amountGBP:        gbp,
-      amountNPR:        Math.round(toNPR(gbp, "GBP")),
-      amount:           gbp,
-      urgency:          form.urgency,
-      notes:            form.notes,
-      status:           "Pending",
-      requestedBy:      profile?.name || "Unknown",
-      requestedByRole:  profile?.displayRole || profile?.role || "",
+  // after a decision: the list takes what was written at once, then looks again; say what happened and offer to take it back
+  const afterDecision = useCallback(async (row, next, saved) => {
+    patch(saved);
+    await reload();
+    offer(`${next} “${row.title || "request"}”.`, async () => {
+      const res = await undo(row, next);
+      if (res.ok) patch(res.row);
+      else setBanner(res.message);
+      await reload();
     });
-    setShowNew(false);
-    await load();
-    setSubmitting(false);
-  }
+  }, [patch, reload, offer]);
 
-  /* ── Submit requirement ── */
-  async function submitReq(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    await insertRow("budget_requests", {
-      type:            "requirement",
-      region:          reqForm.region || region,
-      title:           reqForm.title,
-      category:        reqForm.category,
-      quantity:        reqForm.quantity,
-      amountNPR:       reqForm.amountNPR ? Number(reqForm.amountNPR) : null,
-      amount:          reqForm.amount    ? Number(reqForm.amount)    : null,
-      urgency:         reqForm.urgency,
-      notes:           reqForm.notes,
-      status:          "Pending",
-      requestedBy:     profile?.name || "Unknown",
-      requestedByRole: profile?.displayRole || profile?.role || "",
-    });
-    setReqForm(emptyReqForm);
-    await load();
-    setSubmitting(false);
-  }
+  // from a row: a failure has no card to be said in, so it is the page's banner. `at` is where the row was in the list:
+  // once it has gone the cursor goes to whatever took its place, so the next one can be decided without starting again
+  const decideFromRow = useCallback(async (row, next, at = 0) => {
+    if (busyRef.current) return;
+    busyRef.current = { id: row.id, status: next };
+    setBusy(busyRef.current);
+    setBanner("");
+    try {
+      const res = await decide(row, next, reviewer);
+      if (res.ok) {
+        refocus.current = at;
+        await afterDecision(row, next, res.row);
+      } else {
+        setBanner(res.message);
+        if (res.settled || res.gone) await reload();      // somebody got there first: show what is true now
+      }
+    } finally {
+      refocus.current = null;                            // (the list has taken it by now; this is for a read that never came)
+      busyRef.current = null;                            // whatever happened, the buttons come back
+      setBusy(null);
+    }
+  }, [reviewer, afterDecision, reload]);
 
-  async function review(id, status) {
-    await updateRow("budget_requests", id, {
-      status,
-      reviewedBy: profile?.name || "Admin",
-      reviewedAt: new Date().toISOString(),
-    });
-    await load();
-  }
+  // from the card: the card says why it did not work, and closes when it did. The card can be closed while this is being
+  // written (Close, Escape and the X stay live), so what happens next is judged by whether it is still the card on screen:
+  // a failure nobody will see on the card is said on the page, and a success must not close a different card opened since.
+  const decideFromCard = useCallback(async (row, next) => {
+    const res = await decide(row, next, reviewer);
+    const stillOpen = openRef.current === row.id;
+    if (res.ok) {
+      if (stillOpen) {
+        // the card's request is the list's highlighted row: once it has gone the cursor goes to whatever took its place
+        const mine = document.querySelector('[data-tile="list"] .dt-row.is-active');
+        refocus.current = mine ? [...mine.parentElement.children].indexOf(mine) : 0;
+        setOpenId(null);
+      }
+      await afterDecision(row, next, res.row);
+    } else {
+      if (!stillOpen || res.gone) setBanner(res.message);
+      if (res.settled || res.gone) await reload();
+    }
+    return res;
+  }, [reviewer, afterDecision, reload]);
 
-  /* ── Filtered budget rows ── */
-  const visibleBudget = useMemo(() => {
-    return budgetRows.filter(r => {
-      if (filterUrgency !== "All" && r.urgency !== filterUrgency) return false;
-      if (filterStatus  !== "All" && r.status  !== filterStatus)  return false;
-      return true;
-    });
-  }, [budgetRows, filterUrgency, filterStatus]);
+  // a request has been sent: show it where it will be found, and say so
+  const afterSent = useCallback(async (row) => {
+    setStatus("waiting");
+    setUrgency("");
+    setKind("");
+    setQuery("");
+    setShowAll(false);
+    await reload();
+    offer(`Sent “${row?.title || "your request"}” to the directors.`);
+  }, [reload, offer]);
 
-  const pendingBudget = budgetRows.filter(r => r.status === "Pending").length;
-  const pendingReq    = reqRows.filter(r => r.status === "Pending").length;
+  const openCard = useCallback((id) => setOpenId(id), []);
 
-  /* ── Req helpers ── */
-  function handleReqNPR(e) {
-    const npr = e.target.value;
-    setReqForm(f => ({ ...f, amountNPR: npr, amount: nprToGbp(npr) }));
-  }
-  function handleReqGBP(e) {
-    setReqForm(f => ({ ...f, amount: e.target.value, amountNPR: "" }));
-  }
+  /* ── the page ──────────────────────────────────────────── */
 
-  function statusClass(s) {
-    if (s === "Approved") return "badge-ok";
-    if (s === "Rejected") return "badge-danger";
-    return "badge-muted";
-  }
-  function urgencyClass(u) {
-    if (u === "High")   return "priority-tag high";
-    if (u === "Medium") return "priority-tag medium";
-    return "priority-tag low";
-  }
-
-  const reviewAction = (row) =>
-    canReview && row.status === "Pending" ? (
-      <div style={{ display: "flex", gap: 6 }}>
-        <button className="primary-button" style={{ padding: "5px 12px", fontSize: "0.82rem" }}
-          onClick={() => review(row.id, "Approved")}>Approve</button>
-        <button className="ghost-button" style={{ padding: "5px 12px", fontSize: "0.82rem", color: "var(--danger)", borderColor: "rgba(198,40,40,0.4)" }}
-          onClick={() => review(row.id, "Rejected")}>Reject</button>
-      </div>
-    ) : canReview ? (
-      <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>by {row.reviewedBy}</span>
-    ) : null;
+  const waiting = counts.waiting;
+  const sub = ready
+    ? <span>{waiting > 0 ? `${waiting} ${plural(waiting, "request")} waiting for sign-off` : "Nothing waiting for sign-off"}</span>
+    : state === "error" ? null : <span>Loading…</span>;
+  const loading = !ready;
 
   return (
-    <>
-      <PageHeader
-        title="Budget & Requirements"
-        description="Submit budget requests and material requirements for UK director sign-off."
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <RegionSwitch untagged={countUntagged(tab === 0 ? allBudgetRows : allReqRows)} />
-            {tab === 0 && (
-              <button className="primary-button" data-tour="new-budget-request" onClick={() => setShowNew(true)}>+ New request</button>
-            )}
+    <BentoPage className="bd-page">
+      <header className="kb-head kb-head--stack">
+        <div className="kb-head-l">
+          <h1>Budget &amp; Requirements</h1>
+          <p className="kb-head-sub">{sub}</p>
+        </div>
+        <div className="kb-head-r">
+          <div className="kb-head-row">
+            <RegionSwitch untagged={countUntagged(rows)} size="sm" />
           </div>
-        }
-      />
+          {/* off until the list is in: a budget request is numbered from the ones already there, so sending one from an empty page would repeat a number */}
+          <button type="button" className="kb-btn kb-btn--primary bd-newbtn kb-head-act" data-tour="new-budget-request" disabled={!ready} onClick={() => setCreating(true)}>
+            <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> New request
+          </button>
+        </div>
+      </header>
 
-      {/* ── Tabs ── */}
-      <div className="tab-row">
-        <button className={cn("tab-button", tab === 0 && "active")} onClick={() => setTab(0)}>
-          Budget Requests
-          {pendingBudget > 0 && <span className="tab-badge">{pendingBudget}</span>}
-        </button>
-        <button className={cn("tab-button", tab === 1 && "active")} onClick={() => setTab(1)}>
-          Requirements
-          {pendingReq > 0 && <span className="tab-badge">{pendingReq}</span>}
-        </button>
-      </div>
-
-      {/* ══════════════ BUDGET REQUESTS TAB ══════════════ */}
-      {tab === 0 && (
-        <>
-          {/* Filter bar */}
-          <div className="kbrf-bar">
-            <span style={{ fontSize: 13, color: "var(--ink-3)" }}>
-              {visibleBudget.length} request{visibleBudget.length !== 1 ? "s" : ""}
-              {filterStatus !== "All" ? ` · ${filterStatus.toLowerCase()}` : ""}
-            </span>
-
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {/* Status filter chips */}
-              {["Pending", "Approved", "Rejected", "All"].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setFilterStatus(s)}
-                  className={cn("kbrf-chip", filterStatus === s && "kbrf-chip--on")}
-                >{s}</button>
-              ))}
-
-              {/* Urgency filter */}
-              <select
-                className="kbrf-select"
-                value={filterUrgency}
-                onChange={e => setFilterUrgency(e.target.value)}
-              >
-                <option value="All">All urgency</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Card grid */}
-          {visibleBudget.length === 0 ? (
-            <div className="kbrf-empty">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--ink-5)", marginBottom: 8 }}>
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-              </svg>
-              <p>No {filterStatus !== "All" ? filterStatus.toLowerCase() + " " : ""}budget requests</p>
-            </div>
-          ) : (
-            <div className="kbrf-grid">
-              {visibleBudget.map(row => (
-                <BudgetCard
-                  key={row.id}
-                  row={row}
-                  canReview={canReview}
-                  onApprove={id => review(id, "Approved")}
-                  onReject={id  => review(id, "Rejected")}
-                />
-              ))}
-            </div>
-          )}
-        </>
+      {banner && (
+        <div className="bd-banner bd-banner--bad" role="alert">
+          <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+          <span>{banner}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setBanner("")}><Icons.X size={14} sw={2} aria-hidden="true" /></button>
+        </div>
+      )}
+      {ready && stale && (
+        <div className="bd-banner" role="status">
+          <Icons.Alert size={16} sw={1.9} aria-hidden="true" />
+          <span>{stale}</span>
+        </div>
       )}
 
-      {/* ══════════════ REQUIREMENTS TAB ══════════════ */}
-      {tab === 1 && (
-        <>
-          <section className="panel">
-            <h3>New Requirement</h3>
-            <form className="grid-form" onSubmit={submitReq}>
-              <label className="full-width">
-                Item / Description
-                <input type="text" value={reqForm.title} required placeholder="What is needed?"
-                  onChange={e => setReqForm(f => ({ ...f, title: e.target.value }))} />
-              </label>
-              <label>
-                Category
-                <select value={reqForm.category} onChange={e => setReqForm(f => ({ ...f, category: e.target.value }))}>
-                  {REQ_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                </select>
-              </label>
-              <label>
-                Quantity
-                <input type="text" value={reqForm.quantity} required placeholder="e.g. 50 units"
-                  onChange={e => setReqForm(f => ({ ...f, quantity: e.target.value }))} />
-              </label>
-              <label>
-                Urgency
-                <select value={reqForm.urgency} onChange={e => setReqForm(f => ({ ...f, urgency: e.target.value }))}>
-                  <option>Low</option><option>Medium</option><option>High</option>
-                </select>
-              </label>
-              <label>
-                Est. Cost (NPR रू)
-                <input type="number" min="0" step="1" value={reqForm.amountNPR} placeholder="0"
-                  onChange={handleReqNPR} />
-              </label>
-              <label>
-                Est. Cost (GBP £)
-                <div style={{ position: "relative" }}>
-                  <input type="number" min="0" step="0.01" value={reqForm.amount} placeholder="0.00"
-                    style={{ paddingRight: reqForm.amountNPR ? 90 : 12 }}
-                    onChange={handleReqGBP} />
-                  {reqForm.amountNPR && <span className="converted-tag">auto</span>}
-                </div>
-              </label>
-              <label className="full-width">
-                Notes
-                <input type="text" value={reqForm.notes} placeholder="Additional context"
-                  onChange={e => setReqForm(f => ({ ...f, notes: e.target.value }))} />
-              </label>
-              <RegionField
-                value={reqForm.region}
-                onChange={v => setReqForm(f => ({ ...f, region: v }))}
-                hint="Which arm of the business needs this."
-              />
-              <button className="primary-button" type="submit" disabled={submitting}>
-                {submitting ? "Submitting…" : "Submit Requirement"}
-              </button>
-            </form>
-          </section>
-
-          <section className="panel">
-            <h3>All Requirements {reqRows.length > 0 && <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--text-muted)" }}>({reqRows.length})</span>}</h3>
-            {reqRows.length === 0 ? (
-              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No requirements submitted yet.</p>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Item</th><th>Category</th><th>Qty</th><th>Est. Cost</th>
-                      <th>Urgency</th><th>Requested By</th><th>Status</th>
-                      {canReview && <th>Action</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reqRows.map(row => (
-                      <tr key={row.id}>
-                        <td>
-                          <span style={{ fontWeight: 600 }}>{row.title}</span>
-                          {row.notes && <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: "2px 0 0" }}>{row.notes}</p>}
-                        </td>
-                        <td>{row.category}</td>
-                        <td>{row.quantity}</td>
-                        <td style={{ fontFamily: "monospace" }}>
-                          <ReqCost row={row} />
-                        </td>
-                        <td><span className={urgencyClass(row.urgency)}>{row.urgency}</span></td>
-                        <td>{row.requestedBy}</td>
-                        <td><span className={statusClass(row.status)}>{row.status}</span></td>
-                        {canReview && <td>{reviewAction(row)}</td>}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </>
+      {state === "error" ? (
+        <div className="kb-error" role="alert">
+          <p>The requests could not load. Check your connection and try again.</p>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={reload}>Try again</button>
+        </div>
+      ) : (
+        <BentoGrid layout="budget">
+          <WaitingTile sum={sum} loading={loading} onOpen={() => show({ status: "waiting" })} />
+          <UrgentTile sum={sum} loading={loading} onOpen={() => show({ status: "waiting", urgency: "High" })} />
+          <LongestTile oldest={sum.oldest} loading={loading} onOpen={(row) => openCard(row.id)} />
+          <ApprovedTile sum={sum} loading={loading} onOpen={() => show({ status: "approved" })} />
+          <RequestsPane
+            rows={list} counts={counts}
+            status={status} onStatus={pick(setStatus)}
+            query={query} onQuery={pick(setQuery)}
+            kind={kind} onKind={pick(setKind)}
+            urgency={urgency} onUrgency={pick(setUrgency)}
+            today={today} canDecide={canDecide} busy={busy} onDecide={decideFromRow}
+            onOpen={openCard} activeId={openId || undefined} loading={loading}
+            strip={strip} onStripClose={clearStrip}
+            capped={phone ? PHONE_ROWS : 0} showAll={showAll} onShowAll={() => setShowAll(true)}
+          />
+        </BentoGrid>
       )}
 
-      {/* ── New request modal ── */}
-      {showNew && (
-        <NewRequestModal
-          onClose={() => setShowNew(false)}
-          onSubmit={submitBudget}
-          submitting={submitting}
-        />
+      {openRow && (
+        <RequestCard key={openRow.id} row={openRow} today={today} canDecide={canDecide} onDecide={decideFromCard} onClose={() => setOpenId(null)} />
       )}
-    </>
+
+      {creating && (
+        <NewRequestCard rows={rows} region={region} profile={profile} onClose={() => setCreating(false)} onSent={afterSent} />
+      )}
+    </BentoPage>
   );
 }
-
-export default Budget;

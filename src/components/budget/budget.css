@@ -1,0 +1,166 @@
+/* ══════════════════════════════════════════════════════════════════
+   BUDGET & REQUIREMENTS — the page's own parts (everything is `.bd-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then a short row of four glass tiles and one pane that holds
+   the list of requests (the shared DataTable, components/table/). A request opens in the shared EditCard
+   (components/EditCard.jsx). This sheet only draws what they leave to the page: the grid, the tiles' short form,
+   the pane around the table, a few cell details, the strip under the list and the lists inside the cards.
+   Inside a tile everything reads the `--kb-*` tokens, so light, dark and the tones follow.
+
+   Loaded after bento.css. The grid is written `.kb-grid.kb-grid--budget` (one class more than bento's own `.kb-grid`
+   rules) so it wins in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--budget { grid-template-rows: clamp(84px, 10.5vh, 96px) minmax(0, 1fr); grid-template-areas:
+  "wait wait wait urg  urg  urg  old  old  old  appr appr appr"
+  "list list list list list list list list list list list list"; }
+
+/* Tablet: six columns; the tiles in two rows of two, and a page tall enough for the list. */
+@media (max-width: 1023px) {
+  .kb-grid.kb-grid--budget {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px 84px minmax(0, 1fr);
+    grid-template-areas:
+      "wait wait wait urg  urg  urg"
+      "old  old  old  appr appr appr"
+      "list list list list list list";
+  }
+}
+
+/* Phone: two columns, the page scrolls, and every tile grows with what is in it. */
+@media (max-width: 768px) {
+  .kb.bd-page { min-height: 0; }
+  .kb-grid.kb-grid--budget {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas: "wait urg" "old appr" "list list";
+  }
+}
+
+/* ── The header and its notices ───────────────────────────────── */
+
+.kb-btn.bd-newbtn { height: 32px; padding: 0 14px; border-radius: 999px; }
+
+.bd-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.bd-banner > svg { flex: none; color: var(--kb-warn); }
+.bd-banner > span { flex: 1 1 auto; min-width: 0; }
+.bd-banner button { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--kb-ink-3); cursor: pointer; }
+.bd-banner button:hover { background: var(--kb-well); color: var(--kb-ink); }
+.bd-banner button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.bd-banner--bad { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 30%, transparent); }
+.bd-banner--bad > svg { color: var(--kb-bad); }
+
+/* ── The tiles ────────────────────────────────────────────────── */
+
+/* a one-row tile in a short window shares a baseline, as the Dashboard's small tiles do */
+@container kb (max-height: 69px) {
+  .bd-kpi .kb-main { flex-direction: row; align-items: baseline; gap: 0 10px; }
+  .bd-kpi .kb-main > .kb-fig { flex: none; }
+  .bd-kpi .kb-main > .kb-sub { flex: 1 1 0; }
+}
+
+/* ── The pane around the list ─────────────────────────────────── */
+
+/* a pane is a plain tile with no padding of its own: the table's rows carry theirs, the head and the bar here */
+.kb-tile.bd-pane { padding: 0; gap: 0; }
+.kb-tile.bd-pane > .kb-hd { padding: 14px 16px 8px; }
+.kb-tile.bd-pane > .kb-main { gap: 0; }
+.bd-tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; padding: 0 16px 10px; }
+.bd-tools .dt-search { flex: 1 1 200px; min-width: 180px; max-width: 280px; }
+.bd-tools .dt-search input { width: 100%; }
+.bd-viewonly { flex: none; margin: 0; padding: 0 16px 10px; font-size: 12.5px; color: var(--kb-ink-3); }
+
+.bd-morerow { flex: none; padding: 10px 16px 6px; }
+.bd-more {
+  width: 100%; height: 36px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
+  font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.bd-more:hover { background: var(--kb-well); color: var(--kb-ink); }
+.bd-more:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+/* ── Inside the cells ─────────────────────────────────────────── */
+
+.bd-who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bd-who .kavatar { flex: none; }
+.bd-who-t { min-width: 0; display: grid; gap: 1px; }
+.bd-who-t > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--kb-ink); }
+.bd-who-t > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
+
+/* Reject and Approve on a waiting row */
+.bd-acts { display: inline-flex; align-items: center; gap: 8px; }
+.bd-acts .kb-btn { gap: 5px; padding: 0 11px; }
+@media (pointer: coarse) { .bd-acts .kb-btn { height: 40px; padding: 0 14px; } }
+
+/* the small tag that leads a narrow row's second line */
+.bd-mini { margin-right: 2px; padding: 0 6px; font-size: 11px; line-height: 1.5; vertical-align: 1px; }
+
+/* a decided row: the verdict, and who gave it and when */
+.bd-decided { display: grid; justify-items: start; gap: 3px; min-width: 0; max-width: 100%; }
+.bd-decided > small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--kb-ink-3); }
+
+/* ── The strip under the list: what just happened, and Undo when it can be taken back ── */
+
+.bd-strip { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--kb-line); background: var(--kb-chip); color: var(--kb-ink); font-size: 12.5px; }
+.bd-strip > svg { flex: none; color: var(--kb-accent); }
+.bd-strip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-strip button { flex: none; margin-left: auto; display: inline-grid; place-items: center; min-height: 28px; padding: 4px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--kb-accent); font: 700 12.5px/1.2 var(--font); cursor: pointer; }
+.bd-strip button:hover { background: var(--kb-well); }
+.bd-strip button:disabled { opacity: .55; cursor: progress; }
+.bd-strip button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.bd-strip .bd-strip-x { min-width: 28px; padding: 0; color: var(--kb-ink-3); }
+
+/* ── Phone: the page scrolls, so the pane grows with its rows ── */
+
+@media (max-width: 768px) {
+  .kb-tile.bd-pane > .kb-hd { padding: 12px 12px 8px; }
+  .bd-tools { padding: 0 12px 8px; }
+  .bd-tools .dt-search { order: -1; flex: 1 1 100%; }      /* the search takes the first line, the filters the next */
+  .bd-tools .dt-search input { font-size: 16px; }          /* the shared search box is 13px: on a phone iOS would zoom in on it */
+  .bd-viewonly { padding: 0 12px 8px; }
+  .bd-morerow { padding: 10px 12px 6px; }
+  .bd-strip { padding: 8px 12px; }
+  /* (the header is the shared stacked kit, kb-head--stack in bento.css) */
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   THE CARDS (EditCard: portalled out of .kb, so the app's base tokens and the card's own --ec-*)
+══════════════════════════════════════════════════════════════════ */
+
+/* the fields sit in the card's two-column panes; their wrapper adds no box of its own */
+.bd-flow { display: contents; }
+
+/* why it is needed: read, so it wraps */
+.ec-note.bd-why { padding: 10px 12px; border-radius: 10px; background: var(--ec-well); font-size: 13.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ec-fig.bd-noamt { font-size: 18px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+
+/* what was decided, in the colours of the decision */
+.bd-verdict { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
+.bd-verdict > svg { flex: none; }
+.bd-verdict b { font-weight: 700; }
+.bd-verdict--approved { background: var(--ec-good-bg); color: color-mix(in srgb, var(--ec-good) 85%, var(--ink)); }
+.bd-verdict--rejected { background: var(--ec-bad-bg); color: color-mix(in srgb, var(--ec-bad) 80%, var(--ink)); }
+
+/* Reject is the card's one red button (the shared ghost button's own colour would otherwise win over the card's) */
+.bd-card .kmodal-ft .ghost-button.ec-danger { color: var(--ec-bad); border-color: color-mix(in srgb, var(--ec-bad) 38%, transparent); }
+.bd-card .kmodal-ft .ghost-button.ec-danger:hover:not(:disabled) { background: var(--ec-bad-bg); }
+
+/* the shared hover turns the green button into a lighter mint under white text (2.4:1); in these cards it brightens the green instead */
+.bd-card .kmodal-ft .primary-button:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--mint-deep); filter: brightness(1.14); }
+
+/* while a decision is being written the card's two decision buttons look off but keep the cursor (see RequestCard) */
+.bd-card .kmodal-ft button[aria-disabled="true"] { opacity: .55; cursor: progress; }
+
+/* who asked */
+.bd-asker { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.bd-asker .kavatar { flex: none; }
+.bd-asker > span { min-width: 0; display: grid; gap: 1px; }
+.bd-asker b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; color: var(--ink); }
+.bd-asker small { font-size: 12.5px; color: var(--ink-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bd-more { transition: none; }
+}
