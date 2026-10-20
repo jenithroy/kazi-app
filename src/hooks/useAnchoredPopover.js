@@ -57,7 +57,7 @@ export function useAnchoredPopover({
 
   useEffect(() => {
     if (!open) return undefined;
-    const again = (e) => { if (e?.target && popRef.current?.contains(e.target)) return; place(false); };
+    const again = (e) => { if (e?.target instanceof Node && popRef.current?.contains(e.target)) return; place(false); };   // a window "resize" has the window itself as its target, which is not a Node
     const down = (e) => {
       if (popRef.current?.contains(e.target) || triggerRef.current?.contains(e.target)) return;
       dismiss.current?.();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import PageHeader from "../components/PageHeader";
+import Select from "../components/Select";
 import { Avatar, Btn, Card, Icons, KPI, Pill, cn } from "../components/ui";
 import {
   fetchActivityFeed,
@@ -269,6 +270,16 @@ export default function Usage() {
     return [...m].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [daily]);
 
+  /* The two pickers: the first entry of each says "no narrowing" (value ""), which the page keeps as "all". */
+  const personOptions = useMemo(
+    () => [{ value: "", label: "Everyone" }, ...people.map((p) => ({ value: p.key, label: p.name }))],
+    [people]
+  );
+  const pageOptions = useMemo(
+    () => [{ value: "", label: "Every page" }, ...sections.map((s) => ({ value: s.key, label: s.name }))],
+    [sections]
+  );
+
   /* Person and page narrow everything; the feed's own search and verb filter
      narrow only the feed. */
   const scopedDaily = useMemo(() => daily.filter((r) => {
@@ -450,20 +461,14 @@ export default function Usage() {
         </div>
 
         <div className="kusg-selects">
-          <label className="kusg-select">
-            <Icons.Users size={13} />
-            <select value={person} onChange={(e) => setPerson(e.target.value)}>
-              <option value="all">Everyone</option>
-              {people.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
-            </select>
-          </label>
-          <label className="kusg-select">
-            <Icons.Dashboard size={13} />
-            <select value={section} onChange={(e) => setSection(e.target.value)}>
-              <option value="all">Every page</option>
-              {sections.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
-            </select>
-          </label>
+          <Select
+            variant="pill" label="Person" value={person === "all" ? "" : person} onChange={(v) => setPerson(v || "all")}
+            options={personOptions} placeholder="Everyone" searchPlaceholder="Find a person"
+          />
+          <Select
+            variant="pill" label="Page" value={section === "all" ? "" : section} onChange={(v) => setSection(v || "all")}
+            options={pageOptions} placeholder="Every page" searchPlaceholder="Find a page"
+          />
           {scoped && (
             <button type="button" className="kusg-clear" onClick={() => { setPerson("all"); setSection("all"); }}>
               <Icons.X size={12} /> Clear

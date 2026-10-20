@@ -1,0 +1,273 @@
+/* ══════════════════════════════════════════════════════════════════
+   SYSTEM PAGES — Admin, Usage & Activity, Bug Report, Changelog
+
+   These four pages kept the layout they had; this file only changes their skin, to the Dashboard's
+   frosted glass, in light and in dark. Each is drawn inside <SysPage> (App.jsx), a `.kb.sys`:
+
+     .kb    brings what a glass page gets: the soft light behind the page (glass.css), the slim
+            scroll bars and the dark `color-scheme` (bento.css)
+     .sys   this file. It is `display: contents`, so it is not a box and the page is laid out exactly as
+            if the wrapper were not there.
+
+   Three things happen here:
+     1. The old rules say var(--ink), var(--card), var(--line) ... everywhere. In dark those tokens are
+        remapped inside `.sys`, so every old rule turns dark without being rewritten. In light only the
+        greys that read too faint on glass go a touch deeper, and --bg / --bg-2 (the old page's flat
+        greys) become see-through wells, so a band inside a card does not paint a slab over the glass.
+     2. The cards the old pages drew with a white fill become panes of glass: the Dashboard tile's
+        recipe (bento.css, GLASS). The list of panes is the :is(...) below and PANES in SysPage.jsx.
+     3. The few colours an old rule wrote out literally (amber text, white on green, a pale banner)
+        get a dark counterpart, or are taken from the glass kit's status tokens.
+
+   Component CSS loads before styles.css, so whatever has to beat an old rule is scoped under `.sys`
+   (one class more). When one of these pages is properly redone, take its <SysPage> out of App.jsx and
+   delete its rules here.
+══════════════════════════════════════════════════════════════════ */
+
+.kb.sys { display: contents; }
+
+/* ── Tokens: light ───────────────────────────────────────────────
+   The page behind a glass card is the soft light, not flat white, and a well darkens it a little more, so the
+   two grey text steps go deeper (the old --ink-4 was 3:1 on white and the old pages wrote small captions in it;
+   these hold 4.5:1 on the glass). --bg and --bg-2, the old page's flat greys, become see-through wells. */
+.sys {
+  --ink-3: #4a5951;
+  --ink-4: #57655d;
+  --bg: rgba(15, 46, 34, .045);
+  --bg-2: rgba(15, 46, 34, .07);
+}
+/* the few places that used --ink-5 for words, not for icons or tracks */
+.sys :is(.kap-field-label em, .kap-group-note, .kusg-rank-n) { color: var(--ink-4); }
+.sys .kap-personal:not(.is-on) { color: var(--ink-4); }
+.sys ::placeholder { color: var(--ink-4); opacity: 1; }
+/* the dropdown drawn as a form field (Bug Report's severity) is filled from --mg-input, which only a glass dialog defines: here it is the same fill as the page's inputs */
+.sys { --mg-input: var(--card); }
+
+/* ── Tokens: dark ────────────────────────────────────────────────
+   The same values the Modal and the Dashboard use, written out (not var(--kb-*): in light
+   those point back at these tokens). */
+:root[data-theme="dark"] .sys {
+  --ink: #edf1ef; --ink-2: #c8d0cc; --ink-3: #b2bcb7; --ink-4: #a0aba5; --ink-5: #68746f;
+  --bg: rgba(255, 255, 255, .04);
+  --bg-2: rgba(255, 255, 255, .07);
+  --card: #1c2621;                        /* what sits ON a pane: inputs, the lit chip, a button */
+  --line: rgba(255, 255, 255, .075);
+  --line-strong: rgba(255, 255, 255, .17);
+  --mint-deep: #7dd3a8;                   /* it is text and icon colour nearly everywhere; filled buttons are below */
+  --mint-soft: rgba(125, 211, 168, .14);
+  --mint-wash: rgba(125, 211, 168, .07);
+  --amber-soft: rgba(224, 180, 95, .14);
+  --terra: #ee9a82;
+  --terra-soft: rgba(240, 164, 141, .14);
+  --blue: #7fb0d4;
+  --blue-soft: rgba(143, 184, 216, .14);
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, .25);
+  --shadow-2: 0 8px 22px -8px rgba(0, 0, 0, .7);
+  --shadow-pop: 0 18px 48px -12px rgba(0, 0, 0, .75), 0 4px 12px -2px rgba(0, 0, 0, .4);
+}
+
+/* ── Scroll bars ─────────────────────────────────────────────────
+   `.kb` gives every scroller inside the page the kit's slim pill, 12px wide. These pages kept their old scroll bars'
+   10px, because a scroller's content is as much narrower as its bar is wider (Admin's role rail and matrix would
+   lose 2px), and the pill is the same 6px thumb either way. */
+@media (pointer: fine) {
+  .kb.sys ::-webkit-scrollbar { width: 10px; height: 10px; }
+  .kb.sys ::-webkit-scrollbar-thumb { border-width: 2px; }
+}
+/* Usage, Bug Report and Changelog scroll as a whole, so the shell's own bar (.kscroll, outside `.kb`) is theirs
+   to show: in dark its thumb (dark green at 12%) is lost on the dark page, so it takes the kit's colour. */
+:root[data-theme="dark"] .kscroll:has(.sys) { color-scheme: dark; }
+@media (pointer: fine) {
+  :root[data-theme="dark"] .kscroll:has(.sys)::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .2); background-clip: content-box; }
+  :root[data-theme="dark"] .kscroll:has(.sys)::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .4); background-clip: content-box; }
+}
+
+/* ══ Panes ═════════════════════════════════════════════════════════
+   Back to front inside a pane: ::before the glass (the backdrop blurred, tinted, grained, lit where the
+   pointer is), ::after the edge, then the content. The pointer's numbers (--mx --my --near --in) come
+   from useReveal, as on the Dashboard. */
+.sys :is(
+  .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+  .kazi-card, .kkpi,
+  .kbug-card, .kchg-card
+) {
+  --mx: -999px; --my: -999px; --in: 0; --near: 0;
+  position: relative; isolation: isolate;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  ) {
+    background: transparent;
+    border-color: var(--kb-glass-edge);
+    box-shadow: var(--kb-glass-shadow);
+    transition: border-color .2s, --in .3s ease, --near .22s ease;
+  }
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  ):hover { border-color: var(--kb-glass-edge); }       /* .kkpi darkened its edge on hover */
+
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  )::before,
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  )::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  }
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  )::before {
+    z-index: -2;
+    background-color: var(--kb-glass);
+    background-image:
+      radial-gradient(circle 280px at var(--mx) var(--my), color-mix(in srgb, var(--kb-lit) calc(var(--in) * 100%), transparent), transparent 72%),
+      var(--glass-grain);
+    -webkit-backdrop-filter: blur(var(--kb-blur)) saturate(1.45);
+    backdrop-filter: blur(var(--kb-blur)) saturate(1.45);
+  }
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  )::after {
+    z-index: -1; padding: 1.5px;
+    background: radial-gradient(circle 210px at var(--mx) var(--my), color-mix(in srgb, var(--kb-edge) calc(var(--near) * 100%), transparent), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  /* phones scroll, so no blur at all and the tint does the work (bento.css does the same for tiles) */
+  @media (max-width: 768px) {
+    .sys :is(
+      .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+      .kazi-card, .kkpi,
+      .kbug-card, .kchg-card
+    )::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+
+  /* an operating-system setting asking for less see-through UI: opaque cards (the page goes plain in glass.css) */
+  @media (prefers-reduced-transparency: reduce) {
+    .sys :is(
+      .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+      .kazi-card, .kkpi,
+      .kbug-card, .kchg-card
+    )::before { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--kb-surface); }
+  }
+}
+@media (forced-colors: active) {
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  )::before,
+  .sys :is(
+    .kap-stats, .kap-editor, .kap-rail, .kap-panel-top, .kap-card,
+    .kazi-card, .kkpi,
+    .kbug-card, .kchg-card
+  )::after { display: none; }
+}
+
+/* ══ Dark: what the old rules wrote out literally ═════════════════ */
+/* buttons that were filled with the (dark) green and carried white words: the green is the light mint now */
+:root[data-theme="dark"] .sys :is(.kap-btn--primary, .kbug-submit) { color: var(--kb-on-accent); }
+:root[data-theme="dark"] .sys .kap-btn--primary:hover:not(:disabled) { background: var(--mint-2); border-color: var(--mint-2); }
+:root[data-theme="dark"] .sys .kbug-submit:not(:disabled):hover { opacity: 1; background: var(--mint-2); }
+:root[data-theme="dark"] .sys .kbtn--primary { background: var(--mint); border-color: var(--mint); color: var(--kb-on-accent); }
+:root[data-theme="dark"] .sys .kbtn--primary:hover { background: var(--mint-2); }
+:root[data-theme="dark"] .sys .kbtn--ghost:hover { background: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .sys .kap-iconbtn:hover { background: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .sys .kap-btn:hover:not(:disabled):not(.kap-btn--primary):not(.kap-btn--danger):not(.kap-btn--add) { background: var(--card); border-color: var(--ink-5); filter: brightness(1.25); }
+
+/* soft status colours: the pale fill is now see-through, so the words on it come from the kit's status ink */
+:root[data-theme="dark"] .sys :is(.kap-btn--danger, .kap-error) { color: var(--kb-bad); }
+:root[data-theme="dark"] .sys .kap-btn--danger:hover:not(:disabled) { background: rgba(240, 164, 141, .22); }
+:root[data-theme="dark"] .sys .kusg-error { color: var(--kb-bad); }
+:root[data-theme="dark"] .sys :is(.kap-chip--lock, .kap-personal.is-changed, .kap-row--super.is-on .kap-row-ico) { color: var(--kb-warn); }
+:root[data-theme="dark"] .sys .kpill--amber { color: var(--kb-warn); }
+:root[data-theme="dark"] .sys .kpill--terra { color: var(--kb-bad); }
+:root[data-theme="dark"] .sys .kpill--blue { color: var(--kb-info); }
+:root[data-theme="dark"] .sys .kpill--neutral { background: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .sys .kap-note { border-color: rgba(125, 211, 168, .22); }
+:root[data-theme="dark"] .sys .kap-error { border-color: rgba(240, 164, 141, .3); }
+:root[data-theme="dark"] .sys .kusg-error { border-color: rgba(240, 164, 141, .3); }
+
+/* rings and washes written in the light green */
+:root[data-theme="dark"] .sys .kap-role.is-active { box-shadow: inset 0 0 0 1px rgba(125, 211, 168, .26); }
+:root[data-theme="dark"] .sys .kap-seg--edit .kap-seg-btn.is-on { box-shadow: inset 0 0 0 1px rgba(125, 211, 168, .3); }
+:root[data-theme="dark"] .sys .kap-seg--view .kap-seg-btn.is-on { box-shadow: inset 0 0 0 1px rgba(143, 184, 216, .34); }
+:root[data-theme="dark"] .sys .kbug-context { border-color: rgba(125, 211, 168, .24); }
+:root[data-theme="dark"] .sys .kusg-rank-track { background: var(--kb-track); }
+:root[data-theme="dark"] .sys .kusg-table tr:hover td { background: rgba(255, 255, 255, .04); }
+
+/* small words in the old terra / blue: 3:1 on the glass, so they take the kit's text-safe status ink (it has a dark counterpart too) */
+.sys :is(.kap-field-err, .kbug-req, .kbug-file-error, .kchg-empty--err, .kchg-retry) { color: var(--kb-bad); }
+/* the None / View / Edit picker: its idle words one step deeper, and the lit option's words from the kit's status ink (the old blue was 3:1) */
+.sys .kap-seg-btn:not(.is-on) { color: var(--ink-3); }
+.sys .kap-seg--view .kap-seg-btn.is-on { color: color-mix(in srgb, var(--kb-info) 72%, var(--kb-ink)); }
+.sys .kap-seg--edit .kap-seg-btn.is-on { color: color-mix(in srgb, var(--kb-good) 72%, var(--kb-ink)); }
+.sys .kusg-clear:hover { color: var(--kb-bad); }
+.sys .kchg-badge--terra { color: var(--kb-bad); }
+.sys .kchg-badge--blue { color: var(--kb-info); }
+
+/* a role row with an edit waiting: the cream slab becomes a warm wash on the glass, in both themes */
+.sys .kap-row.is-changed { background: color-mix(in srgb, var(--amber) 13%, transparent); }
+.sys .kap-row.is-changed:hover { background: color-mix(in srgb, var(--amber) 19%, transparent); }
+
+/* the docked "unsaved changes" bar stays dark in both themes; in dark it needs an edge to be seen against the page */
+:root[data-theme="dark"] .sys .kap-savebar { box-shadow: var(--shadow-pop), 0 0 0 1px rgba(255, 255, 255, .14); }
+
+/* loading skeletons: a see-through block with a passing light */
+.sys .kap-skel {
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--kb-lit) 37%, var(--bg-2) 63%);
+  background-size: 400% 100%;
+}
+
+/* "Pick a role" while nothing is picked: not a pane, a dashed outline on the page, as a locked Dashboard tile is */
+.sys .kap-empty { background: transparent; border-color: var(--kb-line-hi); }
+
+/* the sticky day heading in the feed never sticks (its card clips), and a solid fill would be a slab on the glass */
+.sys .kusg-day-h { background: transparent; }
+
+/* ══ Keyboard focus: the kit's accent ring ═════════════════════════
+   The old pages used the site-wide ring (a 2px gap and a 2px --mint-2 band, which is 2:1 on glass). The kit's ring
+   is an outline in the accent. The list items that fill their container (a role in the rail, an accordion head, a
+   changelog line) take it inside, because their container clips what sticks out. */
+.sys :is(button, a, input, select, textarea, summary, [role="button"], [role="radio"], [role="switch"], [tabindex]):focus-visible {
+  outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none;
+}
+.sys :is(.kap-role, .kap-card-hd--btn, .kap-people-trigger, .kchg-item):focus-visible { outline-offset: -2px; }
+
+/* ══ Forms: a field sits on the pane as a lighter inset ═══════════ */
+.sys .kbug-field :is(input[type="text"], textarea, input[type="file"]) {
+  background: var(--card); border-color: var(--line-strong);
+}
+.sys .kbug-field :is(input, textarea):focus { border-color: var(--mint-deep); }
+
+/* ══ Status banners: from the kit's status tokens, which have a dark counterpart ═══ */
+.sys .kbug-banner--ok { background: var(--kb-good-bg); color: color-mix(in srgb, var(--kb-good) 72%, var(--kb-ink)); }
+.sys .kbug-banner--err { background: var(--kb-bad-bg); color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
+
+/* ══ Charts (recharts, on Usage & Activity) ═══════════════════════
+   The tooltip is styled inline by the library (white, with the series colour for its words). */
+.sys .recharts-default-tooltip {
+  background-color: var(--card) !important;
+  border-color: var(--line-strong) !important;
+  box-shadow: var(--shadow-2);
+}
+.sys .recharts-tooltip-label { color: var(--ink) !important; }
+.sys .recharts-tooltip-item { color: var(--ink-2) !important; }
+:root[data-theme="dark"] .sys .recharts-tooltip-cursor { fill: rgba(255, 255, 255, .06); }

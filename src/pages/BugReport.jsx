@@ -2,9 +2,11 @@ import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Icons } from "../components/ui";
+import Select from "../components/Select";
 import { SECTION_LABEL } from "../lib/roles";
 
 const SEVERITIES = ["Low", "Medium", "High", "Critical"];
+const SEVERITY_OPTIONS = SEVERITIES.map((s) => ({ value: s, label: s }));
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
@@ -144,14 +146,15 @@ export default function BugReport() {
           <div className="kbug-row">
             <div className="kbug-field">
               <label htmlFor="bug-severity">Severity</label>
-              <select
+              <Select
                 id="bug-severity"
+                label="Severity"
                 value={severity}
-                onChange={e => setSeverity(e.target.value)}
+                onChange={setSeverity}
+                options={SEVERITY_OPTIONS}
+                searchable={false}
                 disabled={status === "submitting"}
-              >
-                {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              />
             </div>
 
             <div className="kbug-field">

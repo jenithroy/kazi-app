@@ -22,6 +22,7 @@ import BugReport from "./pages/BugReport";
 import Changelog from "./pages/Changelog";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
+import SysPage from "./components/system/SysPage";
 import LandingRedirect from "./components/LandingRedirect";
 import { isRecoveryPending } from "./lib/recoveryLink";
 
@@ -80,8 +81,8 @@ function App() {
         <Route path="/customers"   element={<RequireSection section="customers"><Customers /></RequireSection>} />
         <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
-        <Route path="/admin"       element={<RequireSection section="admin"><AdminPanel /></RequireSection>} />
-        <Route path="/usage"       element={<RequireSection section="usage_analytics"><Usage /></RequireSection>} />
+        <Route path="/admin"       element={<RequireSection section="admin"><SysPage><AdminPanel /></SysPage></RequireSection>} />
+        <Route path="/usage"       element={<RequireSection section="usage_analytics"><SysPage><Usage /></SysPage></RequireSection>} />
 
         {/* Open to everyone who is signed in. Roles is where a person reads
             what their own position is expected to log — gating it behind a
@@ -89,8 +90,8 @@ function App() {
             need them. It shows only the duties their permissions already
             allow, so it discloses nothing the sidebar doesn't. */}
         <Route path="/roles"       element={<Roles />} />
-        <Route path="/bug-report"  element={<BugReport />} />
-        <Route path="/changelog"   element={<Changelog />} />
+        <Route path="/bug-report"  element={<SysPage><BugReport /></SysPage>} />
+        <Route path="/changelog"   element={<SysPage><Changelog /></SysPage>} />
 
         <Route path="/directors"   element={<Navigate to="/roles" replace />} />
         <Route path="/orders"      element={<Navigate to="/production" replace />} />
