@@ -29,7 +29,7 @@ import { sectionCanEdit, sectionVisible } from "../utils/permissions";
 import { kathmanduDate } from "../utils/date";
 import useMedia from "../hooks/useMedia";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
-import { Icons } from "../components/ui";
+import { Icons, cn } from "../components/ui";
 import { InvoicedTile, CollectedTile, OwedTile } from "../components/sales/MoneyTiles";
 import PipelineTile from "../components/sales/PipelineTile";
 import CustomersTile from "../components/sales/CustomersTile";
@@ -266,29 +266,34 @@ export default function Sales() {
 
   /* ── the page ──────────────────────────────────────────── */
 
+  // what the money tiles leave out: said up in the header on a laptop, where every window size shows it, and on a phone (where a
+  // tooltip cannot be read) as a plain note under the money tiles
+  const unlinkedNote = ready && seesMoney && unlinked.n > 0;
+
   const sub = ready ? (
     <>
       <span>{sums.open} {plural(sums.open, "order")} open</span>
       {seesMoney && totals.outstanding > 0.5 && <span>{fmt(totals.outstanding)} owed</span>}
       {seesMoney && totals.overdue > 0.5 && <span className="kb-bad">{fmt(totals.overdue)} overdue</span>}
-      {/* what the money tiles leave out: it is said up here, where every window size shows it */}
-      {seesMoney && unlinked.n > 0 && <span title="They are left out of the totals on this page">{unlinked.n} {plural(unlinked.n, "invoice")} ({fmt(unlinked.npr)}) not linked to a customer</span>}
+      {!phone && unlinkedNote && <span title="They are left out of the totals on this page">{unlinked.n} {plural(unlinked.n, "invoice")} ({fmt(unlinked.npr)}) not linked to a customer</span>}
     </>
   ) : status === "error" ? null : <span>Loading…</span>;
 
   const loading = !ready;
 
   return (
-    <BentoPage className="sl-page">
-      <header className="kb-head">
+    <BentoPage className={cn("sl-page", phone && unlinkedNote && "sl-page--note")}>
+      <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Sales</h1>
           <p className="kb-head-sub">{sub}</p>
         </div>
         <div className="kb-head-r">
-          <RegionSwitch untagged={countUntagged(raw.orders) + countUntagged(raw.customers)} size="sm" />
+          <div className="kb-head-row">
+            <RegionSwitch untagged={countUntagged(raw.orders) + countUntagged(raw.customers)} size="sm" />
+          </div>
           {canEdit && (
-            <button type="button" className="kb-btn kb-btn--primary sl-newbtn" onClick={() => openCustomer(null)}>
+            <button type="button" className="kb-btn kb-btn--primary sl-newbtn kb-head-act" onClick={() => openCustomer(null)}>
               <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> Add customer
             </button>
           )}
@@ -312,7 +317,14 @@ export default function Sales() {
           <InvoicedTile totals={totals} months={months} thisMonthNPR={months[months.length - 1]?.npr || 0} loading={loading} />
           <CollectedTile totals={totals} loading={loading} />
           <OwedTile totals={totals} loading={loading} />
-          <PipelineTile stages={stages} sums={sums} stage={stage} onStage={pickStage} loading={loading} />
+          {phone && unlinkedNote && (
+            <p className="sl-unlinked" style={{ gridArea: "note" }}>
+              <Icons.Alert size={14} sw={1.9} aria-hidden="true" />
+              <span>{unlinked.n} {plural(unlinked.n, "invoice")} ({fmt(unlinked.npr)}) {plural(unlinked.n, "is", "are")} not linked to a customer, so {plural(unlinked.n, "it is", "they are")} left out of the totals above.</span>
+            </p>
+          )}
+          {/* on a phone the pipeline is left out: pressing a stage changes the orders list far below it, out of sight */}
+          {!phone && <PipelineTile stages={stages} sums={sums} stage={stage} onStage={pickStage} loading={loading} />}
           <CustomersTile
             rows={customers} counts={counts} hasMargin={hasMargin}
             query={query} onQuery={(v) => { setQuery(v); setMoreCustomers(false); }}

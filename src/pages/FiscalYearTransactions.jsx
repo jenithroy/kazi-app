@@ -129,7 +129,8 @@ export default function FiscalYearTransactions() {
   useEffect(() => { if (card && !loading && !open) setCard(null); }, [card, loading, open]);
 
   function openRow(r) {
-    if (r.type === "Sales") { navigate("/billing", { state: { search: r.src.invoiceNumber || r.src.clientName, autoEdit: true } }); return; }
+    // an invoice number starts again every fiscal year, so the invoice's own id says which one is meant
+    if (r.type === "Sales") { navigate("/billing", { state: { search: r.src.invoiceNumber || r.src.clientName, autoEdit: true, id: r.src.id } }); return; }
     setCard(r.key);
   }
 
@@ -181,21 +182,25 @@ export default function FiscalYearTransactions() {
   return (
     <FinanceProvider value={ctx}>
       <BentoPage className="fn-page fn-page--fy">
-        <header className="kb-head">
+        <header className="kb-head kb-head--stack">
           <div className="kb-head-l">
             <h1>Transactions · FY {fiscalYear}</h1>
             <p className="kb-head-sub"><span>{rangeText}</span></p>
           </div>
           <div className="kb-head-r fn-head-r">
-            <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}><Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance</button>
-            <button type="button" className="kb-pillbtn" disabled={loading || !prevYear} title={prevYear ? `Go to FY ${prevYear}` : "No earlier transactions recorded"} onClick={() => gotoYear(prevYear)}>
-              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> {prevYear ? `FY ${prevYear}` : "Earlier year"}
-            </button>
-            <button type="button" className="kb-pillbtn" disabled={loading || !nextYear} title={nextYear ? `Go to FY ${nextYear}` : "No later transactions recorded"} onClick={() => gotoYear(nextYear)}>
-              {nextYear ? `FY ${nextYear}` : "Later year"} <Icons.ChevronRight size={14} sw={2} aria-hidden="true" />
-            </button>
-            <RegionSwitch hint={false} size="sm" untagged={countUntagged(rows)} />
-            <DateModeSwitch />
+            <div className="kb-head-act">
+              <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}><Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance</button>
+              <button type="button" className="kb-pillbtn" disabled={loading || !prevYear} title={prevYear ? `Go to FY ${prevYear}` : "No earlier transactions recorded"} onClick={() => gotoYear(prevYear)}>
+                <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> {prevYear ? `FY ${prevYear}` : "Earlier year"}
+              </button>
+              <button type="button" className="kb-pillbtn" disabled={loading || !nextYear} title={nextYear ? `Go to FY ${nextYear}` : "No later transactions recorded"} onClick={() => gotoYear(nextYear)}>
+                {nextYear ? `FY ${nextYear}` : "Later year"} <Icons.ChevronRight size={14} sw={2} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="kb-head-row">
+              <RegionSwitch hint={false} size="sm" untagged={countUntagged(rows)} />
+              <DateModeSwitch />
+            </div>
           </div>
         </header>
 

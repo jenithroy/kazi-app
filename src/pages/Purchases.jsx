@@ -85,17 +85,21 @@ export default function Purchases() {
   return (
     <FinanceProvider value={ctx}>
       <BentoPage className="fn-page fn-page--pur">
-        <header className="kb-head">
+        <header className="kb-head kb-head--stack">
           <div className="kb-head-l">
             <h1>Purchases</h1>
             <p className="kb-head-sub"><span>{describePeriod({ fy, range: dateRange, mode: dateMode })}</span></p>
           </div>
           <div className="kb-head-r fn-head-r">
-            <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
-              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
-            </button>
-            <RegionSwitch untagged={countUntagged(data.purchases)} size="sm" />
-            <DateModeSwitch />
+            <div className="kb-head-act">
+              <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
+                <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
+              </button>
+            </div>
+            <div className="kb-head-row">
+              <RegionSwitch untagged={countUntagged(data.purchases)} size="sm" />
+              <DateModeSwitch />
+            </div>
             <PeriodBar years={yearsHere} />
           </div>
         </header>

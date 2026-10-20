@@ -268,14 +268,16 @@ export default function Finance() {
   return (
     <FinanceProvider value={ctx}>
       <BentoPage className="fn-page">
-        <header className="kb-head">
+        <header className="kb-head kb-head--stack">
           <div className="kb-head-l">
             <h1>Finance</h1>
             <p className="kb-head-sub"><span>{sub}</span></p>
           </div>
           <div className="kb-head-r fn-head-r">
-            <RegionSwitch untagged={countUntagged([...data.expenses, ...data.purchases, ...data.entries])} size="sm" />
-            <DateModeSwitch />
+            <div className="kb-head-row">
+              <RegionSwitch untagged={countUntagged([...data.expenses, ...data.purchases, ...data.entries])} size="sm" />
+              <DateModeSwitch />
+            </div>
             <PeriodBar years={yearsHere} />
           </div>
         </header>

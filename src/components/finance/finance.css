@@ -94,15 +94,24 @@
 .kregion-seg.fn-modeseg { flex: 0 0 auto; }
 .fn-modeseg .kregion-seg-btn { flex: 0 0 auto; padding: 4px 11px; font-size: 11.5px; }
 
+/* A phone: the header is the shared stacked kit (`kb-head--stack`, bento.css): title and back link, the line under it, the switches,
+   then the period as two full rows: the menu, and From / To as two equal halves. */
 @media (max-width: 768px) {
-  .kb .fn-head-r { justify-content: flex-start; }
-  .fn-period { width: 100%; }
-  .fn-range { flex: 1 1 auto; flex-wrap: wrap; }
-  /* the region switch keeps its own size (the shared rule stretches it to the full width), so the calendar switch can sit beside it;
-     the buttons are a finger's size; the "N untagged" hint wears the page's own warning colours */
-  .fn-page .kb-head-r .kregion-switch { width: auto; flex: 0 1 auto; justify-content: flex-start; gap: 8px; }
-  .fn-page .kb-head-r .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
-  .fn-page .kb-head-r .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: 32px; padding: 0 12px; font-size: 12.5px; }
+  .fn-page .kb-head--stack .fn-period { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: auto; }
+  .fn-page .kb-head--stack .fn-period .ksel--pill { width: 100%; max-width: none; height: var(--hd-h); padding: 0 12px 0 14px; }
+  .fn-page .kb-head--stack .fn-period .ksel--pill .ksel-val { text-align: left; }
+  /* the line under the title says the period in words; while nothing is narrowed ("All time") the menu right below says the same */
+  .fn-page .kb-head--stack:has(.fn-period .ksel--pill:not(.is-on)) .kb-head-sub { display: none; }
+  .fn-page .kb-head--stack .fn-range { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
+  .fn-page .kb-head--stack .fn-range .kdp.kdp--pill { display: block; width: 100%; }
+  /* tight enough that a whole date ("30 Sept 2026") and its clear button fit in half a 360px phone */
+  .fn-page .kb-head--stack .fn-range .kdp .kdp-trigger--pill { width: 100%; max-width: none; height: var(--hd-h); padding: 0 8px; gap: 4px; font-size: 12px; }
+  .fn-page .kb-head--stack .fn-range .kdp:has(.kdp-clear) .kdp-trigger--pill { padding-right: 30px; }
+  .fn-page .kb-head--stack .fn-range .kdp-clear { right: 4px; }
+}
+/* narrower than that, From and To take a row each rather than cut a date short */
+@media (max-width: 359px) {
+  .fn-page .kb-head--stack .fn-range { grid-template-columns: auto minmax(0, 1fr); }
 }
 /* the "N untagged" hint in the page's own warning colours, so it is not a bright cream chip on a dark page */
 .fn-page .kb-head-r .kregion-untagged { padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent); }

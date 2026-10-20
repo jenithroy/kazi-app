@@ -939,6 +939,49 @@
   .kb-att-ring { width: 108px; height: 108px; }
 }
 
+/* ══ Phone header kit (opt-in: `kb-head--stack`) ════════════════════════
+   A header that carries buttons and filters (Sales, Finance, Purchases, Payroll, Billing, Transactions) would otherwise wrap
+   left-packed into ragged rows. With `kb-head--stack` it becomes a grid of full-width rows on a phone:
+
+     row 1    the title on the left, the page's one button or its back link (`.kb-head-act`) on the right
+     row 2    the line under the title (`.kb-head-sub`)
+     rows 3+  each `.kb-head-row` (switches: its parts go to both edges) or filter group, one per row
+              (a `div.kb-head-act` holding two or three buttons takes a row of its own, the buttons in equal parts)
+
+   `.kb-head-row` and a `div.kb-head-act` are `display: contents` above a phone, so a desktop header draws exactly as it did.
+   Every control in it shares one height (`--hd-h`). The region switch is shared with pages that are not on this kit, and the
+   app's own rules for it load after this file, so its phone size is written here one class more specific. */
+.kb-head-row, div.kb-head-act { display: contents; }
+
+@media (max-width: 768px) {
+  .kb-head--stack { --hd-h: 36px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; }
+  .kb-head--stack > .kb-head-l, .kb-head--stack > .kb-head-r { display: contents; }
+  .kb-head--stack > .kb-head-l > h1 { grid-column: 1; grid-row: 1; min-width: 0; }
+  .kb-head--stack .kb-head-sub { grid-column: 1 / -1; grid-row: 2; display: block; min-width: 0; margin-top: -5px; }
+  .kb-head--stack .kb-head-sub:empty { display: none; }
+  /* the facts under the title read as one line with a dot between them, not as loose phrases (a long one wraps inside itself) */
+  .kb-head--stack .kb-head-sub > span { display: inline-block; max-width: 100%; }
+  .kb-head--stack .kb-head-sub > span:not(:last-child)::after { content: "·"; margin: 0 7px; color: var(--kb-ink-3); }
+
+  .kb-head--stack .kb-head-act { grid-column: 2; grid-row: 1; justify-self: end; min-width: 0; }
+  .kb-head--stack div.kb-head-act { display: flex; gap: 6px; }
+  .kb-head--stack div.kb-head-act:has(> :nth-child(2)) {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); grid-column: 1 / -1; grid-row: auto; justify-self: stretch;
+  }
+  .kb-head--stack div.kb-head-act:has(> :nth-child(2)) > .kb-pillbtn { justify-content: center; min-width: 0; }
+  .kb-head--stack .kb-head-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; min-width: 0; }
+
+  .kb-head--stack .kb-head-r .kb-pillbtn, .kb-head--stack .kb-head-r .kb-btn { height: var(--hd-h); }
+  .kb-head--stack .kb-head-r .kb-btn--primary { padding: 0 15px; }
+  .kb-head--stack .kregion-switch { width: auto; flex: 0 1 auto; justify-content: flex-start; gap: 8px; }
+  .kb-head--stack .kregion-switch .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
+  .kb-head--stack .kregion-switch .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: calc(var(--hd-h) - 6px); padding: 0 12px; font-size: 12.5px; }
+  .kb-head--stack .kb-head-row > .kregion-seg { flex: 0 0 auto; margin-left: auto; padding: 2px; gap: 0; }
+  .kb-head--stack .kb-head-row > .kregion-seg .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: calc(var(--hd-h) - 6px); padding: 0 12px; font-size: 12.5px; }
+  /* the "N untagged" hint wears the page's own warning colours, so it is not a bright cream chip on a dark page */
+  .kb-head--stack .kregion-switch .kregion-untagged { padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent); }
+}
+
 /* ══ Motion preferences ════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   .kb-tile, .kb-tile::before, .kb-go, .kb-btn, .kb-pillbtn, .kb-ringbtn, .kb-quick-a, .kmain { transition: none !important; }

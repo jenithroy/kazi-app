@@ -508,15 +508,17 @@ export default function Production() {
 
   return (
     <BentoPage className="pr-page">
-      <header className="kb-head">
+      <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Production</h1>
           <p className="kb-head-sub">{sub}</p>
         </div>
         <div className="kb-head-r">
-          <RegionSwitch untagged={countUntagged(allOrders)} />
+          <div className="kb-head-row">
+            <RegionSwitch untagged={countUntagged(allOrders)} />
+          </div>
           {canEdit && (
-            <button type="button" className="kb-btn kb-btn--primary pr-newbtn" data-tour="new-order" onClick={openNew} disabled={!ready}>
+            <button type="button" className="kb-btn kb-btn--primary pr-newbtn kb-head-act" data-tour="new-order" onClick={openNew} disabled={!ready}>
               <Icons.Plus size={14} sw={2.2} aria-hidden="true" /> New order
             </button>
           )}

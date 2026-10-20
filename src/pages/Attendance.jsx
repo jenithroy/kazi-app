@@ -363,21 +363,23 @@ export default function Attendance() {
 
   return (
     <BentoPage className="at-page">
-      <header className="kb-head">
+      <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Attendance</h1>
           <p className="kb-head-sub">{ready ? sub : data.status === "error" ? null : <span>Loading…</span>}</p>
         </div>
         <div className="kb-head-r">
-          {date !== today && <button type="button" className="kb-pillbtn" onClick={backToToday}>Back to today</button>}
-          {(holStatus !== "unavailable" || canEdit) && (
-            <button type="button" className="kb-pillbtn" onClick={() => setHolOpen(true)}>
-              <Icons.Calendar size={13} sw={1.9} aria-hidden="true" /> Holidays
+          <div className="kb-head-act">
+            {date !== today && <button type="button" className="kb-pillbtn" onClick={backToToday}>Back to today</button>}
+            {(holStatus !== "unavailable" || canEdit) && (
+              <button type="button" className="kb-pillbtn" onClick={() => setHolOpen(true)}>
+                <Icons.Calendar size={13} sw={1.9} aria-hidden="true" /> Holidays
+              </button>
+            )}
+            <button type="button" className="kb-pillbtn" onClick={() => load()} aria-label="Refresh attendance">
+              <Icons.RefreshCw size={13} sw={1.9} aria-hidden="true" /> Refresh
             </button>
-          )}
-          <button type="button" className="kb-pillbtn" onClick={() => load()} aria-label="Refresh attendance">
-            <Icons.RefreshCw size={13} sw={1.9} aria-hidden="true" /> Refresh
-          </button>
+          </div>
         </div>
       </header>
 

@@ -141,20 +141,22 @@ export default function Payroll() {
 
   return (
     <BentoPage className="fn-page fn-page--pay">
-      <header className="kb-head">
+      <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Payroll</h1>
           <p className="kb-head-sub"><span>{describePeriod({ fy, range: dateRange, mode: dateMode })}</span></p>
         </div>
         <div className="kb-head-r fn-head-r">
-          {fromFinance && (
-            <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
-              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
+          <div className="kb-head-act">
+            {fromFinance && (
+              <button type="button" className="kb-pillbtn" onClick={() => navigate("/finance")}>
+                <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
+              </button>
+            )}
+            <button type="button" className="kb-pillbtn" onClick={() => navigate("/employees")}>
+              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Employees &amp; HR
             </button>
-          )}
-          <button type="button" className="kb-pillbtn" onClick={() => navigate("/employees")}>
-            <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Employees &amp; HR
-          </button>
+          </div>
           <PeriodBar years={years} />
         </div>
       </header>

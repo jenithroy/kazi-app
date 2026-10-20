@@ -41,13 +41,16 @@
   }
 }
 
-/* Phone: two columns, the page scrolls, and every tile grows with what is in it. */
+/* Phone: two columns, the page scrolls, and every tile grows with what is in it. The pipeline strip is not drawn here (Sales.jsx leaves
+   it out): pressing a stage changes the orders list far below it, out of sight. The note about unlinked invoices (`sl-page--note`)
+   gets its row under the money tiles only when there is one. */
 @media (max-width: 768px) {
   .kb.sl-page { min-height: 0; }
   .kb-grid.kb-grid--sales {
     grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
-    grid-template-areas: "inv inv" "col owe" "pipe pipe" "cust cust" "ord ord";
+    grid-template-areas: "inv inv" "col owe" "cust cust" "ord ord";
   }
+  .sl-page--note .kb-grid.kb-grid--sales { grid-template-areas: "inv inv" "col owe" "note note" "cust cust" "ord ord"; }
 }
 
 /* ── The header and its notices ───────────────────────────────── */
@@ -166,11 +169,6 @@
 /* ── Phone: the page scrolls, so the panes grow with their rows ── */
 
 @media (max-width: 768px) {
-  .sl-rail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-  .sl-cell { padding: 8px 10px 9px; background: var(--kb-well); }
-  .sl-cell b { font-size: 24px; }
-  .sl-cell-l { font-size: 12px; }
-  .sl-pipe-sub { display: block; margin-top: 4px; white-space: normal; }
   .sl-vis { flex: none; margin-top: 8px; }
   .sl-vis .kb-bars { flex: none; height: 96px; }
 
@@ -180,14 +178,11 @@
   .sl-tools .dt-search input { font-size: 16px; }      /* the shared search box is 13px: on a phone iOS would zoom in on it */
   .sl-morerow { padding: 10px 12px 6px; }
 
-  /* the header: the switch keeps its own size (the shared rule stretches it to the full width), the button goes to the right */
-  .sl-page .kb-head-r { justify-content: flex-start; gap: 8px; }
-  .sl-page .kb-head-r .kregion-switch { width: auto; flex: 0 1 auto; justify-content: flex-start; gap: 8px; }
-  .sl-page .kb-head-r .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
-  .sl-page .kb-head-r .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: 32px; padding: 0 10px; font-size: 12.5px; }
-  /* the "N untagged" hint in the page's own warning colours, so it is not a bright cream chip on a dark page */
-  .sl-page .kb-head-r .kregion-untagged { padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent); }
-  .sl-page .kb-head-r .sl-newbtn { margin-left: auto; height: 34px; padding: 0 15px; }
+  /* (the header is the shared stacked kit, kb-head--stack in bento.css) */
+
+  /* what the money tiles leave out: a quiet line under them (a tooltip cannot be read on a phone) */
+  .sl-unlinked { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 0 4px; font-size: 12px; line-height: 1.45; color: var(--kb-ink-2); }
+  .sl-unlinked > svg { flex: none; margin-top: 2px; color: var(--kb-warn); }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -195,7 +190,13 @@
 ══════════════════════════════════════════════════════════════════ */
 
 /* the section's count, a little quieter than its name */
-.sl-card .sl-count { margin-left: 5px; font-weight: 500; font-variant-numeric: tabular-nums; opacity: .75; }
+.sl-card .sl-count { margin-left: 5px; font-weight: 500; font-variant-numeric: tabular-nums; opacity: .9; }      /* .75 measured 4.1:1 beside the chosen tab's name */
+/* four sections with their counts need 376px on a phone and the sheet gives them 324 to 354, so the last tab was cut off (the strip scrolls,
+   but a count half out of the edge reads as a mistake): a little less air inside each tab, and they fit from 360px up (measured) */
+@media (max-width: 640px) {
+  .sl-card .ec-sections .kregion-seg-btn { padding-inline: 8px; }
+  .sl-card .sl-count { margin-left: 3px; }
+}
 
 /* invoices, payments and orders: the card's small lists (.ec-hist), each with columns of its own */
 .ec-hist.sl-hist { max-height: 392px; }
@@ -216,6 +217,8 @@
 /* the green and the red of the figures on the veiled pane, a shade toward the ink: the card's own pair sits just under 4.5:1 there */
 .sl-card .ec-kv dd.ec-bad { color: color-mix(in srgb, var(--ec-bad) 80%, var(--ink)); }
 .sl-card .ec-kv dd.ec-good { color: color-mix(in srgb, var(--ec-good) 85%, var(--ink)); }
+/* the amount still owed on an invoice in the list: the same shade toward the ink (it measured 4.49:1 on a phone) */
+.sl-card .ec-hist-q.ec-bad { color: color-mix(in srgb, var(--ec-bad) 80%, var(--ink)); }
 
 /* where it is now: the stage, the step, and its tags, in a well */
 .sl-now { display: grid; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--ec-well); }
@@ -273,6 +276,8 @@
 .sl-text b { font-weight: 600; color: var(--ink); }
 .sl-well { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--sl-well); font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
 .sl-well b { font-weight: 600; color: var(--ink); }
+/* "Select the customer to keep…": the dropdown's own placeholder ink (--ink-4) is for icons, not text: 3.0:1 here */
+.kmodal--sales .ksel-val.is-ph { color: var(--ink-3); }
 
 @media (prefers-reduced-motion: reduce) {
   .sl-cell, .sl-more { transition: none; }
