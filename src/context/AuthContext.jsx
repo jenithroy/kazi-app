@@ -97,6 +97,25 @@ async function loadProfile() {
   };
 }
 
+/**
+ * loadProfile(), shared by callers that ask at the same moment for the same person.
+ *
+ * On startup three things announce the same sign-in within a few milliseconds: the first look at the stored session, the
+ * Supabase "initial session" event, and Firebase's listener. Each used to run loadProfile() for itself, so every page load
+ * made the same five requests three times, and the last copy to finish was the one that counted. A caller that arrives
+ * while a load for the same identity is still on its way now joins it. Anything that wants fresh data (reloadProfile, after
+ * a change) asks for its own, so it can never be handed an answer that began before the change.
+ */
+let sharedLoad = null; // { key, promise }
+function loadProfileShared(key) {
+  if (sharedLoad && sharedLoad.key === key) return sharedLoad.promise;
+  const promise = loadProfile().finally(() => {
+    if (sharedLoad && sharedLoad.promise === promise) sharedLoad = null;
+  });
+  sharedLoad = { key, promise };
+  return promise;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
   const [profile, setProfile] = useState(null);
@@ -107,7 +126,7 @@ export function AuthProvider({ children }) {
   // other must not then overwrite a good profile with null.
   const generation = useRef(0);
 
-  const refresh = useCallback(async (identity) => {
+  const refresh = useCallback(async (identity, { fresh = false } = {}) => {
     const gen = ++generation.current;
 
     if (!identity) {
@@ -121,7 +140,7 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const next = await loadProfile();
+      const next = await (fresh ? loadProfile() : loadProfileShared(identity.id ?? identity.uid));
       if (gen !== generation.current) return; // superseded
 
       if (!next) {
@@ -255,7 +274,7 @@ export function AuthProvider({ children }) {
       error,
       signOut,
       logout: signOut, // the name the app's nav has always called it
-      reloadProfile: () => refresh(user),
+      reloadProfile: () => refresh(user, { fresh: true }),
     }),
     [user, profile, loading, error, signOut, refresh]
   );
