@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import EditCard, { Field, NumberInput } from "./EditCard";
+import { enterAdvance, thenAdvance } from "./finance/flow";
+import Select from "./Select";
 import { roundAmount } from "../utils/format";
+import "./salary-slip.css";
 
 export default function SalarySlipModal({ initialData, employees = [], onClose }) {
   const [empId, setEmpId] = useState(initialData?.empId || "EMP-001");
@@ -34,6 +38,16 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
   const [leaveDayDeduction, setLeaveDayDeduction] = useState(initialData?.lateDeductionNPR ?? 0);
   const [otherPayment, setOtherPayment] = useState(initialData?.pfDeductionNPR ?? 0);
 
+  const uid = useId();
+  const id = (k) => `${uid}-${k}`;
+  const type = (setter) => (e) => setter(e.target.value);
+
+  // A slip is a throwaway, but not one to lose by a stray Escape or a click outside: the card asks first once anything was typed
+  // (and not again once it has been printed). Enter moves to the next field and never prints (the old dialog had no form, so Enter did nothing).
+  const snap = JSON.stringify([empId, empName, designation, monthYear, basicSalary, allowances, otSalary, receivableDue, advance, taxRatePct, incomeTaxCustom, leaveDayDeduction, otherPayment]);
+  const [saved, setSaved] = useState(snap);          // what the fields held when the card opened, or when it was last printed
+  const flow = { onKeyDown: (e) => enterAdvance(e) };
+
   // Sync when employee is chosen from dropdown in modal
   const handleEmployeeSelect = (selectedName) => {
     const emp = employees.find((e) => e.name === selectedName);
@@ -64,10 +78,7 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
   /* ── Direct Print Function ── */
   const handlePrint = () => {
     const printWin = window.open("", "_blank", "width=850,height=1100");
-    if (!printWin) {
-      alert("Please allow pop-ups to print the salary slip.");
-      return;
-    }
+    if (!printWin) return false;
 
     const htmlContent = `
 <!DOCTYPE html>
@@ -281,226 +292,69 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
     }, 800);
   };
 
-  return (
-    <div className="modal-overlay" style={{
-      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-      background: "rgba(0, 0, 0, 0.65)", display: "flex",
-      alignItems: "center", justifyContent: "center", zIndex: 9999,
-      padding: 16, overflowY: "auto"
-    }}>
-      <div className="modal-content" style={{
-        background: "var(--card, #fff)", borderRadius: 12,
-        width: "100%", maxWidth: 960, maxHeight: "92vh",
-        display: "flex", flexDirection: "column",
-        boxShadow: "0 20px 40px rgba(0,0,0,0.3)", border: "1.5px solid var(--line, #e2e8f0)",
-        overflow: "hidden"
-      }}>
-        {/* Modal Header */}
-        <div style={{
-          padding: "16px 20px", borderBottom: "1.5px solid var(--line, #e2e8f0)",
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          background: "var(--bg-2, #f8fafc)"
-        }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--ink, #0f172a)" }}>
-              🖨️ Monthly Salary Slip Generator
-            </h3>
-            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-4, #64748b)" }}>
-              Customize fields manually or select an employee, then print directly.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="primary-button" onClick={handlePrint} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span>🖨️ Print Salary Slip</span>
-            </button>
-            <button className="ghost-button" onClick={onClose} style={{ fontSize: 16, padding: "4px 12px" }}>
-              ✕
-            </button>
-          </div>
-        </div>
 
-        {/* Modal Body: Left Inputs | Right Preview */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, padding: 20, overflowY: "auto" }}>
-          
-          {/* Editable Inputs Form */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--mint-deep, #2e7d32)", borderBottom: "1px solid var(--line)", paddingBottom: 6 }}>
-              ✏️ Editable Fields
-            </h4>
+  const picked = employees.some((e) => e.name === empName) ? empName : "";
 
-            {employees.length > 0 && (
-              <label style={{ fontSize: 13, fontWeight: 600 }}>
-                Quick Select Employee
-                <select
-                  style={{ width: "100%", padding: "7px 10px", marginTop: 4, borderRadius: 6, border: "1px solid var(--line)" }}
-                  onChange={(e) => handleEmployeeSelect(e.target.value)}
-                  value={empName}
-                >
-                  <option value="">— Custom Input / Select Staff —</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.name}>
-                      {e.name} ({e.role || "Employee"})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+  const personMain = (
+    <div className="ss-flow" {...flow}>
+      {employees.length > 0 && (
+        <Field label="Pick someone" htmlFor={id("who")} wide hint="Fills in their name, position and basic pay. Every field stays editable.">
+          <Select
+            id={id("who")} label="Pick someone" value={picked} onChange={thenAdvance(handleEmployeeSelect)} placeholder="Custom (type it in)"
+            options={[{ value: "", label: "Custom (type it in)" }, ...employees.map((e) => ({ value: e.name, label: e.name, hint: e.role || "Employee" }))]}
+          />
+        </Field>
+      )}
+      <Field label="Employee ID" htmlFor={id("eid")}>
+        <input id={id("eid")} type="text" autoComplete="off" value={empId} placeholder="e.g. EMP-001" onChange={type(setEmpId)} />
+      </Field>
+      <Field label="Employee name" htmlFor={id("name")}>
+        <input id={id("name")} type="text" autoComplete="off" value={empName} placeholder="Employee name" onChange={type(setEmpName)} />
+      </Field>
+      <Field label="Designation" htmlFor={id("des")}>
+        <input id={id("des")} type="text" autoComplete="off" value={designation} placeholder="e.g. Manager" onChange={type(setDesignation)} />
+      </Field>
+      <Field label="Month and year" htmlFor={id("my")}>
+        <input id={id("my")} type="text" autoComplete="off" value={monthYear} placeholder="e.g. Jul-26" onChange={type(setMonthYear)} />
+      </Field>
+    </div>
+  );
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>
-                Employee ID
-                <input
-                  type="text"
-                  value={empId}
-                  onChange={(e) => setEmpId(e.target.value)}
-                  placeholder="e.g. EMP-001"
-                  style={{ width: "100%", padding: "6px 8px", marginTop: 2, borderRadius: 6, border: "1px solid var(--line)", fontSize: 13 }}
-                />
-              </label>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>
-                Employee Name
-                <input
-                  type="text"
-                  value={empName}
-                  onChange={(e) => setEmpName(e.target.value)}
-                  placeholder="Employee Name"
-                  style={{ width: "100%", padding: "6px 8px", marginTop: 2, borderRadius: 6, border: "1px solid var(--line)", fontSize: 13 }}
-                />
-              </label>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>
-                Designation
-                <input
-                  type="text"
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
-                  placeholder="e.g. CEO / Manager"
-                  style={{ width: "100%", padding: "6px 8px", marginTop: 2, borderRadius: 6, border: "1px solid var(--line)", fontSize: 13 }}
-                />
-              </label>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>
-                Month & Year
-                <input
-                  type="text"
-                  value={monthYear}
-                  onChange={(e) => setMonthYear(e.target.value)}
-                  placeholder="e.g. Jul-26"
-                  style={{ width: "100%", padding: "6px 8px", marginTop: 2, borderRadius: 6, border: "1px solid var(--line)", fontSize: 13 }}
-                />
-              </label>
-            </div>
+  const payMain = (
+    <div className="ss-flow" {...flow}>
+      <span className="ec-cap ec-wide">Earnings</span>
+      <Field label="Basic salary" htmlFor={id("basic")}>
+        <NumberInput min={undefined} id={id("basic")} unit="NPR" value={basicSalary} onChange={type(setBasicSalary)} />
+      </Field>
+      <Field label="Allowances" htmlFor={id("allow")}>
+        <NumberInput min={undefined} id={id("allow")} unit="NPR" value={allowances} placeholder="0" onChange={type(setAllowances)} />
+      </Field>
+      <Field label="OT salary" htmlFor={id("ot")}>
+        <NumberInput min={undefined} id={id("ot")} unit="NPR" value={otSalary} placeholder="0" onChange={type(setOtSalary)} />
+      </Field>
+      <Field label="Receivable due" htmlFor={id("rec")}>
+        <NumberInput min={undefined} id={id("rec")} unit="NPR" value={receivableDue} placeholder="0" onChange={type(setReceivableDue)} />
+      </Field>
+      <span className="ec-cap ec-wide ss-gap">Deductions</span>
+      <Field label="Advance" htmlFor={id("adv")}>
+        <NumberInput min={undefined} id={id("adv")} unit="NPR" value={advance} placeholder="0" onChange={type(setAdvance)} />
+      </Field>
+      <Field label="Income tax rate" htmlFor={id("tax")}>
+        <NumberInput min={undefined} id={id("tax")} unit="%" value={taxRatePct} placeholder="1" onChange={(e) => { setTaxRatePct(e.target.value); setIncomeTaxCustom(null); }} />
+      </Field>
+      <Field label="Leave day deduction" htmlFor={id("leave")}>
+        <NumberInput min={undefined} id={id("leave")} unit="NPR" value={leaveDayDeduction} placeholder="0" onChange={type(setLeaveDayDeduction)} />
+      </Field>
+      <Field label="Other payment or deduction" htmlFor={id("other")}>
+        <NumberInput min={undefined} id={id("other")} unit="NPR" value={otherPayment} placeholder="0" onChange={type(setOtherPayment)} />
+      </Field>
+    </div>
+  );
 
-            <div style={{ background: "rgba(46, 125, 50, 0.04)", padding: 12, borderRadius: 8, border: "1px solid rgba(46, 125, 50, 0.2)" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--mint-deep, #2e7d32)", marginBottom: 8 }}>
-                💰 Earnings (NPR)
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <label style={{ fontSize: 12 }}>
-                  Basic Salary
-                  <input
-                    type="number"
-                    min="0"
-                    value={basicSalary}
-                    onChange={(e) => setBasicSalary(e.target.value)}
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  Allowances
-                  <input
-                    type="number"
-                    min="0"
-                    value={allowances}
-                    onChange={(e) => setAllowances(e.target.value)}
-                    placeholder="0"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  OT Salary
-                  <input
-                    type="number"
-                    min="0"
-                    value={otSalary}
-                    onChange={(e) => setOtSalary(e.target.value)}
-                    placeholder="0"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  Receivable Due
-                  <input
-                    type="number"
-                    min="0"
-                    value={receivableDue}
-                    onChange={(e) => setReceivableDue(e.target.value)}
-                    placeholder="0"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div style={{ background: "rgba(211, 47, 47, 0.04)", padding: 12, borderRadius: 8, border: "1px solid rgba(211, 47, 47, 0.2)" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--terra, #d32f2f)", marginBottom: 8 }}>
-                🔻 Deductions (NPR)
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <label style={{ fontSize: 12 }}>
-                  Advance
-                  <input
-                    type="number"
-                    min="0"
-                    value={advance}
-                    onChange={(e) => setAdvance(e.target.value)}
-                    placeholder="0"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  Income Tax Rate (%)
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={taxRatePct}
-                    onChange={(e) => { setTaxRatePct(e.target.value); setIncomeTaxCustom(null); }}
-                    placeholder="1"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  Leave Day Deduction
-                  <input
-                    type="number"
-                    min="0"
-                    value={leaveDayDeduction}
-                    onChange={(e) => setLeaveDayDeduction(e.target.value)}
-                    placeholder="0"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-                <label style={{ fontSize: 12 }}>
-                  Other Payment / Deduction
-                  <input
-                    type="number"
-                    min="0"
-                    value={otherPayment}
-                    onChange={(e) => setOtherPayment(e.target.value)}
-                    placeholder="0"
-                    style={{ width: "100%", padding: "5px 8px", marginTop: 2, borderRadius: 4, border: "1px solid var(--line)", fontSize: 13 }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Live Preview Card */}
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <h4 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 600, color: "var(--ink)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>📄 Live Print Preview</span>
-              <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-4)" }}>Exactly as printed</span>
-            </h4>
-
+  // The white sheet is the printed document, drawn as it will print: it keeps its own paper colours in both themes.
+  const preview = (
+    <div className="ec-block ec-wide ss-paper">
+      <span className="ec-cap">Preview, exactly as printed</span>
             <div style={{
               background: "#ffffff", color: "#000000", border: "1.5px solid #000000",
               padding: 16, borderRadius: 4, fontFamily: "Arial, sans-serif", fontSize: 13
@@ -590,17 +444,29 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
                 <div>Director .................................</div>
               </div>
             </div>
-
-            <button
-              className="primary-button"
-              onClick={handlePrint}
-              style={{ marginTop: 14, padding: "10px 16px", display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}
-            >
-              <span>🖨️ Print Salary Slip</span>
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
+  );
+
+  return (
+    <EditCard
+      className="ss-card"
+      title="Monthly salary slip"
+      subtitle="Fill it in or pick someone, then print"
+      sections={[
+        { id: "who", label: "Employee", main: personMain },
+        { id: "pay", label: "Earnings and deductions", main: payMain },
+      ]}
+      side={preview}
+      closeLabel="Close"
+      submitLabel="Print salary slip"
+      savingLabel="Opening…"
+      dirty={snap !== saved}
+      onSave={async () => {
+        if (handlePrint() === false) return { ok: false, message: "Your browser blocked the print window. Allow pop-ups for this site, then print again." };
+        setSaved(snap);
+        return { ok: true, keepOpen: true };
+      }}
+      onClose={onClose}
+    />
   );
 }

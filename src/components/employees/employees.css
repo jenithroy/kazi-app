@@ -1,0 +1,183 @@
+/* ══════════════════════════════════════════════════════════════════
+   EMPLOYEES & HR — the page's own parts (everything is `.em-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then a short row of four glass tiles and one pane that holds
+   the list of people (the shared DataTable, components/table/). A person opens in the shared EditCard
+   (components/EditCard.jsx). This sheet only draws what they leave to the page: the grid, the tiles' short form,
+   the pane around the table, a few cell details, the strip under the list and the parts inside the cards.
+   Inside a tile everything reads the `--kb-*` tokens, so light, dark and the tones follow.
+
+   Loaded after bento.css. The grid is written `.kb-grid.kb-grid--employees` (one class more than bento's own `.kb-grid`
+   rules) so it wins in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--employees { grid-template-rows: clamp(84px, 10.5vh, 96px) minmax(0, 1fr); grid-template-areas:
+  "ppl  ppl  ppl  pay  pay  pay  hrs  hrs  hrs  crew crew crew"
+  "list list list list list list list list list list list list"; }
+
+/* Tablet: six columns; the tiles in two rows of two, and a page tall enough for the list. */
+@media (max-width: 1023px) {
+  .kb-grid.kb-grid--employees {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px 84px minmax(0, 1fr);
+    grid-template-areas:
+      "ppl  ppl  ppl  pay  pay  pay"
+      "hrs  hrs  hrs  crew crew crew"
+      "list list list list list list";
+  }
+}
+
+/* Phone: two columns, the page scrolls, and every tile grows with what is in it. */
+@media (max-width: 768px) {
+  .kb.em-page { min-height: 0; }
+  .kb-grid.kb-grid--employees {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas: "ppl pay" "hrs crew" "list list";
+  }
+}
+
+/* ── The header and its notices ───────────────────────────────── */
+
+.kb-btn.em-newbtn { height: 32px; padding: 0 14px; border-radius: 999px; }
+
+.em-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.em-banner > svg { flex: none; color: var(--kb-warn); }
+.em-banner > span { flex: 1 1 auto; min-width: 0; }
+.em-banner button { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--kb-ink-3); cursor: pointer; }
+.em-banner button:hover { background: var(--kb-well); color: var(--kb-ink); }
+.em-banner button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.em-banner--bad { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 30%, transparent); }
+.em-banner--bad > svg { color: var(--kb-bad); }
+
+/* ── The tiles ────────────────────────────────────────────────── */
+
+/* a one-row tile in a short window shares a baseline, as the Dashboard's small tiles do */
+@container kb (max-height: 69px) {
+  .em-kpi .kb-main { flex-direction: row; align-items: baseline; gap: 0 10px; }
+  .em-kpi .kb-main > .kb-fig { flex: none; }
+  .em-kpi .kb-main > .kb-sub { flex: 1 1 0; }
+}
+
+/* ── The pane around the list ─────────────────────────────────── */
+
+/* a pane is a plain tile with no padding of its own: the table's rows carry theirs, the head and the bar here */
+.kb-tile.em-pane { padding: 0; gap: 0; }
+.kb-tile.em-pane > .kb-hd { padding: 14px 16px 8px; }
+.kb-tile.em-pane > .kb-main { gap: 0; }
+.em-tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; padding: 0 16px 10px; }
+.em-tools .dt-search { flex: 1 1 200px; min-width: 180px; max-width: 280px; }
+.em-tools .dt-search input { width: 100%; }
+.em-note { flex: none; margin: 0; padding: 0 16px 10px; font-size: 12.5px; color: var(--kb-ink-3); }
+
+/* ── Inside the cells ─────────────────────────────────────────── */
+
+.em-plain { font-size: 13px; color: var(--kb-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* two quiet lines: hours and what is different about the week; an email and a phone */
+.em-lines { display: grid; gap: 1px; min-width: 0; max-width: 100%; }
+.em-lines > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--kb-ink); font-variant-numeric: tabular-nums; }
+.em-lines > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
+
+.kb-btn.em-slipbtn { height: 28px; padding: 0 10px; gap: 5px; font-size: 12px; }
+@media (pointer: coarse) { .kb-btn.em-slipbtn { height: 40px; padding: 0 14px; } }
+
+.em-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* ── The strip under the list: what just happened ─────────────── */
+
+.em-strip { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--kb-line); background: var(--kb-chip); color: var(--kb-ink); font-size: 12.5px; }
+.em-strip > svg { flex: none; color: var(--kb-accent); }
+.em-strip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.em-strip button { flex: none; margin-left: auto; display: inline-grid; place-items: center; min-height: 28px; padding: 4px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--kb-accent); font: 700 12.5px/1.2 var(--font); cursor: pointer; }
+.em-strip button:hover { background: var(--kb-well); }
+.em-strip button:disabled { opacity: .55; cursor: progress; }
+.em-strip button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.em-strip .em-strip-x { min-width: 28px; padding: 0; color: var(--kb-ink-3); }
+
+/* ── Phone: the page scrolls, so the pane grows with its rows ── */
+
+@media (max-width: 768px) {
+  .kb-tile.em-pane > .kb-hd { padding: 12px 12px 8px; }
+  .em-tools { padding: 0 12px 8px; }
+  .em-tools .dt-search { order: -1; flex: 1 1 100%; }      /* the search takes the first line, the filters the next */
+  .em-tools .dt-search input { font-size: 16px; }          /* the shared search box is 13px: on a phone iOS would zoom in on it */
+  .em-note { padding: 0 12px 8px; }
+  .em-strip { padding: 8px 12px; }
+  /* (the header is the shared stacked kit, kb-head--stack in bento.css) */
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   THE CARDS (EditCard: portalled out of .kb, so the app's base tokens and the card's own --ec-*)
+══════════════════════════════════════════════════════════════════ */
+
+/* the fields sit in the card's two-column panes; their wrapper adds no box of its own */
+.em-flow { display: contents; }
+
+/* a dropdown that shows its placeholder ("Choose a position") reads at the card's muted text colour: the shared lighter one is 3:1 on glass */
+.em-card .ksel-val.is-ph, .em-card .kdp-val.is-ph { color: var(--ink-3); }
+
+/* who: a picture and a name over the side pane */
+.em-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.em-id .kavatar { flex: none; }
+.em-id > span { min-width: 0; display: grid; gap: 1px; }
+.em-id b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; color: var(--ink); }
+.em-id small { font-size: 12.5px; color: var(--ink-3); }
+
+.ec-fig.em-none { font-size: 18px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+.ec-note.em-warn { color: var(--ec-warn); }
+
+/* the days a person works: seven pills, on or off */
+.em-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.em-days button {
+  min-width: 46px; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent;
+  color: var(--ink-3); font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s, color .15s, border-color .15s;
+}
+.em-days button:hover:not(:disabled):not(.is-on) { background: var(--ec-well); color: var(--ink); }
+.em-days button.is-on { background: var(--ec-good-bg); border-color: color-mix(in srgb, var(--ec-good) 45%, transparent); color: var(--ec-good); }
+.em-days button:disabled { cursor: not-allowed; opacity: .7; }
+.em-days button:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; box-shadow: none; }
+
+/* days that run on other hours: a day, a start, an end, and a way to take it away */
+.em-exc { display: grid; gap: 8px; min-width: 0; }
+.em-exc-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr) 34px; gap: 8px; align-items: center; min-width: 0; }
+.em-exc-x { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink-3); cursor: pointer; }
+.em-exc-x:hover { background: var(--line-strong); color: var(--ink); }
+.em-exc-x:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; }
+.em-exc-none { margin: 0; font-size: 12.5px; font-weight: 400; color: var(--ink-3); }
+.em-exc-add { justify-self: start; }
+
+/* a tall window: every section is as tall as the first, so the card does not change height as you move between them */
+@media (min-width: 641px) and (min-height: 880px) {
+  .em-card .ec--sections { min-height: 640px; }
+}
+
+/* the week, one line a day */
+.em-week { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.em-week li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 12px; border-top: 1px solid var(--line); font-size: 13px; font-variant-numeric: tabular-nums; }
+.em-week li:first-child { border-top: 0; }
+.em-week b { flex: none; width: 40px; font-weight: 600; color: var(--ink); }
+.em-week span { min-width: 0; text-align: right; color: var(--ink-2); }
+.em-week small { font-size: 11.5px; font-weight: 400; color: var(--ink-3); }
+.em-week .is-off span, .em-week .is-none span { color: var(--ink-3); }
+.em-week .is-exception span { color: var(--ec-warn); font-weight: 600; }
+
+/* Up to 900px the card's left pane is narrow (a phone's sheet, or a tablet's card with its 380px side pane beside it). */
+@media (max-width: 900px) {
+  /* seven pills share the line */
+  .em-days { flex-wrap: nowrap; gap: 5px; }
+  .em-days button { flex: 1 1 0; min-width: 0; padding: 0 2px; }
+  /* an exception takes two lines (the day and its remove button, then the two times), so a time is never cut short of its AM or PM */
+  .em-exc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .em-exc-row > :nth-child(4) { grid-column: 2; grid-row: 1; justify-self: end; }
+  .em-exc-row > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .em-exc-row > :nth-child(3) { grid-column: 2; grid-row: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .em-days button { transition: none; }
+}

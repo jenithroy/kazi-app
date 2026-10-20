@@ -1,0 +1,17 @@
+/* The salary slip dialog: an EditCard (fields on the left, the printed sheet on the right). Only what the shared card leaves open is here.
+   The white sheet itself is the printed document and keeps its own colours (it is drawn inline, as it prints). */
+
+/* wider than the usual card, so the sheet is not squeezed: it is a page of four columns */
+@media (min-width: 1100px) {
+  .kmodal--card.kmodal--ec.ss-card { --kmodal-w: 1040px; }
+  .ss-card .ec { grid-template-columns: minmax(0, 1fr) 470px; }
+}
+
+.ss-card .ec--sections { min-height: 0; }
+.ss-gap { margin-top: 4px; }
+
+/* a sheet wider than its pane scrolls on its own rather than pushing the card sideways */
+.ss-paper { overflow-x: auto; }
+
+/* the fields sit in the card's two-column pane; their wrapper adds no box of its own */
+.ss-flow { display: contents; }
