@@ -1,0 +1,377 @@
+/* ══════════════════════════════════════════════════════════════════
+   META ADS — the page's own parts (everything is `.ma-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, a bar with the section tabs and the date range, then a grid of glass tiles that
+   is different for each section (the grids are named `ma-over`, `ma-plain`, `ma-leads`, `ma-attr`, `ma-act`, `ma-set` and `ma-one`).
+   A campaign, an ad set, an ad or a lead opens in the shared EditCard; the two real-money confirmations are small glass dialogs. This
+   sheet draws what the shared pieces leave to the page. Inside a tile everything reads the `--kb-*` tokens (inside a dialog the
+   `--ink-*` ones), so light, dark and the solid fallback follow.
+
+   Loaded after bento.css. The grids are written `.kb-grid.kb-grid--ma-…` (one class more than bento's own `.kb-grid` rules) so they
+   win in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grids ────────────────────────────────────────────────── */
+
+/* overview: four short tiles, then the trend over what people did on the left, campaigns over top ads on the right */
+.kb-grid.kb-grid--ma-over {
+  grid-template-rows: clamp(84px, 10.5vh, 96px) repeat(5, minmax(0, 1fr));
+  grid-template-areas:
+    "sp  sp  sp  res res res cpr cpr cpr ctr ctr ctr"
+    "trd trd trd trd trd trd trd trd camp camp camp camp"
+    "trd trd trd trd trd trd trd trd camp camp camp camp"
+    "trd trd trd trd trd trd trd trd top  top  top  top"
+    "brt brt brt brt brt brt brt brt top  top  top  top"
+    "brt brt brt brt brt brt brt brt top  top  top  top";
+}
+/* The right-hand lists need room for a whole row each. Below this height (a short window, or notices above the grid) the shell scrolls a
+   little rather than the campaigns tile being left too short to show even one row (78px at 1280x600; one row needs 94). */
+@media (min-width: 1024px) {
+  .kb-grid.kb-grid--ma-over { min-height: 354px; }
+}
+.kb-grid.kb-grid--ma-one, .kb-grid.kb-grid--ma-plain {
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+}
+.kb-grid.kb-grid--ma-one { grid-template-areas: "one"; }
+.kb-grid.kb-grid--ma-plain { grid-template-areas: "main"; }
+
+/* leads and attribution: four short tiles over one table */
+.kb-grid.kb-grid--ma-leads, .kb-grid.kb-grid--ma-attr { grid-template-rows: clamp(84px, 10.5vh, 96px) repeat(3, minmax(0, 1fr)); }
+.kb-grid.kb-grid--ma-leads {
+  grid-template-areas:
+    "tot tot tot new new new fol fol fol conv conv conv"
+    "main main main main main main main main main main main main"
+    "main main main main main main main main main main main main"
+    "main main main main main main main main main main main main";
+}
+.kb-grid.kb-grid--ma-attr {
+  grid-template-areas:
+    "sp sp sp cu cu cu va va va ro ro ro"
+    "main main main main main main main main main main main main"
+    "main main main main main main main main main main main main"
+    "main main main main main main main main main main main main";
+}
+
+.kb-grid.kb-grid--ma-act {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "log log log log log log log runs runs runs runs runs";
+}
+.kb-grid.kb-grid--ma-set {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-areas:
+    "acc acc acc acc acc acc acc acc sync  sync  sync  sync"
+    "acc acc acc acc acc acc acc acc rails rails rails rails";
+}
+
+/* Tablet: six columns, the tall tiles stacked; a window shorter than the stack scrolls in the shell rather than crushing the tiles. */
+@media (max-width: 1023px) {
+  .kb.ma-page { min-height: 1040px; }
+  .kb-grid.kb-grid--ma-over {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px 84px repeat(2, minmax(0, 1fr)) minmax(0, 1fr) minmax(0, 1.2fr);
+    grid-template-areas:
+      "sp  sp  sp  res res res"
+      "cpr cpr cpr ctr ctr ctr"
+      "trd trd trd trd trd trd"
+      "trd trd trd trd trd trd"
+      "brt brt brt camp camp camp"
+      "top top top top top top";
+  }
+  .kb-grid.kb-grid--ma-leads, .kb-grid.kb-grid--ma-attr {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px 84px repeat(4, minmax(0, 1fr));
+  }
+  .kb-grid.kb-grid--ma-leads {
+    grid-template-areas: "tot tot tot new new new" "fol fol fol conv conv conv" "main main main main main main" "main main main main main main" "main main main main main main" "main main main main main main";
+  }
+  .kb-grid.kb-grid--ma-attr {
+    grid-template-areas: "sp sp sp cu cu cu" "va va va ro ro ro" "main main main main main main" "main main main main main main" "main main main main main main" "main main main main main main";
+  }
+  .kb-grid.kb-grid--ma-act {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "log log log log log log" "runs runs runs runs runs runs";
+  }
+  .kb-grid.kb-grid--ma-set {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr);
+    grid-template-areas: "acc acc acc acc acc acc" "sync sync sync rails rails rails";
+  }
+}
+
+/* Phone: one or two columns, the page scrolls, and every tile grows with what is in it. */
+@media (max-width: 768px) {
+  .kb.ma-page { min-height: 0; }
+  .kb-grid.kb-grid--ma-over, .kb-grid.kb-grid--ma-leads, .kb-grid.kb-grid--ma-attr, .kb-grid.kb-grid--ma-act, .kb-grid.kb-grid--ma-set {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+  }
+  .kb-grid.kb-grid--ma-over { grid-template-areas: "sp sp" "res cpr" "ctr ctr" "trd trd" "brt brt" "camp camp" "top top"; }
+  .kb-grid.kb-grid--ma-leads { grid-template-areas: "tot new" "fol conv" "main main"; }
+  .kb-grid.kb-grid--ma-attr { grid-template-areas: "sp sp" "cu va" "ro ro" "main main"; }
+  .kb-grid.kb-grid--ma-act { grid-template-areas: "log log" "runs runs"; }
+  .kb-grid.kb-grid--ma-set { grid-template-areas: "acc acc" "sync sync" "rails rails"; }
+}
+
+/* ── The header, the bar and the notices ──────────────────────── */
+
+.kb-btn.ma-sync { height: 32px; padding: 0 14px; border-radius: 999px; }
+
+.ma-bar { flex: none; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+.ma-range { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.ma-presets { display: inline-flex; gap: 4px; }
+.ma-preset {
+  display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--kb-line-hi);
+  background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.ma-preset:hover { background: var(--kb-well); color: var(--kb-ink); }
+.ma-preset.is-on { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+.ma-preset:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.ma-dates { display: inline-flex; align-items: center; gap: 6px; }
+.ma-dash { color: var(--kb-ink-3); }
+
+.ma-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.ma-banner > svg { flex: none; color: var(--kb-warn); }
+.ma-banner > span { flex: 1 1 auto; min-width: 0; }
+.ma-banner.is-bad { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 30%, transparent); }
+.ma-banner.is-bad > svg { color: var(--kb-bad); }
+.ma-banner.is-info { background: var(--kb-info-bg); border-color: color-mix(in srgb, var(--kb-info) 28%, transparent); }
+.ma-banner.is-info > svg { color: var(--kb-info); }
+.ma-banner a { color: var(--kb-accent); font-weight: 600; }
+.ma-banner button {
+  flex: none; min-height: 28px; padding: 0 12px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink-2); font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s;
+}
+.ma-banner button:hover:not(:disabled) { background: var(--kb-well); }
+.ma-banner button:disabled { opacity: .6; cursor: progress; }
+.ma-banner button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+
+/* a button's icon while its work is on its way (the keyframes are in styles.css) */
+.kspin { animation: spin 0.8s linear infinite; }
+
+.ma-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* the currency switch, shown only when the rows are in more than one */
+.ma-cur { flex: none; display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; color: var(--kb-ink-3); }
+
+/* a word that is a button, inside a sentence */
+.ma-linkbtn { padding: 0; border: 0; background: none; color: var(--kb-accent); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.ma-linkbtn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ma-linkbtn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 6px; }
+.ma-bad { color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
+.ma-dim { color: var(--kb-ink-3); }
+.ma-mono { font: 500 12px/1.3 var(--mono); color: var(--kb-ink-3); }
+.ma-cap { text-transform: capitalize; }
+.ma-empty-act { display: flex; justify-content: center; }
+
+/* ── Short number tiles ───────────────────────────────────────── */
+
+@container kb (max-height: 69px) {
+  .ma-kpi .kb-main { flex-direction: row; align-items: baseline; gap: 0 10px; }
+  .ma-kpi .kb-main > .kb-fig { flex: none; }
+  .ma-kpi .kb-main > .kb-sub { flex: 1 1 0; }
+}
+
+.ma-kpi .kb-fig.ma-fig-s { --fig: 22px; }
+.ma-kpi .kb-fig.ma-fig-xs { --fig: 18px; }
+/* a half-width tile on the narrowest phones (320px: 146px wide) keeps a long amount whole by setting it a step smaller still */
+@container kb (max-width: 160px) {
+  .ma-kpi .kb-fig.ma-fig-s { --fig: 18px; }
+  .ma-kpi .kb-fig.ma-fig-xs { --fig: 15px; }
+}
+
+/* ── Overview ─────────────────────────────────────────────────── */
+
+/* the tile's head holds the title and, at its right, the metric switch; the note is let out of its clip so a focus ring shows */
+.kb-tile.ma-trend .kb-note, .kb-tile.ma-pane .kb-note { overflow: visible; }
+
+.ma-fig4 { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 14px; }
+.ma-fig4 > div { min-width: 0; display: grid; gap: 2px; align-content: start; }
+.ma-fig4 dt { font-size: 12px; font-weight: 500; color: var(--kb-ink-3); }
+.ma-fig4 dd { margin: 0; min-width: 0; display: grid; gap: 2px; }
+.ma-fig4 dd b { font-size: 24px; font-weight: 600; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
+.ma-fig4 small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--kb-ink-3); }
+@container kb (max-width: 380px) { .ma-fig4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container kb (max-height: 124px) { .ma-fig4 dd b { font-size: 20px; } .ma-fig4 small { display: none; } }
+
+/* campaigns by spend: a row is tinted as far as its share of the biggest, which says the ranking without a chart of its own */
+.ma-shares, .ma-ads { margin: 0; padding: 0; list-style: none; }
+.ma-shares > li {
+  position: relative; isolation: isolate; flex: 0 0 auto; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 32px; padding: 6px 8px; border-radius: 8px; font-size: 13px;
+}
+.ma-shares > li::before {
+  content: ""; position: absolute; z-index: -1; inset: 0 auto 0 0; width: var(--p, 0%); border-radius: inherit;
+  background: color-mix(in srgb, var(--kb-accent) 17%, transparent); transform-origin: left; animation: kb-grow .7s var(--kb-ease) both;
+}
+.ma-shares span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--kb-ink); }
+.ma-shares b { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
+
+.ma-ads > li { flex: 0 0 auto; width: 100%; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 0; border-bottom: 1px solid var(--kb-line); }
+.ma-ads > li:last-child { border-bottom: 0; }
+.ma-ad-t { flex: 1 1 0; min-width: 0; display: grid; gap: 1px; }
+.ma-ad-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--kb-ink); }
+.ma-ad-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
+.ma-ad-n { flex: none; display: grid; gap: 1px; text-align: right; font-variant-numeric: tabular-nums; }
+.ma-ad-n b { font-size: 13px; font-weight: 600; color: var(--kb-ink); }
+.ma-ad-n span { font-size: 12px; color: var(--kb-ink-3); }
+@container kb (max-width: 330px) { .ma-ad-n span { display: none; } }
+
+.ma-thumb { flex: none; display: block; border-radius: 6px; object-fit: cover; background: var(--kb-well); }
+.ma-thumb--none { display: grid; place-items: center; color: var(--kb-faint); }
+
+/* ── A pane around a table or a form ──────────────────────────── */
+
+/* a pane is a plain tile with no padding of its own: the table's rows carry theirs, the head and the bar here */
+.kb-tile.ma-pane { padding: 0; gap: 0; }
+.kb-tile.ma-pane > .kb-hd { padding: 14px 16px 8px; }
+.kb-tile.ma-pane > .kb-main { gap: 0; }
+.ma-sub { flex: none; margin: 0; padding: 0 16px 8px; font-size: 12.5px; line-height: 1.4; color: var(--kb-ink-3); }
+.ma-tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; padding: 0 16px 10px; }
+.ma-tools .dt-search { flex: 1 1 200px; min-width: 180px; max-width: 280px; }
+.ma-tools .dt-search input { width: 100%; }
+.ma-tools-r { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.ma-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; color: var(--kb-ink-2); cursor: pointer; }
+.ma-check input { width: 16px; height: 16px; accent-color: var(--kb-accent); }
+.kb-btn.ma-pane-btn { height: 28px; }
+.ma-pane .kb-btn { white-space: nowrap; }
+
+/* a form or a short list in a pane scrolls inside it; a table does its own */
+.kb-tile.ma-pane > .kb-main { overflow-y: auto; overscroll-behavior: contain; }
+.kb-tile.ma-pane > .kb-main > .dt { overflow: visible; }
+
+.ma-foot { flex: none; padding: 8px 16px 12px; display: grid; gap: 8px; }
+.ma-foot p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--kb-ink-3); }
+.ma-more {
+  width: 100%; height: 34px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
+  font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.ma-more:hover { background: var(--kb-well); color: var(--kb-ink); }
+.ma-more:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.ma-how { color: var(--kb-ink-2); }
+
+/* ── Inside the cells ─────────────────────────────────────────── */
+
+.ma-name { min-width: 0; display: flex; align-items: center; gap: 8px; padding-left: calc(var(--d, 0) * 18px); }
+.ma-chev {
+  flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--kb-ink-3); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.ma-chev > svg { transition: transform .15s; }
+.ma-chev.is-open > svg { transform: rotate(90deg); }
+.ma-chev:hover { background: var(--kb-well); color: var(--kb-ink); }
+.ma-chev:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.ma-chev--none { pointer-events: none; }
+.ma-note { display: block; padding-left: calc(32px + var(--d, 1) * 18px); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--kb-ink-3); }
+.ma-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kb-ink); font-size: 13px; }
+.ma-sentence { min-width: 0; font-size: 13px; line-height: 1.45; color: var(--kb-ink-2); }
+.ma-sentence b { font-weight: 600; color: var(--kb-ink); }
+.ma-sentence em { font-style: normal; font-weight: 500; color: var(--kb-ink); }
+.ma-over { color: var(--kb-warn); }
+
+/* ── Forms in a tile (settings) ───────────────────────────────── */
+
+.ma-form, .ma-add { padding: 0 16px 14px; display: grid; gap: 14px; align-content: start; }
+.ma-add { padding-top: 10px; }
+.ma-form--two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ma-form--two .ma-wide, .ma-form--two .ma-help { grid-column: 1 / -1; }
+.ma-help { margin: 0; font-size: 12px; line-height: 1.5; color: var(--kb-ink-3); }
+@container kb (max-width: 400px) { .ma-form--two { grid-template-columns: minmax(0, 1fr); } }
+.ma-f { display: grid; gap: 6px; min-width: 0; }
+.ma-f label { font-size: 12.5px; font-weight: 600; color: var(--kb-ink-2); }
+.ma-f small { font-size: 12px; line-height: 1.45; color: var(--kb-ink-3); }
+.ma-pane .ksel-val.is-ph { color: var(--kb-ink-3); }      /* the shared Select's "Choose…" is under 3:1 on glass */
+.ma-inline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ma-f input {
+  flex: 1 1 auto; min-width: 0; width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--kb-line-hi); border-radius: 10px;
+  background: transparent; color: var(--kb-ink); font: 400 13.5px/1 var(--font); font-variant-numeric: tabular-nums;
+}
+.ma-f input::placeholder { color: var(--kb-ink-3); opacity: 1; }
+.ma-f input:disabled { opacity: .6; cursor: not-allowed; }
+.ma-f input:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 10px; }
+.ma-unit { flex: none; font-size: 13px; font-weight: 600; color: var(--kb-ink-3); }
+.ma-save { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--kb-well); font-size: 12.5px; color: var(--kb-ink-2); }
+.ma-save > span { flex: 1 1 auto; }
+.ma-sync { }
+.kb-tile .ma-sync-status, .ma-sync-status { font-size: 13px; }
+.ma-pane .ma-sync { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 16px 8px; }
+.ma-pane .ma-sync p { margin: 0; font-size: 13px; color: var(--kb-ink-2); }
+.ma-pane > .kb-main > .ma-linkbtn { padding: 4px 16px 14px; font-size: 12.5px; }
+
+/* ── Inside a card and the dialogs ────────────────────────────── */
+
+.kmodal--meta { --ma-well: rgba(15, 46, 34, .05); }
+:root[data-theme="dark"] .kmodal--meta { --ma-well: rgba(255, 255, 255, .055); }
+.ma-act { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.ma-act .ghost-button, .ma-act a.ghost-button { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; text-decoration: none; }
+.ma-big { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; }
+.kmodal--meta .ma-line { white-space: normal; color: var(--ink); font-size: 14px; font-weight: 500; }
+.kmodal--meta .ma-dim { color: var(--ink-3); }
+.ma-selfstart { align-self: flex-start; }
+.ma-sidehead { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.ma-creative { display: flex; justify-content: flex-start; }
+.ma-cardmsg { margin: 0; padding: 9px 12px; border-radius: 10px; background: var(--ma-well); font-size: 12.5px; line-height: 1.5; color: #933820; }
+:root[data-theme="dark"] .ma-cardmsg { color: #f4ae98; }
+
+.ma-dlg { display: grid; gap: 14px; }
+.ma-dlg-text { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-3); }
+.ma-dlg-text b { font-weight: 600; color: var(--ink); }
+.ma-well { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--ma-well); font-size: 12.5px; line-height: 1.6; color: var(--ink-3); }
+.ma-well b { font-weight: 600; color: var(--ink); }
+.ma-delta { margin: 0; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ma-delta.is-up { color: #7d5512; }
+.ma-delta.is-down { color: #1f6e4c; }
+.ma-delta.is-same { color: var(--ink-3); font-weight: 500; }
+:root[data-theme="dark"] .ma-delta.is-up { color: #e6bd70; }
+:root[data-theme="dark"] .ma-delta.is-down { color: #7dd3a8; }
+.ma-warnbox { margin: 0; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: rgba(212, 160, 74, .16); color: #5c3f0a; font-size: 13px; line-height: 1.5; }
+.ma-warnbox.is-bad { background: rgba(196, 101, 74, .14); color: #7d3a24; }
+.ma-warnbox > svg { flex: none; margin-top: 2px; }
+.ma-warnbox p { margin: 0 0 6px; font-weight: 600; }
+:root[data-theme="dark"] .ma-warnbox { background: rgba(224, 180, 95, .16); color: #f0d79a; }
+:root[data-theme="dark"] .ma-warnbox.is-bad { background: rgba(240, 164, 141, .14); color: #f4ae98; }
+.ma-tick { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.ma-tick input { width: 16px; height: 16px; accent-color: var(--mint-deep); }
+
+.ma-copy { display: flex; align-items: flex-end; gap: 8px; }
+.ma-copy label { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.ma-copy input {
+  width: 100%; height: 38px; padding: 0 10px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--mg-input, #fff);
+  color: var(--ink); font: 500 12.5px/1 var(--mono);
+}
+
+/* ── Phone: the page scrolls, so the panes grow with their rows ── */
+
+@media (max-width: 768px) {
+  .ma-bar { flex-direction: column; align-items: stretch; }
+  .ma-range { display: grid; gap: 8px; }
+  .ma-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ma-preset { justify-content: center; height: 36px; }
+  .ma-dates { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .ma-dates .kdp.kdp--pill { display: block; width: 100%; }
+  .ma-dates .kdp .kdp-trigger--pill { width: 100%; max-width: none; height: 36px; }
+  .kb-tile.ma-pane > .kb-hd { padding: 12px 12px 8px; }
+  .ma-sub, .ma-tools, .ma-form, .ma-add, .ma-foot { padding-inline: 12px; }
+  .ma-tools .dt-search { order: -1; flex: 1 1 100%; max-width: none; }
+  .ma-tools .dt-search input { font-size: 16px; }                /* the shared search box is 13px: on a phone iOS would zoom in on it */
+  .ma-tools-r { margin-left: 0; width: 100%; }
+  .ma-tools-r .kb-btn { flex: 1 1 0; }
+  .ma-f input { height: 44px; font-size: 16px; }
+  .kb-tile.ma-pane > .kb-main { overflow: visible; }
+  .ma-fig4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ma-shares > li { min-height: 40px; }
+  .ma-ads > li { min-height: 54px; }
+  .kb-btn.ma-sync { height: 36px; }
+  .ma-act .ghost-button, .ma-act a.ghost-button, .ma-pane .kb-btn, .ma-empty-act .kb-btn { min-height: 40px; }
+  .ma-chev { width: 32px; height: 32px; }
+  .ma-banner button { min-height: 36px; }
+}
+
+@media (pointer: coarse) {
+  .ma-banner button { min-height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ma-preset, .ma-chev, .ma-chev > svg, .ma-more, .ma-banner button { transition: none; }
+  .ma-shares > li::before { animation: none !important; }
+}

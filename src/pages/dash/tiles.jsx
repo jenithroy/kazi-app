@@ -781,7 +781,7 @@ export function LeadsTile({ area = "leads", leads = [], loading }) {
   );
   const fresh = leads.filter((l) => (l.status || "new") === "new").length;
   return (
-    <Tile area={area} to="/marketing?tab=meta-ads" can={(p) => sectionVisible(p, "marketing") && marketingTabAllowed(p, "meta_ads")}
+    <Tile area={area} to="/marketing/meta-ads" can={(p) => sectionVisible(p, "marketing") && marketingTabAllowed(p, "meta_ads")}
       icon={<Icons.Marketing {...ico} />} title="Meta leads" note={fresh ? `${fresh} new` : undefined} loading={loading} align="top">
       {rows.length === 0 ? (
         <EmptyNote icon={<Icons.Marketing size={22} sw={1.5} />}>No leads yet. They arrive from your Meta lead forms.</EmptyNote>

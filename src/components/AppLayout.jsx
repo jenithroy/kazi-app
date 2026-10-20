@@ -44,7 +44,6 @@ function BottomNav({ profile }) {
 }
 
 function AppLayout({ children }) {
-  const location = useLocation();
   const { profile } = useAuth();
 
   // Records the page somebody is on and how long they stay. Here rather than
@@ -55,19 +54,13 @@ function AppLayout({ children }) {
   // every page; a page darkens its own content only once it has been written for it.
   useApplyTheme();
 
-  // Full-bleed surfaces: these pages manage their own scrolling and need to
-  // reach the bottom of the window, so the shell must not pad or scroll them.
-  // Chat in particular pins a composer to the bottom edge.
-  const noPadding =
-    location.pathname.startsWith("/marketing") || location.pathname.startsWith("/messenger");
-
   return (
     <div className="kapp">
       {/* The native app already has its bottom tab bar for everyday pages, so it
           keeps the menu button hidden, as the old hamburger was. */}
       <TopNav showMenuButton={!isNative} />
       <main className={cn("kmain", isNative && "kmain--native")}>
-        <div className="kscroll" style={noPadding ? { padding: 0, gap: 0, overflow: 'hidden' } : undefined}>
+        <div className="kscroll">
           {children}
         </div>
         {isNative && <BottomNav profile={profile} />}

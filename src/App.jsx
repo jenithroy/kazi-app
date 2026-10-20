@@ -18,6 +18,7 @@ import Customers from "./pages/Customers";
 import Messenger from "./pages/Messenger";
 import Sales from "./pages/Sales";
 import Marketing from "./pages/Marketing";
+import MetaAds from "./pages/MetaAds";
 import BugReport from "./pages/BugReport";
 import Changelog from "./pages/Changelog";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -80,6 +81,7 @@ function App() {
         <Route path="/employees"   element={<RequireSection section="employees"><Employees /></RequireSection>} />
         <Route path="/customers"   element={<RequireSection section="customers"><Customers /></RequireSection>} />
         <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
+        <Route path="/marketing/meta-ads" element={<RequireSection section="marketing"><MetaAds /></RequireSection>} />
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
         <Route path="/admin"       element={<RequireSection section="admin"><SysPage><AdminPanel /></SysPage></RequireSection>} />
         <Route path="/usage"       element={<RequireSection section="usage_analytics"><SysPage><Usage /></SysPage></RequireSection>} />

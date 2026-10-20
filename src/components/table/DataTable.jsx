@@ -37,6 +37,10 @@
  *
  * `limit` draws only the first so many rows, after the sort (a phone's page scrolls, so a page may ask
  * for a short list and offer "Show all" itself).
+ *
+ * `focusBody` makes the scrolling part a Tab stop. A table with rows to press already has one (the row's
+ * button); a table with none (a read-only list) has nothing a keyboard can reach, so it could not be
+ * scrolled by one (axe: scrollable-region-focusable). Pass it for a list that nobody opens.
  */
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icons, cn } from "../ui";
@@ -71,7 +75,7 @@ export function fitColumns(columns, width) {
 }
 
 export default function DataTable({
-  label, rows, rowKey, columns, defaultSort, onOpen, rowLabel, activeKey, kindOf, empty, loading, className, skeletonRows = 6, limit,
+  label, rows, rowKey, columns, defaultSort, onOpen, rowLabel, activeKey, kindOf, empty, loading, className, skeletonRows = 6, limit, focusBody,
 }) {
   const rootRef = useRef(null);
   const [width, setWidth] = useState(0);
@@ -169,7 +173,7 @@ export default function DataTable({
         })}
       </div>
 
-      <div className="dt-body" role="rowgroup" onKeyDown={onBodyKey}>
+      <div className="dt-body" role="rowgroup" onKeyDown={onBodyKey} tabIndex={focusBody ? 0 : undefined}>
         {loading && Array.from({ length: skeletonRows }, (_, i) => (
           <div key={i} className="dt-row dt-row--skel" role="row" aria-hidden="true">
             {visible.map((c, k) => (

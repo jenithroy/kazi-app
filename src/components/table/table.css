@@ -40,6 +40,7 @@
 /* ── Body ───────────────────────────────────────────────────────── */
 
 .dt-body { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.dt-body:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; border-radius: 10px; }      /* (the body is a Tab stop only where a page asks: `focusBody` in DataTable.jsx, for a list with no row to press) */
 .dt-row { position: relative; min-height: 54px; padding-block: 7px; border-bottom: 1px solid var(--kb-line); transition: background-color .12s; }
 .dt-row:last-child { border-bottom: 0; }
 .dt-row.is-open { cursor: pointer; }

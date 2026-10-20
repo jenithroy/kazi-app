@@ -1,0 +1,237 @@
+/* ══════════════════════════════════════════════════════════════════
+   CONTENT CALENDAR — the page's own parts (everything is `.mk-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then a grid of glass tiles:
+
+     left     the month: day boxes holding the work planned on each day, as chips
+     right    the day that is chosen (its work, and a button to add to it) over the ideas inbox
+
+   Work opens in the shared EditCard (components/EditCard.jsx). This sheet draws what the shared pieces leave to the page: the grid,
+   the month's boxes and chips, the rows of the two panes and the card's picture. Inside a tile everything reads the `--kb-*` tokens,
+   so light, dark and the solid fallback follow.
+
+   Loaded after bento.css. The grids are written `.kb-grid.kb-grid--cal…` (one class more than bento's own `.kb-grid` rules) so they
+   win in every window size without being repeated there.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--cal {
+  grid-template-rows: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-areas:
+    "cal cal cal cal cal cal cal cal day   day   day   day"
+    "cal cal cal cal cal cal cal cal ideas ideas ideas ideas";
+}
+
+/* Tablet: six columns. The month takes the width, the day and the inbox sit side by side under it; a shorter window scrolls in the
+   shell rather than crushing the boxes. */
+@media (max-width: 1023px) {
+  .kb.mk-page { min-height: 900px; }
+  .kb-grid.kb-grid--cal {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+    grid-template-areas: "cal cal cal cal cal cal" "day day day ideas ideas ideas";
+  }
+}
+
+/* Phone: one column, the page scrolls, and every tile grows with what is in it. */
+@media (max-width: 768px) {
+  .kb.mk-page { min-height: 0; }
+  .kb-grid.kb-grid--cal {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas: "cal" "day" "ideas";
+  }
+}
+
+/* ── Types of work: one colour each, set here and read by the dots, chips and tags ─────── */
+
+.mk-t-shoot    { --tc: var(--kb-info-fill); --tx: var(--kb-info); --tb: var(--kb-info-bg); }
+.mk-t-edit     { --tc: var(--kb-warn-fill); --tx: var(--kb-warn); --tb: var(--kb-warn-bg); }
+.mk-t-ideation { --tc: var(--kb-faint);     --tx: var(--kb-ink-2); --tb: var(--kb-mute-bg); }
+.mk-t-publish  { --tc: var(--kb-good-fill); --tx: color-mix(in srgb, var(--kb-good) 72%, var(--kb-ink)); --tb: var(--kb-good-bg); }
+
+/* ── The header and its notices ───────────────────────────────── */
+
+.kb-btn.mk-newbtn { height: 32px; padding: 0 14px; border-radius: 999px; }
+
+.mk-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
+  background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);
+  color: var(--kb-ink); font-size: 13px; line-height: 1.4;
+}
+.mk-banner > svg { flex: none; color: var(--kb-warn); }
+.mk-banner > span { flex: 1 1 auto; min-width: 0; }
+.mk-banner.is-bad { background: var(--kb-bad-bg); border-color: color-mix(in srgb, var(--kb-bad) 30%, transparent); }
+.mk-banner.is-bad > svg { color: var(--kb-bad); }
+.mk-banner button {
+  flex: none; min-height: 28px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--kb-warn) 40%, transparent); border-radius: 999px;
+  background: transparent; color: var(--kb-warn); font: 600 12.5px/1 var(--font); cursor: pointer; transition: background-color .15s;
+}
+.mk-banner.is-bad button { border-color: color-mix(in srgb, var(--kb-bad) 40%, transparent); color: color-mix(in srgb, var(--kb-bad) 72%, var(--kb-ink)); }
+.mk-banner button:hover:not(:disabled) { background: var(--kb-well); }
+.mk-banner button:disabled { opacity: .6; cursor: progress; }
+.mk-banner button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+
+/* ── The month ────────────────────────────────────────────────── */
+
+/* the tile's head holds the month's name and, at its right, the controls; its note is let out of its clip so a focus ring shows */
+.kb-tile.mk-cal .kb-note { overflow: visible; display: inline-flex; align-items: center; gap: 4px; }
+.mk-nav {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--kb-ink-3); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.mk-nav:hover { background: var(--kb-well); color: var(--kb-ink); }
+.mk-nav:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 50%; }
+.mk-pill {
+  display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--kb-line-hi);
+  background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+.mk-pill:hover { background: var(--kb-well); color: var(--kb-ink); }
+.mk-pill:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+
+.mk-gridwrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+.mk-dow, .mk-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.mk-dow { flex: none; }
+.mk-dow > span { text-align: center; font-size: 11px; font-weight: 600; color: var(--kb-ink-3); }
+.mk-d1 { display: none; }
+@container kb (max-width: 429px) { .mk-d3 { display: none; } .mk-d1 { display: inline; } }
+.mk-grid { flex: 1 1 0; min-height: 0; grid-template-rows: repeat(var(--rows, 6), minmax(0, 1fr)); }
+
+.mk-cell {
+  position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 3px 4px 4px;
+  border: 1px solid transparent; border-radius: 9px; overflow: hidden;
+  background: var(--kb-well); color: var(--kb-ink-2); cursor: default;
+  transition: border-color .15s, background-color .15s, box-shadow .15s;
+}
+.mk-cell:hover { border-color: var(--kb-line-hi); }
+.mk-cell.is-out { background: transparent; border-color: var(--kb-line); }
+/* Saturday, the day off, is drawn quieter (as in Production and the date picker) */
+.mk-cell.is-sat { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--kb-well) 5px 8px); }
+.mk-cell.is-sat.has { background: var(--kb-well); }
+.mk-cell.is-sel { border-color: var(--kb-accent); box-shadow: 0 0 0 1px var(--kb-accent); }
+.mk-cell.is-over { border-color: var(--kb-accent); background: var(--kb-chip); box-shadow: 0 0 0 2px color-mix(in srgb, var(--kb-accent) 40%, transparent); }
+
+.mk-cell-hd { flex: none; display: flex; align-items: center; justify-content: space-between; height: 20px; }
+.mk-num {
+  min-width: 22px; height: 20px; padding: 0 5px; border: 0; border-radius: 999px; background: transparent; color: inherit;
+  font: 600 12px/20px var(--font); font-variant-numeric: tabular-nums; text-align: center; cursor: pointer;
+}
+.mk-cell.is-out .mk-num { color: var(--kb-ink-3); font-weight: 500; }
+.mk-cell.is-today .mk-num { background: var(--kb-accent); color: var(--kb-on-accent); }
+.mk-num:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+
+.mk-plus {
+  width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--kb-ink-3); opacity: 0; cursor: pointer; transition: opacity .15s, background-color .15s, color .15s;
+}
+.mk-cell:hover .mk-plus { opacity: 1; }
+.mk-plus:hover { background: var(--kb-chip); color: var(--kb-accent); }
+@media (hover: none) { .mk-plus { display: none; } }
+
+/* the chips: each 17px tall with 2px between, which is what MonthGrid.jsx counts to know how many fit */
+.mk-chips { flex: 1 1 0; min-height: 0; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.mk-chip {
+  flex: none; min-width: 0; height: 17px; display: flex; align-items: center; gap: 5px; padding: 0 5px; border-radius: 5px;
+  background: var(--tb); color: var(--kb-ink); font-size: 11.5px; line-height: 1; cursor: pointer; transition: box-shadow .15s;
+}
+.mk-chip:hover { box-shadow: inset 0 0 0 1px var(--tc); }
+.mk-chip > i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--tc); }
+.mk-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-chip.is-dragging, .mk-item.is-dragging { opacity: .45; }
+.mk-more { flex: none; height: 17px; padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 17px; color: var(--kb-ink-2); }
+
+.mk-dots { display: flex; gap: 3px; margin-top: auto; padding: 0 2px; }
+.mk-dots > i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc); }
+
+.mk-legend { flex: none; display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 11.5px; color: var(--kb-ink-3); }
+.mk-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.mk-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--tc); }
+
+/* ── The day pane and the ideas pane ──────────────────────────── */
+
+.mk-pane-body { flex: 1 1 0; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mk-hint { flex: none; margin: 0; font-size: 12px; line-height: 1.4; color: var(--kb-ink-3); }
+.mk-list { flex: 1 1 0; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.mk-item { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--kb-line); }
+.mk-item:last-child { border-bottom: 0; }
+.mk-row {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 6px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background-color .15s;
+}
+.mk-row:hover { background: var(--kb-well); }
+.mk-row:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; box-shadow: none; }
+.mk-row-t { flex: 1 1 0; min-width: 0; display: grid; gap: 1px; }
+.mk-row-t > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--kb-ink); }
+.mk-row-t > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
+.mk-dot { flex: none; width: 10px; height: 10px; margin: 0 5px; border-radius: 50%; background: var(--tc); }
+.mk-thumb { flex: none; width: 34px; height: 34px; border-radius: 8px; object-fit: cover; background: var(--kb-well); }
+.mk-tag {
+  flex: none; display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; line-height: 1.45; white-space: nowrap; background: var(--tb); color: var(--tx);
+}
+
+/* put an idea on the chosen day: shows when its row is pointed at or reached by the keyboard (always on a touch screen) */
+.mk-sched {
+  flex: none; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--kb-ink-3); opacity: 0; cursor: pointer; transition: opacity .15s, background-color .15s, color .15s;
+}
+.mk-item:hover .mk-sched, .mk-item:focus-within .mk-sched { opacity: 1; }
+.mk-sched:hover { background: var(--kb-chip); color: var(--kb-accent); }
+.mk-sched:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+@media (hover: none) { .mk-sched { opacity: 1; } }
+
+.mk-add { flex: none; align-self: stretch; margin-top: 2px; }
+
+.mk-quick { flex: none; display: flex; gap: 6px; }
+.mk-quick input {
+  flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 12px; border: 1px solid var(--kb-line-hi); border-radius: 999px;
+  background: transparent; color: var(--kb-ink); font: 400 13px/1 var(--font);
+}
+.mk-quick input::placeholder { color: var(--kb-ink-3); opacity: 1; }
+.mk-quick input:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+.mk-quick-go {
+  flex: none; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: var(--kb-accent); color: var(--kb-on-accent); cursor: pointer; transition: filter .15s;
+}
+.mk-quick-go:hover { filter: brightness(1.08); }
+.mk-quick-go:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+
+/* work dragged back here goes to the inbox */
+.mk-ideas { border-radius: 10px; }
+.mk-ideas.is-over { background: var(--kb-chip); box-shadow: inset 0 0 0 2px var(--kb-accent); }
+
+/* ── The card's picture ───────────────────────────────────────── */
+
+.mk-pic {
+  min-height: 150px; max-height: 220px; display: grid; place-items: center; overflow: hidden; border-radius: 12px;
+  background: rgba(15, 46, 34, .05); color: var(--ink-2); font-size: 12.5px; text-align: center;      /* it sits in a card, which has the --ink-* tokens, not the page's --kb-* */
+}
+:root[data-theme="dark"] .mk-pic { background: rgba(255, 255, 255, .055); }
+.mk-pic > img { display: block; width: 100%; max-height: 220px; object-fit: contain; }
+.mk-pic > span { padding: 16px; }
+.kmodal--mk .kdp-val.is-ph { color: var(--ink-3); }      /* the shared picker's "No day" placeholder is 3:1 on glass */
+
+/* ── Phone: the page scrolls, so the panes grow with their rows ── */
+
+@media (max-width: 768px) {
+  .mk-gridwrap { flex: 0 0 auto; }
+  .mk-grid { flex: 0 0 auto; grid-template-rows: none; grid-auto-rows: 52px; gap: 3px; }
+  .mk-dow, .mk-grid { gap: 3px; }
+  .mk-cell { padding: 3px; gap: 0; }
+  .mk-pane-body, .mk-list { flex: 0 0 auto; overflow: visible; }
+  .mk-nav { width: 36px; height: 36px; }
+  .mk-pill { height: 32px; }
+  .mk-quick input { height: 40px; font-size: 16px; }              /* a smaller box would make iOS zoom in on it */
+  .mk-quick-go { width: 40px; height: 40px; }
+  .mk-row { min-height: 52px; }
+  .mk-sched { width: 40px; height: 40px; }
+  .kb-btn.mk-add { min-height: 40px; }
+}
+
+@media (pointer: coarse) {
+  .kb-btn.mk-newbtn { height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-cell, .mk-chip, .mk-row, .mk-nav, .mk-pill, .mk-plus, .mk-sched, .mk-quick-go { transition: none; }
+}

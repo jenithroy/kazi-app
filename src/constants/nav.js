@@ -20,8 +20,8 @@ import { listFiscalYears, fiscalYearToSlug } from "../utils/fiscalYear";
  * `to` may carry a query (?tab=payroll). The query is part of the entry's
  * identity: Payroll and Employees & HR are the same route, and the menu lights
  * up whichever one the address actually names. `accepts` lists other values of
- * that query that mean the same thing (the Marketing page reads both
- * ?tab=meta-ads and ?tab=meta_ads).
+ * that query that mean the same thing (no entry needs it today: Meta Ads, which
+ * was ?tab=meta-ads on the Marketing page, is the page /marketing/meta-ads now).
  */
 
 const section = (key) => (profile) => sectionVisible(profile, key);
@@ -68,8 +68,8 @@ export const NAV_GROUPS = [
     id: "people",
     label: "People",
     items: [
-      { id: "employees", to: "/employees", label: "Employees & HR", Icon: Icons.Employees, desc: "Directory and org chart",     can: section("employees") },
-      { id: "customers", to: "/customers", label: "Customers",      Icon: Icons.Customers, desc: "Clients and their activity",  can: section("customers") },
+      { id: "employees", to: "/employees", label: "Employees & HR", Icon: Icons.Employees, desc: "People, pay and working hours", can: section("employees") },
+      { id: "customers", to: "/customers", label: "Customers",      Icon: Icons.Customers, desc: "Clients, what they owe, who is late",  can: section("customers") },
     ],
   },
   {
@@ -78,9 +78,8 @@ export const NAV_GROUPS = [
     items: [
       { id: "calendar", to: "/marketing", label: "Calendar", Icon: Icons.Calendar, desc: "Content calendar and ideas inbox", can: section("marketing") },
       {
-        id: "meta-ads", to: "/marketing?tab=meta-ads", label: "Meta Ads", Icon: Icons.Marketing, desc: "Campaigns, spend and leads",
-        accepts: { tab: ["meta-ads", "meta_ads"] },
-        // Meta Ads is its own permission on top of the Marketing page (migration 0049).
+        id: "meta-ads", to: "/marketing/meta-ads", label: "Meta Ads", Icon: Icons.Marketing, desc: "Campaigns, spend and leads",
+        // Meta Ads is its own permission on top of the Marketing section (migration 0049).
         can: (profile) => sectionVisible(profile, "marketing") && marketingTabAllowed(profile, "meta_ads"),
       },
     ],
