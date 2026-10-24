@@ -37,7 +37,11 @@ export function DateModeSwitch({ className }) {
   );
 }
 
-export default function PeriodBar({ years }) {
+/**
+ * The period as the controls need it: what is chosen, the menu's choices, the shortcuts under the From / To calendars, and the three
+ * ways to change it. Shared by the header's period bar (Purchases, Payroll, Billing, Transactions) and the Finance page's Filters menu.
+ */
+export function usePeriod(years) {
   const [fy, setFy] = useFiscalYearFilter();
   const [range, setRange] = useDateRangeFilter();
   const today = kathmanduDate();
@@ -56,6 +60,12 @@ export default function PeriodBar({ years }) {
   // Dates that cross are brought together rather than left to filter everything out
   const setFrom = (v) => setRange({ from: v, to: v && range.to && range.to < v ? v : range.to });
   const setTo = (v) => setRange({ from: v && range.from && range.from > v ? v : range.from, to: v });
+
+  return { fy, range, value, options, short, active, choose, setFrom, setTo };
+}
+
+export default function PeriodBar({ years }) {
+  const { range, value, options, short, active, choose, setFrom, setTo } = usePeriod(years);
 
   return (
     <div className="fn-period" role="group" aria-label="Period">

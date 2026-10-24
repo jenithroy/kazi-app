@@ -1,0 +1,54 @@
+/* ══════════════════════════════════════════════════════════════════
+   THE FILTERS BUTTON ON EVERY PAGE   (FilterMenu.jsx; the panel's own rules are the `.fn-*` ones in finance/finance.css, the first page to
+   have it, and they did not move)
+
+   This sheet is only what a page needs to put the button beside its search box.
+══════════════════════════════════════════════════════════════════ */
+
+/* A bar that holds a search box and the Filters button (and whatever else the page keeps there): the pair stays one unit, and on a phone it
+   takes the bar's whole first row, the search growing and the button keeping its size. Add `fn-barrow` to the bar. */
+.fn-barrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.fn-barrow > .fn-find { flex: 0 1 auto; }
+@media (max-width: 768px) {
+  .fn-barrow > .fn-find { order: -1; flex: 1 1 100%; }
+  .fn-barrow .fn-find .dt-search { flex: 1 1 0; min-width: 0; }
+  .fn-barrow .fn-find .dt-search input { width: 100%; }
+}
+
+/* A page with many filters (Tasks has ten): on a wide panel they flow into two columns, so nothing needs a long scroll. */
+@container (min-width: 600px) {
+  .fn-fp-col.is-flow { display: block; column-count: 2; column-gap: 22px; }
+  .fn-fp-col.is-flow > .fn-fp-sec { break-inside: avoid; margin-bottom: 14px; }
+}
+
+/* a day picker with no day chosen says "Any day" in the panel's muted ink, not the dimmer placeholder ink (3.0:1 on the glass) */
+.fn-filter-pop .kdp-val.is-ph { color: var(--ink-3); }
+
+/* Contrast (found by measuring the pixels behind the words, 2026-10-22): the "Smallest / Largest" hint numbers were 3.0:1 in the light with the
+   dimmest ink, and a pill's words on a lit glass pane were 4.3:1 in the dark with the plain accent. */
+.fn-filter-pop .fn-frange-f input::placeholder { color: var(--ink-3); }
+:root[data-theme="dark"] .fn-pill { color: color-mix(in srgb, var(--kb-accent) 72%, #fff); }
+:root[data-theme="dark"] .fn-pill:hover { color: var(--kb-ink); }
+/* The panel is tinted glass, not white (the same reasoning as the glass dialog's deeper secondary ink in modal-glass.css): in the light the muted ink
+   inside it goes a touch deeper. Its section headings and From / To labels measured 4.09:1 where an open list's shadow falls on them. Only the light:
+   the dark sets its own inks on the panel with a more specific rule (controls.css). */
+.fn-filter-pop { --ink-3: #4f5e56; }
+
+/* The Filters button when it is lit (something narrows the list, or its panel is open): the plain accent on the chip tint measured 4.45 to 4.5:1 in
+   the dark on a lit pane, so the dark takes the same lighter accent as the pill beside it. */
+:root[data-theme="dark"] .fn-filterbtn.is-on { color: color-mix(in srgb, var(--kb-accent) 72%, #fff); }
+
+/* On a phone the panel is a sheet across the screen under the top bar, as tall as its filters need and no taller. Placed under the button it got
+   the few lines of room left on the screen (a page of filters in 180px). The lists and calendars it opens still sit on their own buttons. */
+@media (max-width: 768px) {
+  .fn-filter-pop {
+    left: 8px !important; right: 8px !important; width: auto !important; bottom: auto !important;
+    top: calc(var(--kn-h, 76px) + env(safe-area-inset-top, 0px) + 8px) !important;
+    max-height: calc(100vh - var(--kn-h, 76px) - env(safe-area-inset-top, 0px) - 16px) !important;
+    max-height: calc(100dvh - var(--kn-h, 76px) - env(safe-area-inset-top, 0px) - 16px) !important;
+  }
+  .fn-filter-pop.ksel-pop, .fn-filter-pop.ksel-pop.is-up { transform-origin: top center; animation-name: ksel-in; }
+}
+
+/* the panel holds focus itself (tabindex -1) so Escape works after a click on its text: it needs no ring */
+.fn-filter-pop:focus { outline: none; }
