@@ -4,7 +4,9 @@
  * and is still reached the same way (/employees?tab=payroll, and the Payroll entry in the Finance menu).
  *
  *   top row   what this month's (or the period's) payroll comes to: net pay, gross pay, what came off it, and how many people
- *   pane      one line per person per month, grouped by month with the month's totals; a row opens the card; "Slip" prints the salary slip
+ *   pane      one line per person per month, grouped by month with the month's totals; a row opens the card; "Slip" prints the salary slip.
+ *             Beside the search is the Filters button: the period (a fiscal year, or any From / To) and what narrows the records, a person,
+ *             a position, a month, a net-pay range, a late cut, PF, a bonus, a note (lib/payrollFilters.js). The header line says the period.
  *
  * The salary maths, who may see or change payroll, the attendance-driven late cut and the salary slip are the old tab's.
  */
@@ -12,9 +14,10 @@ import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BentoGrid, BentoPage, EmptyNote, Figure, Money, Sub, Tile } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
+import PersonLink from "../components/profile/PersonLink";
 import DataTable from "../components/table/DataTable";
-import { SearchBox } from "../components/table/Bar";
-import PeriodBar from "../components/finance/PeriodBar";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
 import FinPane from "../components/finance/FinPane";
 import PayrollCard from "../components/finance/cards/PayrollCard";
 import SalarySlipModal from "../components/SalarySlipModal";
@@ -28,6 +31,7 @@ import { useFiscalYearFilter } from "../components/FiscalYearFilter";
 import { useDateRangeFilter } from "../components/DateRangeFilter";
 import { describePeriod } from "../lib/period";
 import { groupByMonth, headline, totalsOf } from "../lib/payroll";
+import { payrollFilterDefs } from "../lib/payrollFilters";
 import useDateMode from "../hooks/useDateMode";
 
 const ico = { size: 14, sw: 1.8 };
@@ -66,13 +70,18 @@ export default function Payroll() {
     () => inPeriod.filter((r) => !q || has(r.staffName, q) || has(r.role, q) || has(r.month, q) || has(r.year, q)),
     [inPeriod, q],
   );
+  // what the Filters panel offers on top of the search (lib/payrollFilters.js); the period is the panel's shared choice and has narrowed `inPeriod` already
+  const filterDefs = useMemo(() => payrollFilterDefs({ rows: inPeriod }), [inPeriod]);
+  const tf = useFilters(filterDefs, found);
+  const records = tf.rows;
+  const scope = useMemo(() => ({ period: { years } }), [years]);
   const head = useMemo(() => headline(inPeriod, { periodActive }), [inPeriod, periodActive]);
-  const sums = useMemo(() => totalsOf(found), [found]);
+  const sums = useMemo(() => totalsOf(records), [records]);
 
   // a heading for each month (with its totals), then its people
   const list = useMemo(() => {
     const out = [];
-    for (const g of groupByMonth(found)) {
+    for (const g of groupByMonth(records)) {
       out.push({
         kind: "group", key: `g-${g.key}`,
         label: `${g.month} ${g.year} · ${g.totals.records} ${plural(g.totals.records, "person", "people")} · gross ${money(g.totals.gross)} · net ${money(g.totals.net)}`,
@@ -80,7 +89,7 @@ export default function Payroll() {
       g.rows.forEach((r) => out.push({ ...r, key: r.id }));
     }
     return out;
-  }, [found, money]);
+  }, [records, money]);
   const [shown, more] = usePhoneRows(list, 24);
 
   const open = card?.id ? data.payroll.find((r) => r.id === card.id) || null : null;
@@ -95,7 +104,8 @@ export default function Payroll() {
       id: "who", label: "Staff", grow: true, min: 160, max: 460,
       render: (r, { dropped }) => (
         <NameCell
-          main={(r.staffName || "").trim() || "—"} rest={r.role}
+          main={(r.staffName || "").trim() ? <PersonLink className="kpl--clip" personId={r.person_id || undefined} name={(r.staffName || "").trim()} /> : "—"} rest={r.role}
+          title={[(r.staffName || "").trim(), r.role].filter(Boolean).join(" · ")}
           extra={[dropped.has("late") && r.lateDeductionNPR > 0 && `Late cut − ${money(r.lateDeductionNPR)}`, dropped.has("gross") && r.grossNPR > 0 && `Gross ${money(r.grossNPR)}`]}
         />
       ),
@@ -157,7 +167,6 @@ export default function Payroll() {
               <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Employees &amp; HR
             </button>
           </div>
-          <PeriodBar years={years} />
         </div>
       </header>
 
@@ -193,11 +202,11 @@ export default function Payroll() {
           </Tile>
 
           <FinPane
-            title="Payroll records" note={q ? `${found.length} of ${inPeriod.length}` : `${inPeriod.length} ${plural(inPeriod.length, "record")}`} id="fin-pane"
-            tools={<SearchBox value={query} onChange={setQuery} placeholder="Search payroll" label="Search payroll by name, role or month" />}
+            title="Payroll records" note={q || tf.count > 0 ? `${records.length} of ${inPeriod.length}` : `${inPeriod.length} ${plural(inPeriod.length, "record")}`} id="fin-pane"
+            tools={<FindBar filters={tf} scope={scope} value={query} onChange={setQuery} placeholder="Search payroll" label="Search payroll by name, role or month" />}
             actions={(
               <>
-                <ExportButton name="payroll" columns={csv} rows={found} />
+                <ExportButton name="payroll" columns={csv} rows={records} />
                 <button type="button" className="kb-pillbtn" onClick={() => setSlip({})} title="Make a salary slip for anyone">
                   <Icons.File size={14} sw={1.9} aria-hidden="true" /> Salary slip
                 </button>
@@ -210,7 +219,7 @@ export default function Payroll() {
             )}
             foot={(
               <Foot>
-                <FootSum count label={plural(found.length, "record")} value={found.length} />
+                <FootSum count label={plural(records.length, "record")} value={records.length} />
                 <FootSum label="Gross" value={money(sums.gross)} />
                 <FootSum label="Taken off" value={money(sums.deductions)} tone={sums.deductions > 0 ? "bad" : undefined} />
                 <FootSum label="Net" value={money(sums.net)} tone="good" />

@@ -2,11 +2,12 @@
  * Billing, on the same glass frame as Finance: one screen, the documents scroll in their pane under a head that stays put, and a
  * document is typed into and corrected in the card in the middle of the screen.
  *
- *   header    the period (a fiscal year or a From / To, in A.D. or B.S.) and the region, as on Finance
+ *   header    the title and, in words, what is on screen (the side of the business, the period). The choices themselves are the Filters
+ *             button beside the search box: Nepal or UK, A.D. or B.S., the period, and what narrows the list (lib/billingFilters.js)
  *   tabs      VAT invoices · Challans · Quotations, each with how many there are in the period
  *   top row   what this kind of document comes to: the total, what has been collected (delivered, accepted), what is still owed, and for
  *             an invoice the VAT collected
- *   pane      one line per document, filtered by chips and a search; a row opens the document; View opens the A4 copy to print
+ *   pane      one line per document, narrowed by a search and the Filters panel; a row opens the document; View opens the A4 copy to print
  *
  * What it reads, who may change it, the numbering of documents, the PAN rule, payments, stock and every write are the old page's
  * (lib/billing.js, lib/billingWrites.js). The A4 document itself (components/DocPreview.jsx) is untouched: it is a legal record.
@@ -16,9 +17,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { BentoGrid, BentoPage, EmptyNote, Figure, Money, Sub, Tile } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
 import DataTable from "../components/table/DataTable";
-import { FilterChips, SearchBox } from "../components/table/Bar";
-import { RegionSwitch } from "../components/RegionSwitch";
-import PeriodBar, { DateModeSwitch } from "../components/finance/PeriodBar";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
 import FinPane from "../components/finance/FinPane";
 import ConfirmDialog from "../components/finance/ConfirmDialog";
 import { Chip, ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows, useShiftN } from "../components/finance/parts";
@@ -42,7 +42,9 @@ import { useDateRangeFilter } from "../components/DateRangeFilter";
 import { describePeriod } from "../lib/period";
 import { DOC_TYPES } from "../utils/billing.jsx";
 import { toNPR } from "../utils/currency";
-import { CHIPS, FIGURES, KINDS, WORDS, creditDue, csvColumns, hasPayments, numberOf, outOfOrderSeries, payInfo, relatedText, searchDocs, statusTone, summarise } from "../lib/billing";
+import { kathmanduDate } from "../utils/date";
+import { FIGURES, KINDS, WORDS, creditDue, csvColumns, hasPayments, numberOf, outOfOrderSeries, payInfo, relatedText, searchDocs, statusTone, summarise } from "../lib/billing";
+import { billingFilterDefs, isCancelled, stands } from "../lib/billingFilters";
 import { cancelDoc, convertToInvoice, renumberSeries, setDocStatus } from "../lib/billingWrites";
 
 const ico = { size: 14, sw: 1.8 };
@@ -51,7 +53,7 @@ export default function Billing() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const { ratesVersion } = useCurrency();
   const [dateMode, , show] = useDateMode();
   const money = useMoney();
@@ -64,7 +66,7 @@ export default function Billing() {
 
   const [tab, setTab] = useState("invoice");
   const [query, setQuery] = useState(location.state?.search || "");     // prefilled when arriving from a Finance ledger line
-  const [chip, setChip] = useState("all");
+  const [view, setView] = useState("all");                // which list: "all" (the documents that stand) or "cancelled"; chosen in the Filters panel (Show)
   const [card, setCard] = useState(null);                  // null, or { id } (null id = a new document)
   const [payId, setPayId] = useState(null);                // an invoice whose payments are open
   const [preview, setPreview] = useState(null);            // { data, docType }: the A4 copy
@@ -113,14 +115,30 @@ export default function Billing() {
   const yearsHere = useMemo(() => fiscalYearsIn(byKind[tab]), [byKind, tab]);
   // every document of this kind, in any region and any year: numbers are one series across regions, so what would be renumbered is judged on all
   const allOfKind = tab === "invoice" ? data.invoices : tab === "challan" ? data.challans : data.quotations;
-  // a tab counts the documents still standing (the same number as the top row and the "All" chip); the cancelled ones have their own chip
+  // a tab counts the documents still standing (the same number as the top row and "Show: All" in the Filters panel); the cancelled ones are the panel's other list
   const counts = useMemo(() => Object.fromEntries(KINDS.map((k) => [k, inPeriod[k].filter((d) => d.status !== "Cancelled").length])), [inPeriod]);
 
-  const searched = useMemo(() => searchDocs(list, tab, query), [list, tab, query]);
-  const chips = CHIPS[tab];
-  const chosen = chips.find((c) => c.value === chip) || chips[0];
-  const shown = useMemo(() => searched.filter(chosen.test), [searched, chosen]);
+  // What narrows the list: the search, then which list (the documents that stand, or the cancelled ones), then the rest of the Filters panel
+  const found = useMemo(() => searchDocs(list, tab, query), [list, tab, query]);
+  const showCounts = useMemo(() => ({ all: found.filter(stands).length, cancelled: found.filter(isCancelled).length }), [found]);
+  const searched = useMemo(() => found.filter(view === "cancelled" ? isCancelled : stands), [found, view]);
+  const today = kathmanduDate();
+  // ratesVersion: the amount, the PAN rule and what is overdue convert foreign money, so they are read again when the rates arrive
+  const filterDefs = useMemo(
+    () => billingFilterDefs({ tab, list, counts: showCounts, view, setView, today, show }),
+    [tab, list, showCounts, view, today, show, ratesVersion],        // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const tf = useFilters(filterDefs, searched);
+  const shown = tf.rows;
+  const clearFilters = tf.clear;
   const [capped, more] = usePhoneRows(shown);
+  const scope = useMemo(
+    () => ({ label: "All of Finance", region: { untagged: countUntagged(allOfKind) }, dates: true, period: { years: yearsHere } }),
+    [allOfKind, yearsHere],
+  );
+  const narrowed = Boolean(query.trim()) || tf.count > 0;
+  const inView = view === "cancelled" ? list.filter(isCancelled).length : counts[tab];
+  const note = narrowed ? `${shown.length} of ${inView}${view === "cancelled" ? " cancelled" : ""}` : view === "cancelled" ? `${shown.length} cancelled` : `${shown.length} ${plural(shown.length, words.one, words.many)}`;
   const summary = useMemo(() => summarise(list, tab), [list, tab, ratesVersion]);     // eslint-disable-line react-hooks/exhaustive-deps
   const outOfOrder = useMemo(() => outOfOrderSeries({ tab, allOfKind, fiscalYear: fy }), [tab, allOfKind, fy]);
   const shownTotal = shown.reduce((s, d) => s + toNPR(d.totalNPR, d.currency), 0);
@@ -131,7 +149,7 @@ export default function Billing() {
   const payDoc = payId ? data.invoices.find((d) => d.id === payId) || null : null;
   useEffect(() => { if (card?.id && data.status === "ready" && !cardDoc) setCard(null); }, [card, cardDoc, data.status]);
 
-  const switchTab = (k) => { setTab(k); setCard(null); setPayId(null); setChip("all"); };
+  const switchTab = (k) => { setTab(k); setCard(null); setPayId(null); setView("all"); clearFilters(); };
 
   // Arriving from a Finance-ledger click: jump straight into that invoice instead of landing on the list and making her find it
   const autoDone = useRef(false);
@@ -188,7 +206,8 @@ export default function Billing() {
         await data.reload();
         setCard(null);
         setTab("invoice");
-        setChip("all");
+        setView("all");
+        clearFilters();                                          // so the new invoice is not hidden by a choice made on the quotations
         notify(`Created ${res.number} from ${qt.quotationNumber}.`, "good");
         return res;
       } finally {
@@ -290,7 +309,7 @@ export default function Billing() {
       <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Billing</h1>
-          <p className="kb-head-sub"><span>{describePeriod({ fy, range: dateRange, mode: dateMode })}</span></p>
+          <p className="kb-head-sub"><span>{`${regionLabel} · ${describePeriod({ fy, range: dateRange, mode: dateMode })}`}</span></p>
         </div>
         <div className="kb-head-r fn-head-r">
           <div className="kb-head-act">
@@ -298,11 +317,6 @@ export default function Billing() {
               <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
             </button>
           </div>
-          <div className="kb-head-row">
-            <RegionSwitch untagged={countUntagged(allOfKind)} size="sm" />
-            <DateModeSwitch />
-          </div>
-          <PeriodBar years={yearsHere} />
         </div>
       </header>
 
@@ -355,16 +369,13 @@ export default function Billing() {
           )}
 
           <FinPane
-            title={words.pane} note={query || chosen.value !== "all" ? `${shown.length} of ${searched.length}` : `${shown.length} ${plural(shown.length, words.one, words.many)}`}
+            title={words.pane} note={note}
             id="fin-pane" labelledBy={`bl-tab-${tab}`} tour="billing-list"
             tools={(
-              <>
-                <SearchBox value={query} onChange={setQuery} placeholder={`Search ${words.many}`} label={`Search ${words.many} by client, number or status`} />
-                <FilterChips
-                  label={`Which ${words.many}`} value={chosen.value} onChange={setChip}
-                  options={chips.map((c) => ({ value: c.value, label: c.label, count: searched.filter(c.test).length, tone: c.tone && searched.filter(c.test).length > 0 ? c.tone : undefined }))}
-                />
-              </>
+              <FindBar
+                filters={tf} scope={scope} value={query} onChange={setQuery}
+                placeholder={`Search ${words.many}`} label={`Search ${words.many} by client, number or status`}
+              />
             )}
             actions={(
               <>

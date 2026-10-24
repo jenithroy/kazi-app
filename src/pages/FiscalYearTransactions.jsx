@@ -3,8 +3,10 @@
  * list, whatever kind it is, with what came in, what went out and the net.
  *
  *   top row   how many records, money in, money out, the net
- *   pane      one line each, newest first, filtered by kind and searched; a row opens the same card the rest of Finance uses for that kind
- *             (an expense, a purchase, a journal entry, a bank transaction, a payroll record); an invoice goes to Billing, which has its editor
+ *   pane      one line each, newest first, searched and narrowed by the Filters button beside the search (the kind, money in or out, whom it is
+ *             with, a category, an amount, a day range… lib/fiscalYearFilters.js; the side of the business and A.D. or B.S. are in it too);
+ *             a row opens the same card the rest of Finance uses for that kind (an expense, a purchase, a journal entry, a bank transaction,
+ *             a payroll record); an invoice goes to Billing, which has its editor
  *
  * The rows, what counts as money in or out, and who may change which kind are the old page's. What changed: nothing is edited in a row any
  * more, so there are no unsaved drafts to forget; and an invoice is no longer edited here (Billing does that, and is one press away).
@@ -14,9 +16,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { BentoGrid, BentoPage, EmptyNote, Figure, Money, Sub, Tile } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
 import DataTable from "../components/table/DataTable";
-import { FilterChips, SearchBox } from "../components/table/Bar";
-import { RegionSwitch } from "../components/RegionSwitch";
-import { DateModeSwitch } from "../components/finance/PeriodBar";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
 import FinPane from "../components/finance/FinPane";
 import { FinanceProvider } from "../components/finance/FinanceContext";
 import ExpenseCard from "../components/finance/cards/ExpenseCard";
@@ -30,6 +31,7 @@ import "../components/finance/finance.css";
 import useDateMode from "../hooks/useDateMode";
 import { fetchAll } from "../lib/db";
 import { buildRows, withNpr, yearTotals } from "../lib/fiscalYearRows";
+import { transactionFilterDefs } from "../lib/fiscalYearFilters";
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
 import { useCurrency } from "../context/CurrencyContext";
@@ -48,7 +50,7 @@ export default function FiscalYearTransactions() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { ratesVersion } = useCurrency();
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const money = useMoney();
   const [, , show] = useDateMode();
   const fiscalYear = slugToFiscalYear(slug);
@@ -114,15 +116,28 @@ export default function FiscalYearTransactions() {
   const nextYear = here >= 0 && here < years.length - 1 ? years[here + 1] : null;
   const gotoYear = (label) => { if (label) navigate(`/finance/${fiscalYearToSlug(label)}`); };
 
-  const [type, setType] = useState("all");
   const [query, setQuery] = useState("");
   const totals = useMemo(() => yearTotals(rows), [rows]);
-  const present = TYPES.filter((t) => rows.some((r) => r.type === t));
+  const present = useMemo(() => TYPES.filter((t) => rows.some((r) => r.type === t)), [rows]);
   const q = query.trim().toLowerCase();
   const found = useMemo(() => rows.filter((r) => !q || has(r.description, q)), [rows, q]);
-  const shown = type === "all" ? found : found.filter((r) => r.type === type);
+  // what the Filters panel offers on top of the search (lib/fiscalYearFilters.js): the kind (the old chips), money in or out, whom it is with, an amount…
+  const filterDefs = useMemo(() => transactionFilterDefs({ types: present, show, rows }), [present, show, rows]);
+  const tf = useFilters(filterDefs, found);
+  const shown = tf.rows;
+  // the strip under the table adds up what is shown (the tiles above are the whole year)
+  const shownTotals = useMemo(() => yearTotals(shown), [shown]);
+  const shownTypes = useMemo(() => TYPES.filter((t) => shown.some((r) => r.type === t)), [shown]);
   const [capped, more] = usePhoneRows(shown);
-  const typeCount = (t) => found.filter((r) => r.type === t).length;
+  const scope = useMemo(() => ({ label: "All of Finance", region: { untagged: countUntagged(rows) }, dates: true }), [rows]);
+  // another year is another list: a kind, an amount or a day range chosen in this one would only leave that list empty
+  const clearFilters = tf.clear;
+  const shownYear = useRef(fiscalYear);
+  useEffect(() => {
+    if (shownYear.current === fiscalYear) return;
+    shownYear.current = fiscalYear;
+    clearFilters();
+  }, [fiscalYear, clearFilters]);
 
   const [card, setCard] = useState(null);                   // a row's key
   const open = card ? rows.find((r) => r.key === card) || null : null;
@@ -185,7 +200,7 @@ export default function FiscalYearTransactions() {
         <header className="kb-head kb-head--stack">
           <div className="kb-head-l">
             <h1>Transactions · FY {fiscalYear}</h1>
-            <p className="kb-head-sub"><span>{rangeText}</span></p>
+            <p className="kb-head-sub"><span>{[regionLabel, rangeText].filter(Boolean).join(" · ")}</span></p>
           </div>
           <div className="kb-head-r fn-head-r">
             <div className="kb-head-act">
@@ -196,10 +211,6 @@ export default function FiscalYearTransactions() {
               <button type="button" className="kb-pillbtn" disabled={loading || !nextYear} title={nextYear ? `Go to FY ${nextYear}` : "No later transactions recorded"} onClick={() => gotoYear(nextYear)}>
                 {nextYear ? `FY ${nextYear}` : "Later year"} <Icons.ChevronRight size={14} sw={2} aria-hidden="true" />
               </button>
-            </div>
-            <div className="kb-head-row">
-              <RegionSwitch hint={false} size="sm" untagged={countUntagged(rows)} />
-              <DateModeSwitch />
             </div>
           </div>
         </header>
@@ -233,21 +244,13 @@ export default function FiscalYearTransactions() {
             </Tile>
 
             <FinPane
-              title="Transactions" note={q || type !== "all" ? `${shown.length} of ${rows.length}` : `${rows.length} ${plural(rows.length, "record")}`} id="fin-pane"
-              tools={(
-                <>
-                  <SearchBox value={query} onChange={setQuery} placeholder="Search transactions" label="Search this year's transactions" />
-                  <FilterChips
-                    label="Which kind" value={type} onChange={setType}
-                    options={[{ value: "all", label: "All", count: found.length }, ...present.map((t) => ({ value: t, label: t, count: typeCount(t) }))]}
-                  />
-                </>
-              )}
+              title="Transactions" note={q || tf.count > 0 ? `${shown.length} of ${rows.length}` : `${rows.length} ${plural(rows.length, "record")}`} id="fin-pane"
+              tools={<FindBar filters={tf} scope={scope} value={query} onChange={setQuery} placeholder="Search transactions" label="Search this year's transactions" />}
               actions={<ExportButton name={`transactions-${fiscalYearToSlug(fiscalYear)}`} columns={csv} rows={shown} />}
               foot={(
                 <Foot>
                   <FootSum count label={plural(shown.length, "record")} value={shown.length} />
-                  {present.map((t) => <FootSum key={t} label={t} value={money(totals.byType[t] || 0)} />)}
+                  {shownTypes.map((t) => <FootSum key={t} label={t} value={money(shownTotals.byType[t] || 0)} />)}
                 </Foot>
               )}
             >

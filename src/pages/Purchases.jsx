@@ -2,7 +2,8 @@
  * Purchases, on the same glass frame as Finance: one screen, the table scrolls in its pane under a head that stays put, a purchase
  * is typed into and corrected in the card in the middle of the screen. It is the same pane as the Purchases section of Finance
  * (components/finance/tabs/PurchasesTab.jsx), so a purchase is entered and changed the same way from either; this page adds the
- * three numbers over it, where the spending went, and the way back to Finance.
+ * three numbers over it, where the spending went, and the way back to Finance. Its header says the side and the period in words; the
+ * switches themselves (Nepal or UK, A.D. or B.S., the period) are in the Filters panel beside the search, as on Finance.
  *
  * What it reads, who may change it, the numbering and every write are the old page's. (What is new: a purchase can be started here;
  * before, this page only listed and corrected them and the Finance page entered them.)
@@ -11,8 +12,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BentoGrid, BentoPage, Figure, Money, Sub, Tile } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
-import { RegionSwitch } from "../components/RegionSwitch";
-import PeriodBar, { DateModeSwitch } from "../components/finance/PeriodBar";
 import PurchasesTab from "../components/finance/tabs/PurchasesTab";
 import CategoryRail from "../components/finance/CategoryRail";
 import { FinanceProvider } from "../components/finance/FinanceContext";
@@ -36,7 +35,7 @@ export default function Purchases() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const { ratesVersion } = useCurrency();
   const [dateMode, , show] = useDateMode();
   const data = usePurchasesData();
@@ -80,6 +79,9 @@ export default function Purchases() {
     fy, fyActive, dateRange, periodActive: fyActive || isDateRangeActive(dateRange), ratesVersion, dateMode,
     purchases, regionPurchases, allPurchases: data.purchases, vatBills: regionVatBills, regionVatBills, inventoryItems,
     goToSource: (path, state) => navigate(path, { state }),
+    // the Filters panel beside the search offers the side of the business, A.D. or B.S. and the period, as Finance's does (FilterMenu.jsx):
+    filterYears: yearsHere,                      // the fiscal years its period menu offers: the ones these purchases fall in
+    untagged: countUntagged(data.purchases),     // how many have no side yet, for the note under Nepal / UK
   };
 
   return (
@@ -88,7 +90,7 @@ export default function Purchases() {
         <header className="kb-head kb-head--stack">
           <div className="kb-head-l">
             <h1>Purchases</h1>
-            <p className="kb-head-sub"><span>{describePeriod({ fy, range: dateRange, mode: dateMode })}</span></p>
+            <p className="kb-head-sub"><span>{`${regionLabel} · ${describePeriod({ fy, range: dateRange, mode: dateMode })}`}</span></p>
           </div>
           <div className="kb-head-r fn-head-r">
             <div className="kb-head-act">
@@ -96,11 +98,6 @@ export default function Purchases() {
                 <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" /> Finance
               </button>
             </div>
-            <div className="kb-head-row">
-              <RegionSwitch untagged={countUntagged(data.purchases)} size="sm" />
-              <DateModeSwitch />
-            </div>
-            <PeriodBar years={yearsHere} />
           </div>
         </header>
 
