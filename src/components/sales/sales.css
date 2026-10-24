@@ -174,7 +174,7 @@
 
   .kb-tile.sl-pane > .kb-hd { padding: 12px 12px 8px; }
   .sl-tools { padding: 0 12px 8px; }
-  .sl-tools .dt-search { order: -1; flex: 1 1 100%; }     /* the search takes the first line, the filters the next */
+  /* (the search and the Filters button take the first line: fn-barrow in filters.css) */
   .sl-tools .dt-search input { font-size: 16px; }      /* the shared search box is 13px: on a phone iOS would zoom in on it */
   .sl-morerow { padding: 10px 12px 6px; }
 

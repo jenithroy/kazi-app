@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Icons } from "../ui";
 import { EmptyNote, Money, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
+import { FindBar } from "../filters/FilterMenu";
 import { Initials } from "./parts";
 import { fmtDay } from "../../lib/sales";
 
@@ -70,15 +70,16 @@ function columnsFor(hasMargin) {
 /**
  * Every customer with the money that belongs to them: what they have been invoiced, what has come in (and how
  * much of it), what they still owe and how much of that is late, their margin where costs were entered, and when
- * they last paid. A row opens that customer's card. Search and the "owing" filter sit above a table that scrolls
- * inside the tile; the heads sort it.
+ * they last paid. A row opens that customer's card. A search and one Filters button (All | Owing | Overdue, the side of the
+ * business, city, money and the rest are in its panel) sit above a table that scrolls inside the tile; the heads sort it.
+ * `filters` is the page's `useFilters` result for this table, `filtered` whether the search or a filter is narrowing it, `untagged`
+ * how many customers have no side yet.
  */
 export default function CustomersTile({
-  rows, counts, hasMargin, query, onQuery, filter, onFilter, activeId, onOpen, loading, canAdd, onAdd,
+  rows, counts, hasMargin, query, onQuery, filters, filtered, untagged, activeId, onOpen, loading, canAdd, onAdd,
   capped, showAll, onShowAll,
 }) {
   const columns = useMemo(() => columnsFor(hasMargin), [hasMargin]);
-  const filtered = Boolean(query) || filter === "owing";
   const quiet = counts.all - counts.active;
 
   return (
@@ -91,16 +92,10 @@ export default function CustomersTile({
       align="top"
       className="sl-pane"
     >
-      <div className="sl-tools">
-        <SearchBox value={query} onChange={onQuery} placeholder="Search customers" label="Search customers by name, contact, email or city" />
-        <FilterChips
-          label="Which customers"
-          value={filter}
-          onChange={onFilter}
-          options={[
-            { value: "all", label: "All", count: counts.all },
-            { value: "owing", label: "Owing", count: counts.owing, tone: counts.owing > 0 ? "warn" : undefined },
-          ]}
+      <div className="sl-tools fn-barrow">
+        <FindBar
+          filters={filters} value={query} onChange={onQuery} placeholder="Search customers"
+          label="Search customers by name, contact, email or city" scope={{ region: { untagged } }} name="customers"
         />
       </div>
 

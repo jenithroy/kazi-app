@@ -8,10 +8,12 @@
  *
  *   top row   invoiced, collected and still owed (the customers' rows added up), and the pipeline,
  *             whose stage cells also filter the orders list under it
- *   left      customers: search, "owing", and every customer's money in a table whose heads sort; a row
- *             opens that customer's card (details, invoices, payments, orders; with edit rights it also
- *             saves, merges a duplicate and deletes)
- *   right     orders, newest first: open, delivered or all
+ *   left      customers: a search, ONE Filters button (components/filters: the side of the business, All | Owing |
+ *             Overdue, city, money, last paid, who has no activity or orders being made) and every customer's money in
+ *             a table whose heads sort; a row opens that customer's card (details, invoices, payments, orders; with
+ *             edit rights it also saves, merges a duplicate and deletes)
+ *   right     orders, newest first, under their own search and Filters button: Open | Delivered | All and the pipeline's
+ *             stage (the same choices the strip makes), customer, fabric, due, order and delivery days, value, on hold
  *
  * The tables are the shared DataTable and the card is the shared EditCard (DESIGN.md). The sums live in
  * lib/sales.js. This file loads the five collections, keeps what is selected, and does the writes (save,
@@ -23,13 +25,15 @@ import { deleteRow, fetchAll, fetchOne, insertRow, subscribe, updateRow } from "
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
 import { useCurrency } from "../context/CurrencyContext";
-import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
 import { kathmanduDate } from "../utils/date";
 import useMedia from "../hooks/useMedia";
+import useShowAll from "../hooks/useShowAll";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { Icons, cn } from "../components/ui";
+import useFilters from "../components/filters/useFilters";
+import { addDays } from "../lib/calendar";
 import { InvoicedTile, CollectedTile, OwedTile } from "../components/sales/MoneyTiles";
 import PipelineTile from "../components/sales/PipelineTile";
 import CustomersTile from "../components/sales/CustomersTile";
@@ -38,9 +42,10 @@ import CustomerCard from "../components/sales/CustomerCard";
 import OrderDetails from "../components/sales/OrderDetails";
 import MergeDialog from "../components/sales/MergeDialog";
 import {
-  customerTotals, invoiceForOrder, invoicedByMonth, isDelivered, orderSums, ordersFor, rollUp, stageCounts, unlinkedInvoices,
-  visibleCustomers,
+  PIPE_STAGES, customerTotals, deliveredOn, fmtDay, invoiceForOrder, invoicedByMonth, isDelivered, isOpen, orderSums, orderWhen, ordersFor, rollUp,
+  stageCounts, stageShort, unlinkedInvoices, visibleCustomers,
 } from "../lib/sales";
+import { filterRows } from "../lib/customers";
 import "../components/sales/sales.css";
 
 const PHONE_ROWS = 8;     // a phone's page scrolls, so each list shows this many until "Show all" is pressed
@@ -62,7 +67,7 @@ export default function Sales() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "customers");
   const seesMoney = sectionVisible(profile, "billing");
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const { fmt, ratesVersion } = useCurrency();
   const phone = useMedia("(max-width: 768px)");
 
@@ -79,12 +84,9 @@ export default function Sales() {
   }, []);
 
   const [query, setQuery] = useState("");
-  const [owing, setOwing] = useState(false);
-  const [view, setView] = useState("open");
-  const [stage, setStage] = useState("");
+  const [view, setView] = useState("open");               // the orders' main view (it opens on what is being made), so the panel only mirrors it
+  const [stage, setStage] = useState("");                 // the stage the pipeline strip has pressed: the panel mirrors it too
   const [oQuery, setOQuery] = useState("");
-  const [moreCustomers, setMoreCustomers] = useState(false);
-  const [moreOrders, setMoreOrders] = useState(false);
   const [panel, setPanel] = useState(null);               // null, or { id (null for a new customer), tab }: the customer's card
   const [orderId, setOrderId] = useState(null);           // the order whose card is open
   const [merging, setMerging] = useState(null);           // the id of the customer being merged into another
@@ -152,14 +154,98 @@ export default function Sales() {
   const unlinked = useMemo(() => unlinkedInvoices(filterByRegion(raw.invoices, region)), [raw.invoices, region, ratesVersion]);
   // Margin is only known where costs were entered by hand (Finance -> Order P&L); until anyone has, the column stays out of the way
   const hasMargin = totals.withCosts > 0;
-  const customers = useMemo(() => visibleCustomers(rows, { query, onlyOwing: owing }), [rows, query, owing]);
   const counts = useMemo(() => ({ all: rows.length, active: totals.active, owing: rows.filter((c) => c.outstandingNPR > 0.5).length }), [rows, totals.active]);
+
+  // The customers table has its own search and its own Filters button. The search is lib/sales.js's (`visibleCustomers`, which also orders by
+  // what they have been invoiced); "owing" asks it about one customer at a time, so the rule is the old one, and "overdue" is the Customers page's
+  // (lib/customers.js). Anything about money is only offered to a position that can see invoices: without them it would read as noughts.
+  const searchedCustomers = useMemo(() => visibleCustomers(rows, { query }), [rows, query]);
+  const customerDefs = useMemo(() => [
+    {
+      id: "owing", label: "Which customers", kind: "chips",
+      test: (c, v) => (v === "owing" ? visibleCustomers([c], { onlyOwing: true }).length > 0 : filterRows([c], { filter: v }).length > 0),
+      options: [
+        { value: "all", label: "All" },
+        { value: "owing", label: "Owing", tone: counts.owing > 0 ? "warn" : undefined },
+        ...(seesMoney ? [{ value: "overdue", label: "Overdue", tone: rows.some((c) => c.overdueNPR > 0.5) ? "bad" : undefined }] : []),
+      ],
+    },
+    { id: "city", label: "City", kind: "select", of: (c) => c.city, any: "Any city", none: "No city" },
+    ...(seesMoney ? [
+      { id: "owes", label: "Owes", kind: "range", get: (c) => c.outstandingNPR, unit: "NPR", pill: "Owes" },
+      { id: "invoiced", label: "Invoiced", kind: "range", get: (c) => c.invoicedNPR, unit: "NPR", pill: "Invoiced" },
+      { id: "lastPaid", label: "Last paid between", kind: "dates", get: (c) => c.lastPaidOn || "", show: fmtDay, pill: "Last paid" },
+    ] : []),
+    { id: "quiet", label: "No activity", kind: "toggle", text: "No activity yet", pill: "No activity", test: (c) => !c.isActive },
+    { id: "making", label: "Orders being made", kind: "toggle", text: "Has orders being made", pill: "Orders being made", test: (c) => c.orders.some(isOpen) },
+  ], [counts.owing, rows, seesMoney]);
+  const ctf = useFilters(customerDefs, searchedCustomers);
+  const customers = ctf.rows;
+  const customersFiltered = Boolean(query) || ctf.count > 0;
+  // a phone shows eight rows until "Show all" is pressed; narrowing the list by anything puts the cap back (as it always did)
+  const [moreCustomers, showAllCustomers] = useShowAll(`${query}|${JSON.stringify(ctf.values)}`);
 
   const orders = useMemo(() => filterByRegion(raw.orders, region), [raw.orders, region]);
   const sums = useMemo(() => orderSums(orders, today), [orders, today]);
   const stages = useMemo(() => stageCounts(orders), [orders]);
   const orderCounts = useMemo(() => ({ open: sums.open, delivered: orders.filter(isDelivered).length, all: orders.length }), [orders, sums.open]);
-  const orderRows = useMemo(() => ordersFor(orders, view, stage, oQuery), [orders, view, stage, oQuery]);
+
+  // The stage the strip presses sits with the view (a stage only means something for an order still being made), and both are the page's:
+  // the panel mirrors them (and the strip mirrors the panel) as choices of its own. Everything else about the orders is the panel's.
+  const pickStage = useCallback((next) => { setStage(next); if (next) setView((v) => (v === "delivered" ? "open" : v)); }, []);
+  const pickView = useCallback((next) => { setView(next); if (next === "delivered") setStage(""); }, []);
+  const searchedOrders = useMemo(() => ordersFor(orders, view, stage, oQuery), [orders, view, stage, oQuery]);
+  const orderDefs = useMemo(() => {
+    const soon = addDays(today, 7);
+    const dueOf = (o) => o.deliveryDate || o.dueDate || "";
+    // what pressing a choice would show (with the search, and with the other choice the press leaves alone)
+    const nIn = (v, s) => ordersFor(orders, v, s, oQuery).length;
+    return [
+      {
+        id: "view", label: "Show", kind: "chips", controlled: { value: view, set: pickView },
+        options: [
+          { value: "open", label: "Open", count: nIn("open", stage) },
+          { value: "delivered", label: "Delivered", count: nIn("delivered", "") },
+          { value: "all", label: "All", count: nIn("all", stage) },
+        ],
+      },
+      {
+        id: "stage", label: "Stage", kind: "chips", controlled: { value: stage, set: pickStage },
+        options: [
+          { value: "", label: "Any", count: nIn(view, "") },
+          // (the names the strip uses, so the panel and the strip read the same)
+          ...PIPE_STAGES.map((s) => ({ value: s, label: stageShort(s), count: nIn(view === "delivered" ? "open" : view, s) })),
+        ],
+      },
+      { id: "customer", label: "Customer", kind: "select", of: (o) => o.customerName, any: "Any customer", none: "No customer" },
+      { id: "fabric", label: "Fabric", kind: "select", of: (o) => o.fabricType, any: "Any fabric", none: "No fabric" },
+      {
+        id: "due", label: "Due", kind: "chips",
+        options: [
+          { value: "any", label: "Any time" }, { value: "late", label: "Late", tone: "bad" }, { value: "today", label: "Today" },
+          { value: "week", label: "Next 7 days" }, { value: "later", label: "Later" }, { value: "none", label: "No due date" },
+        ],
+        test: (o, v) => {
+          const d = dueOf(o);
+          if (v === "none") return !d;
+          if (!d) return false;
+          if (v === "late") return orderWhen(o, today).late;
+          if (v === "today") return d === today;
+          if (v === "week") return d > today && d <= soon;
+          return d > soon;
+        },
+      },
+      { id: "dueDates", label: "Due between", kind: "dates", get: dueOf, show: fmtDay, pill: "Due" },
+      { id: "ordered", label: "Ordered between", kind: "dates", get: (o) => o.date || "", show: fmtDay, pill: "Ordered" },
+      { id: "deliveredOn", label: "Delivered between", kind: "dates", get: (o) => (isDelivered(o) ? deliveredOn(o) : ""), show: fmtDay, pill: "Delivered" },
+      { id: "value", label: "Order value", kind: "range", get: (o) => (Number(o.totalValueNPR) > 0 ? Number(o.totalValueNPR) : null), unit: "NPR", pill: "Order value" },
+      { id: "hold", label: "On hold", kind: "toggle", text: "On hold", pill: "On hold", test: (o) => o.status === "On Hold" },
+    ];
+  }, [orders, view, stage, oQuery, today, pickView, pickStage]);
+  const otf = useFilters(orderDefs, searchedOrders);
+  const orderRows = otf.rows;
+  const ordersFiltered = Boolean(oQuery || stage) || otf.count > 0;
+  const [moreOrders, showAllOrders] = useShowAll(`${view}|${stage}|${oQuery}|${JSON.stringify(otf.values)}`);
 
   const customerIds = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
   // the merge dialog reads its customer from the rows each time, so after a reload it shows what is there now, not what was there when it opened
@@ -173,9 +259,6 @@ export default function Sales() {
   const openOrder = orderId ? orders.find((o) => o.id === orderId) || null : null;
   useEffect(() => { if (orderId && ready && !openOrder) setOrderId(null); }, [orderId, ready, openOrder]);
   const orderInvoice = useMemo(() => (openOrder ? invoiceForOrder(openOrder, raw.invoices) : null), [openOrder, raw.invoices]);
-
-  const pickStage = (next) => { setStage(next); if (next && view === "delivered") setView("open"); setMoreOrders(false); };
-  const pickView = (next) => { setView(next); if (next === "delivered") setStage(""); setMoreOrders(false); };
 
   // steady functions, so the tables' columns are not rebuilt on every keystroke elsewhere
   const openCustomer = useCallback((id, tab) => setPanel({ id, tab }), []);
@@ -272,7 +355,8 @@ export default function Sales() {
 
   const sub = ready ? (
     <>
-      <span>{sums.open} {plural(sums.open, "order")} open</span>
+      {/* the side of the business is in the Filters panels, so the header says which one is on screen */}
+      <span>{regionLabel} · {sums.open} {plural(sums.open, "order")} open</span>
       {seesMoney && totals.outstanding > 0.5 && <span>{fmt(totals.outstanding)} owed</span>}
       {seesMoney && totals.overdue > 0.5 && <span className="kb-bad">{fmt(totals.overdue)} overdue</span>}
       {!phone && unlinkedNote && <span title="They are left out of the totals on this page">{unlinked.n} {plural(unlinked.n, "invoice")} ({fmt(unlinked.npr)}) not linked to a customer</span>}
@@ -289,9 +373,6 @@ export default function Sales() {
           <p className="kb-head-sub">{sub}</p>
         </div>
         <div className="kb-head-r">
-          <div className="kb-head-row">
-            <RegionSwitch untagged={countUntagged(raw.orders) + countUntagged(raw.customers)} size="sm" />
-          </div>
           {canEdit && (
             <button type="button" className="kb-btn kb-btn--primary sl-newbtn kb-head-act" onClick={() => openCustomer(null)}>
               <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> Add customer
@@ -327,18 +408,17 @@ export default function Sales() {
           {!phone && <PipelineTile stages={stages} sums={sums} stage={stage} onStage={pickStage} loading={loading} />}
           <CustomersTile
             rows={customers} counts={counts} hasMargin={hasMargin}
-            query={query} onQuery={(v) => { setQuery(v); setMoreCustomers(false); }}
-            filter={owing ? "owing" : "all"} onFilter={(v) => { setOwing(v === "owing"); setMoreCustomers(false); }}
+            query={query} onQuery={setQuery} filters={ctf} filtered={customersFiltered} untagged={countUntagged(raw.customers)}
             activeId={panel?.id || undefined} onOpen={(id) => openCustomer(id)}
             canAdd={canEdit} onAdd={() => openCustomer(null)}
-            capped={phone ? PHONE_ROWS : 0} showAll={moreCustomers} onShowAll={() => setMoreCustomers(true)}
+            capped={phone ? PHONE_ROWS : 0} showAll={moreCustomers} onShowAll={showAllCustomers}
             loading={loading}
           />
           <OrdersTile
-            rows={orderRows} counts={orderCounts} view={view} onView={pickView}
-            stage={stage} onStage={pickStage} query={oQuery} onQuery={(v) => { setOQuery(v); setMoreOrders(false); }}
+            rows={orderRows} counts={orderCounts} view={view}
+            stage={stage} onStage={pickStage} query={oQuery} onQuery={setOQuery} filters={otf} filtered={ordersFiltered} untagged={countUntagged(raw.orders)}
             today={today} activeId={orderId || undefined} onOpen={openOrderCard}
-            capped={phone ? PHONE_ROWS : 0} showAll={moreOrders} onShowAll={() => setMoreOrders(true)}
+            capped={phone ? PHONE_ROWS : 0} showAll={moreOrders} onShowAll={showAllOrders}
             loading={loading}
           />
         </BentoGrid>

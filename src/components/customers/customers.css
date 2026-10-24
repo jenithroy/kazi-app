@@ -189,10 +189,8 @@
   .kb-tile.cu-rail { padding-inline: 6px; }               /* a phone tile's padding is 14px: 6 here and 8 on each row button */
   .kb-tile.cu-pane > .kb-hd { padding: 12px 12px 8px; }
   .cu-tools { padding: 0 12px 8px; }
-  .cu-tools .dt-search { order: -1; flex: 1 1 100%; max-width: none; }      /* the search takes the first line, the filters the next */
+  .cu-tools .fn-find .dt-search { max-width: none; }       /* the search and the Filters button take the first line (fn-barrow), the search growing */
   .cu-tools .dt-search input { font-size: 16px; }          /* the shared search box is 13px: on a phone iOS would zoom in on it */
-  .cu-tools .dt-chips { gap: 4px; }
-  .cu-tools .dt-chip { padding: 0 8px; gap: 4px; }         /* the four filters then fit one line from 360px up (measured) */
   .cu-morerow { padding: 10px 12px 6px; }
   /* (the header is the shared stacked kit, kb-head--stack in bento.css) */
 }

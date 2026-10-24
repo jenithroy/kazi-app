@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import EditCard, { KV, Tag } from "../EditCard";
 import { Icons, cn } from "../ui";
+import PersonLink from "../profile/PersonLink";
+import ShareButton from "../share/ShareButton";
 import { useCurrency } from "../../context/CurrencyContext";
 import { toNPR } from "../../utils/currency";
 import { normaliseRegion, regionLabel } from "../../utils/region";
@@ -118,7 +120,7 @@ export default function OrderDetails({ order, invoice, canSeeInvoices = true, to
               <li key={`${h.date}-${h.stage}-${i}`}>
                 <time dateTime={h.date}>{fmtShort(h.date)}</time>
                 <b className="sl-mv-s">{h.stage}</b>
-                <span className="sl-mv-b">{h.by ? `by ${h.by}` : ""}</span>
+                <span className="sl-mv-b">{h.by ? <PersonLink className="kpl--clip" name={h.by}>{`by ${h.by}`}</PersonLink> : ""}</span>
               </li>
             ))}
           </ul>
@@ -141,7 +143,7 @@ export default function OrderDetails({ order, invoice, canSeeInvoices = true, to
               const when = n.date ? fmtShort(n.date) : "—";       // a note carries a date only when one was saved with it
               return (
                 <li key={n.id || i}>
-                  <span className="sl-nt-by"><b>{n.by || "Someone"}</b>{when !== "—" ? ` · ${when}` : ""}</span>
+                  <span className="sl-nt-by"><b>{n.by ? <PersonLink name={n.by} /> : "Someone"}</b>{when !== "—" ? ` · ${when}` : ""}</span>
                   <span className="sl-nt-tx">{n.text}</span>
                 </li>
               );
@@ -160,7 +162,7 @@ export default function OrderDetails({ order, invoice, canSeeInvoices = true, to
     delivered ? ["Delivered", fmtDay(deliveredOn(order)), "good"] : ["Due", due ? fmtDay(due) : "Not set", when.late ? "bad" : undefined],
     ["Fabric", order.fabricType || "—"],
     ["Colourway", order.colorway || "—"],
-    ["Assigned to", order.assignedTo || "Nobody yet"],
+    ["Assigned to", order.assignedTo ? <PersonLink personId={order.assigned_to || undefined} name={order.assignedTo} /> : "Nobody yet"],
     invoiceRow,
     ["Sample", order.sampleName || "—"],
   ];
@@ -188,6 +190,8 @@ export default function OrderDetails({ order, invoice, canSeeInvoices = true, to
       side={side}
       footerExtra={(
         <>
+          {/* "Send" puts this card in Chat as a PDF: the price and the value (this card shows them to everyone), and the invoice's status and what is owed only where the card shows them */}
+          <ShareButton type="order" record={{ order, today, prices: true, invoice: canSeeInvoices ? invoice : null, invoiceRef: order.invoiceRef || "" }} compact title="Send this order to someone in Chat" />
           {canOpenCustomer && <button type="button" className="ghost-button" onClick={onOpenCustomer}>Open customer</button>}
           {canOpenProduction && <Link to="/production" className="ghost-button sl-linkbtn">Open in Production</Link>}
         </>

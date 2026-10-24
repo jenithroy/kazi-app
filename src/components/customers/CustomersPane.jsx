@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Icons } from "../ui";
 import { EmptyNote, Money, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
+import { FindBar } from "../filters/FilterMenu";
 import { Initials } from "../sales/parts";
 import { fmtDay } from "../../lib/sales";
 import { ordersLine } from "../../lib/customers";
@@ -107,31 +107,22 @@ function columnsFor({ money, orders, quiet, margin, year }) {
 }
 
 /**
- * Every customer: search, a filter that carries counts (All · Owing · Overdue · No activity), and a table that scrolls inside the
- * pane, whose heads sort. A row opens that customer's card.
+ * Every customer: a search and one Filters button (All · Owing · Overdue · No activity with their counts, the side of the business,
+ * city, money and the rest are in its panel), and a table that scrolls inside the pane, whose heads sort. A row opens that customer's
+ * card. `filters` is the page's `useFilters` result, `filtered` is whether the search or a filter is narrowing the list, `untagged` how
+ * many customers have no side yet.
  *
  * What it shows depends on what the position may see. With Billing it is the money chain (invoiced, collected, owed and how late,
  * last paid); without it, a directory (contact and orders), because the invoices would read as noughts. With neither Billing nor
  * Orders it cannot tell a quiet customer from one it simply cannot see anything of, so it says nothing about activity.
  */
 export default function CustomersPane({
-  rows, counts, money, orders, margin, year, query, onQuery, filter, onFilter, onClear, activeId, onOpen, loading, canAdd, onAdd,
+  rows, counts, money, orders, margin, year, query, onQuery, filters, filtered, untagged, onClear, activeId, onOpen, loading, canAdd, onAdd,
   capped, showAll, onShowAll,
 }) {
   const quiet = money && orders;
   const columns = useMemo(() => columnsFor({ money, orders, quiet, margin, year }), [money, orders, quiet, margin, year]);
-  const narrowed = Boolean(query) || filter !== "all";
-
-  // while the first look is on its way nothing is counted: "All 0 · Owing 0" beside skeleton rows would say nobody owes anything
-  const n = (v) => (loading ? undefined : v);
-  const options = [
-    { value: "all", label: "All", count: n(counts.all) },
-    ...(money ? [
-      { value: "owing", label: "Owing", count: n(counts.owing), tone: !loading && counts.owing > 0 ? "warn" : undefined },
-      { value: "overdue", label: "Overdue", count: n(counts.overdue), tone: !loading && counts.overdue > 0 ? "bad" : undefined },
-    ] : []),
-    ...(quiet ? [{ value: "quiet", label: "No activity", count: n(counts.quiet) }] : []),
-  ];
+  const narrowed = filtered;
 
   return (
     <Tile
@@ -143,9 +134,12 @@ export default function CustomersPane({
       align="top"
       className="cu-pane"
     >
-      <div className="cu-tools">
-        <SearchBox value={query} onChange={onQuery} placeholder="Search customers" label="Search customers by name, contact, phone, email or city" />
-        {options.length > 1 && <FilterChips label="Which customers" value={filter} onChange={onFilter} options={options} />}
+      {/* while the first look is on its way there is nothing to count ("All 0 · Owing 0" beside skeleton rows would say nobody owes anything), so the panel offers only the side */}
+      <div className="cu-tools fn-barrow">
+        <FindBar
+          filters={loading ? undefined : filters} value={query} onChange={onQuery} placeholder="Search customers"
+          label="Search customers by name, contact, phone, email or city" scope={{ region: { untagged } }}
+        />
       </div>
 
       {/* nothing to list is said outside the table: a table whose body holds only a message is not a table to a screen reader */}

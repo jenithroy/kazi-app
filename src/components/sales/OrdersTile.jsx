@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Icons } from "../ui";
 import { EmptyNote, Money, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
+import { FindBar } from "../filters/FilterMenu";
 import { StageTag } from "./parts";
 import { ORDER_STAGES } from "../../constants/enums";
 import { deliveredOn, isDelivered, isOpen, orderWhen } from "../../lib/sales";
@@ -60,15 +60,18 @@ function columnsFor(today) {
 }
 
 /**
- * The orders themselves, newest first: still open, delivered, or all of them, narrowed to one stage when the pipeline
- * strip has one pressed. A row is the button: pressing anywhere on it opens that order's card. The table scrolls inside
- * the tile; the heads sort it (until one is pressed it stays newest first).
+ * The orders themselves, newest first: a search and one Filters button hold everything that narrows them (Open | Delivered | All
+ * and the pipeline's stage, which the strip above also presses, the side of the business, customer, fabric, due and the rest).
+ * A stage that is chosen also shows as a pill that clears with one press, beside the Filters button's own pills (it is the page's
+ * choice, not the panel's, and a phone has no strip to show it). `filters` is the page's `useFilters` result for this table,
+ * `filtered` whether the search, the stage or a filter is narrowing it, `untagged` how many orders have no side yet.
+ * A row is the button: pressing anywhere on it opens that order's card. The table scrolls inside the tile; the heads sort it
+ * (until one is pressed it stays newest first).
  */
 export default function OrdersTile({
-  rows, counts, view, onView, stage, onStage, query, onQuery, today, activeId, onOpen, loading,
+  rows, counts, view, stage, onStage, query, onQuery, filters, filtered, untagged, today, activeId, onOpen, loading,
   capped, showAll, onShowAll,
 }) {
-  const filtered = Boolean(query || stage);
   const columns = useMemo(() => columnsFor(today), [today]);
 
   return (
@@ -81,22 +84,18 @@ export default function OrdersTile({
       align="top"
       className="sl-pane"
     >
-      <div className="sl-tools">
-        <FilterChips
-          label="Which orders"
-          value={view}
-          onChange={onView}
-          options={[
-            { value: "open", label: "Open", count: counts.open },
-            { value: "delivered", label: "Delivered", count: counts.delivered },
-            { value: "all", label: "All", count: counts.all },
-          ]}
+      <div className="sl-tools fn-barrow">
+        <FindBar
+          filters={filters} value={query} onChange={onQuery} placeholder="Search orders"
+          label="Search orders by customer, style or number" scope={{ region: { untagged } }} name="orders"
         />
-        <SearchBox value={query} onChange={onQuery} placeholder="Search orders" label="Search orders by customer, style or number" />
         {stage && (
-          <button type="button" className="dt-chip is-on" onClick={() => onStage("")} aria-label={`Showing only ${stage}. Show every stage`}>
-            {stage} <Icons.X size={12} sw={2.2} aria-hidden="true" />
-          </button>
+          <span className="fn-pills" role="group" aria-label="Stage chosen">
+            <button type="button" className="fn-pill" onClick={() => onStage("")} aria-label={`Clear: Stage: ${stage}`} title="Clear this filter">
+              <span>Stage: {stage}</span>
+              <Icons.X size={12} sw={2.2} aria-hidden="true" />
+            </button>
+          </span>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import EditCard, { Field, KV, Tag } from "../EditCard";
 import Select from "../Select";
+import ShareButton from "../share/ShareButton";
 import { fetchAll } from "../../lib/db";
 import { useCurrency } from "../../context/CurrencyContext";
 import { REGIONS, normaliseRegion, regionLabel } from "../../utils/region";
@@ -216,6 +217,8 @@ export default function CustomerCard({
   }
 
   const c = customer;
+  // what Send hands to Chat: the saved details (the fields of the form, so never the money or orders below) and the name the Source campaign field shows
+  const sourceCampaignName = c.sourceCampaignId ? campaigns.find((x) => String(x.id) === String(c.sourceCampaignId))?.name || "" : "";
   const owed = c.outstandingNPR;
   const late = c.overdueNPR;
   const numbers = (
@@ -272,7 +275,12 @@ export default function CustomerCard({
       deleteName={c.name}
       deleteNote={deleteNote}
       submitLabel="Save customer"
-      footerExtra={canEdit && canMerge && seesMoney && seesOrders ? <button type="button" className="ghost-button" onClick={() => onAskMerge(c)}>Merge into…</button> : null}
+      footerExtra={(
+        <>
+          <ShareButton type="customer" record={{ ...customerForm(c), sourceCampaignName }} compact title="Send this customer to someone in Chat" />
+          {canEdit && canMerge && seesMoney && seesOrders ? <button type="button" className="ghost-button" onClick={() => onAskMerge(c)}>Merge into…</button> : null}
+        </>
+      )}
       onClose={onClose}
     />
   );

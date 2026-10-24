@@ -7,8 +7,10 @@
  * page puts them like this:
  *
  *   top row   invoiced, collected and still owed (the customers' rows added up)
- *   left      every customer with their money, in a table whose heads sort; a row opens that customer's card (details,
- *             invoices, payments, orders; with edit rights it also saves, merges a duplicate and deletes)
+ *   left      every customer with their money, in a table whose heads sort, under a search and ONE Filters button
+ *             (components/filters: the side of the business, All | Owing | Overdue | No activity, city, how much is owed and
+ *             for how long, invoiced, last paid, when they were added, whether they have orders); a row opens that customer's
+ *             card (details, invoices, payments, orders; with edit rights it also saves, merges a duplicate and deletes)
  *   right     two short lists: who is overdue and by how long, and the biggest customers
  *
  * What a position sees follows what the database lets it read: invoices and payments need Billing, orders need Orders. Without
@@ -26,32 +28,35 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
 import { useCurrency } from "../context/CurrencyContext";
-import { RegionSwitch } from "../components/RegionSwitch";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
-import { kathmanduDate } from "../utils/date";
+import { kathmanduDate, tsMillis } from "../utils/date";
 import useMedia from "../hooks/useMedia";
+import useShowAll from "../hooks/useShowAll";
 import useCustomersData from "../hooks/useCustomersData";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
+import useFilters from "../components/filters/useFilters";
 import { CollectedTile, InvoicedTile, OwedTile } from "../components/customers/Tiles";
 import { BiggestTile, OverdueTile } from "../components/customers/Rail";
 import CustomersPane from "../components/customers/CustomersPane";
 import CustomerCard from "../components/sales/CustomerCard";
 import MergeDialog from "../components/sales/MergeDialog";
-import { customerTotals, rollUp } from "../lib/sales";
-import { biggest, countsOf, filterRows, overdueList } from "../lib/customers";
+import { customerTotals, fmtDay, isOpen, rollUp } from "../lib/sales";
+import { biggest, countsOf, filterRows, lateOf, overdueList } from "../lib/customers";
 import { deleteCustomerRow, mergeCustomerRows, saveCustomerRow } from "../lib/customerWrites";
 import "../components/customers/customers.css";
 
 const PHONE_ROWS = 8;     // a phone's page scrolls, so the list shows this many until "Show all" is pressed
 
 const plural = (n, one, many = `${one}s`) => (n === 1 ? one : many);
+/** The Kathmandu day a timestamp falls on, "YYYY-MM-DD" (or "" when there is none). */
+const dayOfTs = (ts) => { const ms = tsMillis(ts); return ms ? kathmanduDate(ms) : ""; };
 
 export default function Customers() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "customers");
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const { fmt, ratesVersion } = useCurrency();
   const phone = useMedia("(max-width: 768px)");
   const { raw, status, lost, known, reload } = useCustomersData();
@@ -75,8 +80,6 @@ export default function Customers() {
   }, []);
 
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");            // all | owing | overdue | quiet
-  const [more, setMore] = useState(false);                // a phone: "Show all" has been pressed
   const [panel, setPanel] = useState(null);               // null, or { id (null for a new customer), tab }: the customer's card
   const [merging, setMerging] = useState(null);           // the id of the customer being merged into another
   const [retrying, setRetrying] = useState(false);        // "Try again" has been pressed and the look is on its way
@@ -104,9 +107,45 @@ export default function Customers() {
   const billed = useMemo(() => rows.filter((c) => c.invoicedNPR > 0.5).length, [rows]);
   const late = useMemo(() => overdueList(rows, today), [rows, today]);
   const top = useMemo(() => biggest(rows), [rows]);
-  const list = useMemo(() => filterRows(rows, { query, filter }), [rows, query, filter]);
   // Margin is only known where costs were entered by hand (Finance -> Order P&L); until anyone has, the column stays out of the way
   const hasMargin = totals.withCosts > 0;
+
+  // Who is listed: the search is lib/customers.js's own (`filterRows`), everything else is in the Filters panel. "All | Owing | Overdue |
+  // No activity" asks `filterRows` about one customer at a time, so the rules are the old ones. What needs invoices (money) or orders is
+  // only offered to a position that can see them: a customer's money reads as noughts without Billing, and nobody "has orders" without Orders.
+  const searched = useMemo(() => filterRows(rows, { query }), [rows, query]);
+  const filterDefs = useMemo(() => {
+    const is = (c, filter) => filterRows([c], { filter }).length > 0;
+    return [
+      ...(money ? [{
+        id: "filter", label: "Which customers", kind: "chips", test: (c, v) => is(c, v),
+        options: [
+          { value: "all", label: "All" },
+          { value: "owing", label: "Owing", tone: counts.owing > 0 ? "warn" : undefined },
+          { value: "overdue", label: "Overdue", tone: counts.overdue > 0 ? "bad" : undefined },
+          ...(money && orders ? [{ value: "quiet", label: "No activity" }] : []),
+        ],
+      }] : []),
+      { id: "city", label: "City", kind: "select", of: (c) => c.city, any: "Any city", none: "No city" },
+      ...(money ? [
+        { id: "owes", label: "Owes", kind: "range", get: (c) => c.outstandingNPR, unit: "NPR", pill: "Owes" },
+        { id: "lateDays", label: "Days overdue", kind: "range", get: (c) => (c.overdueNPR > 0.5 ? lateOf(c, today).days : null), unit: "days", pill: "Late by" },
+        { id: "invoiced", label: "Invoiced", kind: "range", get: (c) => c.invoicedNPR, unit: "NPR", pill: "Invoiced" },
+        { id: "lastPaid", label: "Last paid between", kind: "dates", get: (c) => c.lastPaidOn || "", show: fmtDay, pill: "Last paid" },
+      ] : []),
+      { id: "added", label: "Added between", kind: "dates", get: (c) => dayOfTs(c.createdAt), show: fmtDay, pill: "Added" },
+      ...(orders ? [
+        { id: "hasOrders", label: "Has orders", kind: "toggle", text: "Has orders", pill: "Has orders", test: (c) => c.orders.length > 0 },
+        { id: "making", label: "Orders being made", kind: "toggle", text: "Has orders being made", pill: "Orders being made", test: (c) => c.orders.some(isOpen) },
+      ] : []),
+    ];
+  }, [money, orders, counts, today]);
+  const tf = useFilters(filterDefs, searched);
+  const { clear: clearFilters } = tf;
+  const list = tf.rows;
+  const filtered = Boolean(query) || tf.count > 0;
+  // a phone shows eight rows until "Show all" is pressed; narrowing the list by anything puts the cap back (as it always did)
+  const [more, showAllNow] = useShowAll(`${query}|${JSON.stringify(tf.values)}`);
 
   // the merge dialog reads its customer from the rows each time, so after a reload it shows what is there now, not what was there when it opened
   const mergingRow = merging ? rows.find((r) => r.id === merging) || null : null;
@@ -117,11 +156,9 @@ export default function Customers() {
 
   // steady functions, so the table's columns are not rebuilt on every keystroke elsewhere
   const openCustomer = useCallback((id, tab) => setPanel({ id, tab }), []);
-  const askFilter = (next) => { setFilter(next); setMore(false); };
-  const askQuery = (next) => { setQuery(next); setMore(false); };
-  const clearAll = () => { setQuery(""); setFilter("all"); setMore(false); };
-  // the Overdue tile's count puts the WHOLE list in the table: a search left in the box would narrow it again
-  const seeOverdue = () => { setQuery(""); askFilter("overdue"); };
+  const clearAll = () => { setQuery(""); clearFilters(); };
+  // the Overdue tile's count puts the WHOLE list in the table: a search or a filter left on would narrow it again
+  const seeOverdue = () => { setQuery(""); clearFilters(); tf.set("filter", "overdue"); };
   const retry = async () => { setRetrying(true); try { await reload(); } finally { setRetrying(false); } };
 
   /* ── writes (lib/customerWrites.js checks each one; this closes and looks again) ─── */
@@ -175,7 +212,7 @@ export default function Customers() {
 
   // "Show all" removes its own button, so the cursor goes to the first row it added
   const showAllRows = () => {
-    setMore(true);
+    showAllNow();
     requestAnimationFrame(() => document.querySelector(`[data-tile="cust"] .dt-body .dt-row:nth-child(${PHONE_ROWS + 1}) .dt-hit`)?.focus({ preventScroll: true }));
   };
 
@@ -189,7 +226,8 @@ export default function Customers() {
 
   const sub = ready ? (
     <>
-      <span>{rows.length} {plural(rows.length, "customer")}</span>
+      {/* the side of the business is in the Filters panel, so the header says which one is on screen */}
+      <span>{regionLabel} · {rows.length} {plural(rows.length, "customer")}</span>
       {activityKnown && counts.quiet > 0 && <span>{rows.length - counts.quiet} with activity</span>}
       {money && totals.overdue > 0.5 && <span className="kb-bad">{fmt(totals.overdue)} overdue</span>}
     </>
@@ -205,9 +243,6 @@ export default function Customers() {
           <p className="kb-head-sub">{sub}</p>
         </div>
         <div className="kb-head-r">
-          <div className="kb-head-row">
-            <RegionSwitch untagged={countUntagged(raw.customers)} size="sm" />
-          </div>
           {canEdit && (
             <button type="button" className="kb-btn kb-btn--primary cu-newbtn kb-head-act" onClick={() => openCustomer(null)}>
               <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> Add customer
@@ -247,7 +282,7 @@ export default function Customers() {
           <CustomersPane
             rows={list} counts={counts}
             money={money} orders={orders} margin={hasMargin} year={today.slice(0, 4)}
-            query={query} onQuery={askQuery} filter={filter} onFilter={askFilter} onClear={clearAll}
+            query={query} onQuery={setQuery} filters={tf} filtered={filtered} untagged={countUntagged(raw.customers)} onClear={clearAll}
             activeId={panel?.id || undefined} onOpen={(id) => openCustomer(id)}
             canAdd={canEdit} onAdd={() => openCustomer(null)}
             capped={phone ? PHONE_ROWS : 0} showAll={more} onShowAll={showAllRows}
