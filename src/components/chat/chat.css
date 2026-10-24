@@ -134,6 +134,12 @@
 button.kchat-thread-id:hover { background: var(--kb-well); }
 span.kchat-thread-id { cursor: default; }
 .kchat-thread-id:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+/* a one-to-one conversation: the chip is a stretched button (the contact card), and the person's photo and name above it open their profile */
+.kchat-thread-id--dm { position: relative; }
+.kchat-thread-id--dm:hover { background: var(--kb-well); }
+.kchat-thread-hit { position: absolute; inset: 0; z-index: 1; margin: 0; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.kchat-thread-hit:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.kchat-thread-id--dm .kchat-thread-name { overflow: visible; }      /* the name link cuts itself short (kpl--clip), so its focus ring is not clipped by this line */
 .kchat-thread-id > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .kchat-thread-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; color: var(--kb-ink); }
 .kchat-thread-status { font-size: 12px; color: var(--kb-ink-3); }

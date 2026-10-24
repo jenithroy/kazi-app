@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { Menu, MenuDivider, MenuItem, ThreadAvatar } from "./ChatBits";
 import Composer from "./Composer";
 import MessageBubble from "./MessageBubble";
@@ -26,6 +27,7 @@ export default function ThreadView({
   unread,
   canPost,
   canManageGroup,
+  focusToken,
   onBack,
   onSend,
   onUpload,
@@ -116,6 +118,9 @@ export default function ThreadView({
 
   const isGroup = thread.kind === "group";
   const online = threadOnline(thread);
+  // A one-to-one conversation is with one person, and their photo and name open their profile.
+  const other = isGroup ? null : thread.memberIds[0];
+  const otherName = other ? threadTitle(thread) : "";
 
   return (
     <section className="kb-tile kchat-thread" style={{ gridArea: "thread" }} aria-label={`Conversation with ${threadTitle(thread)}`}>
@@ -124,15 +129,31 @@ export default function ThreadView({
           <Icons.ChevronLeft size={18} />
         </button>
 
-        <button type="button" className="kchat-thread-id" onClick={onOpenContact}>
-          <ThreadAvatar thread={thread} size={38} />
-          <span>
-            <span className="kchat-thread-name">{threadTitle(thread)}</span>
-            <span className={`kchat-thread-status${online ? " kchat-thread-status--on" : ""}`}>
-              {threadStatus(thread)}
+        {other ? (
+          // The chip is a stretched button (the contact card); the person's photo and name sit above it and open their profile.
+          <div className="kchat-thread-id kchat-thread-id--dm">
+            <button type="button" className="kchat-thread-hit" onClick={onOpenContact} aria-label={`Contact details for ${otherName}`} />
+            <PersonLink decor personId={other} name={otherName}>
+              <ThreadAvatar thread={thread} size={38} />
+            </PersonLink>
+            <span>
+              <span className="kchat-thread-name"><PersonLink className="kpl--clip" personId={other} name={otherName} /></span>
+              <span className={`kchat-thread-status${online ? " kchat-thread-status--on" : ""}`}>
+                {threadStatus(thread)}
+              </span>
             </span>
-          </span>
-        </button>
+          </div>
+        ) : (
+          <button type="button" className="kchat-thread-id" onClick={onOpenContact}>
+            <ThreadAvatar thread={thread} size={38} />
+            <span>
+              <span className="kchat-thread-name">{threadTitle(thread)}</span>
+              <span className={`kchat-thread-status${online ? " kchat-thread-status--on" : ""}`}>
+                {threadStatus(thread)}
+              </span>
+            </span>
+          </button>
+        )}
 
         <div className="kchat-thread-actions">
           {thread.muted && (
@@ -180,8 +201,12 @@ export default function ThreadView({
       <div className="kchat-scroll" ref={scrollerRef} onScroll={onScroll}>
         {messages.length === 0 ? (
           <div className="kchat-empty">
-            <ThreadAvatar thread={thread} size={52} />
-            <h3>{threadTitle(thread)}</h3>
+            {other ? (
+              <PersonLink decor personId={other} name={otherName}>
+                <ThreadAvatar thread={thread} size={52} />
+              </PersonLink>
+            ) : <ThreadAvatar thread={thread} size={52} />}
+            <h3>{other ? <PersonLink personId={other} name={otherName} /> : threadTitle(thread)}</h3>
             <p>
               {isGroup
                 ? "Nobody has posted here yet. Say hello."
@@ -227,6 +252,7 @@ export default function ThreadView({
         recipientName={threadTitle(thread)}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
+        focusToken={focusToken}
         onUpload={(file) => onUpload(thread.id, file)}
         onSend={(text, attachment) => onSend(thread.id, text, replyTo?.id, attachment)}
         disabled={!canPost}

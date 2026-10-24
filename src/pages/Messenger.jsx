@@ -28,7 +28,8 @@
  * who may post, and every write are the hooks' and lib/chat.js's, unchanged.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Icons } from "../components/ui";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { useAuth } from "../context/AuthContext";
@@ -129,6 +130,55 @@ export default function Messenger() {
     setShowThreadOnMobile(true);
   }, []);
 
+  /**
+   * "Message" on someone's profile card brings you here as /messenger?with=<person id>. Open the conversation you already have with
+   * them, or start one the way "New conversation" does (the same RPC, which hands back the existing one if there is one), put the
+   * cursor in the message box, and take the person out of the address so a reload does not do it again. A reason it cannot be done
+   * goes in the strip at the top, in words.
+   */
+  const [params, setParams] = useSearchParams();
+  const withId = params.get("with");
+  const [startError, setStartError] = useState("");
+  const [wanted, setWanted] = useState(null);                  // a conversation to open as soon as the list has it
+  const [focusToken, setFocusToken] = useState(0);
+  const startedFor = useRef("");
+  const { directory, canPost, me, startDm } = chat;
+  useEffect(() => {
+    if (!withId) { startedFor.current = ""; return; }
+    if (loading || startedFor.current === withId) return;      // wait for the first read; once for each person
+    startedFor.current = withId;
+    (async () => {
+      try {
+        const mine = threads.find((t) => t.kind === "dm" && t.memberIds[0] === withId);
+        if (mine) setWanted(mine.id);
+        else if (withId === me || error) { /* yourself, or the read failed and its reason is already on screen: the page as it is */ }
+        else if (!canPost) setStartError("Your role can read conversations here but not start one.");
+        else if (!directory.some((p) => p.id === withId)) setStartError("That person is not on the staff list.");
+        else setWanted(await startDm(withId));
+      } catch (err) {
+        console.error("[chat] could not open the conversation:", err);
+        setStartError(err.message || "Could not start that conversation.");
+      } finally {
+        setParams((p) => { const next = new URLSearchParams(p); next.delete("with"); return next; }, { replace: true });
+      }
+    })();
+  }, [withId, loading, threads, directory, canPost, me, error, startDm, setParams]);
+  // "Open Chat" after a record was sent to a group (components/share/ShareDialog.jsx) arrives as /messenger?thread=<conversation id>.
+  const threadParam = params.get("thread");
+  useEffect(() => {
+    if (!threadParam || loading) return;
+    if (threads.some((t) => t.id === threadParam)) setWanted(threadParam);
+    setParams((p) => { const next = new URLSearchParams(p); next.delete("thread"); return next; }, { replace: true });
+  }, [threadParam, loading, threads, setParams]);
+  // Open it once the list holds it (a new conversation is in the list a moment after it was made; selecting it sooner would be undone by
+  // the effect above that keeps some conversation selected), then put the cursor in the message box.
+  useEffect(() => {
+    if (!wanted || !threads.some((t) => t.id === wanted)) return;
+    openThread(wanted);
+    setFocusToken((n) => n + 1);
+    setWanted(null);
+  }, [wanted, threads, openThread]);
+
   /** Ctrl/Cmd+K jumps to the filter, the shortcut every list in every app has trained people to expect. */
   useEffect(() => {
     const onKey = (e) => {
@@ -179,8 +229,8 @@ export default function Messenger() {
     requestAnimationFrame(() => list.querySelector('[aria-selected="true"]')?.focus());
   };
 
-  const bannerText = tab === "leads" ? leadsChat.error : error;
-  const dismissBanner = tab === "leads" ? leadsChat.dismissError : chat.dismissError;
+  const bannerText = startError || (tab === "leads" ? leadsChat.error : error);
+  const dismissBanner = startError ? () => setStartError("") : tab === "leads" ? leadsChat.dismissError : chat.dismissError;
 
   return (
     <BentoPage className="ch-page">
@@ -281,6 +331,7 @@ export default function Messenger() {
               unread={unread[activeThread.id] || 0}
               canPost={chat.canPost}
               canManageGroup={chat.rights.manage}
+              focusToken={focusToken}
               onBack={() => setShowThreadOnMobile(false)}
               onSend={chat.send}
               onUpload={uploadAttachment}

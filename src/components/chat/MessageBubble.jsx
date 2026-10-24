@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icons } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { EmojiPicker, Menu, MenuDivider, MenuItem, PersonAvatar } from "./ChatBits";
 import {
   clipLength,
@@ -86,6 +87,7 @@ export default function MessageBubble({
   onJumpTo,
 }) {
   const mine = isMe(message.authorId);
+  const author = personFor(message.authorId);
   const run = continuesRun(message, previous);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -129,12 +131,17 @@ export default function MessageBubble({
       {/* The gutter holds an avatar only at the start of a run, but keeps its
           width throughout so a run stays aligned. */}
       <div className="kchat-msg-gutter">
-        {!mine && !run && <PersonAvatar personId={message.authorId} size={28} showPresence={false} />}
+        {!mine && !run && (
+          // Beside the sender's name (a group) or the header's (a one-to-one): for a mouse or a finger, so the keyboard keeps one stop.
+          <PersonLink decor personId={message.authorId} name={author.name}>
+            <PersonAvatar personId={message.authorId} size={28} showPresence={false} />
+          </PersonLink>
+        )}
       </div>
 
       <div className="kchat-msg-col">
         {isGroup && !mine && !run && (
-          <span className="kchat-msg-author">{personFor(message.authorId).name}</span>
+          <span className="kchat-msg-author"><PersonLink personId={message.authorId} name={author.name} /></span>
         )}
 
         <div className="kchat-msg-line">

@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import FinanceConfirm from "../finance/ConfirmDialog";
 import { Dialog, PersonAvatar, ThreadAvatar } from "./ChatBits";
 import { fileSize, myId, personFor, threadTitle } from "../../lib/chatFormat";
@@ -227,9 +228,13 @@ export function ContactDialog({ thread, onClose }) {
   return (
     <Dialog title={group ? "Group members" : "Contact"} onClose={onClose}>
       <div className="kchat-contact-hd">
-        <ThreadAvatar thread={thread} size={56} />
+        {group ? <ThreadAvatar thread={thread} size={56} /> : (
+          <PersonLink decor personId={thread.memberIds[0]} name={person.name}>
+            <ThreadAvatar thread={thread} size={56} />
+          </PersonLink>
+        )}
         <div>
-          <h3>{threadTitle(thread)}</h3>
+          <h3>{group ? threadTitle(thread) : <PersonLink personId={thread.memberIds[0]} name={person.name} />}</h3>
           <p>{group ? `${thread.memberIds.length + 1} members` : person.role}</p>
         </div>
       </div>
@@ -240,10 +245,12 @@ export function ContactDialog({ thread, onClose }) {
             const member = personFor(id);
             return (
               <div key={id} className="kchat-person kchat-person--static">
-                <PersonAvatar personId={id} size={34} />
+                <PersonLink decor personId={id} name={member.name}>
+                  <PersonAvatar personId={id} size={34} />
+                </PersonLink>
                 <span className="kchat-person-body">
                   <span className="kchat-person-name">
-                    {member.name}
+                    <PersonLink personId={id} name={member.name} />
                     {id === thread.ownerId && <span className="kchat-owner">Owner</span>}
                   </span>
                   <span className="kchat-person-role">{member.online ? member.status : member.role}</span>

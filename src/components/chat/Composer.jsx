@@ -14,8 +14,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icons } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { EmojiPicker } from "./ChatBits";
-import { clipLength, fileSize, firstName, isMe, messageText } from "../../lib/chatFormat";
+import { clipLength, fileSize, firstName, isMe, messageText, personFor } from "../../lib/chatFormat";
 
 const MAX_ROWS = 8;
 
@@ -24,6 +25,7 @@ export default function Composer({
   recipientName,
   replyTo,
   onCancelReply,
+  focusToken,
   onSend,
   onUpload,
   disabled,
@@ -57,6 +59,14 @@ export default function Composer({
   useEffect(() => {
     if (replyTo?.id) inputRef.current?.focus();
   }, [replyTo?.id]);
+
+  /**
+   * Arriving from someone's profile ("Message") should land you in the box, ready to type: the page raises `focusToken` once the
+   * conversation is open. Only where there is a mouse; on a phone the keyboard would cover the history you came to read.
+   */
+  useEffect(() => {
+    if (focusToken && window.matchMedia?.("(pointer: fine)").matches) inputRef.current?.focus({ preventScroll: true });
+  }, [focusToken, threadId]);
 
   const canSend = (draft.trim().length > 0 || !!attachment) && !busy && !uploading && !disabled;
 
@@ -134,7 +144,9 @@ export default function Composer({
           <span className="kchat-reply-edge" />
           <div className="kchat-reply-body">
             <span className="kchat-reply-who">
-              Replying to {isMe(replyTo.authorId) ? "yourself" : firstName(replyTo.authorId)}
+              Replying to {isMe(replyTo.authorId) ? "yourself" : (
+                <PersonLink personId={replyTo.authorId} name={personFor(replyTo.authorId).name}>{firstName(replyTo.authorId)}</PersonLink>
+              )}
             </span>
             <span className="kchat-reply-text">{messageText(replyTo)}</span>
           </div>
