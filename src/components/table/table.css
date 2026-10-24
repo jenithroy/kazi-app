@@ -50,6 +50,19 @@
 .dt-row--skel { pointer-events: none; }
 .dt-row--skel .kb-skel { height: 11px; }
 
+/* A record that was just added: tinted for a moment, then back to the others (DataTable's `flashKey`) */
+.dt-row.is-new { animation: dt-new 2.6s ease-out; }
+@keyframes dt-new { 0%, 40% { background: color-mix(in srgb, var(--kb-accent) 16%, transparent); } 100% { background: transparent; } }
+
+/* A row of fields between the head and the rows (DataTable's `entry`): on the table's own tracks, so each field sits under its head,
+   and outside the scrolling part, so it stays put. What is in the cells is the page's (finance/entry/entry.css). */
+.dt-entry {
+  position: relative; z-index: 3; flex: none; display: grid; grid-template-columns: var(--dt-cols); column-gap: 16px; align-items: center;
+  padding: 7px 16px; border-bottom: 1px solid var(--kb-line); background: color-mix(in srgb, var(--kb-accent) 6%, transparent);
+}
+@media (pointer: fine) { .dt-entry { padding-right: 28px; } }      /* the room the head leaves for the slim scrollbar */
+.dt-entry .dt-cell { min-width: 0; }
+
 .dt-hit {
   position: absolute; inset: 0; z-index: 1; display: block; width: 100%; height: 100%; margin: 0; padding: 0;
   border: 0; border-radius: 0; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
@@ -68,6 +81,7 @@
 
 .dt-empty { flex: 1 1 auto; min-height: 180px; display: flex; flex-direction: column; justify-content: center; }
 .dt-empty .kb-empty { padding: 24px 16px; font-size: 13px; }
+.dt-empty-c { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }   /* the one cell of the empty row (a rowgroup may only hold rows) */
 
 /* ── What goes in a cell ────────────────────────────────────────── */
 
@@ -158,7 +172,7 @@
 @media (max-width: 768px) {
   .dt { flex: none; }
   .dt-body { flex: 0 0 auto; overflow: visible; scrollbar-gutter: auto; }      /* flex-basis 0 would collapse it: the pane has no height of its own here */
-  .dt-head { padding-right: 16px; }
+  .dt-head, .dt-entry { padding-right: 16px; }
   .dt-row { min-height: 58px; }
   .dt-search { flex: 1 1 0; min-width: 0; }
   .dt-search input { width: 100%; }
@@ -176,4 +190,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dt-row, .dt-sort-i, .dt-chip, .dt-tab, .dt-mini { transition: none; }
+  .dt-row.is-new { animation: none; background: color-mix(in srgb, var(--kb-accent) 16%, transparent); }
 }

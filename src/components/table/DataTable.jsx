@@ -41,8 +41,13 @@
  * `focusBody` makes the scrolling part a Tab stop. A table with rows to press already has one (the row's
  * button); a table with none (a read-only list) has nothing a keyboard can reach, so it could not be
  * scrolled by one (axe: scrollable-region-focusable). Pass it for a list that nobody opens.
+ *
+ * `entry({ visible, compact, dropped })` draws a row of fields between the head and the rows, on the table's
+ * own column tracks (so each field sits under its head) and outside the scrolling part (so it stays put).
+ * Return null to draw none (a narrow table that has dropped a column the fields need). `flashKey` is the key
+ * of a row to light up for a moment and bring into view, once it is in the list (the record that was just added).
  */
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icons, cn } from "../ui";
 import "./table.css";
 
@@ -76,6 +81,7 @@ export function fitColumns(columns, width) {
 
 export default function DataTable({
   label, rows, rowKey, columns, defaultSort, onOpen, rowLabel, activeKey, kindOf, empty, loading, className, skeletonRows = 6, limit, focusBody,
+  entry, flashKey,
 }) {
   const rootRef = useRef(null);
   const [width, setWidth] = useState(0);
@@ -140,6 +146,26 @@ export default function DataTable({
   const shown = limit > 0 && sorted.length > limit ? sorted.slice(0, limit) : sorted;
   const none = !loading && rows.length === 0;
   const cellProps = { compact, dropped };
+  const entryNode = entry ? entry({ visible, compact, dropped }) : null;
+  const lead = entryNode ? 1 : 0;                 // the row of fields is a row of the table: it comes before the records
+
+  // The record just added: once it is in the list (a list being read again does not have it yet, and may take a while), bring it into view
+  // (it lands wherever the sort puts it, which may be far down a long list) and light it for a moment. Once per record: a later change to the
+  // list does not pull her back to it, nor light it again.
+  const flashed = useRef(null);
+  const litTimer = useRef(0);
+  const [lit, setLit] = useState(null);
+  useEffect(() => {
+    if (flashKey == null || flashed.current === flashKey) return;
+    const row = rootRef.current?.querySelector(`[data-rk="${CSS.escape(String(flashKey))}"]`);
+    if (!row) return;
+    flashed.current = flashKey;
+    row.scrollIntoView({ block: "nearest" });
+    setLit(flashKey);
+    clearTimeout(litTimer.current);
+    litTimer.current = setTimeout(() => setLit(null), 2600);
+  }, [flashKey, sorted]);
+  useEffect(() => () => clearTimeout(litTimer.current), []);
 
   return (
     <div
@@ -147,7 +173,7 @@ export default function DataTable({
       className={cn("dt", compact && "dt--compact", className)}
       role="table"
       aria-label={label}
-      aria-rowcount={sorted.length + 1}
+      aria-rowcount={sorted.length + 1 + lead + (none ? 1 : 0)}
       style={{ "--dt-cols": template }}
     >
       <div className="dt-head" role="row">
@@ -173,6 +199,8 @@ export default function DataTable({
         })}
       </div>
 
+      {entryNode}
+
       <div className="dt-body" role="rowgroup" onKeyDown={onBodyKey} tabIndex={focusBody ? 0 : undefined}>
         {loading && Array.from({ length: skeletonRows }, (_, i) => (
           <div key={i} className="dt-row dt-row--skel" role="row" aria-hidden="true">
@@ -184,7 +212,11 @@ export default function DataTable({
           </div>
         ))}
 
-        {none && <div className="dt-empty">{empty}</div>}
+        {none && (
+          <div className="dt-empty" role="row">
+            <div className="dt-empty-c" role="cell" aria-colspan={visible.length}>{empty}</div>
+          </div>
+        )}
 
         {!loading && shown.map((row, rowIndex) => {
           const kind = kindOf ? kindOf(row) : undefined;
@@ -201,8 +233,9 @@ export default function DataTable({
             <div
               key={key}
               role="row"
-              aria-rowindex={rowIndex + 2}
-              className={cn("dt-row", openable && "is-open", kind && `dt-${kind}`, activeKey != null && activeKey === key && "is-active")}
+              aria-rowindex={rowIndex + 2 + lead}
+              data-rk={String(key)}
+              className={cn("dt-row", openable && "is-open", kind && `dt-${kind}`, activeKey != null && activeKey === key && "is-active", lit != null && lit === key && "is-new")}
             >
               {visible.map((c, i) => (
                 <div key={c.id} role="cell" className={cn("dt-cell", c.align === "end" && "dt-end", c.className)}>

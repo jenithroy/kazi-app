@@ -59,6 +59,7 @@ export default function Select({
   align = "start",
   minWidth,
   on,
+  onKeep,
   className,
 }) {
   const uid = useId();
@@ -123,6 +124,7 @@ export default function Select({
   function choose(opt) {
     if (!opt || opt.disabled) return;
     if (opt.value !== value) onChange?.(opt.value);
+    else onKeep?.(opt.value);              // the choice already held: nothing changes, but a keyboard flow still wants to know it was made
     close(true);
   }
 

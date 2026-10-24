@@ -77,6 +77,9 @@ export default function Modal({
     const fine = window.matchMedia?.("(pointer: fine)").matches;
     const target = (fine && panel?.querySelector(FIRST_FIELD)) || panel;
     target?.focus({ preventScroll: true });
+    // A field that cannot take the cursor (a file picker hidden behind a button, as in the profile card) leaves it on whatever opened the
+    // dialog, behind the scrim, and then Escape and Tab never reach the dialog: fall back to the panel itself.
+    if (target !== panel && document.activeElement !== target) panel?.focus({ preventScroll: true });
     return () => {
       if (opener && document.contains(opener)) opener.focus?.({ preventScroll: true });
     };

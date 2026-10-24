@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { fmtField } from "../lib/calendar";
 import { fmtDateBS } from "../utils/fiscalYear";
 
@@ -28,13 +28,14 @@ export function setDateMode(next) {
   listeners.forEach((fn) => fn());
 }
 
-/** ["ad" | "bs", setDateMode, show(iso)]: `show` writes a stored date in the chosen calendar. */
+/** ["ad" | "bs", setDateMode, show(iso)]: `show` writes a stored date in the chosen calendar. It is the same function until the calendar changes, so a filter
+ *  or a memo that holds it does not rebuild on every render. */
 export default function useDateMode() {
   const mode = useSyncExternalStore(subscribe, () => current, () => "ad");
-  const show = (iso) => {
+  const show = useCallback((iso) => {
     if (!iso) return "—";
     const day = String(iso).slice(0, 10);
     return mode === "bs" ? fmtDateBS(day) : (fmtField(day) || "—");
-  };
+  }, [mode]);
   return [mode, setDateMode, show];
 }
