@@ -53,6 +53,9 @@
 
 .kb-btn.mk-newbtn { height: 32px; padding: 0 14px; border-radius: 999px; }
 
+/* the search and the Filters button (components/filters: FindBar, `fn-barrow` on the bar), with a pill for each thing that is narrowing */
+.mk-bar { flex: none; }
+
 .mk-banner {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px;
   background: var(--kb-warn-bg); border: 1px solid color-mix(in srgb, var(--kb-warn) 30%, transparent);

@@ -1,6 +1,7 @@
 /**
  * Meta Ads, Leads: the people who filled in a Meta lead form. Four short tiles count them (all, new and not yet contacted, in
- * follow-up, converted); under them one table, searchable and filtered by status, whose rows open that lead's card (their details,
+ * follow-up, converted); under them one table with a search and the Filters button (components/filters: status, campaign, ad, city,
+ * the day received, customer made or not, has a phone number, an email or a note), whose rows open that lead's card (their details,
  * the form's answers, their status, and "Add as customer"). Sync pulls any new ones from Meta; Export saves what the table shows as a CSV.
  *
  * What was different in the old page and is deliberate here:
@@ -15,18 +16,27 @@ import { useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
 import { BentoGrid, EmptyNote, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
+import { FindBar } from "../filters/FilterMenu";
+import useFilters from "../filters/useFilters";
 import LeadCard from "./LeadCard";
 import WebhookDialog from "./WebhookDialog";
 import { Kpi, LoadError, NONE, Notice, ico, num, plural } from "./Common";
 import useMetaLoad from "../../hooks/useMetaLoad";
 import { fetchMetaLeads } from "../../lib/metaAds";
-import { LEAD_STATUSES, filterLeads, leadCounts, leadStats, leadStatusMeta, leadWhen, leadsCsv, timeAgo } from "../../lib/metaCalc";
+import { kathmanduDate } from "../../utils/date";
+import { LEAD_STATUSES, filterLeads, fmtShort, leadCounts, leadStats, leadStatus, leadStatusMeta, leadWhen, leadsCsv, timeAgo } from "../../lib/metaCalc";
 import { convertLead, linkLead, setLeadStatus, syncLeads } from "../../lib/metaWrites";
 
 const BOM = String.fromCharCode(0xfeff);        // a byte-order mark first, so a spreadsheet reads the names as UTF-8
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const when = (l) => { const d = new Date(leadWhen(l)); return Number.isNaN(d.getTime()) ? "" : DAY.format(d); };
+
+const has = (v) => Boolean(String(v ?? "").trim());
+/** The office's day (Kathmandu) a lead came in, or "" when it has no time. */
+const dayReceived = (l) => { const w = leadWhen(l); return w && !Number.isNaN(Date.parse(w)) ? kathmanduDate(w) : ""; };
+/** A city as strangers type it into a form ("Kathmandu", "kathmandu ", "KATHMANDU") is one city. */
+const cityKey = (c) => String(c ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const cityName = (key) => key.replace(/(^|\s)(\p{L})/gu, (_, gap, ch) => gap + ch.toUpperCase());
 
 export default function LeadsView({ canEdit, today, tick, notify }) {
   const { data, status, error, stale, refreshing, reload } = useMetaLoad(async () => (await fetchMetaLeads()) || [], `${tick}`);
@@ -34,7 +44,6 @@ export default function LeadsView({ canEdit, today, tick, notify }) {
   const loading = status === "loading";
 
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
   const [card, setCard] = useState(null);                    // the open lead's id
   const [hook, setHook] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -45,9 +54,33 @@ export default function LeadsView({ canEdit, today, tick, notify }) {
   const rows = useMemo(() => leads.map((l) => (patches[l.id] ? { ...l, ...patches[l.id] } : l)), [leads, patches]);
   const stats = useMemo(() => leadStats(rows), [rows]);
   const counts = useMemo(() => leadCounts(rows), [rows]);
-  const list = useMemo(() => filterLeads(rows, { status: filter, query }), [rows, filter, query]);
+  // The search is this view's own; everything else that narrows the list is in the Filters panel (components/filters). The status choice
+  // narrows exactly as the old chips did.
+  const searched = useMemo(() => filterLeads(rows, { status: "all", query }), [rows, query]);
+  const filterDefs = useMemo(() => {
+    const choice = (get) => new Set(rows.map(get).filter(Boolean)).size > 1;          // a dropdown is offered only when there is something to choose
+    return [
+      {
+        id: "status", label: "Status", kind: "chips", test: (l, v) => leadStatus(l) === v,
+        options: [{ value: "all", label: "All" }, ...LEAD_STATUSES.map((s) => ({ value: s.id, label: s.label, tone: s.id === "new" && counts.new > 0 ? "warn" : undefined }))],
+      },
+      ...(choice((l) => l.campaignName) ? [{ id: "campaign", label: "Campaign", kind: "select", of: (l) => l.campaignName, any: "Any campaign", none: "No campaign" }] : []),
+      ...(choice((l) => l.adName) ? [{ id: "ad", label: "Ad", kind: "select", of: (l) => l.adName, any: "Any ad", none: "No ad" }] : []),
+      ...(choice((l) => cityKey(l.city)) ? [{ id: "city", label: "City", kind: "select", of: (l) => cityKey(l.city), nameOf: cityName, any: "Any city", none: "No city" }] : []),
+      { id: "received", label: "Received between", kind: "dates", get: dayReceived, show: fmtShort, pill: "Received" },
+      {
+        id: "customer", label: "Customer record", kind: "chips", test: (l, v) => Boolean(l.customerId) === (v === "made"),
+        options: [{ value: "any", label: "Any" }, { value: "made", label: "Customer made" }, { value: "not", label: "No customer yet" }],
+      },
+      { id: "phone", label: "Has a phone number", kind: "toggle", test: (l) => has(l.phoneNumber) },
+      { id: "email", label: "Has an email", kind: "toggle", test: (l) => has(l.email) },
+      { id: "note", label: "Has a note", kind: "toggle", test: (l) => has(l.notes) },
+    ];
+  }, [rows, counts]);
+  const tf = useFilters(filterDefs, searched);
+  const list = tf.rows;
   const open = card ? rows.find((l) => l.id === card) || null : null;
-  const narrowed = Boolean(query) || filter !== "all";
+  const narrowed = Boolean(query) || tf.count > 0;
 
   async function sync() {
     if (syncOnce.current) return;
@@ -134,11 +167,6 @@ export default function LeadsView({ canEdit, today, tick, notify }) {
 
   if (status === "error") return <LoadError what="Leads" onRetry={reload} busy={refreshing} />;
 
-  const options = [
-    { value: "all", label: "All", count: loading ? undefined : counts.all },
-    ...LEAD_STATUSES.map((s) => ({ value: s.id, label: s.label, count: loading ? undefined : counts[s.id], tone: s.id === "new" && !loading && counts.new > 0 ? "warn" : undefined })),
-  ];
-
   return (
     <>
       {stale && <Notice tone="warn" action={{ label: refreshing ? "Trying…" : "Try again", onClick: reload, disabled: refreshing }}>Could not refresh just now. This is what was loaded last.</Notice>}
@@ -154,9 +182,8 @@ export default function LeadsView({ canEdit, today, tick, notify }) {
           area="main" title="Leads" icon={<Icons.Users {...ico} />} align="top" className="ma-pane"
           note={loading ? undefined : narrowed ? `${num(list.length)} of ${num(counts.all)}` : `${num(counts.all)} ${plural(counts.all, "lead")}`}
         >
-          <div className="ma-tools">
-            <SearchBox value={query} onChange={setQuery} placeholder="Search leads" label="Search leads by name, phone, email, campaign or city" />
-            <FilterChips label="Lead status" value={filter} onChange={setFilter} options={options} />
+          <div className="ma-tools fn-barrow">
+            <FindBar filters={tf} value={query} onChange={setQuery} placeholder="Search leads" label="Search leads by name, phone, email, campaign or city" />
             <span className="ma-tools-r">
               <button type="button" className="kb-btn kb-btn--ghost" onClick={() => setHook(true)}><Icons.Info size={13} sw={1.9} aria-hidden="true" /> Webhook</button>
               <button type="button" className="kb-btn kb-btn--ghost" onClick={exportCsv} disabled={list.length === 0}><Icons.Download size={13} sw={1.9} aria-hidden="true" /> Export CSV</button>
@@ -169,7 +196,7 @@ export default function LeadsView({ canEdit, today, tick, notify }) {
               <EmptyNote icon={<Icons.Users size={22} sw={1.5} />}>
                 {rows.length === 0
                   ? "No leads captured yet. Run a lead ad on Facebook or Instagram, or press Sync leads to pull existing ones."
-                  : <>No leads match. <button type="button" className="ma-linkbtn" onClick={() => { setQuery(""); setFilter("all"); }}>Show them all</button></>}
+                  : <>No leads match. <button type="button" className="ma-linkbtn" onClick={() => { setQuery(""); tf.clear(); }}>Show them all</button></>}
               </EmptyNote>
             </div>
           ) : (

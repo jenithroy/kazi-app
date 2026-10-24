@@ -11,6 +11,8 @@
  *
  * This file is the frame: the header (the account, when it last synced, Sync now), the section tabs and the range, the notices, and the
  * view. The views read their own data (components/meta/); what they share is the account list and the latest sync runs, read here.
+ * The range stays in this bar, beside the tabs, because it decides which numbers are READ; what only narrows a list that is already
+ * loaded (the campaigns, the leads, the change log) is that list's own search and Filters button (components/filters).
  *
  * Meta Ads is its own permission on top of the Marketing section (migration 0049): without it this page is the calendar's. With view
  * but not edit nothing here changes anything, and the page says why. All the sums are in lib/metaCalc.js; the writes, which spend real

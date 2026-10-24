@@ -1,6 +1,7 @@
 /**
  * Meta Ads, Activity: two lists side by side. The change log is every real-money edit made from this app (a pause, a resume, a budget
- * change), who made it and when, searchable and filterable by level; the sync history is each time the data was pulled from Meta, how it
+ * change), who made it and when, with a search and the Filters button (components/filters: level, what was done, who, what was
+ * changed, the day, and whether it was confirmed over the limit); the sync history is each time the data was pulled from Meta, how it
  * went, and, when it failed, why and what to do. The Campaigns card's History button lands here with that campaign, ad set or ad filtered.
  *
  * A budget is written in the currency of the account the thing belongs to (the old log wrote every budget in dollars); where that cannot
@@ -10,11 +11,14 @@ import { useMemo, useState } from "react";
 import { Icons } from "../ui";
 import { BentoGrid, EmptyNote, Tile } from "../bento/Bento";
 import DataTable from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
+import { FindBar } from "../filters/FilterMenu";
+import useFilters from "../filters/useFilters";
+import PersonLink from "../profile/PersonLink";
 import { LoadError, NONE, Notice, ico, plural } from "./Common";
 import useMetaLoad from "../../hooks/useMetaLoad";
 import { fetchCampaigns, fetchRecentActions, fetchSyncRuns } from "../../lib/metaAds";
-import { SYNC_STATUS, describeAction, duration, errorHint, filterActions, formatDateTime, newestFirst, pagingCapped, timeAgo, whenShort } from "../../lib/metaCalc";
+import { kathmanduDate } from "../../utils/date";
+import { SYNC_STATUS, describeAction, duration, errorHint, filterActions, fmtShort, formatDateTime, newestFirst, pagingCapped, timeAgo, whenShort } from "../../lib/metaCalc";
 
 /** The latest changes, or, with an `entityId` (the card's History button), that one thing's own changes asked of the server: picking them out of the latest 50 lost any change older than that. */
 async function load(entityId) {
@@ -29,13 +33,15 @@ async function load(entityId) {
 }
 
 const LEVELS = [{ value: "all", label: "All" }, { value: "campaign", label: "Campaigns" }, { value: "adset", label: "Ad sets" }, { value: "ad", label: "Ads" }];
+const DONE = [{ value: "any", label: "Any" }, { value: "pause", label: "Paused" }, { value: "resume", label: "Resumed" }, { value: "budget_edit", label: "Budget changed" }];
+/** The office's day (Kathmandu) a change was made, or "" when the log has no time for it. */
+const dayMade = (a) => (a.createdAt && !Number.isNaN(Date.parse(a.createdAt)) ? kathmanduDate(a.createdAt) : "");
 
 export default function ActivityView({ core, tick, params, clearEntity }) {
   const entityId = params.get("entityId") || "";
   const { data, status, stale, refreshing, reload } = useMetaLoad(() => load(entityId), `${tick}|${entityId}`, entityId);
   const loading = status === "loading";
   const [text, setText] = useState(() => params.get("entityId") || params.get("entity") || "");
-  const [level, setLevel] = useState("all");
 
   const actions = data?.actions || NONE;
   const runs = data?.runs || NONE;
@@ -46,8 +52,31 @@ export default function ActivityView({ core, tick, params, clearEntity }) {
   const only = [...new Set(Object.values(currencyBy).filter(Boolean))];
   const currencyOf = (a) => (a.entityLevel === "campaign" ? campaignCurrency[a.entityId] : "") || (only.length === 1 ? only[0] : "");
 
-  const shown = useMemo(() => filterActions(actions, { text, level }), [actions, text, level]);
-  const narrowed = Boolean(text) || level !== "all";
+  // The search is this list's own; everything else that narrows the change log is in the Filters panel (components/filters). The level
+  // choice narrows exactly as the old chips did.
+  const searched = useMemo(() => filterActions(actions, { text, level: "all" }), [actions, text]);
+  const filterDefs = useMemo(() => {
+    // an older line that carries only a name is the same person as a newer one with their id, unless two people share the name
+    const idByName = new Map();
+    actions.forEach((a) => { if (a.personId && a.personName) idByName.set(a.personName, idByName.has(a.personName) && idByName.get(a.personName) !== a.personId ? null : a.personId); });
+    const who = (a) => a.personId || idByName.get(a.personName) || a.personName || "";
+    const names = new Map();
+    actions.forEach((a) => { const k = who(a); if (k && !names.get(k)) names.set(k, a.personName || k); });
+    const kinds = new Set(actions.map((a) => a.action).filter(Boolean));
+    const thing = (a) => a.entityName || a.entityId || "";
+    return [
+      { id: "level", label: "Level", kind: "chips", test: (a, v) => a.entityLevel === v, options: LEVELS },
+      ...(kinds.size > 1 ? [{ id: "done", label: "What was done", kind: "chips", test: (a, v) => a.action === v, options: DONE }] : []),
+      ...(names.size > 1 ? [{ id: "who", label: "Who", kind: "select", of: who, nameOf: (k) => names.get(k) || k, any: "Anyone", none: "Not recorded" }] : []),
+      // the campaign, ad set or ad itself, named as the log's own sentences name it: everything done to one thing
+      ...(new Set(actions.map(thing).filter(Boolean)).size > 1 ? [{ id: "thing", label: "What was changed", kind: "select", of: thing, any: "Anything", none: "Not recorded" }] : []),
+      { id: "when", label: "Changed between", kind: "dates", get: dayMade, show: fmtShort, pill: "Changed" },
+      { id: "over", label: "Confirmed over the limit", kind: "toggle", pill: "Over the limit", test: (a) => Boolean(a.confirmedOverCeiling) },
+    ];
+  }, [actions]);
+  const tf = useFilters(filterDefs, searched);
+  const shown = tf.rows;
+  const narrowed = Boolean(text) || tf.count > 0;
 
   const logColumns = useMemo(() => [
     {
@@ -61,7 +90,7 @@ export default function ActivityView({ core, tick, params, clearEntity }) {
         const d = describeAction(a, currencyOf);
         return (
           <span className="ma-sentence">
-            <b>{d.who}</b> {d.verb} <em>{d.what}</em>
+            <b><PersonLink personId={a.personId || undefined} name={a.personName || undefined}>{d.who}</PersonLink></b> {d.verb} <em>{d.what}</em>
             {d.budget && <>’s {d.budget.label} {d.budget.before} → {d.budget.after}{d.budget.over && <span className="ma-over"> · confirmed over the multiple</span>}</>}
           </span>
         );
@@ -81,7 +110,11 @@ export default function ActivityView({ core, tick, params, clearEntity }) {
         const hint = errorHint(r.errorMessage);
         return (
           <span className="dt-two-t">
-            <b>{r.triggerType === "manual" ? `Manual (${r.triggeredByName || "staff"})` : "Scheduled"}</b>
+            <b>
+              {r.triggerType === "manual"
+                ? <PersonLink className="kpl--clip" personId={r.triggeredByPersonId || undefined} name={r.triggeredByName || undefined}>{`Manual (${r.triggeredByName || "staff"})`}</PersonLink>
+                : "Scheduled"}
+            </b>
             {r.errorMessage ? <span className="ma-bad" title={r.errorMessage}>{r.errorMessage}{hint ? ` ${hint}` : ""}</span>
               : pagingCapped(r) ? <span>Hit the paging cap: data may be incomplete</span>
               : <span title="Campaigns, ad sets, ads, insight rows">{r.campaignsSynced}C · {r.adsetsSynced}AS · {r.adsSynced}A{r.insightRowsSynced ? ` · ${r.insightRowsSynced}I` : ""}</span>}
@@ -102,9 +135,8 @@ export default function ActivityView({ core, tick, params, clearEntity }) {
       <BentoGrid layout="ma-act">
         <Tile area="log" title="Change log" icon={<Icons.Edit {...ico} />} align="top" className="ma-pane" note={loading ? undefined : narrowed ? `${shown.length} of ${actions.length}` : `${actions.length} ${plural(actions.length, "change")}`}>
           <p className="ma-sub">Real-money edits made from this app: pauses, resumes and budget changes.</p>
-          <div className="ma-tools">
-            <SearchBox value={text} onChange={(v) => { setText(v); if (entityId && v !== entityId) clearEntity(); }} placeholder="Filter by name, id or person" label="Filter the change log by name, id or person" />
-            <FilterChips label="Level" value={level} onChange={setLevel} options={LEVELS} />
+          <div className="ma-tools fn-barrow">
+            <FindBar filters={tf} value={text} onChange={(v) => { setText(v); if (entityId && v !== entityId) clearEntity(); }} placeholder="Filter by name, id or person" label="Filter the change log by name, id or person" />
           </div>
           {!loading && shown.length === 0 ? (
             <div className="dt-empty"><EmptyNote icon={<Icons.Edit size={22} sw={1.5} />}>{actions.length === 0 ? "No real-money edits recorded yet." : "No changes match that."}</EmptyNote></div>

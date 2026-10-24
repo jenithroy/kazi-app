@@ -3,6 +3,10 @@
  * under it. One table in one pane: a campaign opens (chevron) into its ad sets and an ad set into its ads, and a row opens a card
  * where the real-money actions are (pause or resume it, change its budget), each asking for its own confirmation.
  *
+ * The search and the Filters button (components/filters) narrow the campaigns: delivery, objective, ad account, daily budget, spend,
+ * cost per inquiry, "has leads", "spent but no inquiries", and whether archived ones are listed at all. The date range is not one of
+ * them: it decides which numbers are read, so it stays in the page's bar (pages/MetaAds.jsx), and the spend filters follow it.
+ *
  * What was different in the old page and is deliberate here:
  *   - the numbers of an ad set or an ad are read afresh each time its parent is opened or the range changes, never added onto what was
  *     there (the old page added every re-read to the last, so after any pause or budget change the ad sets and ads showed doubled spend);
@@ -18,7 +22,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icons, cn } from "../ui";
 import { BentoGrid, EmptyNote, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
+import { FindBar } from "../filters/FilterMenu";
+import useFilters from "../filters/useFilters";
 import EntityCard from "./EntityCard";
 import { BudgetDialog, PauseDialog } from "./ActionDialogs";
 import { LoadError, Notice, StatusTag, Thumb, ico, num, plural } from "./Common";
@@ -55,8 +60,7 @@ export default function CampaignsView({ canEdit, range, core, tick, go, notify }
   const ready = base.status === "ready";
 
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [archived, setArchived] = useState(false);
+  const [archived, setArchived] = useState(false);              // archived campaigns are left out of the list unless asked for
   const [openC, setOpenC] = useState(() => new Set());          // campaigns opened into their ad sets
   const [openA, setOpenA] = useState(() => new Set());          // ad sets opened into their ads
   const [kids, setKids] = useState({});                         // "adsets:<campaignId>" | "ads:<adsetId>" -> { status, rows, metrics }
@@ -131,10 +135,55 @@ export default function CampaignsView({ canEdit, range, core, tick, go, notify }
   const campaigns = useMemo(() => (base.data?.campaigns || []).map(withPatch), [base.data, withPatch]);
   const cm = useMemo(() => metricsBy(base.data?.insights || [], "campaignId"), [base.data]);
   const counts = useMemo(() => campaignCounts(campaigns, archived), [campaigns, archived]);
+
+  // What narrows the list: the search and whether archived ones are listed at all are this view's own; everything else is in the Filters
+  // panel (components/filters). The delivery choice narrows exactly as the old chips did, through filterCampaigns.
+  const searched = useMemo(() => filterCampaigns(campaigns, { query, status: "all", archived }), [campaigns, query, archived]);
+  const filterDefs = useMemo(() => {
+    const numbers = ready && !base.data.numbersLost;                      // spend and results are filtered only when they were read: blank numbers are not "nothing"
+    const accountIds = new Set(campaigns.map((c) => c.adAccountId).filter(Boolean));
+    const currencies = new Set([...accountIds].map((id) => currencyBy[id]).filter(Boolean));
+    const unit = currencies.size === 1 ? [...currencies][0] : "";           // an amount range means one thing only when every account spends in one currency
+    const choice = (get) => new Set(campaigns.map(get).filter(Boolean)).size > 1;       // a dropdown is offered only when there is something to choose
+    const total = (id) => cm[id]?.totalInquiries || 0;
+    return [
+      // whether archived campaigns are listed: the view keeps it (it widens the list, so it is never a pill)
+      ...(counts.archived > 0 || archived ? [{
+        id: "archived", label: "Archived campaigns", kind: "chips", controlled: { value: archived ? "show" : "hide", set: (v) => setArchived(v === "show") },
+        options: [
+          { value: "hide", label: "Hide", count: campaignCounts(campaigns, false).all },
+          { value: "show", label: "Show", count: campaignCounts(campaigns, true).all },
+        ],
+      }] : []),
+      {
+        id: "status", label: "Delivery", kind: "chips", test: (c, v) => filterCampaigns([c], { status: v, archived: true }).length > 0,
+        options: [
+          { value: "all", label: "All" },
+          { value: "active", label: "Active" },
+          { value: "paused", label: "Paused" },
+          { value: "issues", label: "Needs attention", tone: counts.issues > 0 ? "warn" : undefined },
+        ],
+      },
+      ...(choice((c) => objectiveWords(c.objective)) ? [{ id: "objective", label: "Objective", kind: "select", of: (c) => objectiveWords(c.objective), any: "Any objective", none: "No objective" }] : []),
+      ...(accountIds.size > 1 ? [{
+        id: "account", label: "Ad account", kind: "select", of: (c) => c.adAccountId, nameOf: (id) => core.accounts.find((a) => a.id === id)?.name || id, any: "Any account", none: "No account",
+      }] : []),
+      // three amounts in one currency: each pill names itself ("Spend: USD from 30"), or they would look alike
+      ...(unit ? [{ id: "budget", label: "Daily budget", kind: "range", unit, pill: "Daily budget", get: (c) => (c.dailyBudgetMinor != null ? Number(c.dailyBudgetMinor) / 100 : null) }] : []),
+      ...(numbers && unit ? [
+        { id: "spend", label: "Spend in this range", kind: "range", unit, pill: "Spend", get: (c) => (cm[c.id] ? cm[c.id].spend : null) },
+        { id: "cpi", label: "Cost per inquiry", kind: "range", unit, pill: "Cost per inquiry", get: (c) => cm[c.id]?.costPerInquiry ?? null },
+      ] : []),
+      ...(numbers ? [
+        { id: "leads", label: "Has leads", kind: "toggle", test: (c) => (cm[c.id]?.leads || 0) > 0 },
+        { id: "nothing", label: "Spent, no inquiries", kind: "toggle", text: "Spent but no inquiries", pill: "No inquiries", test: (c) => (cm[c.id]?.spend || 0) > 0 && total(c.id) === 0 },
+      ] : []),
+    ];
+  }, [campaigns, counts, archived, ready, base.data, currencyBy, core.accounts, cm]);
+  const tf = useFilters(filterDefs, searched);
   const shown = useMemo(
-    () => filterCampaigns(campaigns, { query, status, archived })
-      .sort((a, b) => ((cm[b.id]?.spend || 0) - (cm[a.id]?.spend || 0)) || byName(a, b)),
-    [campaigns, query, status, archived, cm],
+    () => [...tf.rows].sort((a, b) => ((cm[b.id]?.spend || 0) - (cm[a.id]?.spend || 0)) || byName(a, b)),
+    [tf.rows, cm],
   );
 
   const rows = useMemo(() => {
@@ -228,7 +277,8 @@ export default function CampaignsView({ canEdit, range, core, tick, go, notify }
 
   const kidsLost = Object.values(kids).some((v) => v.lost && v.about === about);
   const retry = async () => { setRetrying(true); try { await base.reload(); } finally { setRetrying(false); } };
-  const narrowed = Boolean(query) || status !== "all";
+  const narrowed = Boolean(query) || tf.count > 0;
+  const withArchived = archived && counts.archived > 0 ? `, ${counts.archived} archived` : "";          // the choice is behind the Filters button, so the count says it
 
   /* ── the table ─────────────────────────────────────────── */
 
@@ -269,13 +319,6 @@ export default function CampaignsView({ canEdit, range, core, tick, go, notify }
 
   if (base.status === "error") return <LoadError what="Campaigns" onRetry={retry} busy={retrying} />;
 
-  const options = [
-    { value: "all", label: "All", count: loading ? undefined : counts.all },
-    { value: "active", label: "Active", count: loading ? undefined : counts.active },
-    { value: "paused", label: "Paused", count: loading ? undefined : counts.paused },
-    { value: "issues", label: "Needs attention", count: loading ? undefined : counts.issues, tone: !loading && counts.issues > 0 ? "warn" : undefined },
-  ];
-
   return (
     <>
       {base.data?.numbersLost && <Notice tone="warn">Could not read the numbers for this range, so spend and results are blank.</Notice>}
@@ -286,15 +329,10 @@ export default function CampaignsView({ canEdit, range, core, tick, go, notify }
       <BentoGrid layout="ma-plain">
         <Tile
           area="main" title="Campaigns" icon={<Icons.Marketing {...ico} />} align="top" className="ma-pane"
-          note={loading ? undefined : narrowed ? `${shown.length} of ${counts.all}` : `${counts.all} ${plural(counts.all, "campaign")}`}
+          note={loading ? undefined : narrowed ? `${shown.length} of ${counts.all}${withArchived}` : `${counts.all} ${plural(counts.all, "campaign")}${withArchived}`}
         >
-          <div className="ma-tools">
-            <SearchBox value={query} onChange={setQuery} placeholder="Search campaigns" label="Search campaigns by name or objective" />
-            <FilterChips label="Which campaigns" value={status} onChange={setStatus} options={options} />
-            <label className="ma-check">
-              <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-              <span>Show archived{counts.archived > 0 ? ` (${counts.archived})` : ""}</span>
-            </label>
+          <div className="ma-tools fn-barrow">
+            <FindBar filters={tf} value={query} onChange={setQuery} placeholder="Search campaigns" label="Search campaigns by name or objective" />
           </div>
 
           {!loading && shown.length === 0 ? (
@@ -302,7 +340,7 @@ export default function CampaignsView({ canEdit, range, core, tick, go, notify }
               <EmptyNote icon={<Icons.Marketing size={22} sw={1.5} />}>
                 {campaigns.length === 0
                   ? "No campaigns synced yet. Press Sync now to bring them in."
-                  : <>No campaigns match. <button type="button" className="ma-linkbtn" onClick={() => { setQuery(""); setStatus("all"); }}>Show them all</button></>}
+                  : <>No campaigns match. <button type="button" className="ma-linkbtn" onClick={() => { setQuery(""); tf.clear(); }}>Show them all</button></>}
               </EmptyNote>
             </div>
           ) : (

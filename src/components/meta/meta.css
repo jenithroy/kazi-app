@@ -231,8 +231,6 @@
 .ma-tools .dt-search { flex: 1 1 200px; min-width: 180px; max-width: 280px; }
 .ma-tools .dt-search input { width: 100%; }
 .ma-tools-r { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 8px; }
-.ma-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; color: var(--kb-ink-2); cursor: pointer; }
-.ma-check input { width: 16px; height: 16px; accent-color: var(--kb-accent); }
 .kb-btn.ma-pane-btn { height: 28px; }
 .ma-pane .kb-btn { white-space: nowrap; }
 

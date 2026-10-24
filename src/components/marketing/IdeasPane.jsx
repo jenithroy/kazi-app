@@ -11,7 +11,7 @@ import ItemRow from "./ItemRow";
 import { dayShort, titleOf } from "../../lib/contentCalendar";
 
 export default function IdeasPane({
-  ideas, date, canEdit, loading, onOpen, onQuickAdd, onSchedule,
+  ideas, date, canEdit, loading, narrowed, onOpen, onQuickAdd, onSchedule,
   drag, over, onOver, onDropHere, onDragStart, onDragEnd,
 }) {
   const [text, setText] = useState("");
@@ -70,7 +70,7 @@ export default function IdeasPane({
             ))}
           </ul>
         ) : (
-          <EmptyNote icon={<Icons.Pin size={20} sw={1.5} />}>{canEdit ? "No ideas waiting. Type one above." : "No ideas waiting."}</EmptyNote>
+          <EmptyNote icon={<Icons.Pin size={20} sw={1.5} />}>{narrowed ? "No ideas match the search and filters." : canEdit ? "No ideas waiting. Type one above." : "No ideas waiting."}</EmptyNote>
         )}
       </div>
     </Tile>

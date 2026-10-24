@@ -12,6 +12,10 @@
  * Meta Ads, which used to share this page behind a switch, is its own page now (pages/MetaAds.jsx); the top bar's Marketing menu
  * has the two.
  *
+ * A search and one Filters button (components/filters) narrow what the month, the day pane and the ideas inbox draw and count: by
+ * type of work, and by "no time set", "has notes" and "has a picture". What they hide is said in the header ("3 not shown"), so a day
+ * that looks free because of a filter is never taken for a free day. Cards, moves and drags still look at all the work.
+ *
  * A drag (mouse only: there is no dragging on a touch screen) shows the move at once and saves it; if the save fails the page looks
  * again, which puts the work back where it really is, and says so. The same move is available from a keyboard or a phone: the card's
  * Day field, and the button on an idea that puts it on the chosen day.
@@ -26,6 +30,8 @@ import useMedia from "../hooks/useMedia";
 import useContentCalendar from "../hooks/useContentCalendar";
 import { BentoGrid, BentoPage, Tile } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
 import MonthGrid from "../components/marketing/MonthGrid";
 import DayPane from "../components/marketing/DayPane";
 import IdeasPane from "../components/marketing/IdeasPane";
@@ -37,6 +43,18 @@ import { createItem, removeItem, scheduleItem, unscheduleItem, updateItem } from
 import "../components/marketing/marketing.css";
 
 const plural = (n, one, many = `${one}s`) => (n === 1 ? one : many);
+const has = (v) => Boolean(String(v ?? "").trim());
+
+/**
+ * What the Filters button offers (components/filters). The work has one thing to choose between, its type; the three switches are for
+ * tidying a plan: what has no time yet, what carries notes, what has a picture to look at.
+ */
+const FILTERS = [
+  { id: "type", label: "Type of work", kind: "chips", test: (i, v) => i.type === v, options: [{ value: "any", label: "Any" }, ...TYPES.map((t) => ({ value: t, label: t }))] },
+  { id: "notime", label: "Planned with no time", kind: "toggle", text: "No time set", pill: "No time set", test: (i) => i.placed && !has(i.timeSlot) },
+  { id: "notes", label: "Has notes", kind: "toggle", test: (i) => has(i.notes) },
+  { id: "picture", label: "Has a picture", kind: "toggle", test: (i) => has(i.mediaUrl) },
+];
 
 /**
  * /marketing is the calendar. Meta Ads used to be the same page behind a switch (/marketing?tab=meta-ads); an address, bookmark or
@@ -80,13 +98,23 @@ function ContentCalendar() {
 
   /* ── what is on screen ─────────────────────────────────── */
 
+  // `items` is all the work (a card, a move or a drag looks for its work here); `shown` is what the search and the Filters button leave,
+  // and it is what the month, the day and the inbox draw and count
   const items = useMemo(() => rows.map(toItem), [rows]);
-  const byDate = useMemo(() => groupByDate(items), [items]);
-  const ideas = useMemo(() => inboxOf(items), [items]);
+  const [query, setQuery] = useState("");
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? items.filter((i) => [i.title, i.type, i.timeSlot, i.notes].some((v) => String(v || "").toLowerCase().includes(q))) : items;
+  }, [items, query]);
+  const tf = useFilters(FILTERS, searched);
+  const shown = tf.rows;
+  const narrowed = Boolean(query.trim()) || tf.count > 0;
+  const byDate = useMemo(() => groupByDate(shown), [shown]);
+  const ideas = useMemo(() => inboxOf(shown), [shown]);
   const cells = useMemo(() => monthCells(month), [month]);
   const dayList = byDate.get(date) || [];
-  const upcoming = useMemo(() => (dayList.length ? [] : comingUp(items, date)), [items, date, dayList.length]);
-  const planned = useMemo(() => countInMonth(items, month.y, month.m), [items, month]);
+  const upcoming = useMemo(() => (dayList.length ? [] : comingUp(shown, date)), [shown, date, dayList.length]);
+  const planned = useMemo(() => countInMonth(shown, month.y, month.m), [shown, month]);
   const label = monthTitle(month);
 
   const openRow = panel?.id ? items.find((i) => i.id === panel.id) || null : null;
@@ -174,10 +202,13 @@ function ContentCalendar() {
 
   /* ── the page ──────────────────────────────────────────── */
 
+  // what the search and filters hide is said here, so a day that looks free because of a filter is never taken for a free day
+  const hidden = items.length - shown.length;
   const sub = ready ? (
     <>
       <span>{planned} planned in {monthName(month.m)}</span>
       <span>{ideas.length} {plural(ideas.length, "idea")} waiting</span>
+      {hidden > 0 && <span>{hidden} not shown</span>}
     </>
   ) : status === "error" ? null : <span>Loading…</span>;
 
@@ -204,6 +235,12 @@ function ContentCalendar() {
           )}
         </div>
       </header>
+
+      {status !== "error" && (
+        <div className="mk-bar fn-barrow">
+          <FindBar filters={tf} value={query} onChange={setQuery} placeholder="Search work" label="Search the planned work and ideas by title, type, time or notes" />
+        </div>
+      )}
 
       {ready && stale && (
         <div className="mk-banner" role="status">
@@ -239,11 +276,11 @@ function ContentCalendar() {
           </Tile>
 
           <DayPane
-            date={date} today={today} list={dayList} upcoming={upcoming} canEdit={canEdit} loading={!ready}
+            date={date} today={today} list={dayList} upcoming={upcoming} canEdit={canEdit} loading={!ready} narrowed={narrowed}
             onOpen={openItem} onAdd={openNew} drag={drag} onDragStart={dragStart} onDragEnd={dragEnd}
           />
           <IdeasPane
-            ideas={ideas} date={date} canEdit={canEdit} loading={!ready}
+            ideas={ideas} date={date} canEdit={canEdit} loading={!ready} narrowed={narrowed}
             onOpen={openItem} onQuickAdd={quickAdd} onSchedule={(id) => moveTo(id, date)}
             drag={drag} over={over} onOver={setOver} onDropHere={dropOnInbox} onDragStart={dragStart} onDragEnd={dragEnd}
           />

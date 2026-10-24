@@ -8,7 +8,7 @@ import { EmptyNote, Tile } from "../bento/Bento";
 import ItemRow from "./ItemRow";
 import { dayShort } from "../../lib/contentCalendar";
 
-export default function DayPane({ date, today, list, upcoming, canEdit, loading, onOpen, onAdd, drag, onDragStart, onDragEnd }) {
+export default function DayPane({ date, today, list, upcoming, canEdit, loading, narrowed, onOpen, onAdd, drag, onDragStart, onDragEnd }) {
   const title = `${date === today ? "Today, " : ""}${dayShort(date)}`;
   const rowProps = { onOpen, draggable: canEdit, onDragStart, onDragEnd };
 
@@ -24,13 +24,13 @@ export default function DayPane({ date, today, list, upcoming, canEdit, loading,
           </ul>
         ) : upcoming.length > 0 ? (
           <>
-            <p className="mk-hint">Nothing is planned for this day. Coming up:</p>
+            <p className="mk-hint">{narrowed ? "Nothing that matches is planned for this day. Coming up:" : "Nothing is planned for this day. Coming up:"}</p>
             <ul className="mk-list" aria-label="Coming up">
               {upcoming.map((it) => <ItemRow key={it.id} item={it} when={dayShort(it.date)} dragging={drag?.id === it.id} {...rowProps} />)}
             </ul>
           </>
         ) : (
-          <EmptyNote icon={<Icons.Calendar size={20} sw={1.5} />}>Nothing is planned yet.</EmptyNote>
+          <EmptyNote icon={<Icons.Calendar size={20} sw={1.5} />}>{narrowed ? "No planned work matches the search and filters." : "Nothing is planned yet."}</EmptyNote>
         )}
       </div>
       {canEdit && (
