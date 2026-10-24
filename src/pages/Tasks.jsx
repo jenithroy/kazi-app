@@ -2,18 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deleteRow, fetchAll, insertRow, subscribe, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
-import { useReward } from "../context/RewardContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { countUntagged, filterByRegion } from "../utils/region";
 import { kathmanduDate } from "../utils/date";
 import { TASK_CATEGORIES } from "../constants";
-import { RegionSwitch } from "../components/RegionSwitch";
 import { BentoPage, EmptyNote } from "../components/bento/Bento";
 import { Archive, Lock } from "../components/bento/icons";
 import { useReveal } from "../hooks/useReveal";
-import { refreshPoints, useMyPoints } from "../hooks/usePoints";
-import { Avatar, Icons, cn, hueFromName } from "../components/ui";
-import Select from "../components/Select";
+import { Avatar, Icons, hueFromName } from "../components/ui";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
+import { addDays } from "../lib/calendar";
 import { useClearedTasks } from "../hooks/useClearedTasks";
 import TaskColumn from "../components/tasks/TaskColumn";
 import TaskMenu from "../components/tasks/TaskMenu";
@@ -22,24 +21,23 @@ import SectionDialog from "../components/tasks/SectionDialog";
 import DoneTile from "../components/tasks/DoneTile";
 import ArchiveDialog from "../components/tasks/ArchiveDialog";
 import ConfirmDialog from "../components/tasks/ConfirmDialog";
-import { LeaderboardTile, PointsTile } from "../components/tasks/RailPoints";
 import { DEFAULT_SECTIONS } from "../components/tasks/tones";
 import {
   BEHIND_MSG, DONE, byDoneDate, byUrgency, databaseBehind, deleteTasks,
-  isArchived, isDone, sameName, setTaskDone,
+  fmtDay, isArchived, isDone, normPriority, sameName, setTaskDone,
 } from "../lib/tasks";
 import "../components/tasks/tasks.css";
 
 /**
  * Tasks: a board of sections the team makes and names, tasks as cards, and a rail with the
- * week's finished work and the points.
+ * week's finished work.
  *
  * You land on your own tasks (Everyone is one press away, unless your position only sees
  * its own). A task is ticked off with the circle on its card and lands in Done; a week later
  * it moves to the Archive by itself, and "Clear" sends the lot there at once. Clearing is
  * personal: it is remembered on this device only (hooks/useClearedTasks.js), so each person
- * and each device has an Archive of their own. Finishing a task pays the person it is
- * assigned to (the database does that, see migration 0057).
+ * and each device has an Archive of their own. Tasks carry no points for now (taken off on
+ * 2026-10-22; the Leaderboard page is only a preview).
  *
  * Who may do what:
  *   edit Tasks      make, change, move and delete tasks and sections; finish anyone's
@@ -62,9 +60,7 @@ function Tasks() {
   const role = profile?.appRole || profile?.role;
   // Staff see only their own tasks unless they have been given Tasks permission.
   const ownTasksOnly = (role === "employee" || role === "nepal_staff") && !canEdit;
-  const { region } = useRegion();
-  const { showPointsToast } = useReward();
-  const points = useMyPoints();
+  const { region, label: regionLabel } = useRegion();
 
   /* ── data ───────────────────────────────────────────────── */
   const [columns, setColumns] = useState([]);
@@ -161,7 +157,7 @@ function Tasks() {
     t.assignee_id ? people.find((p) => p.id === String(t.assignee_id)) || null
       : personByName.get(String(t.assignee || "").trim().toLowerCase()) || null
   ), [people, personByName]);
-  /** Is it assigned to me as a person? Only this lets someone who cannot edit tasks finish one, and only this earns points. */
+  /** Is it assigned to me as a person? Only this lets someone who cannot edit tasks finish one. */
   const assignedToMe = useCallback((t) => Boolean(t.assignee_id && me && String(t.assignee_id) === String(me)), [me]);
   /** Is it mine to look at? That is assigned to me, or an old task that only carries my name. */
   const isMine = useCallback((t) => (
@@ -176,30 +172,68 @@ function Tasks() {
 
   /* ── what is on screen ─────────────────────────────────── */
   const [scope, setScopeState] = useState(readScope);
-  const setScope = (s) => { setScopeState(s); try { localStorage.setItem(SCOPE_KEY, s); } catch { /* it just is not remembered */ } };
+  const setScope = useCallback((s) => { setScopeState(s); try { localStorage.setItem(SCOPE_KEY, s); } catch { /* it just is not remembered */ } }, []);
   const effectiveScope = ownTasksOnly ? "mine" : scope;
-  const [personFilter, setPersonFilter] = useState("");
-  const [catFilter, setCatFilter] = useState("");
-  const [custFilter, setCustFilter] = useState("");
   const [query, setQuery] = useState("");
-  const filtersOn = [personFilter, catFilter, custFilter, query.trim()].some(Boolean);
-  const [moreFilters, setMoreFilters] = useState(false);   // on a phone the selects fold away behind a button
-  const selectsOn = [effectiveScope === "all" && personFilter, catFilter, custFilter].filter(Boolean).length;
 
-  const visible = useMemo(() => {
+  // What narrows the board: whose tasks, then the search, then everything in the Filters panel (components/filters).
+  const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tasks.filter((t) => {
       if (effectiveScope === "mine" && !isMine(t)) return false;
-      if (effectiveScope === "all" && personFilter) {
-        const p = personOf(t);
-        if (!(p && p.id === personFilter)) return false;
-      }
-      if (catFilter && t.category !== catFilter) return false;
-      if (custFilter && t.customer !== custFilter) return false;
       if (q && ![t.title, t.assignee, t.customer, t.orderRef, t.description].some((v) => String(v || "").toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [tasks, effectiveScope, personFilter, catFilter, custFilter, query, isMine, personOf]);
+  }, [tasks, effectiveScope, query, isMine]);
+
+  const filterDefs = useMemo(() => {
+    const soon = addDays(today, 7);
+    const noOne = (t) => !personOf(t) && !String(t.assignee || "").trim();
+    return [
+      // whose tasks: a switch the page keeps (and remembers), drawn with the filters; it narrows through `searched`, not here
+      ...(ownTasksOnly ? [] : [{
+        id: "scope", label: "Whose tasks", kind: "chips", controlled: { value: effectiveScope, set: setScope },
+        options: [{ value: "mine", label: "Mine", count: tasks.filter(isMine).length }, { value: "all", label: "Everyone", count: tasks.length }],
+      }]),
+      ...(effectiveScope === "all" ? [{
+        id: "person", label: "Person", kind: "select", of: (t) => personOf(t)?.id || "", any: "All people", none: "Not a listed person",
+        nameOf: (id) => people.find((p) => p.id === id)?.name || id,
+        icon: (id) => { const p = people.find((x) => x.id === id); return p ? <Avatar name={p.name} personId={p.id} hue={hueFromName(p.name)} size={22} /> : undefined; },
+      }] : []),
+      {
+        id: "priority", label: "Priority", kind: "chips", test: (t, v) => normPriority(t.priority) === v,
+        options: [{ value: "any", label: "Any" }, { value: "high", label: "High", tone: "bad" }, { value: "med", label: "Medium" }, { value: "low", label: "Low" }],
+      },
+      {
+        id: "due", label: "Due", kind: "chips",
+        options: [
+          { value: "any", label: "Any time" }, { value: "late", label: "Late", tone: "bad" }, { value: "today", label: "Today" },
+          { value: "week", label: "Next 7 days" }, { value: "later", label: "Later" }, { value: "none", label: "No date" },
+        ],
+        test: (t, v) => {
+          const d = t.dueDate || "";
+          if (v === "none") return !d;
+          if (!d) return false;
+          if (v === "late") return d < today && !isDone(t);
+          if (v === "today") return d === today;
+          if (v === "week") return d > today && d <= soon;
+          return d > soon;
+        },
+      },
+      { id: "dueDates", label: "Due between", kind: "dates", get: (t) => t.dueDate || "", show: fmtDay, pill: "Due" },
+      {
+        id: "category", label: "Category", kind: "select", of: (t) => t.category, any: "Any category", none: "No category",
+        dot: (c) => TASK_CATEGORIES.find((x) => x.label === c)?.color,
+      },
+      { id: "customer", label: "Customer", kind: "select", of: (t) => t.customer, any: "Any customer", none: "No customer" },
+      { id: "order", label: "Order", kind: "select", of: (t) => t.orderRef, any: "Any order", none: "No order" },
+      { id: "nobody", label: "Not assigned", kind: "toggle", text: "Not assigned to anyone", pill: "Not assigned", test: noOne },
+      { id: "linked", label: "Linked to an order", kind: "toggle", text: "Linked to an order", pill: "Linked to an order", test: (t) => Boolean(String(t.orderRef || "").trim()) },
+    ];
+  }, [tasks, today, effectiveScope, ownTasksOnly, people, personOf, isMine, setScope]);
+  const tf = useFilters(filterDefs, searched);
+  const visible = tf.rows;
+  const personFilter = effectiveScope === "all" ? tf.values.person || "" : "";
 
   const firstId = columns[0]?.id;
   const sectionIds = useMemo(() => new Set(columns.map((c) => c.id)), [columns]);
@@ -299,7 +333,6 @@ function Tasks() {
     setLeavingId(task.id);
     if (!reduceMotion) await new Promise((r) => setTimeout(r, 170));
     const before = { status: task.status, completedAt: task.completedAt };
-    const total = points.data?.total ?? null;
     patchLocal(task.id, { status: DONE, completedAt: new Date().toISOString() });
     restoreHere([task.id]);   // finished again: it belongs in my Done list, whatever I cleared before
     setLeavingId(null);
@@ -308,14 +341,6 @@ function Tasks() {
     } catch (err) {
       patchLocal(task.id, before);
       fail(err, "Couldn't mark it done.");
-      return;
-    }
-    // The database paid the assignee; if that is me, say how much.
-    if (assignedToMe(task) && total !== null) {
-      const now = await refreshPoints();
-      if (now && now.total > total) showPointsToast(now.total - total, task.title);
-    } else {
-      refreshPoints();
     }
   }
 
@@ -356,7 +381,7 @@ function Tasks() {
   function askDelete(task) {
     setConfirm({
       title: "Delete this task?",
-      text: `"${task.title}" will be deleted for good. The points it earned stay.`,
+      text: `"${task.title}" will be deleted for good.`,
       label: "Delete task",
       run: async () => {
         try {
@@ -375,7 +400,7 @@ function Tasks() {
     const ids = archived.map((t) => t.id);
     setConfirm({
       title: `Delete ${ids.length} archived ${ids.length === 1 ? "task" : "tasks"}?`,
-      text: `They will be deleted for good, for everyone: the Archive is only your view, but a deleted task is gone from the database and cannot be brought back. The points they earned stay.`,
+      text: `They will be deleted for good, for everyone: the Archive is only your view, but a deleted task is gone from the database and cannot be brought back.`,
       label: `Delete ${ids.length}`,
       run: async () => {
         try {
@@ -492,19 +517,13 @@ function Tasks() {
   const startOwner = people.some((p) => p.id === startOwnerId) ? startOwnerId : undefined;
   const panelTask = panel?.task ? allTasks.find((t) => t.id === panel.task.id) || panel.task : null;
 
-  /* ── the filter dropdowns ──────────────────────────────── */
-  const personFilterOptions = useMemo(() => [
-    { value: "", label: "All people" },
-    ...people.map((p) => ({ value: p.id, label: p.name, icon: <Avatar name={p.name} personId={p.id} hue={hueFromName(p.name)} size={22} /> })),
-  ], [people]);
-  const categoryFilterOptions = useMemo(() => [{ value: "", label: "Any category" }, ...TASK_CATEGORIES.map((c) => ({ value: c.label, label: c.label }))], []);
-  const customerFilterOptions = useMemo(() => [{ value: "", label: "Any customer" }, ...customers.map((c) => ({ value: c.name, label: c.name }))], [customers]);
-
   /* ── the glass: the pointer's light across every pane ─── */
   useReveal(() => document.querySelectorAll(".tk-page .kb-tile"));
 
+  // what is on screen, in words: whose tasks and which side of the business (their switches are in the Filters panel)
   const sub = (
     <>
+      <span>{effectiveScope === "mine" ? "Your tasks" : "Everyone"} · {regionLabel}</span>
       <span>{openVisible.length} open</span>
       {dueToday > 0 && <span>{dueToday} due today</span>}
       {late > 0 && <span className="kb-bad">{late} late</span>}
@@ -522,26 +541,6 @@ function Tasks() {
             <p className="kb-head-sub">{ready ? sub : <span>Loading…</span>}</p>
           </div>
           <div className="kb-head-r">
-            {/* the two switches: on a wide screen they are plain members of this row; on a phone they share a line of their own */}
-            <div className="tk-ctrls">
-              {!ownTasksOnly && (
-                <div className="kregion-seg" role="radiogroup" aria-label="Whose tasks">
-                  {[["mine", "Mine"], ["all", "Everyone"]].map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      role="radio"
-                      aria-checked={effectiveScope === id}
-                      className={cn("kregion-seg-btn", effectiveScope === id && "is-on")}
-                      onClick={() => setScope(id)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <RegionSwitch untagged={countUntagged(allTasks)} size="sm" />
-            </div>
             {canEdit && (
               <>
                 {/* a phone adds a section from the "+" at the end of its section tabs instead */}
@@ -576,26 +575,17 @@ function Tasks() {
           </div>
         )}
 
-        <div className="tk-bar">
-          <label className="tk-search">
-            <Icons.Search size={14} sw={1.9} />
-            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks" aria-label="Search tasks" />
-          </label>
-          <button type="button" className={cn("tk-filter-btn", selectsOn > 0 && "is-on")} aria-expanded={moreFilters} onClick={() => setMoreFilters((v) => !v)}>
-            <Icons.Filter size={13} /> Filters{selectsOn > 0 ? ` (${selectsOn})` : ""}
-          </button>
-          <div className={cn("tk-bar-more", moreFilters && "is-open")}>
-          {effectiveScope === "all" && (
-            <Select variant="pill" label="Person" value={personFilter} onChange={setPersonFilter} options={personFilterOptions} placeholder="All people" searchPlaceholder="Find a person" />
-          )}
-          <Select variant="pill" label="Category" value={catFilter} onChange={setCatFilter} options={categoryFilterOptions} placeholder="Any category" />
-          {customers.length > 0 && (
-            <Select variant="pill" label="Customer" value={custFilter} onChange={setCustFilter} options={customerFilterOptions} placeholder="Any customer" searchPlaceholder="Find a customer" />
-          )}
-          </div>
-          {filtersOn && (
-            <button type="button" className="tk-clear" onClick={() => { setPersonFilter(""); setCatFilter(""); setCustFilter(""); setQuery(""); }}>Clear filters</button>
-          )}
+        <div className="tk-bar fn-barrow">
+          <FindBar
+            filters={tf}
+            scope={{ region: { untagged: countUntagged(allTasks) } }}
+            search={(
+              <label className="tk-search">
+                <Icons.Search size={14} sw={1.9} />
+                <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks" aria-label="Search tasks" />
+              </label>
+            )}
+          />
         </div>
 
         {load.status === "error" ? (
@@ -655,8 +645,7 @@ function Tasks() {
               ))}
             </div>
 
-            <aside className="tk-rail" aria-label="Done and points">
-              <PointsTile />
+            <aside className="tk-rail" aria-label="Done">
               <DoneTile
                 tasks={doneRecent}
                 archivedCount={archived.length}
@@ -672,7 +661,6 @@ function Tasks() {
                 onOpen={openTask}
                 onDropTask={dropOnDone}
               />
-              <LeaderboardTile />
             </aside>
           </div>
         )}

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import Modal from "../Modal";
 import { Avatar, hueFromName } from "../ui";
 import { fmtDay } from "../../lib/tasks";
+import PersonLink from "../profile/PersonLink";
 import "./tasks.css";
 
 const PAGE = 60;
@@ -11,7 +12,7 @@ const PAGE = 60;
  * ago. The Archive is a personal view, not a place in the database: someone else's looks
  * different. Nothing here is lost: a task can be reopened and goes back to the section it
  * came from. People who can edit Tasks can also delete for good, one at a time or the whole
- * lot, which removes the task for everyone; the points the tasks earned stay either way.
+ * lot, which removes the task for everyone.
  *
  * A task finished before completion dates were kept has no date to show, so it says so
  * rather than guessing one.
@@ -55,11 +56,15 @@ export default function ArchiveDialog({ tasks, canEdit, canReopen, onReopen, onD
         <div className="tk-gap-s">
           {found.slice(0, shown).map((t) => (
             <div className="tk-arow" key={t.id}>
-              {t.assignee && <Avatar name={t.assignee} personId={t.assignee_id || undefined} hue={hueFromName(t.assignee)} size={26} />}
+              {t.assignee && (
+                <PersonLink decor personId={t.assignee_id || undefined} name={t.assignee}>
+                  <Avatar name={t.assignee} personId={t.assignee_id || undefined} hue={hueFromName(t.assignee)} size={26} />
+                </PersonLink>
+              )}
               <div className="tk-arow-t">
                 <b title={t.title}>{t.title}</b>
                 <span>
-                  {t.assignee || "Unassigned"}
+                  {t.assignee ? <PersonLink personId={t.assignee_id || undefined} name={t.assignee} /> : "Unassigned"}
                   {t.customer ? ` · ${t.customer}` : ""}
                   {" · "}
                   {t.completedAt ? `finished ${fmtDay(t.completedAt, true)}` : "finish date not recorded"}

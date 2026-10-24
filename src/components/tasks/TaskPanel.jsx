@@ -3,12 +3,12 @@ import Modal from "../Modal";
 import Select from "../Select";
 import DatePicker from "../DatePicker";
 import { Avatar, cn, hueFromName } from "../ui";
-import { Star } from "../bento/icons";
 import { REGIONS } from "../../utils/region";
 import { TASK_CATEGORIES } from "../../constants";
-import { fmtPoints, taskPoints } from "../../constants/points";
 import { fmtDay, isDone, normPriority } from "../../lib/tasks";
 import { TONE_DOT } from "./tones";
+import PersonLink from "../profile/PersonLink";
+import ShareButton from "../share/ShareButton";
 import "./tasks.css";
 
 /**
@@ -21,9 +21,9 @@ import "./tasks.css";
  * is not that much width, the same two halves become two tabs inside the sheet, so it still
  * does not scroll.
  *
- * The person is chosen, not typed: a task assigned to a person is what earns them points
- * and shows their picture. An older task that only carries a typed name keeps it until
- * someone picks a person.
+ * The person is chosen, not typed: a task assigned to a person shows their picture and is
+ * theirs to finish. An older task that only carries a typed name keeps it until someone
+ * picks a person.
  *
  * `onSave(patch)` resolves to `{ ok, message }`; the card closes only when it worked.
  */
@@ -72,8 +72,6 @@ export default function TaskPanel({
   const typed = form.assignee.startsWith("name:") ? form.assignee.slice(5) : "";
   const person = useMemo(() => people.find((p) => p.id === form.assignee) || null, [people, form.assignee]);
 
-  const worth = person ? taskPoints({ priority: form.priority, dueDate: form.dueDate }, today) : null;
-
   const peopleOptions = useMemo(() => [
     { value: "", label: "Nobody yet" },
     ...(typed ? [{ value: form.assignee, label: `${typed} (not in the directory)` }] : []),
@@ -121,12 +119,21 @@ export default function TaskPanel({
     : [task.createdBy && `Added by ${task.createdBy}`, task.createdAt && fmtDay(task.createdAt, true)].filter(Boolean).join(" · ")
       || undefined;
 
+  // "Send" puts this card in Chat as a PDF, as it is on screen now (a copy): nothing for a task that does not exist yet
+  const shareRecord = creating ? null : {
+    title: form.title.trim() || task.title, description: form.description, notes: form.notes, priority: form.priority, dueDate: form.dueDate,
+    status: done ? "Done" : columns.find((c) => c.id === form.sectionId)?.label || task.status || "", done, completedAt: task.completedAt,
+    assignee: person ? person.name : typed, customer: form.customer, category: form.category, orderRef: form.orderRef.trim(), region: form.region,
+    createdBy: task.createdBy, createdAt: task.createdAt,
+  };
+
   const footer = (
     <>
       {!creating && editable && (
         <button type="button" className="ghost-button tk-ft-l tk-danger" onClick={() => onDelete(task)}>Delete</button>
       )}
       {error && <p className="kmodal-msg kmodal-msg--err" role="alert">{error}</p>}
+      <ShareButton type="task" record={shareRecord} compact title="Send this task to someone in Chat" />
       {!creating && canTick && !done && <button type="button" className="ghost-button" onClick={() => onDone(task)}>Mark done</button>}
       {!creating && canTick && done && <button type="button" className="ghost-button" onClick={() => onReopen(task)}>Reopen</button>}
       <button type="button" className="ghost-button" onClick={onClose}>{editable ? "Cancel" : "Close"}</button>
@@ -182,26 +189,17 @@ export default function TaskPanel({
             <textarea id={fid("notes")} value={form.notes} onChange={set("notes")} placeholder="Where it has got to" disabled={!editable} />
           </div>
 
-          <div className={cn("tk-worth", !(worth && !done) && "is-quiet")} aria-live="polite">
-            {worth && !done ? (
-              <>
-                <Star size={16} aria-hidden="true" />
-                <span>
-                  <b>{fmtPoints(worth.total)} points</b>
-                  <small>{worth.bonus ? `${fmtPoints(worth.base)} for finishing it, plus ${fmtPoints(worth.bonus)} if it is done by the due date` : "for finishing it"}</small>
-                </span>
-              </>
-            ) : done ? (
-              <span className="tk-worth-note">Finished{task?.completedAt ? ` ${fmtDay(task.completedAt)}` : ""}.</span>
-            ) : (
-              <span className="tk-worth-note">Pick a person to see what finishing it earns.</span>
-            )}
-          </div>
+          {done && (
+            <div className="tk-done-note">Finished{task?.completedAt ? ` ${fmtDay(task.completedAt)}` : ""}.</div>
+          )}
         </div>
 
         <div className={cn("tk-ed-pane tk-ed-side", tab !== "who" && "is-off")} id={fid("pane-who")} role="tabpanel" aria-labelledby={fid("tab-who")}>
           <div className="tk-f tk-wide">
-            <label htmlFor={fid("assignee")}>Assigned to</label>
+            <div className="tk-f-row">
+              <label htmlFor={fid("assignee")}>Assigned to</label>
+              {person && <PersonLink className="tk-viewp" personId={person.id} name={person.name}>View profile</PersonLink>}
+            </div>
             <Select id={fid("assignee")} label="Assigned to" value={form.assignee} onChange={patch("assignee")} options={peopleOptions} placeholder="Nobody yet" disabled={!editable} searchPlaceholder="Find a person" />
           </div>
 

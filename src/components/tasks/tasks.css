@@ -29,14 +29,8 @@
 }
 .tk-search input::placeholder { color: var(--kb-ink-3); opacity: 1; }
 
-/* the filter dropdowns are <Select variant="pill"> (components/Select.jsx, controls.css) */
 .tk-search input:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
-/* the selects: always in the row on a wide screen, folded behind a button on a phone */
-.tk-bar-more { display: contents; }
-.tk-filter-btn { display: none; }
-.tk-clear { border: 0; background: none; padding: 4px 6px; border-radius: 6px; color: var(--kb-ink-3); font: 500 12.5px/1 var(--font); cursor: pointer; }
-.tk-clear:hover { color: var(--kb-ink); text-decoration: underline; text-underline-offset: 2px; }
-.tk-clear:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+/* the filters are the Filters button beside the search (components/filters: FindBar, its panel, `fn-barrow` on the bar) */
 
 /* a notice that something needs the database brought up to date */
 .tk-banner {
@@ -68,7 +62,6 @@
 
 .tk-tabs { display: none; }
 .tk-tabbar { display: none; }      /* a phone's section tabs and the "+" that adds a section (the phone block below shows them) */
-.tk-ctrls { display: contents; }   /* the header's two switches are plain members of its row; the phone block gives them a line of their own */
 
 /* a section: a glass pane with its own scrolling list of cards */
 .kb-tile.tk-col { flex: 0 0 clamp(264px, 24vw, 316px); scroll-snap-align: start; padding: 12px 8px 8px 12px; gap: 6px; }
@@ -134,7 +127,8 @@
 .tk-tick:disabled { opacity: .35; cursor: default; }
 .tk-tick:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 50%; }
 
-.tk-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; border-radius: 8px; cursor: pointer; text-align: left; }
+.tk-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; }       /* the "open" button, then the line with who it is for */
+.tk-main { min-width: 0; display: grid; gap: 6px; border-radius: 8px; cursor: pointer; text-align: left; }
 .tk-main:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 .tk-title {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
@@ -149,13 +143,12 @@
 .tk-chip--plain { background: var(--kb-mute-bg); color: var(--kb-ink-2); font-weight: 500; }
 .tk-ref { font: 500 11.5px/1.5 var(--mono); color: var(--kb-ink-3); }
 .tk-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
-.tk-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--kb-ink-3); }
+.tk-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--kb-ink-3); cursor: pointer; }
 .tk-who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; overflow: hidden; }
 .tk-who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-due { flex: none; padding: 1px 7px; border-radius: 999px; font: 600 11.5px/1.5 var(--font); white-space: nowrap; color: var(--kb-ink-3); }
 .tk-due--warn { background: var(--kb-warn-bg); color: var(--kb-warn); }
 .tk-due--bad { background: var(--kb-bad-bg); color: var(--kb-bad); }
-.tk-pts { flex: none; margin-left: auto; font: 600 11.5px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-good); white-space: nowrap; }
 
 /* ── The rail ─────────────────────────────────────────────────── */
 
@@ -188,26 +181,14 @@
 .tk-drow-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--kb-ink-3); }
 .tk-rt--over { outline: 2px dashed var(--kb-accent); outline-offset: -5px; }
 
-.tk-pt-main { display: grid; gap: 8px; }
-.tk-pt-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--kb-ink-3); }
-.tk-pt-row b { font-weight: 600; color: var(--kb-ink-2); }
-
-.tk-lb { display: grid; margin: 0; padding: 0; list-style: none; }
-.tk-lb li {
-  display: grid; grid-template-columns: 18px 22px minmax(0, 1fr) auto; align-items: center; gap: 8px;
-  padding: 6px 0; border-top: 1px solid var(--kb-line); font-size: 13px; color: var(--kb-ink-2);
-}
-.tk-lb li:first-child { border-top: 0; }
-.tk-lb .n { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--kb-ink-3); text-align: right; }
-.tk-lb .w { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-lb .p { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--kb-ink); }
-.tk-lb li.is-me .w { font-weight: 600; color: var(--kb-ink); }
-
 /* ── Dialogs (portalled out of .kb: the app's base tokens, remapped for dark) ── */
 
 .tk-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; align-items: start; }
 .tk-form > .tk-full { grid-column: 1 / -1; }
 .tk-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; color: var(--ink-3); }
+.tk-f-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tk-f .tk-viewp { flex: none; color: var(--ink-2); font-size: 12px; font-weight: 600; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.tk-f .tk-viewp:hover { text-decoration-color: currentColor; }
 .tk-f input, .tk-f textarea {
   display: block; width: 100%; min-width: 0; max-width: 100%; height: 40px; padding: 0 12px;
   border: 1.5px solid var(--line-strong); border-radius: 10px; background-color: var(--mg-input, #fff); color: var(--ink);
@@ -245,18 +226,11 @@
 .tk-prio .kregion-seg-btn { flex: 1 1 0; justify-content: center; padding: 8px 6px; }
 .tk-ed-tabs.kregion-seg { display: none; }   /* .kregion-seg (styles.css, later) would show it: only a phone does */
 
-/* what finishing it earns: a mint strip under the text areas, or a dashed hint when there is nothing to show yet */
-.tk-worth {
-  flex: none; display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 7px 14px; border-radius: 10px;
-  background: var(--mint-soft); color: var(--mint-deep);
+/* "Finished 12 Oct.": a dashed note under the text areas of a task that is done */
+.tk-done-note {
+  flex: none; display: flex; align-items: center; min-height: 42px; padding: 7px 14px; border-radius: 10px;
+  border: 1px dashed var(--line-strong); color: var(--ink-3); font: 500 12px/1.35 var(--font);
 }
-.tk-worth svg { flex: none; }
-.tk-worth span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 10px; min-width: 0; }
-.tk-worth b { font: 700 13.5px/1.2 var(--font); color: inherit; }
-.tk-worth small { font: 500 12px/1.3 var(--font); opacity: .85; }
-.tk-worth.is-quiet { background: transparent; border: 1px dashed var(--line-strong); color: var(--ink-3); }
-.tk-worth-note { font: 500 12px/1.35 var(--font); }
-:root[data-theme="dark"] .kmodal--glass .tk-worth:not(.is-quiet) { color: var(--mint); }
 
 /* a short screen (a laptop's browser window): every control a little tighter */
 @media (max-height: 699px) and (min-width: 641px) {
@@ -267,7 +241,7 @@
   .tk-ed-pane .tk-f input { height: 38px; }
   .tk-ed-pane .ksel--field, .tk-ed-pane .kdp-trigger { height: 38px; }
   .tk-prio .kregion-seg-btn { padding: 6px 6px; }
-  .tk-worth { min-height: 36px; padding-block: 5px; }
+  .tk-done-note { min-height: 36px; padding-block: 5px; }
   .tk-ed-main .tk-grow textarea { min-height: 56px; }
 }
 /* a phone: the halves are tabs, one at a time */
@@ -332,21 +306,12 @@
 
 /* a phone: the page scrolls, one section at a time, the rail's tiles stacked below */
 @media (max-width: 768px) {
-  /* the header: the title and New task on one line, the two switches (whose tasks, which region) on the next,
-     small enough to sit side by side; adding a section moves to the "+" after the tabs */
+  /* the header: the title (with what is on screen, in words) and New task on one line; adding a section moves to the "+" after the tabs */
   .tk-page .kb-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 12px; }
   .tk-page .kb-head-l { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-start; gap: 1px; }
   .tk-page .kb-head-r { display: contents; }
   .tk-page .tk-newbtn { grid-column: 2; grid-row: 1; height: 34px; padding: 0 15px; }
   .tk-page .tk-sectionbtn { display: none; }
-  .tk-page .tk-ctrls { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-  .tk-page .tk-ctrls .kregion-switch { width: auto; flex: 0 1 auto; justify-content: flex-start; gap: 8px; }
-  .tk-page .tk-ctrls .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
-  .tk-page .tk-ctrls .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: 32px; padding: 0 10px; font-size: 12.5px; }
-  /* the "N untagged" hint: the page's own warning colours, so it is not a bright cream chip on a dark page */
-  .tk-page .tk-ctrls .kregion-untagged {
-    padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent);
-  }
 
   .tk-layout { display: flex; flex-direction: column; flex: 0 0 auto; }
   .tk-board { display: block; overflow: visible; }
@@ -385,15 +350,6 @@
   .tk-ibtn { width: 36px; height: 36px; }
   .tk-search { flex: 1 1 0; min-width: 0; }
   .tk-search input { width: 100%; }
-  .tk-filter-btn {
-    flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px;
-    border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink-2);
-    font: 500 12.5px/1 var(--font); cursor: pointer;
-  }
-  .tk-filter-btn.is-on { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
-  .tk-filter-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
-  .tk-bar-more { display: none; flex-wrap: wrap; gap: 8px; width: 100%; }
-  .tk-bar-more.is-open { display: flex; }
 }
 
 @media (max-width: 640px), (pointer: coarse) {

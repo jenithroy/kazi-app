@@ -2,13 +2,13 @@ import { useState } from "react";
 import { Archive, Undo } from "../bento/icons";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
 import { relativeDay } from "../../utils/date";
+import PersonLink from "../profile/PersonLink";
 
 /**
  * The finished tasks of the last week, in the rail. A task ticked off lands here, a week
  * later it moves to the Archive by itself, and "Clear" sends the lot there at once, with
  * an Undo for a few seconds. Clearing is personal: it is remembered on this device only, so
- * it hides nothing from anyone else. Points are not affected by any of it: they were paid
- * when the task was finished.
+ * it hides nothing from anyone else.
  *
  * Dropping a card on this tile finishes it, for people who prefer dragging to ticking.
  */
@@ -52,11 +52,15 @@ export default function DoneTile({
               <div className="tk-drow-t">
                 <b title={t.title}>{t.title}</b>
                 <span>
-                  {t.assignee ? t.assignee.split(/\s+/)[0] : "Unassigned"}
+                  {t.assignee ? <PersonLink personId={t.assignee_id || undefined} name={t.assignee}>{t.assignee.split(/\s+/)[0]}</PersonLink> : "Unassigned"}
                   {t.completedAt ? ` · ${relativeDay(t.completedAt)}` : ""}
                 </span>
               </div>
-              {t.assignee && <Avatar name={t.assignee} personId={t.assignee_id || undefined} hue={hueFromName(t.assignee)} size={22} />}
+              {t.assignee && (
+                <PersonLink decor personId={t.assignee_id || undefined} name={t.assignee}>
+                  <Avatar name={t.assignee} personId={t.assignee_id || undefined} hue={hueFromName(t.assignee)} size={22} />
+                </PersonLink>
+              )}
               {canReopen(t) && (
                 <button type="button" className="tk-ibtn" onClick={() => onReopen(t)} aria-label={`Reopen: ${t.title}`} title="Reopen">
                   <Undo size={15} />

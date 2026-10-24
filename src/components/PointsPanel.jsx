@@ -11,20 +11,12 @@ import "./points.css";
  *
  * Says nothing at all until the database has points (migration 0057), rather than
  * showing an error to everyone who opens their profile.
+ *
+ * `PointsView` is the drawing, shared with the card for anyone else's profile
+ * (components/profile/): their numbers come from the boards, and what earned them is
+ * private to them (the ledger's reasons are task titles), so `recent` is empty there.
  */
-export default function PointsPanel() {
-  const { status, data } = useMyPoints();
-  const [recent, setRecent] = useState([]);
-
-  // the list follows the total: a task finished elsewhere changes it
-  const total = data?.total;
-  useEffect(() => {
-    if (status !== "ready") return undefined;
-    let live = true;
-    fetchMyHistory(5).then((rows) => { if (live) setRecent(rows); }).catch(() => { if (live) setRecent([]); });
-    return () => { live = false; };
-  }, [status, total]);
-
+export function PointsView({ status, data, recent = [], label = "Your points", emptyNote, errorText = "Couldn't load your points." }) {
   if (status === "unavailable") return null;
 
   const loading = status === "idle" || status === "loading";
@@ -32,14 +24,14 @@ export default function PointsPanel() {
   const pct = Math.round(level.progress * 100);
 
   return (
-    <section className="kprof-sec kpts" aria-label="Your points">
+    <section className="kprof-sec kpts" aria-label={label}>
       <div className="kprof-sech">
         <h4 className="kprof-h">Points</h4>
         {data && <span className="kpts-week" title="Earned since Sunday">This week <b>+{fmtPoints(data.week)}</b></span>}
       </div>
 
       {loading && <span className="kprof-skel" aria-hidden="true" />}
-      {status === "error" && <p className="kprof-note kprof-note--err" role="alert">Couldn't load your points.</p>}
+      {status === "error" && <p className="kprof-note kprof-note--err" role="alert">{errorText}</p>}
 
       {data && (
         <>
@@ -80,10 +72,26 @@ export default function PointsPanel() {
               ))}
             </ul>
           ) : (
-            <p className="kprof-note">Finish a task that's assigned to you to earn points.</p>
+            emptyNote ? <p className="kprof-note">{emptyNote}</p> : null
           )}
         </>
       )}
     </section>
   );
+}
+
+export default function PointsPanel() {
+  const { status, data } = useMyPoints();
+  const [recent, setRecent] = useState([]);
+
+  // the list follows the total: a task finished elsewhere changes it
+  const total = data?.total;
+  useEffect(() => {
+    if (status !== "ready") return undefined;
+    let live = true;
+    fetchMyHistory(5).then((rows) => { if (live) setRecent(rows); }).catch(() => { if (live) setRecent([]); });
+    return () => { live = false; };
+  }, [status, total]);
+
+  return <PointsView status={status} data={data} recent={recent} emptyNote="Finish a task that's assigned to you to earn points." />;
 }

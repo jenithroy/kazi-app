@@ -1,29 +1,12 @@
 /**
- * How points work, as the app shows them.
+ * How points are shown, for when they are switched on.
  *
- * The database is what awards them (migration 0057: a trigger on `tasks` pays the
- * person a task is assigned to, once, when it is finished). These numbers are only
- * for showing what a task is worth, and they have to match the trigger's.
+ * POINTS ARE PAUSED (2026-10-22): no screen draws them and nothing awards them to anyone (the Leaderboard
+ * page is only a preview). Tasks used to pay by priority (20, 30, +10 on time); that was taken out because a
+ * priority is not a value and anyone could add small tasks to collect them. What will earn points has not
+ * been decided yet (see DESIGN.md "Points"). The helpers below, `src/lib/points.js`, `hooks/usePoints.js`,
+ * `components/PointsPanel.jsx` and the database functions of migration 0057 are what the real thing will use.
  */
-
-export const TASK_POINTS = {
-  normal: 20,   // any task
-  high: 30,     // a High priority task
-  onTime: 10,   // extra, for finishing on or before the due date
-};
-
-const isHigh = (task) => String(task?.priority || "").trim().toLowerCase() === "high";
-
-/**
- * What finishing a task is worth right now: `{ base, bonus, total }`.
- * The bonus only counts while the due date has not passed (`today` is "YYYY-MM-DD").
- */
-export function taskPoints(task, today) {
-  const base = isHigh(task) ? TASK_POINTS.high : TASK_POINTS.normal;
-  const due = task?.dueDate || "";
-  const bonus = due && today && today <= due ? TASK_POINTS.onTime : 0;
-  return { base, bonus, total: base + bonus };
-}
 
 /**
  * Levels, by lifetime points. Purely for the profile: nothing is unlocked by them.

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * Archive, and it is personal: it is remembered in the browser (localStorage), under the
  * person's id, so it differs from one person to the next and from one device to the next.
  * Nothing about the task changes in the database, so clearing never hides it from anyone
- * else and never costs anyone points.
+ * else.
  *
  *   const { cleared, clear, restore, prune } = useClearedTasks(personId);
  *   clear(["task-id", …])     hide them on this device
