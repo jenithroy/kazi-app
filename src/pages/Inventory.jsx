@@ -14,20 +14,28 @@
  *
  * Tech packs keep their old cards and editor until they are redone (components/inventory/TechPackLegacy.jsx).
  *
- * What each tab shows, which positions may edit, the region switch, the stock sums and every write are the old
- * page's. (One thing the old page did not do: deleting an item, process, fabric or sample. Its delete handler was
- * named like the database call it made, so it called itself forever. The cards' Delete works.)
+ * What each tab shows, which positions may edit, the stock sums and every write are the old page's. (One thing the
+ * old page did not do: deleting an item, process, fabric or sample. Its delete handler was named like the database
+ * call it made, so it called itself forever. The cards' Delete works.)
+ *
+ * Everything that narrows a tab is one Filters button beside its search box (components/filters; what each tab offers is
+ * components/inventory/inventoryFilters.js): the side of the business (the Nepal / UK switch that used to fill the header),
+ * the old All / Low and All / Heavy / Light chips, the Stock ledger's From and To, and more. Each tab keeps its own choices.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BentoPage, EmptyNote } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
-import { RegionSwitch } from "../components/RegionSwitch";
-import { FilterChips, PageTabs, SearchBox } from "../components/table/Bar";
+import { PageTabs } from "../components/table/Bar";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
 import ItemCard from "../components/inventory/ItemCard";
 import { FabricCard, ProcessCard, SampleCard } from "../components/inventory/LibraryCards";
 import { CostTable, FabricTable, ProcessTable, SampleTable, StockTable } from "../components/inventory/Tables";
 import LedgerReport from "../components/inventory/LedgerReport";
 import Rail from "../components/inventory/Rail";
+import {
+  costFilters, fabricFilters, ledgerFilters, patternFilters, processFilters, sampleFilters, stockFilters,
+} from "../components/inventory/inventoryFilters";
 import { TechPackCard, TechPackSpecModal, TechPackSpecPreview, TechPackViewer } from "../components/inventory/TechPackLegacy";
 import "../components/inventory/inventory.css";
 import { useAuth } from "../context/AuthContext";
@@ -39,7 +47,7 @@ import { deleteRow, fetchAll, insertRow } from "../lib/db";
 import { STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
 import { countUntagged, countUntaggedBy, filterByRegion, filterByRegionField } from "../utils/region";
 import { kathmanduDate } from "../utils/date";
-import { movementIndex, stockRow } from "../lib/inventory";
+import { costOf, movementIndex, savedCost, stockLedgerReportRows, stockRow } from "../lib/inventory";
 
 const NONE = [];
 
@@ -58,13 +66,13 @@ const DEFAULT_FABRICS = [
   { name: "Sinker Cotton", gsm: 140, composition: "Cotton 100%", status: "In Stock" },
 ];
 
-const TAB_NOUN = { stock: "item", cost: "cost item", fabrics: "fabric", processes: "process", patterns: "tech pack", samples: "sample" };
+const TAB_NOUN = { stock: "item", cost: "cost item", ledger: "item", fabrics: "fabric", processes: "process", patterns: "tech pack", samples: "sample" };
 
 const has = (hay, q) => String(hay || "").toLowerCase().includes(q);
 
 function Inventory() {
   const { profile } = useAuth();
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const { money } = useCurrency();
   const isNepalStaff = profile?.appRole === "nepal_staff" || profile?.role === "nepal_staff";
   // Inventory & Library are one merged page in the UI (see the combined nav item in constants/nav.js): granting either
@@ -84,8 +92,6 @@ function Inventory() {
   ] : []), [showPage]);
   const [tab, setTab] = useState("stock");
   const [query, setQuery] = useState("");
-  const [stockFilter, setStockFilter] = useState("all");      // stock and cost: all | low
-  const [fabricFilter, setFabricFilter] = useState("all");    // fabrics: all | heavy | light
   const [ledgerFrom, setLedgerFrom] = useState(() => kathmanduDate().slice(0, 8) + "01");
   const [ledgerTo, setLedgerTo] = useState(() => kathmanduDate());
 
@@ -139,21 +145,61 @@ function Inventory() {
 
   /* ── search and filters ─────────────────────────────────────── */
   const q = query.trim().toLowerCase();
+  const today = kathmanduDate();
   const stockFound = useMemo(
     () => stock.filter((s) => !q || has(s.row.item, q) || has(s.row.itemId, q) || has(s.row.category, q) || has(s.row.supplier, q)),
     [stock, q],
   );
-  const stockShown = stockFilter === "low" ? stockFound.filter((s) => s.low) : stockFound;
   const fabricsFound = useMemo(() => fabrics.filter((r) => !q || has(r.name, q) || has(r.composition, q) || has(r.supplier, q)), [fabrics, q]);
-  const heavy = fabricsFound.filter((r) => r.gsm !== null && r.gsm > 300);
-  const light = fabricsFound.filter((r) => r.gsm !== null && r.gsm < 200);
-  const fabricsShown = fabricFilter === "heavy" ? heavy : fabricFilter === "light" ? light : fabricsFound;
-  const processesShown = useMemo(() => processes.filter((r) => !q || has(r.name, q) || has(r.category, q) || has(r.description, q)), [processes, q]);
-  const patternsShown = useMemo(() => patterns.filter((r) => !q || has(r.name, q) || has(r.product_type, q)), [patterns, q]);
-  const samplesShown = useMemo(
+  const processesFound = useMemo(() => processes.filter((r) => !q || has(r.name, q) || has(r.category, q) || has(r.description, q)), [processes, q]);
+  const patternsFound = useMemo(() => patterns.filter((r) => !q || has(r.name, q) || has(r.product_type, q)), [patterns, q]);
+  const samplesFound = useMemo(
     () => samples.filter((r) => !q || has(r.name, q) || has(r.product_type, q) || has(r.stage, q) || has(r.fabric_used, q)),
     [samples, q],
   );
+  // the ledger's lines for the dates on screen (the screen shows the ones that pass the search and the filters; a printout is always every item)
+  const ledgerReport = useMemo(() => stockLedgerReportRows(rows, data.movements, ledgerFrom, ledgerTo), [rows, data.movements, ledgerFrom, ledgerTo]);
+  const ledgerFound = useMemo(() => {
+    const codes = new Map(rows.map((r) => [r.id, r.itemId]));
+    return ledgerReport.filter((r) => !q || has(r.item, q) || has(codes.get(r.id), q) || has(r.category, q));
+  }, [ledgerReport, rows, q]);
+
+  /* The Filters panel of each tab (components/filters; what each offers is components/inventory/inventoryFilters.js). A hook for every tab
+     keeps its choices while another tab is open; only the open tab's is drawn. */
+  const lastMoved = useMemo(() => {
+    const day = new Map();
+    for (const m of data.movements) {
+      const d = String(m.date || "").slice(0, 10);
+      if (d && d > (day.get(m.itemId) || "")) day.set(m.itemId, d);
+    }
+    return day;
+  }, [data.movements]);
+  const costById = useMemo(() => new Map(stock.map((s) => [s.id, costOf(savedCost(data.econ[s.id]))])), [stock, data.econ]);
+  const stockDefs = useMemo(() => stockFilters({ stock, today, lastMoved }), [stock, today, lastMoved]);
+  const costDefs = useMemo(() => costFilters({ stock, costById }), [stock, costById]);
+  const ledgerDefs = useMemo(
+    () => ledgerFilters({ report: ledgerReport, today, from: ledgerFrom, to: ledgerTo, onFrom: setLedgerFrom, onTo: setLedgerTo }),
+    [ledgerReport, today, ledgerFrom, ledgerTo],
+  );
+  const fabricDefs = useMemo(() => fabricFilters({ fabrics }), [fabrics]);
+  const processDefs = useMemo(() => processFilters({ processes }), [processes]);
+  const patternDefs = useMemo(() => patternFilters({ patterns }), [patterns]);
+  const sampleDefs = useMemo(() => sampleFilters({ samples }), [samples]);
+  const tfStock = useFilters(stockDefs, stockFound);
+  const tfCost = useFilters(costDefs, stockFound);
+  const tfLedger = useFilters(ledgerDefs, ledgerFound);
+  const tfFabrics = useFilters(fabricDefs, fabricsFound);
+  const tfProcesses = useFilters(processDefs, processesFound);
+  const tfPatterns = useFilters(patternDefs, patternsFound);
+  const tfSamples = useFilters(sampleDefs, samplesFound);
+  const tf = { stock: tfStock, cost: tfCost, ledger: tfLedger, fabrics: tfFabrics, processes: tfProcesses, patterns: tfPatterns, samples: tfSamples }[tab];
+  const stockShown = tfStock.rows;
+  const costShown = tfCost.rows;
+  const ledgerShown = tfLedger.rows;
+  const fabricsShown = tfFabrics.rows;
+  const processesShown = tfProcesses.rows;
+  const patternsShown = tfPatterns.rows;
+  const samplesShown = tfSamples.rows;
 
   /* ── what is open on top of the page ────────────────────────── */
   const [dialog, setDialog] = useState(null);       // { kind: "item" | "fabric" | "process" | "sample", mode: "create" | "edit" | …, id?, section? }
@@ -235,11 +281,13 @@ function Inventory() {
     tab === "fabrics" ? data.fabrics : tab === "processes" ? data.processes : tab === "samples" ? data.samples : data.rows,
   );
 
+  // what is on screen, in words: the side of the business (its switch is in the Filters panel), then what the tab holds
   const sub = (() => {
     if (loading) return <span>Loading…</span>;
     if (tab === "stock" || tab === "cost") {
       return (
         <>
+          <span>{regionLabel}</span>
           <span>{totals.items} {totals.items === 1 ? "item" : "items"}</span>
           {totals.low > 0 ? <span className="kb-bad">{totals.low} low</span> : <span>all stocked</span>}
           <span>{money(totals.value)} in stock</span>
@@ -250,6 +298,7 @@ function Inventory() {
     const n = { fabrics: fabrics.length, processes: processes.length, patterns: patterns.length, samples: samples.length }[tab];
     return (
       <>
+        <span>{regionLabel}</span>
         {tab === "ledger" ? <span>{ledgerFrom} to {ledgerTo}</span> : <span>{n} {n === 1 ? TAB_NOUN[tab] : `${TAB_NOUN[tab]}s`}</span>}
         {!canEdit && <span className="kb-tag">View only</span>}
       </>
@@ -270,7 +319,7 @@ function Inventory() {
       return (
         <EmptyNote icon={<Icons.Search size={22} sw={1.5} />}>
           Nothing matches{q ? ` “${query.trim()}”` : " that filter"}.{" "}
-          <button type="button" className="inv-link" onClick={() => { setQuery(""); setStockFilter("all"); setFabricFilter("all"); }}>Show everything</button>
+          <button type="button" className="inv-link" onClick={() => { setQuery(""); tf.clear(); }}>Show everything</button>
         </EmptyNote>
       );
     }
@@ -281,18 +330,6 @@ function Inventory() {
       </EmptyNote>
     );
   };
-
-  const lowChips = (
-    <FilterChips
-      label="Show"
-      value={stockFilter}
-      onChange={setStockFilter}
-      options={[
-        { value: "all", label: "All", count: stockFound.length },
-        { value: "low", label: "Low", count: stockFound.filter((s) => s.low).length, tone: stockFound.some((s) => s.low) ? "warn" : undefined },
-      ]}
-    />
-  );
 
   const failedText = failed.map((k) => ({ rows: "stock", econ: "costs", movements: "stock movements", fabrics: "fabrics", processes: "processes", patterns: "tech packs", samples: "samples" }[k])).join(", ");
 
@@ -313,7 +350,6 @@ function Inventory() {
           <p className="kb-head-sub">{sub}</p>
         </div>
         <div className="kb-head-r">
-          <div className="inv-region"><RegionSwitch untagged={untagged} size="sm" /></div>
           {addButton}
         </div>
       </header>
@@ -338,45 +374,40 @@ function Inventory() {
         <div className="inv-tabs" data-tour="inventory-tabs">
           <PageTabs label="Inventory sections" tabs={tabs} value={tab} onChange={handleTabChange} />
         </div>
-        {tab !== "ledger" && <SearchBox value={query} onChange={setQuery} placeholder={`Search ${tab === "cost" ? "items" : tab === "patterns" ? "tech packs" : `${noun}s`}`} />}
+        <div className="inv-find fn-barrow">
+          <FindBar
+            filters={tf}
+            value={query}
+            onChange={setQuery}
+            placeholder={`Search ${tab === "cost" || tab === "ledger" ? "items" : tab === "patterns" ? "tech packs" : `${noun}s`}`}
+            scope={{ region: { untagged } }}
+          />
+        </div>
       </div>
 
       <div className={`inv-layout${showRail ? " has-rail" : ""}`}>
         <section className="kb-tile inv-pane" aria-label={tabList.find((t) => t.id === tab)?.label}>
           {tab === "stock" && (
-            <>
-              <div className="inv-tools">{lowChips}</div>
-              <StockTable rows={stockShown} loading={loading} canEdit={canEdit} onOpen={openItem} activeId={dialog?.id} empty={emptyFor(stock.length, stockShown.length, () => setDialog({ kind: "item", mode: "create-stock" }))} />
-            </>
+            <StockTable rows={stockShown} loading={loading} canEdit={canEdit} onOpen={openItem} activeId={dialog?.id} empty={emptyFor(stock.length, stockShown.length, () => setDialog({ kind: "item", mode: "create-stock" }))} />
           )}
 
           {tab === "cost" && (
-            <>
-              <div className="inv-tools">{lowChips}</div>
-              <CostTable rows={stockShown} economics={data.econ} loading={loading} onOpen={openItem} activeId={dialog?.id} empty={emptyFor(stock.length, stockShown.length, () => setDialog({ kind: "item", mode: "create-cost" }))} />
-            </>
+            <CostTable rows={costShown} economics={data.econ} loading={loading} onOpen={openItem} activeId={dialog?.id} empty={emptyFor(stock.length, costShown.length, () => setDialog({ kind: "item", mode: "create-cost" }))} />
           )}
 
           {tab === "ledger" && (
-            <LedgerReport rows={rows} movements={data.movements} from={ledgerFrom} to={ledgerTo} onFrom={setLedgerFrom} onTo={setLedgerTo} onOpenItem={(id) => setDialog({ kind: "item", mode: "edit", id, section: "moves" })} />
+            <LedgerReport
+              report={ledgerShown}
+              printReport={ledgerReport}
+              from={ledgerFrom}
+              to={ledgerTo}
+              onOpenItem={(id) => setDialog({ kind: "item", mode: "edit", id, section: "moves" })}
+              empty={ledgerReport.length > 0 && ledgerShown.length === 0 ? emptyFor(ledgerReport.length, 0, null) : undefined}
+            />
           )}
 
           {tab === "fabrics" && (
             <>
-              {fabrics.length > 0 && (
-                <div className="inv-tools">
-                  <FilterChips
-                    label="Weight"
-                    value={fabricFilter}
-                    onChange={setFabricFilter}
-                    options={[
-                      { value: "all", label: "All", count: fabricsFound.length },
-                      { value: "heavy", label: "Heavy, over 300 GSM", count: heavy.length },
-                      { value: "light", label: "Light, under 200 GSM", count: light.length },
-                    ]}
-                  />
-                </div>
-              )}
               <FabricTable
                 rows={fabricsShown}
                 loading={loading}

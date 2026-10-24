@@ -4,6 +4,11 @@
  * On screen it is a DataTable that fits the window: the quantity and its value share a cell (the old report had ten
  * columns, a quantity and an amount for each of in, out and balance). Pressing an item opens its card.
  *
+ * The page works the report's lines out (it needs them for the Filters panel, which also holds the From and To that used
+ * to sit over the table) and hands over two lists: `report`, the lines that pass the search and the filters, for the
+ * screen, and `printReport`, every item, for the printout. A printed ledger is the company's stock register: it is
+ * always the whole of it, whatever is narrowed on screen.
+ *
  * What gets PRINTED is not that table. It is the accounting document the old page printed, character for character: the
  * company heading, ten columns, subtotals, the total and the note. A document must not change with the screen, so it
  * lives in its own element (`#kinv-ledger-print-area`, the id styles.css's print rules know) rendered into <body>, hidden
@@ -13,14 +18,11 @@
 import { Fragment, useMemo } from "react";
 import { createPortal } from "react-dom";
 import DataTable from "../table/DataTable";
-import DatePicker from "../DatePicker";
 import { EmptyNote } from "../bento/Bento";
 import { Icons } from "../ui";
 import { useCurrency } from "../../context/CurrencyContext";
 import { COMPANY_ADDR, COMPANY_NAME } from "../../utils/billing.jsx";
-import { addDays } from "../../lib/calendar";
-import { kathmanduDate } from "../../utils/date";
-import { fmtLedgerQty as fmtQty, groupLedger, stockLedgerReportRows } from "../../lib/inventory";
+import { fmtLedgerQty as fmtQty, groupLedger } from "../../lib/inventory";
 
 /** A quantity over what it is worth: "120" and, quieter beneath it, "1,32,000". */
 function QtyAmount({ qty, amount, tone, num }) {
@@ -32,13 +34,13 @@ function QtyAmount({ qty, amount, tone, num }) {
   );
 }
 
-export default function LedgerReport({ rows, movements, from, to, onFrom, onTo, onOpenItem }) {
+export default function LedgerReport({ report, printReport, from, to, onOpenItem, empty }) {
   const { currency, num } = useCurrency();
-  const today = kathmanduDate();
   const amtCcy = currency === "NPR" ? "" : ` (${currency})`;
 
-  const report = useMemo(() => stockLedgerReportRows(rows, movements, from, to), [rows, movements, from, to]);
   const { groups, grand } = useMemo(() => groupLedger(report), [report]);
+  // the printout is every item, whatever the screen is narrowed to
+  const printed = useMemo(() => groupLedger(printReport), [printReport]);
 
   const list = useMemo(() => {
     const out = [];
@@ -64,27 +66,12 @@ export default function LedgerReport({ rows, movements, from, to, onFrom, onTo, 
     { id: "bal", label: `Balance${amtCcy}`, width: 128, align: "end", render: (r) => <QtyAmount qty={r.closingQty} amount={r.closingAmount} tone={r.closingQty < 0 ? "bad" : undefined} num={num} /> },
   ], [num, amtCcy]);
 
-  // dates people want a ledger for: this month so far, last month, today
-  const monthStart = today.slice(0, 8) + "01";
-  const lastMonthEnd = addDays(monthStart, -1);
-  const lastMonthStart = lastMonthEnd.slice(0, 8) + "01";
-  const range = [["This month", monthStart, today], ["Last month", lastMonthStart, lastMonthEnd]];
-
   return (
     <>
+      {/* the dates are in the Filters panel (Period, Between); this line says them, and what the columns add up to */}
       <div className="inv-ledger-bar">
-        <label className="inv-range">
-          <span>From</span>
-          <DatePicker variant="pill" label="From" value={from} onChange={(v) => v && onFrom(v)} today={today} clearable={false} shortcuts={[["Month start", monthStart], ["Today", today]]} />
-        </label>
-        <label className="inv-range">
-          <span>To</span>
-          <DatePicker variant="pill" label="To" value={to} onChange={(v) => v && onTo(v)} today={today} clearable={false} shortcuts={[["Today", today], ["Last month end", lastMonthEnd]]} />
-        </label>
-        {range.map(([text, a, b]) => (
-          <button key={text} type="button" className="dt-chip" onClick={() => { onFrom(a); onTo(b); }}>{text}</button>
-        ))}
-        <button type="button" className="kb-pillbtn inv-print" onClick={() => window.print()}>
+        <p className="inv-ledger-note">Opening + In − Out = Closing, from {from} to {to}</p>
+        <button type="button" className="kb-pillbtn inv-print" onClick={() => window.print()} title="Prints every item for these dates, whatever is narrowed on screen">
           <Icons.File size={14} sw={1.8} aria-hidden="true" /> Print
         </button>
       </div>
@@ -97,10 +84,10 @@ export default function LedgerReport({ rows, movements, from, to, onFrom, onTo, 
         kindOf={(r) => (r.kind === "item" ? undefined : r.kind)}
         onOpen={onOpenItem ? (r) => onOpenItem(r.id) : undefined}
         rowLabel={(r) => `Open ${r.item}`}
-        empty={<EmptyNote icon={<Icons.Inventory size={22} sw={1.5} />}>No inventory items yet.</EmptyNote>}
+        empty={empty || <EmptyNote icon={<Icons.Inventory size={22} sw={1.5} />}>No inventory items yet.</EmptyNote>}
       />
 
-      {createPortal(<PrintArea groups={groups} grand={grand} count={report.length} from={from} to={to} num={num} amtCcy={amtCcy} />, document.body)}
+      {createPortal(<PrintArea groups={printed.groups} grand={printed.grand} count={printReport.length} from={from} to={to} num={num} amtCcy={amtCcy} />, document.body)}
     </>
   );
 }

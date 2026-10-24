@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import EditCard, { Field, NumberInput } from "../EditCard";
 import Select from "../Select";
 import { Icons } from "../ui";
+import ShareButton from "../share/ShareButton";
 import { deleteRow, insertRow, updateRow } from "../../lib/db";
 import { compressFabricImage, uploadFabricSwatch, uploadSamplePhoto } from "../../lib/inventoryImages";
 import { COMMON_SIZES, FABRIC_STATUSES, PROCESS_CATEGORIES, SAMPLE_STAGES, SAMPLE_STATUSES } from "../../lib/inventory";
@@ -150,6 +151,7 @@ export function FabricCard({ item, canEdit, region, onChanged, onClose }) {
       onDelete={editing ? deleter("fabrics", item, onChanged, canEdit) : undefined}
       deleteName={item?.name}
       deleteNote="It is gone from the library; tech packs that name it keep the name."
+      footerExtra={editing ? <ShareButton type="fabric" record={{ ...item, swatchImageUrl: swatch }} compact title="Send this fabric to someone in Chat" /> : undefined}
       onClose={onClose}
       main={(
         <>
@@ -324,6 +326,7 @@ export function SampleCard({ item, canEdit, region, onChanged, onClose }) {
       savingLabel={editing ? "Saving…" : "Adding…"}
       onSave={save}
       onDelete={editing ? deleter("samples", item, onChanged, canEdit) : undefined}
+      footerExtra={editing ? <ShareButton type="sample" record={item} compact title="Send this sample to someone in Chat" /> : undefined}
       deleteName={item?.name}
       onClose={onClose}
       main={(

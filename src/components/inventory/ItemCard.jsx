@@ -21,6 +21,7 @@ import Select from "../Select";
 import DatePicker from "../DatePicker";
 import Suggest from "../Suggest";
 import { Icons } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { useCurrency } from "../../context/CurrencyContext";
 import { deleteRow, insertRow, updateRow, upsertRow } from "../../lib/db";
 import { itemMovements, logStockMovement } from "../../utils/stockLedger";
@@ -301,7 +302,7 @@ export default function ItemCard({
       </Field>
       {regionField}
       <p className="ec-note ec-wide">
-        {row.lastUpdated ? <>Last changed <b>{row.lastUpdated}</b>{row.updatedBy ? <> by <b>{row.updatedBy}</b></> : null}.</> : "Not changed since it was added."}
+        {row.lastUpdated ? <>Last changed <b>{row.lastUpdated}</b>{row.updatedBy ? <> by <b><PersonLink name={row.updatedBy} /></b></> : null}.</> : "Not changed since it was added."}
       </p>
     </>
   ) : (

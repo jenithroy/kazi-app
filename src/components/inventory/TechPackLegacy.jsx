@@ -14,6 +14,7 @@ import { insertRow, updateRow } from "../../lib/db";
 import {
   compressFabricImage, getTechPackImages, isTechPackImageUrl, uploadPatternSketch, uploadPatternTechPack,
 } from "../../lib/inventoryImages";
+import ShareButton from "../share/ShareButton";
 
 const GARMENT_CATEGORIES = ["Menswear", "Womenswear", "Kidswear"];
 const SEASONS = ["Spring-Summer", "Autumn-Winter", "Winter", "Summer"];
@@ -642,6 +643,7 @@ export function TechPackCard({ item, canEdit, onEdit, onDelete, onView, onViewSp
             Spec Sheet
           </button>
         )}
+        {(images.length > 0 || hasSpec) && <ShareButton type="techpack" record={item} className="klib-action-btn" title="Send this tech pack to someone in Chat" />}
         {canEdit && (
           <>
             <button className="klib-action-btn" onClick={onEdit}>
@@ -706,6 +708,7 @@ export function TechPackViewer({ item, onClose }) {
         </div>
         <div className="ktp-viewer-bar-actions">
           <span className="ktp-viewer-counter">{page + 1} / {images.length}</span>
+          <ShareButton type="techpack" record={item} label="" className="ktp-viewer-btn" title="Send this tech pack to someone in Chat" />
           <a href={current} target="_blank" rel="noopener noreferrer" className="ktp-viewer-btn" title="Open original in new tab">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </a>

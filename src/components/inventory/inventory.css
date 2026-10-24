@@ -16,6 +16,8 @@
 
 .inv-bar { flex: none; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
 .inv-tabs { min-width: 0; display: flex; align-items: center; }
+/* the search box, the Filters button and the pills for what is narrowing (components/filters: FindBar, `fn-barrow` on this) */
+.inv-find { min-width: 0; }
 
 .inv-banner {
   flex: none; display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px;
@@ -34,18 +36,13 @@
 .inv-layout.has-rail { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
 .kb-tile.inv-pane { flex: 1 1 auto; padding: 0; gap: 0; }
 
-/* the strip above a table: filters that carry counts, and the page-wide numbers */
-.inv-tools { flex: none; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; min-width: 0; padding: 12px 16px 10px; }
-.inv-tools-r { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; min-width: 0; font-size: 12.5px; color: var(--kb-ink-3); }
-.inv-tools-r b { font-weight: 600; color: var(--kb-ink-2); font-variant-numeric: tabular-nums; }
-
 /* a plain-looking button inside a sentence ("Show everything", "Add the first one") */
 .inv-link { padding: 0; border: 0; background: none; color: var(--kb-accent); font: 600 inherit/inherit var(--font); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .inv-link:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 6px; }
 
 /* the stock ledger's date range */
 .inv-ledger-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 12px 16px 10px; }
-.inv-range { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--kb-ink-3); }
+.inv-ledger-note { margin: 0; min-width: 0; font-size: 12.5px; color: var(--kb-ink-3); font-variant-numeric: tabular-nums; }
 .kb-pillbtn.inv-print { margin-left: auto; }
 
 /* the rail beside the stock and cost tables */
@@ -100,19 +97,12 @@
   .inv-page .kb-head-l { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-start; gap: 1px; }
   .inv-page .kb-head-r { display: contents; }
   .inv-page .inv-newbtn { grid-column: 2; grid-row: 1; height: 34px; padding: 0 15px; }
-  .inv-page .inv-region { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
-  .inv-page .inv-region .kregion-switch { width: auto; justify-content: flex-start; gap: 8px; }
-  .inv-page .inv-region .kregion-seg { flex: 0 0 auto; padding: 2px; gap: 0; }
-  .inv-page .inv-region .kregion-seg-btn { flex: 0 0 auto; justify-content: center; min-height: 32px; padding: 0 10px; font-size: 12.5px; }
-  .inv-page .inv-region .kregion-untagged { padding: 3px 9px; background: var(--kb-warn-bg); color: var(--kb-warn); border-color: color-mix(in srgb, var(--kb-warn) 32%, transparent); }
-
-  .inv-bar { flex-wrap: nowrap; }
-  .inv-tabs { flex: 0 1 auto; }
-  .inv-bar .dt-search { flex: 1 1 0; }
+  /* the tabs (a dropdown here) take a row, the search and the Filters button the next */
+  .inv-tabs { flex: 1 1 100%; }
+  .inv-find { flex: 1 1 100%; }
   .inv-layout { flex: 0 0 auto; display: block; }
   .kb-tile.inv-pane { display: flex; }
   .inv-legacy { overflow: visible; }
-  .inv-tools { padding: 10px 12px 8px; }
   .inv-ledger-bar { padding: 10px 12px 8px; }
   .kb-pillbtn.inv-print { margin-left: 0; }
 }
