@@ -4,6 +4,7 @@
  */
 import { useRef, useState } from "react";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { useCurrency } from "../../context/CurrencyContext";
 import { npr, useMoney } from "../finance/parts";
 import { leadFollow, requestAmount, roleLabel, statusLabel, statusTone, urgencyLabel, urgencyTone } from "../../lib/budget";
@@ -49,9 +50,11 @@ export function Who({ row, size = 26 }) {
   const role = roleLabel(row.requestedByRole);
   return (
     <span className="bd-who">
-      <Avatar name={name} personId={row.requested_by_id || undefined} hue={hueFromName(name)} size={size} />
+      <PersonLink decor personId={row.requested_by_id || undefined} name={name}>
+        <Avatar name={name} personId={row.requested_by_id || undefined} hue={hueFromName(name)} size={size} />
+      </PersonLink>
       <span className="bd-who-t">
-        <b title={name}>{name}</b>
+        <b title={name}><PersonLink className="kpl--clip" personId={row.requested_by_id || undefined} name={name} /></b>
         {role ? <span>{role}</span> : null}
       </span>
     </span>

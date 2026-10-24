@@ -2,21 +2,14 @@ import { useMemo } from "react";
 import { Icons } from "../ui";
 import { EmptyNote, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
-import Select from "../Select";
+import { FindBar } from "../filters/FilterMenu";
+import PersonLink from "../profile/PersonLink";
 import { Amount, StatusTag, Strip, UrgencyTag, Who } from "./parts";
 import { tsMillis } from "../../utils/date";
 import {
-  URGENCIES, ageDays, agoLabel, askedDay, daysLabel, decidedDay, fmtShort, isRequirement, isUrgent, isWaiting, kindLabel, plural,
+  ageDays, agoLabel, askedDay, daysLabel, decidedDay, fmtShort, isRequirement, isUrgent, isWaiting, kindLabel, plural,
   requestAmount, statusLabel, urgencyRank,
 } from "../../lib/budget";
-
-const KINDS = [
-  { value: "", label: "All types" },
-  { value: "requirement", label: "Requirements" },
-  { value: "budget", label: "Budget requests" },
-];
-const URGENCY_OPTIONS = [{ value: "", label: "Any urgency" }, ...URGENCIES.slice().reverse().map((u) => ({ value: u, label: u }))];
 
 /**
  * The name cell. On a wide table the line under the name is the reason given (or the quantity); on a narrow one the facts that
@@ -82,7 +75,9 @@ function DecisionCell({ row, canDecide, busy, onDecide }) {
   return (
     <span className="bd-decided">
       <StatusTag row={row} />
-      <small>{[row.reviewedBy, day && fmtShort(day)].filter(Boolean).join(" · ")}</small>
+      <small>
+        <PersonLink className="kpl--clip" name={row.reviewedBy || undefined}>{[row.reviewedBy, day && fmtShort(day)].filter(Boolean).join(" · ")}</PersonLink>
+      </small>
     </span>
   );
 }
@@ -128,15 +123,16 @@ const emptyText = ({ all, status, filtered }) => {
 
 /**
  * The requests themselves: waiting first, the most urgent on top and the one that has waited longest above the others.
- * The status chips carry their counts; a row is the button (anywhere you press opens that request's card), and on a
- * waiting one Reject and Approve are one press away. The table scrolls inside the pane and its heads sort it.
+ * A search and one Filters button hold everything that narrows them (Waiting | Approved | Rejected | All with their counts, the
+ * side of the business, urgency, type and the rest); `filters` is the page's `useFilters` result, `filtered` whether the search or a
+ * filter is narrowing the list, `untagged` how many requests have no side yet. A row is the button (anywhere you press opens that
+ * request's card), and on a waiting one Reject and Approve are one press away. The table scrolls inside the pane and its heads sort it.
  */
 export default function RequestsPane({
-  rows, counts, status, onStatus, query, onQuery, kind, onKind, urgency, onUrgency,
+  rows, counts, status, filters, filtered, untagged, query, onQuery,
   today, canDecide, busy, onDecide, onOpen, activeId, loading,
   strip, onStripClose, capped, showAll, onShowAll,
 }) {
-  const filtered = Boolean(query || kind || urgency);
   const columns = useMemo(() => columnsFor({ today, canDecide, busy, onDecide }), [today, canDecide, busy, onDecide]);
   const total = counts[status];
 
@@ -149,21 +145,11 @@ export default function RequestsPane({
       align="top"
       className="bd-pane"
     >
-      <div className="bd-tools">
-        <FilterChips
-          label="Which requests"
-          value={status}
-          onChange={onStatus}
-          options={[
-            { value: "waiting", label: "Waiting", count: counts.waiting, tone: counts.waiting > 0 ? "warn" : undefined },
-            { value: "approved", label: "Approved", count: counts.approved },
-            { value: "rejected", label: "Rejected", count: counts.rejected },
-            { value: "all", label: "All", count: counts.all },
-          ]}
+      <div className="bd-tools fn-barrow">
+        <FindBar
+          filters={filters} value={query} onChange={onQuery} placeholder="Search requests"
+          label="Search requests by item, person, category or note" scope={{ region: { untagged } }}
         />
-        <SearchBox value={query} onChange={onQuery} placeholder="Search requests" label="Search requests by item, person, category or note" />
-        <Select variant="pill" label="Type" value={kind} onChange={onKind} options={KINDS} searchable={false} />
-        <Select variant="pill" label="Urgency" value={urgency} onChange={onUrgency} options={URGENCY_OPTIONS} searchable={false} />
       </div>
 
       {!canDecide && <p className="bd-viewonly">You can ask for things here. Approving and rejecting is for admins.</p>}

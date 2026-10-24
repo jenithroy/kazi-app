@@ -1,6 +1,8 @@
 import { useState } from "react";
 import EditCard, { KV, Tag } from "../EditCard";
 import { Avatar, Icons, hueFromName } from "../ui";
+import PersonLink from "../profile/PersonLink";
+import ShareButton from "../share/ShareButton";
 import { useAmountText } from "./parts";
 import { normaliseRegion, regionLabel } from "../../utils/region";
 import {
@@ -29,6 +31,7 @@ export default function RequestCard({ row, today, canDecide, onDecide, onClose }
   const region = normaliseRegion(row.region);
   const name = row.requestedBy || "Unknown";
   const reason = row.notes?.trim();
+  const send = <ShareButton type="budget_request" record={row} compact title="Send this request to someone in Chat" />;
 
   async function go(next) {
     if (busy) return;
@@ -62,7 +65,7 @@ export default function RequestCard({ row, today, canDecide, onDecide, onClose }
           {key === "approved" ? <Icons.Check size={16} sw={2.3} aria-hidden="true" /> : key === "rejected" ? <Icons.X size={16} sw={2.3} aria-hidden="true" /> : null}
           <span>
             <b>{statusLabel(row)}</b>
-            {row.reviewedBy ? ` by ${row.reviewedBy}` : ""}{decided ? ` on ${fmtDay(decided)}` : ""}
+            {row.reviewedBy ? <>{" by "}<PersonLink name={row.reviewedBy} /></> : ""}{decided ? ` on ${fmtDay(decided)}` : ""}
           </span>
         </div>
       )}
@@ -72,9 +75,11 @@ export default function RequestCard({ row, today, canDecide, onDecide, onClose }
   const side = (
     <>
       <div className="bd-asker ec-wide">
-        <Avatar name={name} personId={row.requested_by_id || undefined} hue={hueFromName(name)} size={40} />
+        <PersonLink decor personId={row.requested_by_id || undefined} name={name}>
+          <Avatar name={name} personId={row.requested_by_id || undefined} hue={hueFromName(name)} size={40} />
+        </PersonLink>
         <span>
-          <b>{name}</b>
+          <b><PersonLink className="kpl--clip" personId={row.requested_by_id || undefined} name={name} /></b>
           <small>{roleLabel(row.requestedByRole) || "Asked from the page"}</small>
         </span>
       </div>
@@ -110,11 +115,12 @@ export default function RequestCard({ row, today, canDecide, onDecide, onClose }
           <button type="button" className="ghost-button ec-ft-l ec-danger" aria-disabled={busy ? "true" : undefined} onClick={() => go("Rejected")}>
             {busy === "Rejected" ? "Rejecting…" : "Reject"}
           </button>
+          {send}
           <button type="button" className="primary-button" aria-disabled={busy ? "true" : undefined} onClick={() => go("Approved")}>
             {busy === "Approved" ? "Approving…" : "Approve"}
           </button>
         </>
-      ) : null}
+      ) : send}
       onClose={onClose}
     />
   );
