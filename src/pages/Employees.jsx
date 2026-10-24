@@ -4,8 +4,10 @@
  *
  *   top row   how many are on the team, what their basic pay comes to, who has no working hours, and who is tagged as a
  *             production worker (each also sets the list's filter, or goes to Payroll)
- *   below     the people: Active | Inactive | All, a search, and two filters. A row opens that person's card (details, pay and
- *             bank, working hours); a salary slip is one press on the row
+ *   below     the people: a search and ONE Filters button (components/filters) that holds Active | Inactive | All, the Show choice
+ *             (no working hours, production workers), the side of the business, and department, position, join date, pay and a few
+ *             "missing" switches. A row opens that person's card (details, pay and bank, working hours); a salary slip is one
+ *             press on the row
  *
  * The old page had three tabs (Directory, Org Chart, Payroll) and a 15-column table. The org chart is gone: nobody has a manager
  * set, so it drew every person as a root. "Reports to" stays on the card. Payroll is a page of its own (pages/Payroll.jsx) and is
@@ -25,12 +27,14 @@ import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
 import SalarySlipModal from "../components/SalarySlipModal";
 import { useShiftN } from "../components/finance/parts";
+import useFilters from "../components/filters/useFilters";
 import useEmployeesData from "../hooks/useEmployeesData";
 import PeoplePane from "../components/employees/PeoplePane";
 import PersonCard from "../components/employees/PersonCard";
 import { CrewTile, HoursTile, PayTile, PeopleTile } from "../components/employees/Tiles";
 import { personName, useStrip } from "../components/employees/parts";
 import { countPeople, filterPeople, orderPeople, seesPrivate, summarise } from "../lib/employees";
+import { fmtDay } from "../lib/sales";
 import Payroll from "./Payroll";
 import "../components/employees/employees.css";
 
@@ -46,10 +50,8 @@ function EmployeesPage() {
   const loading = !ready;
   const today = kathmanduDate();
 
-  const [status, setStatus] = useState("active");
+  const [status, setStatus] = useState("active");     // the page's main view (Active is where it opens), so the panel only mirrors it
   const [query, setQuery] = useState("");
-  const [focus, setFocus] = useState("");              // "" | "nohours" | "prod": the tiles set it
-  const [where, setWhere] = useState("");              // "" | "nepal" | "uk"
   const [openId, setOpenId] = useState(null);          // the person whose card is open
   const [creating, setCreating] = useState(false);     // the new-person card
   const [slip, setSlip] = useState(null);              // null, or the salary slip's starting values ({} for a blank one)
@@ -62,10 +64,48 @@ function EmployeesPage() {
 
   const counts = useMemo(() => countPeople(rows), [rows]);
   const sum = useMemo(() => summarise(rows, { pay }), [rows, pay]);
-  const list = useMemo(
-    () => orderPeople(filterPeople(rows, { status, focus, location: where, query })),
-    [rows, status, focus, where, query],
-  );
+
+  // Who is listed: Active | Inactive | All and the search are the page's own (lib/employees.js `filterPeople`); everything else is in the
+  // Filters panel. The panel's "Show" and "Side of the business" ask `filterPeople` about one person at a time, so the rules are the old ones.
+  const searched = useMemo(() => filterPeople(rows, { status, query }), [rows, status, query]);
+  const filterDefs = useMemo(() => {
+    const only = (e, opts) => filterPeople([e], { status: "all", ...opts }).length > 0;
+    const unset = (v) => !String(v ?? "").trim();
+    return [
+      // the page's main view: it narrows through `searched`, not here
+      {
+        id: "view", label: "Which people", kind: "chips", controlled: { value: status, set: setStatus },
+        options: [
+          { value: "active", label: "Active", count: counts.active },
+          { value: "inactive", label: "Inactive", count: counts.inactive },
+          { value: "all", label: "All", count: counts.all },
+        ],
+      },
+      {
+        id: "focus", label: "Show", kind: "chips", test: (e, v) => only(e, { focus: v }),
+        options: [{ value: "", label: "Everyone" }, { value: "nohours", label: "No working hours" }, { value: "prod", label: "Production workers" }],
+      },
+      {
+        id: "side", label: "Side of the business", kind: "chips", test: (e, v) => only(e, { location: v }),
+        options: [{ value: "", label: "Both sides" }, { value: "nepal", label: "Nepal" }, { value: "uk", label: "UK" }],
+      },
+      { id: "dept", label: "Department", kind: "select", of: (e) => e.department, any: "Any department", none: "No department" },
+      { id: "role", label: "Position", kind: "select", of: (e) => e.role, any: "Any position", none: "No position" },
+      // pay, join date, phone and bank are hidden by the directory for most viewers (a null that means "hidden"): never offer a filter on them there
+      ...(pay ? [
+        { id: "joined", label: "Joined between", kind: "dates", get: (e) => e.joinDate || "", show: fmtDay, pill: "Joined" },
+        { id: "salary", label: "Basic pay", kind: "range", get: (e) => (Number(e.basicSalaryNPR) > 0 ? Number(e.basicSalaryNPR) : null), unit: "NPR", pill: "Basic pay" },
+        { id: "nopay", label: "No basic pay set", kind: "toggle", text: "No basic pay set", pill: "No pay set", test: (e) => !(Number(e.basicSalaryNPR) > 0) },
+        { id: "nobank", label: "No bank details", kind: "toggle", text: "No bank account", pill: "No bank account", test: (e) => unset(e.bankAccount) },
+        { id: "nophone", label: "No phone number", kind: "toggle", text: "No phone number", pill: "No phone number", test: (e) => unset(e.phone) },
+      ] : []),
+    ];
+  }, [status, counts, pay]);
+  const tf = useFilters(filterDefs, searched);
+  const { clear: clearFilters } = tf;
+  const focus = tf.values.focus || "";                    // "" | "nohours" | "prod": the tiles set it
+  const filtered = Boolean(query) || tf.count > 0;
+  const list = useMemo(() => orderPeople(tf.rows), [tf.rows]);
 
   const openRow = openId ? rows.find((r) => r.id === openId) || null : null;
   // A person who is gone closes their card. When somebody else removed them the page says so (what was typed in the card is lost);
@@ -105,8 +145,8 @@ function EmployeesPage() {
 
   function show(next) {
     setStatus(next.status);
-    setFocus(next.focus || "");
-    setWhere("");
+    clearFilters();                                       // a tile shows what it counts: every other filter goes back to "any"
+    if (next.focus) tf.set("focus", next.focus);
     setQuery("");
     // a phone's page scrolls: bring the list to the top of the screen
     if (phone) {
@@ -128,8 +168,7 @@ function EmployeesPage() {
   const afterCreated = useCallback(async (res) => {
     if (res.row) patch(res.row);
     setStatus(res.status === "Inactive" ? "inactive" : "active");
-    setFocus("");
-    setWhere("");
+    clearFilters();
     setQuery("");
     await reload();
     if (res.login.ok) {
@@ -140,7 +179,7 @@ function EmployeesPage() {
         text: `${res.name} was saved, but their login email couldn't be sent automatically (${res.login.message}). You can invite them from the Supabase dashboard under Authentication.`,
       });
     }
-  }, [patch, reload, offer]);
+  }, [patch, reload, offer, clearFilters]);
 
   const afterRemoved = useCallback(async (row) => {
     removing.current = row.id;
@@ -161,8 +200,14 @@ function EmployeesPage() {
 
   /* ── the page ──────────────────────────────────────────── */
 
+  // what is on screen, in words (the Active | Inactive | All choice is in the Filters panel), then how the team stands
   const sub = ready
-    ? <span>{sum.active} active{sum.inactive > 0 ? ` · ${sum.inactive} inactive` : ""}</span>
+    ? (
+      <>
+        <span>{{ active: "Active people", inactive: "Inactive people", all: "Everyone" }[status]}</span>
+        <span>{sum.active} active{sum.inactive > 0 ? ` · ${sum.inactive} inactive` : ""}</span>
+      </>
+    )
     : state === "error" ? null : <span>Loading…</span>;
 
   return (
@@ -219,10 +264,8 @@ function EmployeesPage() {
           <CrewTile sum={sum} loading={loading} onOpen={() => show({ status: sum.prodInactive > 0 ? "all" : "active", focus: "prod" })} />
           <PeoplePane
             rows={list} counts={counts}
-            status={status} onStatus={setStatus}
+            status={status} filters={tf} filtered={filtered}
             query={query} onQuery={setQuery}
-            focus={focus} onFocus={setFocus}
-            where={where} onWhere={setWhere}
             pay={pay} canEdit={canEdit} hidden={!pay}
             onOpen={openCard} onSlip={openSlip} activeId={openId || undefined} loading={loading}
             strip={strip} onStripClose={clearStrip}

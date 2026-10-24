@@ -1,4 +1,5 @@
 import { Avatar, Icons, cn, hueFromName } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { EmptyNote, Figure, RowList, Tile } from "../bento/Bento";
 import { Ring, StackBar } from "../bento/charts";
 import { STATE_LABEL, dayShort } from "../../lib/attendance";
@@ -67,8 +68,10 @@ export default function DayTile({ rows, summary, filter, onFilter, date, today, 
               <RowList className="kb-fill">
                 {out.map((r) => (
                   <li className="kb-row" key={r.personId}>
-                    <Avatar name={r.name} personId={r.personId} hue={hueFromName(r.name)} size={24} />
-                    <span className="kb-tk-t"><b>{r.name}</b></span>
+                    <PersonLink decor personId={r.personId} name={r.name}>
+                      <Avatar name={r.name} personId={r.personId} hue={hueFromName(r.name)} size={24} />
+                    </PersonLink>
+                    <span className="kb-tk-t"><b><PersonLink className="kpl--clip" personId={r.personId} name={r.name} /></b></span>
                     {!(r.state === "none" && isToday) && <span className={cn("kb-tag", r.state === "absent" && "kb-tag--bad")}>{STATE_LABEL[r.state]}</span>}
                   </li>
                 ))}

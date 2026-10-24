@@ -1,4 +1,5 @@
 import { Avatar, Icons, hueFromName } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { EmptyNote, Figure, RowList, Tile } from "../bento/Bento";
 import { StackBar } from "../bento/charts";
 
@@ -58,8 +59,10 @@ export default function StatsTile({ kind, summary, label, loading }) {
             <RowList className="kb-fill">
               {lateOnes.map((p) => (
                 <li className="kb-row" key={p.personId}>
-                  <Avatar name={p.name} personId={p.personId} hue={hueFromName(p.name)} size={22} />
-                  <span className="kb-tk-t"><b>{p.name}</b></span>
+                  <PersonLink decor personId={p.personId} name={p.name}>
+                    <Avatar name={p.name} personId={p.personId} hue={hueFromName(p.name)} size={22} />
+                  </PersonLink>
+                  <span className="kb-tk-t"><b><PersonLink className="kpl--clip" personId={p.personId} name={p.name} /></b></span>
                   <span className="kb-tag kb-tag--warn">{p.late} late</span>
                   {p.cuts > 0 && <span className="kb-tag kb-tag--bad kb-w-300">{p.cuts} cut{p.cuts > 1 ? "s" : ""}</span>}
                 </li>

@@ -8,6 +8,10 @@
  *
  * The sums live in lib/attendance.js. This file loads the month, keeps what is selected, and
  * saves one person at a time when someone with edit rights changes a status.
+ *
+ * The roll call has a search box and one Filters button (components/filters; what it offers is
+ * components/attendance/filters.js): the day's key (Present, Late, On leave…) is the panel's Status
+ * choice, drawn twice, plus position, where they work and a few switches such as "Not clocked in yet".
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deleteRow, fetchAll, updateRow, upsertRow } from "../lib/db";
@@ -15,8 +19,11 @@ import { addHoliday, holidaysNotSetUp, removeHoliday } from "../lib/holidays";
 import { refreshHolidays, useHolidays } from "../hooks/useHolidays";
 import { useAuth } from "../context/AuthContext";
 import { financeTabAllowed, sectionCanEdit, sectionVisible, tier } from "../utils/permissions";
+import { normaliseRegion } from "../utils/region";
 import { setEmployeeScheduleOverrides } from "../constants";
 import { Avatar, Icons, hueFromName } from "../components/ui";
+import useFilters from "../components/filters/useFilters";
+import { matchesPerson, rosterFilters } from "../components/attendance/filters";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import ConfirmDialog from "../components/tasks/ConfirmDialog";
 import HolidayDialog from "../components/attendance/HolidayDialog";
@@ -63,9 +70,9 @@ export default function Attendance() {
 
   const [month, setMonth] = useState(() => monthOf(isoFromDate(new Date())));
   const [date, setDate] = useState(() => isoFromDate(new Date()));
-  const [data, setData] = useState({ status: "loading", month: "", staff: [], records: [], clocks: [], error: "" });
+  const [data, setData] = useState({ status: "loading", month: "", staff: [], records: [], clocks: [], employees: [], error: "" });
   const [mode, setMode] = useState("day");                 // team: "day" (roll call) | "report"
-  const [filter, setFilter] = useState("");
+  const [query, setQuery] = useState("");                  // the roll call's search; its filters are in the Filters panel (below)
   const [edit, setEdit] = useState(false);
   const [reportId, setReportId] = useState("*");                // the report: "*" is everyone, else one person
   const [holOpen, setHolOpen] = useState(false);
@@ -97,6 +104,7 @@ export default function Attendance() {
       setData({
         status: "ready", month: month.start, error: "",
         staff: staffAll.filter((m) => m.status !== "Inactive"), records, clocks,
+        employees,                                      // already read for the schedules; the Filters panel also reads their departments from it
       });
     } catch (err) {
       console.error("Failed to load attendance data:", err);
@@ -143,7 +151,19 @@ export default function Attendance() {
     [staff, records, clocks, date, today, now, holidays],
   );
   const summary = useMemo(() => daySummary(roster), [roster]);
-  const shown = useMemo(() => (filter ? roster.filter((r) => r.state === filter) : roster), [roster, filter]);
+
+  // The roll call's search and Filters (components/filters). The day's key and the panel's Status are one choice, kept by the engine:
+  // `filter` is what is chosen ("" for everyone), `setFilter` is what a press on the key does.
+  const info = useMemo(() => {
+    const dept = new Map((data.employees || []).map((e) => [String(e.id), String(e.department || "").trim()]));
+    return new Map(staff.filter((s) => s.personId).map((s) => [s.personId, { location: normaliseRegion(s.location || s.region), department: dept.get(String(s.personId)) || "" }]));
+  }, [staff, data.employees]);
+  const searched = useMemo(() => roster.filter((r) => matchesPerson(r, query)), [roster, query]);
+  const filterDefs = useMemo(() => rosterFilters({ roster, info, date, today }), [roster, info, date, today]);
+  const tf = useFilters(filterDefs, searched);
+  const shown = tf.rows;
+  const filter = tf.values.state || "";
+  const setFilter = (state) => tf.set("state", state);
   const team = useMemo(() => (seesTeam ? teamMonth({ staff, records, clocks, month, today, holidays }) : null), [seesTeam, staff, records, clocks, month, today, holidays]);
   const mine = useMemo(
     () => personMonth({ records: records.filter((r) => r.person_id === me), clocks: clocks.filter((c) => c.person_id === me), month, today, holidays, region: profile?.location }),
@@ -401,7 +421,8 @@ export default function Attendance() {
           <DayTile rows={roster} summary={summary} filter={filter} onFilter={setFilter} date={date} today={today} loading={loadingTiles} />
           {mode === "day" ? (
             <RosterTile
-              rows={roster} shown={shown} filter={filter} onFilter={setFilter}
+              rows={roster} shown={shown} filter={filter} filters={tf} query={query} onQuery={setQuery}
+              onClear={() => { setQuery(""); tf.clear(); }}
               date={date} today={today} onStep={(n) => goDate(addDays(date, n))} onToday={backToToday}
               canEdit={canEdit} edit={edit && canEdit} onEdit={setEdit} busyIds={busy} onSet={onSet} onCut={onCut} onNote={saveNote}
               toast={toast} mode={mode} onMode={(m) => { setEdit(false); setMode(m); }} loading={loadingTiles}

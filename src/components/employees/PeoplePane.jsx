@@ -2,22 +2,11 @@ import { useMemo } from "react";
 import { Icons } from "../ui";
 import { EmptyNote, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
-import { FilterChips, SearchBox } from "../table/Bar";
-import Select from "../Select";
+import { FindBar } from "../filters/FilterMenu";
 import { Amt } from "../finance/parts";
+import PersonLink from "../profile/PersonLink";
 import { Face, HoursCell, StatusTag, Strip, personName } from "./parts";
 import { hoursOf, isActive, plural } from "../../lib/employees";
-
-const FOCUS = [
-  { value: "", label: "Everyone" },
-  { value: "nohours", label: "No working hours" },
-  { value: "prod", label: "Production workers" },
-];
-const WHERE = [
-  { value: "", label: "Both sides" },
-  { value: "nepal", label: "Nepal" },
-  { value: "uk", label: "UK" },
-];
 
 /**
  * The name cell. The line under the name is the position; when the table has no room for a column, what that column said
@@ -29,7 +18,14 @@ function WhoCell({ row, dropped }) {
   if (dropped.has("dept") && row.department) parts.push(row.department);
   if (dropped.has("status") && !isActive(row)) parts.push("Inactive");
   if (row.isProductionWorker) parts.push("Production");
-  return <TwoLine lead={<Face row={row} size={30} />} main={personName(row)} sub={parts.join(" · ")} />;
+  // The row opens the HR card; the name and picture open the person's profile (the same card everyone can open from any name).
+  return (
+    <TwoLine
+      lead={<PersonLink decor personId={row.id} name={personName(row)}><Face row={row} size={30} /></PersonLink>}
+      main={<PersonLink className="kpl--clip" personId={row.id} name={personName(row)} />}
+      sub={parts.join(" · ")}
+    />
+  );
 }
 
 function ContactCell({ row }) {
@@ -94,15 +90,16 @@ const emptyText = ({ all, status, filtered }) => {
 };
 
 /**
- * The people themselves: Active | Inactive | All with their counts, a search, and two filters (the tiles set the first, "Show").
+ * The people themselves: a search and one Filters button (Active | Inactive | All with their counts, Show, the side of the business,
+ * department, position and the rest are in its panel; the tiles above set some of them). `filters` is the page's `useFilters` result
+ * and `filtered` is whether the search or a filter is narrowing the list.
  * A row is the button (anywhere you press opens that person's card); the one thing worth doing without opening it is a
  * salary slip, which is a button on the row. The table scrolls inside the pane and its heads sort it.
  */
 export default function PeoplePane({
-  rows, counts, status, onStatus, query, onQuery, focus, onFocus, where, onWhere,
+  rows, counts, status, filters, filtered, query, onQuery,
   pay, canEdit, hidden, onOpen, onSlip, activeId, loading, strip, onStripClose,
 }) {
-  const filtered = Boolean(query || focus || where);
   const columns = useMemo(() => columnsFor({ pay, onSlip }), [pay, onSlip]);
   const total = counts[status];
 
@@ -117,20 +114,8 @@ export default function PeoplePane({
     >
       {/* what the filters left, said to a screen reader when they change (a tile that sets a filter changes a list nobody is looking at) */}
       <span className="em-sr" role="status">{filtered || status !== "all" ? `${rows.length} of ${total} ${plural(total, "person", "people")} shown` : `${rows.length} ${plural(rows.length, "person", "people")}`}</span>
-      <div className="em-tools">
-        <FilterChips
-          label="Which people"
-          value={status}
-          onChange={onStatus}
-          options={[
-            { value: "active", label: "Active", count: counts.active },
-            { value: "inactive", label: "Inactive", count: counts.inactive },
-            { value: "all", label: "All", count: counts.all },
-          ]}
-        />
-        <SearchBox value={query} onChange={onQuery} placeholder="Search people" label="Search people by name, position, department, email or phone" />
-        <Select variant="pill" label="Show" value={focus} onChange={onFocus} options={FOCUS} searchable={false} />
-        <Select variant="pill" label="Side of the business" value={where} onChange={onWhere} options={WHERE} searchable={false} />
+      <div className="em-tools fn-barrow">
+        <FindBar filters={filters} value={query} onChange={onQuery} placeholder="Search people" label="Search people by name, position, department, email or phone" />
       </div>
 
       {(!canEdit || hidden) && (

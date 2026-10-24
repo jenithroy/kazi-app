@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
 import { EmptyNote, Tile } from "../bento/Bento";
 import { Undo } from "../bento/icons";
+import PersonLink from "../profile/PersonLink";
+import { FindBar } from "../filters/FilterMenu";
 import { STATE_LABEL, dayTitle, fmtClock, fmtMinutes, humanNote, isSat } from "../../lib/attendance";
 import StatusTag from "./StatusTag";
 import ModeSwitch from "./ModeSwitch";
@@ -104,9 +106,11 @@ function Row({ row, date, edit, busy, onSet, onCut, onNote }) {
   return (
     <li ref={li} className={cn("at-row", busy && "is-busy", open && "is-noting")}>
       <span className="at-c-name">
-        <Avatar name={row.name} personId={row.personId} hue={hueFromName(row.name)} size={30} />
+        <PersonLink decor personId={row.personId} name={row.name}>
+          <Avatar name={row.name} personId={row.personId} hue={hueFromName(row.name)} size={30} />
+        </PersonLink>
         <span className="at-who">
-          <b>{row.name}</b>
+          <b><PersonLink className="kpl--clip" personId={row.personId} name={row.name} /></b>
           <span>{row.role}{row.shift ? <span className="kb-w-520"> · {row.shift.start}–{row.shift.end}</span> : null}</span>
         </span>
       </span>
@@ -155,18 +159,24 @@ function dayOffNote(rows) {
  * an Edit button turns each status into buttons that save the one person straight away (and a Note
  * button for the reason behind a status); a toast says what changed and offers Undo. Nothing here
  * saves anyone else.
+ *
+ * Under the day's controls, a search box and the Filters button find people (the page's `useFilters`
+ * result is `filters`; the day's key in the tile beside is its "Status" choice, so what is chosen
+ * there shows as a pill here). `filter` is the status chosen, "" for everyone.
  */
 export default function RosterTile({
-  rows, shown, filter, onFilter, date, today, onStep, onToday,
+  rows, shown, filter, filters, query, onQuery, onClear, date, today, onStep, onToday,
   canEdit, edit, onEdit, busyIds, onSet, onCut, onNote, toast, mode, onMode, loading,
 }) {
   const offNote = dayOffNote(rows) || (isSat(date) && rows.length === 0 ? "Saturday is the office's day off." : "");
+  const narrowed = Boolean(query) || filters.count > 0;
+  const onlyStatus = Boolean(filter) && !query && filters.count === 1;
   return (
     <Tile
       area="roster"
       icon={<Icons.Users size={14} sw={1.8} />}
       title="Roll call"
-      note={filter ? `${shown.length} of ${rows.length}` : `${rows.length} people`}
+      note={narrowed ? `${shown.length} of ${rows.length}` : `${rows.length} people`}
       loading={loading}
       align="top"
       className={cn("at-roster", edit && "is-edit")}
@@ -179,11 +189,6 @@ export default function RosterTile({
           {date !== today && <button type="button" className="kb-pillbtn at-small" onClick={onToday}>Today</button>}
         </div>
         <div className="at-bar-r">
-          {filter && (
-            <button type="button" className="kb-pillbtn at-small is-on" onClick={() => onFilter("")} aria-label={`Showing only ${STATE_LABEL[filter].toLowerCase()}. Show everyone`}>
-              {STATE_LABEL[filter]} <Icons.X size={12} sw={2.2} aria-hidden="true" />
-            </button>
-          )}
           {canEdit && (
             <button type="button" className={cn("kb-pillbtn at-small", edit && "is-on")} aria-pressed={edit} onClick={() => onEdit(!edit)}>
               <Icons.Edit size={13} sw={1.9} aria-hidden="true" /> {edit ? "Done" : "Edit"}
@@ -191,6 +196,10 @@ export default function RosterTile({
           )}
           <ModeSwitch mode={mode} onMode={onMode} />
         </div>
+      </div>
+
+      <div className="at-find fn-barrow">
+        <FindBar filters={filters} value={query} onChange={onQuery} placeholder="Search people" label="Search people by name or position" />
       </div>
 
       {offNote && <p className="at-note">{offNote}</p>}
@@ -205,7 +214,12 @@ export default function RosterTile({
       </div>
 
       {shown.length === 0 ? (
-        <EmptyNote icon={<Icons.Users size={22} sw={1.5} />}>{rows.length === 0 ? "No staff to show yet." : filter ? `No one is ${STATE_LABEL[filter].toLowerCase()} on this day.` : "No one to show."}</EmptyNote>
+        <EmptyNote icon={<Icons.Users size={22} sw={1.5} />}>
+          {rows.length === 0 ? "No staff to show yet."
+            : onlyStatus ? `No one is ${STATE_LABEL[filter].toLowerCase()} on this day.`
+              : narrowed ? <>No one matches. <button type="button" className="at-link" onClick={onClear}>Clear the filters</button></>
+                : "No one to show."}
+        </EmptyNote>
       ) : (
         <ul className="at-list kb-fill" tabIndex={0} aria-label={`People, ${dayTitle(date)}`}>
           {shown.map((r) => (

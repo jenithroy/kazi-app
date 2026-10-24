@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
 import { EmptyNote, Tile } from "../bento/Bento";
 import { ArrowUpRight } from "../bento/icons";
+import PersonLink from "../profile/PersonLink";
 import Select from "../Select";
 import { fmtHoursShort, monthTitle } from "../../lib/attendance";
 import { DayRow } from "./DayRows";
@@ -84,10 +85,14 @@ export default function ReportTile({ options, personId, onPerson, person, everyo
           <ul className="at-days at-ev kb-fill" tabIndex={0} aria-label={`Everyone, ${monthTitle(month)}`}>
             {everyone.people.map((p) => (
               <li key={p.personId}>
-                <button type="button" className="at-ev-row" title={`Open ${p.name}'s report`} onClick={() => onPerson(p.personId)}>
+                {/* The row opens the person's month (a stretched button underneath); their name and picture sit above it and open their profile. */}
+                <div className="at-ev-row">
+                  <button type="button" className="at-ev-hit" title={`Open ${p.name}'s report`} aria-label={`Open ${p.name}'s report`} onClick={() => onPerson(p.personId)} />
                   <span className="at-c-name">
-                    <Avatar name={p.name} personId={p.personId} hue={hueFromName(p.name)} size={28} />
-                    <span className="at-who"><b>{p.name}</b><span>{p.role}</span></span>
+                    <PersonLink decor personId={p.personId} name={p.name}>
+                      <Avatar name={p.name} personId={p.personId} hue={hueFromName(p.name)} size={28} />
+                    </PersonLink>
+                    <span className="at-who"><b><PersonLink className="kpl--clip" personId={p.personId} name={p.name} /></b><span>{p.role}</span></span>
                   </span>
                   {n(p.present)}
                   {n(p.late, "warn")}
@@ -95,7 +100,7 @@ export default function ReportTile({ options, personId, onPerson, person, everyo
                   {n(p.absent, "bad")}
                   <span className={cn("at-ev-n kb-w-360", !p.leave && "is-zero", p.leave > 0 && "is-info")}>{p.leave}</span>
                   <span className="at-ev-h kb-w-460">{p.minutes ? fmtHoursShort(p.minutes) : "—"}</span>
-                </button>
+                </div>
               </li>
             ))}
           </ul>

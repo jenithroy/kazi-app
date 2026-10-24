@@ -4,6 +4,7 @@
  */
 import { Link } from "react-router-dom";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { SECTION_LABEL, SECTION_PATH } from "../../lib/roles";
 import { TOURS, tourHref } from "../../lib/tours";
 
@@ -12,9 +13,11 @@ export function Member({ m, isYou }) {
   const hours = m.scheduleStart && m.scheduleEnd ? `${m.scheduleStart}–${m.scheduleEnd}` : null;
   return (
     <li className={cn("rl-mem", isYou && "is-you")}>
-      <Avatar name={m.name} personId={m.id} hue={hueFromName(m.name)} size={36} />
+      <PersonLink decor personId={m.id} name={m.name}>
+        <Avatar name={m.name} personId={m.id} hue={hueFromName(m.name)} size={36} />
+      </PersonLink>
       <span className="rl-mem-t">
-        <b>{m.name}{isYou && <em className="rl-you">You</em>}</b>
+        <b><PersonLink personId={m.id} name={m.name} />{isYou && <em className="rl-you">You</em>}</b>
         <small>{m.email}</small>
       </span>
       {hours && <span className="rl-mem-h" title="Working hours">{hours}</span>}

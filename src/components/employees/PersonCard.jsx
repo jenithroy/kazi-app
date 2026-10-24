@@ -12,6 +12,7 @@ import {
   LOCATIONS, PRIVATE_FIELDS, departmentOptions, hoursOf, isActive, locationLabel, managerOptions, personForm, positionOptions,
 } from "../../lib/employees";
 import { DaysPicker, Exceptions, RuleNote, WeekGlance } from "./Hours";
+import PersonLink from "../profile/PersonLink";
 import { Face, personName } from "./parts";
 import "./employees.css";
 
@@ -177,20 +178,21 @@ export default function PersonCard({
     </>
   ) : (
     <>
-      <div className="em-id ec-wide">
+      {/* the person themselves: pressing it opens their profile (what everyone can see of them), on top of this card */}
+      <PersonLink className="em-id ec-wide" personId={row.id} name={personName(row)}>
         <Face row={row} size={52} />
         <span>
           <b>{personName(row)}</b>
           <small>{row.role || "No position"}</small>
         </span>
-      </div>
+      </PersonLink>
       <KV
         rows={[
           ["Status", <Tag key="s" tone={isActive(row) ? "good" : "bad"}>{isActive(row) ? "Active" : "Inactive"}</Tag>],
           ["Based in", locationLabel(row.location)],
           ["Joined", !see ? "Hidden" : joined ? <>{joined} <small>· {fmtDateBS(row.joinDate)}</small></> : "—"],
           ["Hours", hours.source === "none" ? "Not set" : <>{hours.time}{hours.source === "builtin" ? <small> · built in</small> : null}</>],
-          ["Reports to", manager ? personName(manager) : "—"],
+          ["Reports to", manager ? <PersonLink personId={manager.id} name={personName(manager)} /> : "—"],
         ]}
       />
       <p className="ec-note ec-wide">

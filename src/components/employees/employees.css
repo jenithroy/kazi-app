@@ -104,7 +104,7 @@
 @media (max-width: 768px) {
   .kb-tile.em-pane > .kb-hd { padding: 12px 12px 8px; }
   .em-tools { padding: 0 12px 8px; }
-  .em-tools .dt-search { order: -1; flex: 1 1 100%; }      /* the search takes the first line, the filters the next */
+  .em-tools .fn-find .dt-search { max-width: none; }       /* the search and the Filters button take the first line (fn-barrow), the search growing */
   .em-tools .dt-search input { font-size: 16px; }          /* the shared search box is 13px: on a phone iOS would zoom in on it */
   .em-note { padding: 0 12px 8px; }
   .em-strip { padding: 8px 12px; }
