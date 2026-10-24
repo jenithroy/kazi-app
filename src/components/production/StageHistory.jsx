@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "../ui";
+import PersonLink from "../profile/PersonLink";
 import { fmtField } from "../../lib/calendar";
 import { daysInVisit, isClosed, movedTo, stageIndex, stageVisits } from "../../lib/production";
 
@@ -10,7 +11,7 @@ function When({ date, by }) {
   return (
     <>
       <b>{date ? fmtField(date) : "Date not recorded"}</b>
-      <span>{by || "who is not recorded"}</span>
+      <span>{by ? <PersonLink name={by} /> : "who is not recorded"}</span>
     </>
   );
 }
@@ -45,7 +46,7 @@ export default function StageHistory({ order, stage, today }) {
               <li key={`${m.date}-${m.stage}-${i}`}>
                 <span className="pr-sh-d">{m.date ? fmtField(m.date) : "—"}</span>
                 <span className="pr-sh-s">{to.back ? `Sent back to ${to.stage}` : to.stage}</span>
-                <span className="pr-sh-b">{m.by}</span>
+                <span className="pr-sh-b"><PersonLink className="kpl--clip" name={m.by} /></span>
               </li>
             );
           })}

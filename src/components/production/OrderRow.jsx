@@ -1,5 +1,6 @@
 import { Avatar, Icons, cn, hueFromName } from "../ui";
 import { Money } from "../bento/Bento";
+import PersonLink from "../profile/PersonLink";
 import { StageBar, StageTag } from "./StageMark";
 import { dueInfo, isOpen, nextStageOf } from "../../lib/production";
 
@@ -53,7 +54,13 @@ export default function OrderRow({ order, today, canEdit, busy, onOpen, onAdvanc
 
       <span className="pr-c-who">
         {order.assignedTo
-          ? <span title={order.assignedTo}><Avatar name={order.assignedTo} personId={order.assigned_to || undefined} hue={hueFromName(order.assignedTo)} size={26} /></span>
+          ? (
+            <>
+              <span title={order.assignedTo}><Avatar name={order.assignedTo} personId={order.assigned_to || undefined} hue={hueFromName(order.assignedTo)} size={26} /></span>
+              {/* their profile: an empty button over the photo (production.css), so the photo's initials are not part of its name */}
+              <PersonLink personId={order.assigned_to || undefined} name={order.assignedTo} label={`Assigned to ${order.assignedTo}`} title={order.assignedTo}><></></PersonLink>
+            </>
+          )
           : null}
       </span>
 

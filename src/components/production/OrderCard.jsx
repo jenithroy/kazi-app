@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from "react";
 import Modal from "../Modal";
 import DatePicker from "../DatePicker";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
+import PersonLink from "../profile/PersonLink";
+import ShareButton from "../share/ShareButton";
 import { fmtField } from "../../lib/calendar";
 import { useCurrency } from "../../context/CurrencyContext";
 import { regionLabel } from "../../utils/region";
@@ -99,6 +101,8 @@ export default function OrderCard({
         </div>
       )}
       {error && <p className="kmodal-msg kmodal-msg--err" role="alert">{error}</p>}
+      {/* "Send" puts this card in Chat as a PDF: what it shows, the price and the value included, but no costs, profit or margin (a copy opens for everyone in the chat) */}
+      <ShareButton type="order" record={{ order, today, prices: true, invoiceRef: order.invoiceRef || (invoice ? invoice.invoiceNumber : "") }} compact title="Send this order to someone in Chat" />
       <button type="button" className="ghost-button" onClick={onClose}>Close</button>
       {canEdit && <button type="button" className="primary-button" onClick={() => onEdit(order)} disabled={busy}>Edit order</button>}
     </>
@@ -247,7 +251,14 @@ export default function OrderCard({
             <Fact label="Colorway">{order.colorway || "—"}</Fact>
             <Fact label="Assigned to">
               {order.assignedTo
-                ? <span className="pr-who"><Avatar name={order.assignedTo} personId={order.assigned_to || undefined} hue={hueFromName(order.assignedTo)} size={20} />{order.assignedTo}</span>
+                ? (
+                  <span className="pr-who">
+                    <PersonLink decor personId={order.assigned_to || undefined} name={order.assignedTo}>
+                      <Avatar name={order.assignedTo} personId={order.assigned_to || undefined} hue={hueFromName(order.assignedTo)} size={20} />
+                    </PersonLink>
+                    <PersonLink personId={order.assigned_to || undefined} name={order.assignedTo} />
+                  </span>
+                )
                 : "Nobody yet"}
             </Fact>
             <Fact label="Invoice / challan">

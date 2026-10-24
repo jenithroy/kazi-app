@@ -3,6 +3,7 @@ import { updateRow } from "../../lib/db";
 import { todayDate } from "../../utils/date";
 import { fmtField } from "../../lib/calendar";
 import { Icons } from "../ui";
+import PersonLink from "../profile/PersonLink";
 
 /**
  * An order's notes: what people wrote about it. Anyone can read them; people who can edit Production add
@@ -73,7 +74,7 @@ export default function NotesSection({ order, canEdit, profile, onChanged }) {
           {notes.map((n) => (
             <li key={n.id} className="pr-note">
               <div className="pr-note-meta">
-                <span><b>{n.by || "Someone"}</b>{n.date ? ` · ${fmtField(n.date) || n.date}` : ""}</span>
+                <span><b>{n.by ? <PersonLink name={n.by} /> : "Someone"}</b>{n.date ? ` · ${fmtField(n.date) || n.date}` : ""}</span>
                 {canEdit && (asking === n.id ? (
                   <span className="pr-note-ask">
                     Delete this note?

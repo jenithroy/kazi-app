@@ -1,14 +1,15 @@
 import { Icons, cn } from "../ui";
 import { EmptyNote, Tile } from "../bento/Bento";
 import { Undo } from "../bento/icons";
+import { FindBar } from "../filters/FilterMenu";
 import OrderRow from "./OrderRow";
 import CalendarView from "./CalendarView";
-import { QUICK } from "../../lib/production";
 
 /**
  * The orders themselves: a list, or the same orders by delivery date on a calendar. What it shows
- * is decided by the pipeline strip (a stage, or the finished ones), the search box, the "This
- * month" switch and the quick filter the other tiles set; this tile only draws it.
+ * is decided by the pipeline strip (a stage, or the finished ones), the search box and the Filters
+ * button beside it (the side of the business, "This month", the quick views the other tiles set,
+ * a customer, a day range…); this tile only draws it.
  *
  * The list keeps its column heads and its search in place and scrolls inside the tile.
  */
@@ -25,11 +26,11 @@ function onListKey(e) {
   hits[next].scrollIntoView({ block: "nearest" });
 }
 
+/** `filters` is the page's Filters (useFilters, with "This month" added to what is narrowing); `filtered` says the list is narrower than the strip's choice. */
 export default function OrdersTile({
-  rows, base, title, view, mode, query, quick, monthOnly, today, canEdit, busyIds, hasOrders, loading, notice,
-  onQuery, onQuick, onMode, onMonthOnly, onOpen, onAdvance, onClearAll, onNoDate,
+  rows, base, title, view, mode, query, filters, filtered, untagged, today, canEdit, busyIds, hasOrders, loading, notice,
+  onQuery, onMode, onOpen, onAdvance, onClearAll, onNoDate,
 }) {
-  const filtered = Boolean(query || quick);
   const empty = rows.length === 0;
 
   return (
@@ -42,21 +43,17 @@ export default function OrdersTile({
       align="top"
       className={cn("pr-orders", mode === "calendar" && "is-cal")}
     >
-      <div className="pr-bar">
-        <label className="pr-search">
-          <Icons.Search size={14} sw={1.9} aria-hidden="true" />
-          <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Search orders" aria-label="Search orders" />
-        </label>
-
-        {quick && (
-          <button type="button" className="pr-pill is-on" onClick={() => onQuick("")} aria-label={`Showing only ${QUICK[quick].toLowerCase()}. Show all`}>
-            {QUICK[quick]} <Icons.X size={12} sw={2.2} aria-hidden="true" />
-          </button>
-        )}
-
-        <button type="button" className={cn("pr-pill", monthOnly && "is-on")} aria-pressed={monthOnly} onClick={() => onMonthOnly(!monthOnly)}>
-          This month
-        </button>
+      <div className="pr-bar fn-barrow">
+        <FindBar
+          filters={filters}
+          scope={{ region: { untagged } }}
+          search={(
+            <label className="pr-search">
+              <Icons.Search size={14} sw={1.9} aria-hidden="true" />
+              <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Search orders" aria-label="Search orders" />
+            </label>
+          )}
+        />
 
         <span className="pr-grow" />
 
@@ -91,7 +88,7 @@ export default function OrdersTile({
             <EmptyNote icon={<Icons.Production size={22} sw={1.5} />}>
               {!hasOrders
                 ? <>No orders yet.{canEdit ? " Press New order to add the first one." : ""}</>
-                : filtered || monthOnly
+                : filtered || filters.count > 0
                   ? <>Nothing matches. <button type="button" className="pr-link" onClick={onClearAll}>Clear the filters</button></>
                   : view === "closed" ? "No finished orders yet." : "No orders at this stage right now."}
             </EmptyNote>

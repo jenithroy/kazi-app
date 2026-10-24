@@ -8,6 +8,12 @@
  *   orders           the list, or the same orders on a calendar by delivery date
  *   needs attention  late, on hold, or waiting on stock
  *
+ * Everything that narrows the list is one Filters button beside the search box (components/filters;
+ * what it offers is components/production/filters.jsx): the side of the business, the stage, the
+ * quick views the tiles start ("Due this week", "See in list"), "This month", and a customer, a
+ * style, a fabric, a day range and the like. The strip and the two tiles stay as they were and the
+ * panel shows what they have set, so the two can never disagree.
+ *
  * An order opens in a card (OrderCard) where it is moved on, held, edited and annotated. The sums
  * live in lib/production.js, the reading in hooks/useProductionData.js; this file keeps what is
  * selected and does every write (the same writes the old page did, in the same order).
@@ -26,8 +32,8 @@ import { notifyStageChange } from "../utils/telegram";
 import { awardPoints, resolveUidByName } from "../utils/rewardService";
 import { orderRefOf } from "../utils/productionConsumption";
 import { countUntagged, filterByRegion } from "../utils/region";
-import { RegionSwitch } from "../components/RegionSwitch";
 import { Icons } from "../components/ui";
+import useFilters from "../components/filters/useFilters";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import ConfirmDialog from "../components/tasks/ConfirmDialog";
 import MaterialsUsedModal from "../components/MaterialsUsedModal";
@@ -38,6 +44,7 @@ import AttentionTile from "../components/production/AttentionTile";
 import OrderCard from "../components/production/OrderCard";
 import OrderFormDialog, { emptyInvFields } from "../components/production/OrderFormDialog";
 import InvoiceDialog from "../components/production/InvoiceDialog";
+import { DONE, orderFilters } from "../components/production/filters";
 import useProductionData from "../hooks/useProductionData";
 import {
   LAST_STAGE, MATERIALS_STAGE, STAGES, STAGES_AWAITING_STOCK_DEDUCTION, attention, dueIn30, glance, inMonth,
@@ -71,7 +78,7 @@ export default function Production() {
   // materials needs inventory edit rights on top of production edit rights.
   const canDeductStock = canEdit && sectionCanEdit(profile, "inventory");
   const { showPointsToast } = useReward();
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const today = useToday();
   const monthKey = today.slice(0, 7);
 
@@ -83,10 +90,11 @@ export default function Production() {
 
   const [view, setView] = useState("open");            // "open" | "closed"
   const [stage, setStage] = useState("");              // one stage of the working list, or ""
-  const [quick, setQuick] = useState("");              // overdue | week | nodate | hold | stock | ""
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState("list");            // "list" | "calendar"
   const [monthOnly, setMonthOnly] = useState(false);
+  // The quick views (overdue, due this week, no delivery date, on hold, stock not deducted) are the "Focus on" choice of the
+  // Filters panel, which keeps it with the other filters; the two tiles beside the list set it through `focusOn` below.
 
   /* ── dialogs, and what is being done ───────────────────── */
 
@@ -159,21 +167,46 @@ export default function Production() {
   const counts = useMemo(() => pipelineCounts(scoped), [scoped]);
   const stats = useMemo(() => glance(scoped, today), [scoped, today]);
   const attn = useMemo(() => attention(scoped, today, stockPending), [scoped, today, stockPending]);
-  const rows = useMemo(
-    () => selectOrders(scoped, { view, stage, query, quick, today, stockPending }),
-    [scoped, view, stage, query, quick, today, stockPending],
+  // what the strip's choice and the search leave (the same selection the page always made); the Filters panel narrows it from there
+  const searched = useMemo(
+    () => selectOrders(scoped, { view, stage, query, today, stockPending }),
+    [scoped, view, stage, query, today, stockPending],
   );
-  // how many the list would hold before the search box and the quick filter narrowed it
+  // how many the list would hold before the search box and the filters narrowed it
   const base = useMemo(
     () => selectOrders(scoped, { view, stage, today, stockPending }).length,
     [scoped, view, stage, today, stockPending],
   );
 
+  // The Filters panel (components/filters). The stage and "This month" are the page's own, mirrored there; the rest is the engine's.
+  const chooseStage = useCallback((value) => {
+    if (value === DONE) { setView("closed"); setStage(""); } else { setView("open"); setStage(value); }
+  }, []);
+  const filterDefs = useMemo(
+    () => orderFilters({
+      orders, invoices: data.invoices, today, monthKey, canDeductStock, stockPending, counts,
+      view, stage, onStage: chooseStage, monthOnly, onMonthOnly: setMonthOnly,
+    }),
+    [orders, data.invoices, today, monthKey, canDeductStock, stockPending, counts, view, stage, chooseStage, monthOnly],
+  );
+  const tf = useFilters(filterDefs, searched);
+  const rows = tf.rows;
+  // "This month" scopes the whole page (the tiles follow it), so the page keeps it; the bar still shows it as a pill and clears it with the rest
+  const barFilters = useMemo(() => (monthOnly ? {
+    ...tf,
+    active: [...tf.active, { id: "month", text: "This month", clear: () => setMonthOnly(false) }],
+    count: tf.count + 1,
+    clear: () => { tf.clear(); setMonthOnly(false); },
+  } : tf), [tf, monthOnly]);
+  const filtered = Boolean(query) || tf.count > 0;           // the list is narrower than the strip's choice ("This month" is not counted: the numbers beside the list follow it too)
+
   const cardOrder = cardId ? allOrders.find((o) => o.id === cardId) || null : null;
 
-  const pickStage = (nextView, nextStage) => { setView(nextView); setStage(nextStage); setQuick(""); };
-  const showQuick = (key) => { setView("open"); setStage(""); setQuick(key); setMode("list"); };
-  const clearAll = () => { setQuery(""); setQuick(""); setMonthOnly(false); };
+  // The strip and the two tiles start a fresh list, as they always did: the quick view they set replaces the one before it.
+  const focusOn = (key) => tf.set("focus", key);
+  const pickStage = (nextView, nextStage) => { setView(nextView); setStage(nextStage); focusOn(""); };
+  const showQuick = (key) => { setView("open"); setStage(""); focusOn(key); setMode("list"); };
+  const clearAll = () => { setQuery(""); tf.clear(); setMonthOnly(false); };
 
   /* ── writes ────────────────────────────────────────────── */
 
@@ -496,8 +529,10 @@ export default function Production() {
   /* ── the page ──────────────────────────────────────────── */
 
   const ready = status === "ready";
+  // what is on screen, in words: the side of the business (and the month, when the page is scoped to it); their switches are in the Filters panel
   const sub = ready ? (
     <>
+      <span>{regionLabel}{monthOnly ? " · This month" : ""}</span>
       <span>{stats.open} open</span>
       {stats.units > 0 && <span>{stats.units.toLocaleString()} pcs</span>}
       {stats.overdue > 0 && <span className="kb-bad">{stats.overdue} late</span>}
@@ -514,9 +549,6 @@ export default function Production() {
           <p className="kb-head-sub">{sub}</p>
         </div>
         <div className="kb-head-r">
-          <div className="kb-head-row">
-            <RegionSwitch untagged={countUntagged(allOrders)} />
-          </div>
           {canEdit && (
             <button type="button" className="kb-btn kb-btn--primary pr-newbtn kb-head-act" data-tour="new-order" onClick={openNew} disabled={!ready}>
               <Icons.Plus size={14} sw={2.2} aria-hidden="true" /> New order
@@ -550,9 +582,10 @@ export default function Production() {
           <PipelineTile counts={counts} view={view} stage={stage} onPick={pickStage} loading={!ready} />
           <GlanceTile stats={stats} onQuick={showQuick} loading={!ready} />
           <OrdersTile
-            rows={rows} base={base} title={title} view={view} mode={mode} query={query} quick={quick} monthOnly={monthOnly}
-            today={today} canEdit={canEdit} busyIds={busy} hasOrders={scoped.length > 0} loading={!ready} notice={notice}
-            onQuery={setQuery} onQuick={setQuick} onMode={setMode} onMonthOnly={setMonthOnly}
+            rows={rows} base={base} title={title} view={view} mode={mode} query={query} filters={barFilters} filtered={filtered}
+            untagged={countUntagged(allOrders)} today={today} canEdit={canEdit} busyIds={busy} hasOrders={scoped.length > 0}
+            loading={!ready} notice={notice}
+            onQuery={setQuery} onMode={setMode}
             onOpen={openCard} onAdvance={advance} onClearAll={clearAll} onNoDate={() => showQuick("nodate")}
           />
           <AttentionTile items={attn} today={today} showStock={canDeductStock} onOpen={openCard} onQuick={showQuick} loading={!ready} />
