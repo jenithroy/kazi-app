@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Modal from "./Modal";
 import { Avatar, Icons, cn, hueFromName } from "./ui";
 import { useAuth } from "../context/AuthContext";
@@ -9,13 +9,18 @@ import { useTheme } from "../hooks/useTheme";
 import { useReveal } from "../hooks/useReveal";
 import { Camera, Moon, Sun } from "./bento/icons";
 import PhotoCropper from "./PhotoCropper";
-import PointsPanel from "./PointsPanel";
 import { useAvatars } from "../context/AvatarContext";
 import { friendlyPhotoError, removeAvatar, saveAvatar } from "../lib/avatars";
 import { SECTION_LABEL } from "../lib/roles";
-import { WEEKDAYS } from "../constants";
+import { LOCATION, addedDay, daysLabel, fmtDate } from "../lib/profileFormat";
+import { seesOf } from "../lib/personAccess";
+import { ProfileTabs } from "./profile/ProfileBits";
 import { fmtDateBS } from "../utils/fiscalYear";
 import "./profile-theme.css";
+
+// The two tabs that need more code are fetched when somebody opens them.
+const AttendancePanel = lazy(() => import("./profile/AttendancePanel"));
+const PayPanel = lazy(() => import("./profile/PayPanel"));
 
 /**
  * The profile card, opened from the avatar in the top bar.
@@ -42,45 +47,15 @@ import "./profile-theme.css";
  * of that: it has its own table and storage folder (migration 0056) and saves on its
  * own, the moment "Use photo" is pressed, not with the Save button.
  *
+ * Three tabs: Overview (all of the above), Attendance (your month, when you clocked in and out) and Pay (your salary slips). The same
+ * tabs open on anyone else's profile (components/profile/PersonCard.jsx), where they are read-only.
+ *
  * The details come from the same directory view the Employees page reads. Phone
  * and address are masked in it for everyone but the person themselves and HR,
  * which is why this card, not a colleague's, can show them.
  */
 
-const LOCATION = { nepal: "Nepal", uk: "United Kingdom" };
 const SAVED_FLASH_MS = 4000;
-
-const fmtDate = (iso) => {
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime())
-    ? null
-    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-};
-
-// "3 yrs 2 mos" since a join date; null when the date is unusable or in the future.
-function tenure(iso, now = new Date()) {
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  let months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
-  if (now.getDate() < d.getDate()) months -= 1;
-  if (months < 0) return null;
-  const y = Math.floor(months / 12);
-  const m = months % 12;
-  if (!y && !m) return "joined this month";
-  return [y && `${y} yr${y > 1 ? "s" : ""}`, m && `${m} mo${m > 1 ? "s" : ""}`].filter(Boolean).join(" ");
-}
-
-// ["Sun","Mon","Tue","Wed","Thu","Fri"] -> "Sun–Fri"; anything patchier is listed out.
-function daysLabel(days) {
-  if (!Array.isArray(days) || !days.length) return null;
-  const idx = [...new Set(days.map((d) => WEEKDAYS.indexOf(d)).filter((i) => i >= 0))].sort((a, b) => a - b);
-  if (!idx.length) return days.join(", ");
-  if (idx.length === 7) return "Every day";
-  const run = idx.every((v, i) => i === 0 || v === idx[i - 1] + 1);
-  return run && idx.length > 2
-    ? `${WEEKDAYS[idx[0]]}–${WEEKDAYS[idx[idx.length - 1]]}`
-    : idx.map((i) => WEEKDAYS[i]).join(", ");
-}
 
 // Optional, but if given: digits with the usual separators, at least six digits.
 const validPhone = (v) => !v || (/^[+()\d][\d\s().+-]{5,23}$/.test(v) && v.replace(/\D/g, "").length >= 6);
@@ -125,6 +100,21 @@ export default function ProfileModal({ onClose }) {
   const personId = profile?.personId;
   const name = profile?.name || "";
   const hue = hueFromName(name);
+
+  // The tabs on the right: Overview always, Attendance and Pay for whoever the database lets read them (for your own profile: you).
+  const uid = useId();
+  const see = useMemo(() => seesOf(profile, personId), [profile, personId]);
+  const paneTabs = useMemo(() => [
+    { id: "overview", label: "Overview" },
+    ...(see.attendance ? [{ id: "attendance", label: "Attendance" }] : []),
+    ...(see.pay ? [{ id: "pay", label: "Pay" }] : []),
+  ], [see.attendance, see.pay]);
+  const [pick, setPick] = useState("overview");
+  const paneTab = paneTabs.some((t) => t.id === pick) ? pick : "overview";
+  const asPerson = useMemo(
+    () => ({ id: String(personId || ""), name, role: profile?.positionLabel || "", location: profile?.location }),
+    [personId, name, profile?.positionLabel, profile?.location],
+  );
 
   // Room beside the card for the tabs? Slid out, the longest ("Light mode") reaches about 130px
   // past the card's edge, and a 620px card centred in 900px leaves 140px.
@@ -351,9 +341,12 @@ export default function ProfileModal({ onClose }) {
       .map((id) => ({ id, label: SECTION_LABEL[id], edit: perms[id].canEdit === true }));
   }, [profile?.permissions]);
 
-  const joined = row?.joinDate ? fmtDate(row.joinDate) : null;
-  const joinedBS = row?.joinDate ? fmtDateBS(row.joinDate) : null;
-  const since = row?.joinDate ? tenure(row.joinDate) : null;
+  // "Since" is the day you were added as an employee (the record's own stamp). HR's join date is shown too, unless it is that very day.
+  const added = addedDay(row?.createdAt);
+  const since = added ? fmtDate(added) : null;
+  const showJoined = row?.joinDate && row.joinDate !== added;
+  const joined = showJoined ? fmtDate(row.joinDate) : null;
+  const joinedBS = showJoined ? fmtDateBS(row.joinDate) : null;
   const hours = row?.scheduleStart && row?.scheduleEnd ? `${row.scheduleStart} – ${row.scheduleEnd}` : null;
   const days = daysLabel(row?.scheduleWorkingDays);
 
@@ -480,89 +473,100 @@ export default function ProfileModal({ onClose }) {
         </aside>
 
         <div className="kprof-main">
-          {data.status === "error" && (
-            <div className="kprof-sec">
-              <p className="kprof-warn" role="alert">{data.error}</p>
-              <button type="button" className="ghost-button" onClick={() => { refocusEdit.current = true; load(); }}>Try again</button>
-            </div>
-          )}
-
-          <section className="kprof-sec">
-            <div className="kprof-sech">
-              <h4 className="kprof-h">Contact</h4>
-              {msg.kind === "ok" && (
-                <span className="kprof-flash" role="status"><Icons.Check size={12} sw={2.4} /> {msg.text}</span>
-              )}
-            </div>
-            {editing ? (
-              <div className="kof kprof-form">
-                <label className="kof-f kprof-c5">
-                  <span className="kof-l">Phone</span>
-                  <input
-                    ref={phoneRef}
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    maxLength={30}
-                    value={form.phone}
-                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                    aria-invalid={!!fieldErr.phone}
-                    aria-describedby={fieldErr.phone ? "kprof-phone-err" : undefined}
-                  />
-                  {fieldErr.phone && <span className="kprof-ferr" id="kprof-phone-err" role="alert">{fieldErr.phone}</span>}
-                </label>
-                <label className="kof-f kprof-c7">
-                  <span className="kof-l">Address</span>
-                  <input
-                    type="text"
-                    autoComplete="street-address"
-                    maxLength={220}
-                    value={form.address}
-                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                    aria-invalid={!!fieldErr.address}
-                    aria-describedby={fieldErr.address ? "kprof-address-err" : undefined}
-                  />
-                  {fieldErr.address && <span className="kprof-ferr" id="kprof-address-err" role="alert">{fieldErr.address}</span>}
-                </label>
-                <p className="kfield-hint">Only you and HR can see your phone and address. Your name, email, position and pay are changed by HR.</p>
-              </div>
-            ) : (
+          {paneTabs.length > 1 && <ProfileTabs tabs={paneTabs} value={paneTab} onChange={setPick} idPrefix={uid} />}
+          <div id={`${uid}-panel`} role={paneTabs.length > 1 ? "tabpanel" : undefined} aria-labelledby={paneTabs.length > 1 ? `${uid}-tab-${paneTab}` : undefined}>
+            {paneTab === "overview" && (
               <>
-                <Row k="Phone" loading={loading} empty={!row?.phone}>{row?.phone || "Not added yet"}</Row>
-                <Row k="Address" loading={loading} empty={!row?.address}>{row?.address || "Not added yet"}</Row>
+                {data.status === "error" && (
+                  <div className="kprof-sec">
+                    <p className="kprof-warn" role="alert">{data.error}</p>
+                    <button type="button" className="ghost-button" onClick={() => { refocusEdit.current = true; load(); }}>Try again</button>
+                  </div>
+                )}
+
+                <section className="kprof-sec">
+                  <div className="kprof-sech">
+                    <h4 className="kprof-h">Contact</h4>
+                    {msg.kind === "ok" && (
+                      <span className="kprof-flash" role="status"><Icons.Check size={12} sw={2.4} /> {msg.text}</span>
+                    )}
+                  </div>
+                  {editing ? (
+                    <div className="kof kprof-form">
+                      <label className="kof-f kprof-c5">
+                        <span className="kof-l">Phone</span>
+                        <input
+                          ref={phoneRef}
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          maxLength={30}
+                          value={form.phone}
+                          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                          aria-invalid={!!fieldErr.phone}
+                          aria-describedby={fieldErr.phone ? "kprof-phone-err" : undefined}
+                        />
+                        {fieldErr.phone && <span className="kprof-ferr" id="kprof-phone-err" role="alert">{fieldErr.phone}</span>}
+                      </label>
+                      <label className="kof-f kprof-c7">
+                        <span className="kof-l">Address</span>
+                        <input
+                          type="text"
+                          autoComplete="street-address"
+                          maxLength={220}
+                          value={form.address}
+                          onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                          aria-invalid={!!fieldErr.address}
+                          aria-describedby={fieldErr.address ? "kprof-address-err" : undefined}
+                        />
+                        {fieldErr.address && <span className="kprof-ferr" id="kprof-address-err" role="alert">{fieldErr.address}</span>}
+                      </label>
+                      <p className="kfield-hint">Only you and HR can see your phone and address. Your name, email, position and pay are changed by HR.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <Row k="Phone" loading={loading} empty={!row?.phone}>{row?.phone || "Not added yet"}</Row>
+                      <Row k="Address" loading={loading} empty={!row?.address}>{row?.address || "Not added yet"}</Row>
+                    </>
+                  )}
+                </section>
+
+                <section className="kprof-sec">
+                  <h4 className="kprof-h">Work</h4>
+                  <Row k="Reports to" loading={loading} empty={!data.manager}>{data.manager || "Not set"}</Row>
+                  <Row k="Hours" loading={loading} empty={!hours}>{hours ? (days ? `${hours} · ${days}` : hours) : "Not set"}</Row>
+                </section>
+
+                {(joined || since) && (
+                  <section className="kprof-sec">
+                    <h4 className="kprof-h">Member since</h4>
+                    {joined && <Row k="Joined">{joined}{joinedBS && joinedBS !== "—" ? <> · {joinedBS}</> : null}</Row>}
+                    {since && <Row k="Since">{since}</Row>}
+                  </section>
+                )}
+
+                <section className="kprof-sec">
+                  <h4 className="kprof-h">Access</h4>
+                  <p className="kprof-note">Pages you can open. A pencil means you can edit there too.</p>
+                  <ul className="kprof-access">
+                    {access.map((a) => (
+                      <li key={a.id} className={cn("kprof-chip", a.edit && "kprof-chip--edit")}>
+                        {a.edit && <Icons.Edit size={11} sw={2} />}
+                        {a.label}
+                        {a.edit && <span className="kprof-sr"> (you can edit)</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               </>
             )}
-          </section>
-
-          <PointsPanel />
-
-          <section className="kprof-sec">
-            <h4 className="kprof-h">Work</h4>
-            <Row k="Reports to" loading={loading} empty={!data.manager}>{data.manager || "Not set"}</Row>
-            <Row k="Hours" loading={loading} empty={!hours}>{hours ? (days ? `${hours} · ${days}` : hours) : "Not set"}</Row>
-          </section>
-
-          {joined && (
-            <section className="kprof-sec">
-              <h4 className="kprof-h">Member since</h4>
-              <Row k="Joined">{joined}{joinedBS && joinedBS !== "—" ? <> · {joinedBS}</> : null}</Row>
-              {since && <Row k="Time here">{since}</Row>}
-            </section>
-          )}
-
-          <section className="kprof-sec">
-            <h4 className="kprof-h">Access</h4>
-            <p className="kprof-note">Pages you can open. A pencil means you can edit there too.</p>
-            <ul className="kprof-access">
-              {access.map((a) => (
-                <li key={a.id} className={cn("kprof-chip", a.edit && "kprof-chip--edit")}>
-                  {a.edit && <Icons.Edit size={11} sw={2} />}
-                  {a.label}
-                  {a.edit && <span className="kprof-sr"> (you can edit)</span>}
-                </li>
-              ))}
-            </ul>
-          </section>
+            {paneTab === "attendance" && (
+              <Suspense fallback={null}><AttendancePanel person={asPerson} enabled={see.attendance} /></Suspense>
+            )}
+            {paneTab === "pay" && (
+              <Suspense fallback={null}><PayPanel person={asPerson} basicPay={row?.basicSalaryNPR} enabled={see.pay} /></Suspense>
+            )}
+          </div>
         </div>
       </div>
     </Modal>

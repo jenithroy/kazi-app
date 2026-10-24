@@ -35,6 +35,7 @@ import "./components/meta/meta.css";
 import "./components/photo-cropper.css";
 import "./components/points.css";
 import "./components/profile-theme.css";
+import "./components/profile/profile.css";
 import "./components/glass.css";
 import "./components/nav-theme.css";
 import "./components/system/system.css";

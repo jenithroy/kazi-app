@@ -6,6 +6,7 @@ import { isNative } from "../utils/native";
 import useActivityLog from "../hooks/useActivityLog";
 import { useApplyTheme } from "../hooks/useTheme";
 import Spotlight from "./Spotlight";
+import { PersonProvider } from "./profile/PersonProvider";
 import "./glass.css";
 import "./nav-theme.css";
 
@@ -61,7 +62,8 @@ function AppLayout({ children }) {
       <TopNav showMenuButton={!isNative} />
       <main className={cn("kmain", isNative && "kmain--native")}>
         <div className="kscroll">
-          {children}
+          {/* Any name on any page can open that person's profile (components/profile/): the provider draws no box, only the card. */}
+          <PersonProvider>{children}</PersonProvider>
         </div>
         {isNative && <BottomNav profile={profile} />}
       </main>

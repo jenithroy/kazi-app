@@ -1,0 +1,183 @@
+/* ══════════════════════════════════════════════════════════════════
+   PROFILE CARDS — anyone's profile, and the tabs your own gained
+   components/profile/ (PersonCard, AttendancePanel, PayPanel, PersonLink) and components/ProfileModal.jsx
+
+   The card is the profile card (profile-theme.css: glass, light and dark; styles.css: the two panes), so it
+   reads the card's tokens (--ink-*, --line, --mint-*). A card is portalled to <body>, outside any `.kb` page:
+   the page's --kb-* tokens do not exist in it. What is added here is only the new parts, everything `.kpp-*`,
+   and `.kpl`, the name that opens a profile, which is used on the pages and so reads whatever tokens its page has.
+
+   Loaded before styles.css, so a rule that must beat one there is written one class more specific.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The colours that mean something (tag, count, figure), as EditCard's --ec-* pairs ── */
+.kmodal--card {
+  --pp-good: var(--mint-deep);  --pp-good-bg: var(--mint-soft);
+  --pp-warn: #7d5512;           --pp-warn-bg: var(--amber-soft);
+  --pp-bad:  #a8442c;           --pp-bad-bg:  var(--terra-soft);
+  --pp-info: #2a4f6f;           --pp-info-bg: var(--blue-soft);
+  --pp-well: rgba(15, 46, 34, .05);
+}
+:root[data-theme="dark"] .kmodal--card {
+  --pp-good: #7dd3a8;  --pp-good-bg: rgba(125, 211, 168, .14);
+  --pp-warn: #e6bd70;  --pp-warn-bg: rgba(224, 180, 95, .14);
+  --pp-bad:  #f4ae98;  --pp-bad-bg:  rgba(240, 164, 141, .14);
+  --pp-info: #9cc3e1;  --pp-info-bg: rgba(143, 184, 216, .14);
+  --pp-well: rgba(255, 255, 255, .05);
+}
+
+/* ══ A name or photo that opens a profile ═════════════════════════
+   It takes the look of the text around it and only underlines when pointed at. It sits above a row's or a tile's
+   stretched link (the same z-index as .dt-act / .kb-act), so pressing the name never presses the row. */
+.kpl {
+  appearance: none; -webkit-appearance: none;
+  position: relative; z-index: 2;
+  margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: inherit; line-height: inherit; color: inherit;
+  cursor: pointer; border-radius: 6px; max-width: 100%; min-width: 0;
+}
+.kpl:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+/* a photo beside a name that is already a link: the same size as the photo, nothing around it, no underline */
+.kpl--decor { display: inline-flex; flex: none; border-radius: 50%; }
+.kpl--decor:hover { text-decoration: none; }
+/* a name in a line that cuts long names short with "…": the link is as wide as the name (never wider, so only the name is pressed) and cuts the same way */
+.kpl--clip { display: block; width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.kpl--clip:focus-visible { outline-offset: -2px; }       /* the cell clips what sticks out of it, so the ring is drawn inside the name */
+.kpl:focus-visible { outline: 2px solid var(--kb-accent, var(--mint-2)); outline-offset: 2px; text-decoration: underline; }
+/* a finger needs a little more than a line of text: the press area grows a few pixels each way without growing the line (a taller line would push a phone's rows apart) */
+@media (pointer: coarse) {
+  .kpl:not(.kpl--clip):not(.kpl--decor)::after { content: ""; position: absolute; inset: -5px -3px; }
+}
+@media (forced-colors: active) {
+  .kpl { color: LinkText; }
+}
+
+/* ══ The card ═════════════════════════════════════════════════════ */
+.kpp-person { min-height: 540px; }          /* the tallest tab, so the card does not change height as you move between them */
+.kpp-avatar { display: inline-flex; flex: none; border-radius: 50%; }
+.kprof-chip.kpp-chip--off { background: var(--pp-well); color: var(--ink-3); }
+.kpp-back .ghost-button { width: 100%; }
+.kpp-a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.kpp-a:hover { text-decoration-color: currentColor; }
+.kpp-inline { display: inline; margin: 0; }
+
+/* the tabs at the top of the right-hand pane */
+.kpp-tabbar { padding: 14px 24px 2px; }
+.kpp-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.kpp-tabs::-webkit-scrollbar { display: none; }
+/* the chosen tab: the global rule colours it --mint-deep, which a dark card does not remap (2.7:1 there) */
+:root[data-theme="dark"] .kmodal--card .kpp-tabs .kregion-seg-btn.is-on { color: var(--mint); }
+
+/* ── A status pill and a count ──────────────────────────────────── */
+.kpp-tag {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+  background: var(--pp-well); color: var(--ink-2); font: 600 11.5px/1.45 var(--font); white-space: nowrap;
+}
+.kpp-tag--good { background: var(--pp-good-bg); color: var(--pp-good); }
+.kpp-tag--warn { background: var(--pp-warn-bg); color: var(--pp-warn); }
+.kpp-tag--bad { background: var(--pp-bad-bg); color: var(--pp-bad); }
+.kpp-tag--info { background: var(--pp-info-bg); color: var(--pp-info); }
+
+.kpp-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 2px 0 8px; }
+.kpp-stat {
+  display: grid; gap: 3px; min-width: 0; padding: 10px 10px 9px; border-radius: 12px;
+  background: var(--pp-well); box-shadow: inset 0 0 0 1px var(--line);
+}
+.kpp-stat b { font: 600 24px/1 var(--font); letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpp-stat span { font-size: 12px; color: var(--ink-3); }
+.kpp-stat--warn b { color: var(--pp-warn); }
+.kpp-stat--bad b { color: var(--pp-bad); }
+.kpp-stat--info b { color: var(--pp-info); }
+.kpp-facts { margin: 0 0 6px; font-variant-numeric: tabular-nums; }
+.kpp-wait { display: grid; gap: 10px; margin-top: 6px; }
+
+/* ── Today ──────────────────────────────────────────────────────── */
+.kpp-today { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 2px 0 0; }
+.kpp-today-d { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ── Attendance ─────────────────────────────────────────────────── */
+.kpp-month { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.kpp-month-t { margin: 0 4px; font: 600 14px/1.2 var(--font); color: var(--ink); }
+.kpp-month .kpp-link { margin-left: auto; }
+.kpp-step {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 50%; background: transparent; color: var(--ink-2); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.kpp-step:hover:not([aria-disabled="true"]) { background: var(--pp-well); color: var(--ink); }
+.kpp-step:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; }
+.kpp-step[aria-disabled="true"] { opacity: .4; cursor: default; }
+@media (pointer: coarse) { .kpp-step { width: 40px; height: 40px; } }
+
+.kpp-link {
+  appearance: none; -webkit-appearance: none; padding: 4px 2px; border: 0; border-radius: 6px; background: none;
+  font: 600 12.5px/1.2 var(--font); color: var(--mint-deep); cursor: pointer;
+}
+.kpp-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.kpp-link:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; }
+:root[data-theme="dark"] .kmodal--card .kpp-link { color: var(--mint); }
+.kpp-more { margin-top: 6px; }
+
+.kpp-days { margin: 4px 0 0; padding: 0; list-style: none; }
+.kpp-day {
+  display: grid; grid-template-columns: 82px max-content minmax(0, 1fr) auto; align-items: center; column-gap: 10px; row-gap: 2px;
+  padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px;
+}
+.kpp-day:first-child { border-top: 0; }
+.kpp-day-d { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.kpp-day-t { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpp-day-w { min-width: 3.4em; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.kpp-day-n { grid-column: 2 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+.kpp-day.is-off .kpp-day-d, .kpp-day.is-off .kpp-day-t { color: var(--ink-3); }
+
+/* ── Pay ────────────────────────────────────────────────────────── */
+.kpp-latest {
+  display: grid; gap: 10px; margin-top: 8px; padding: 14px; border-radius: 14px;
+  background: var(--pp-well); box-shadow: inset 0 0 0 1px var(--line);
+}
+.kpp-latest-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kpp-latest-m { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.kpp-slipbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; font-size: 13px; }
+.kpp-fig { display: flex; align-items: baseline; gap: 8px; }
+.kpp-fig b { font: 600 30px/1 var(--font); letter-spacing: -.035em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpp-fig span { font-size: 12.5px; color: var(--ink-3); }
+.kpp-kv { display: grid; margin: 0; }
+.kpp-kv > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.kpp-kv dt { margin: 0; color: var(--ink-3); }
+.kpp-kv dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpp-kv dd.is-neg { color: var(--pp-bad); }
+.kpp-earlier { margin-top: 18px; }
+.kpp-pays { margin: 0; padding: 0; list-style: none; }
+.kpp-pays li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px;
+  padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px;
+}
+.kpp-pays li:first-child { border-top: 0; }
+.kpp-pays-m { color: var(--ink-2); }
+.kpp-pays-n { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+/* The Message button, under the chips: the whole width of the left pane (a phone puts it under the chips in the text column) */
+.kpp-act { margin-top: 16px; }
+.kpp-act .primary-button { width: 100%; }
+
+/* ══ Phone: the sheet ═════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  .kpp-person { min-height: 0; }
+  .kpp-act { margin-top: 12px; }
+  .kpp-act .primary-button { width: auto; }
+  .kpp-tabbar { padding: 12px 16px 0; }
+  .kpp-tabs { display: flex; width: 100%; }
+  .kpp-tabs .kregion-seg-btn { flex: 1 1 0; justify-content: center; padding: 9px 10px; }
+  .kprof-pwbox.kpp-back { padding-top: 14px; }
+}
+@media (max-width: 380px) {
+  .kpp-day { grid-template-columns: 78px max-content minmax(0, 1fr); }
+  .kpp-day-t { grid-column: 3; }
+  .kpp-day-w { grid-column: 3; grid-row: 2; font-size: 12px; }
+  .kpp-day-n { grid-row: 3; }
+  .kpp-stats { gap: 6px; }
+  .kpp-stat { padding: 9px 8px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kpp-step { transition: none; }
+}

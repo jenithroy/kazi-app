@@ -13,7 +13,7 @@ import { useAuth } from "./AuthContext";
  * missing, and then everyone simply keeps their initials.
  */
 
-const AvatarContext = createContext({ urlFor: () => null, refresh: async () => {}, ready: false });
+const AvatarContext = createContext({ urlFor: () => null, idFor: () => null, refresh: async () => {}, ready: false });
 
 const EMPTY = { byId: {}, idByName: {}, ready: false };
 const STALE_MS = 60_000;   // a tab that has been in the background this long reloads on return
@@ -92,6 +92,8 @@ export function AvatarProvider({ children }) {
       const id = name ? state.idByName[keyOf(name)] : null;
       return (id && state.byId[id]) || null;
     },
+    /** The person a name belongs to (their id), or null when nobody has it or two people share it. For links to a profile. */
+    idFor: (name) => (name ? state.idByName[keyOf(name)] || null : null),
   }), [state, refresh]);
 
   return <AvatarContext.Provider value={value}>{children}</AvatarContext.Provider>;
