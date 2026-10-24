@@ -4,11 +4,16 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips, SearchBox } from "../../table/Bar";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
+import PersonLink from "../../profile/PersonLink";
 import FinPane from "../FinPane";
 import ExpenseCard from "../cards/ExpenseCard";
+import ExpenseEntry, { EXPENSE_NEEDS } from "../entry/ExpenseEntry";
+import { fits } from "../entry/EntryRow";
+import useFlash, { useHiddenNote } from "../entry/useFlash";
 import { useFin, emptyWords } from "../FinanceContext";
 import { Amt, Chip, ExportButton, Foot, FootSum, NameCell, UndoStrip, plural, useMoney, usePhoneRows, useUndo } from "../parts";
 import { setExpensePaid } from "../../../lib/financeWrites";
@@ -22,9 +27,9 @@ export default function ExpensesTab() {
   const money = useMoney();
   const canEdit = canEditTab("expenses");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
   const [card, setCard] = useState(null);                 // null, or { id } (null id = a new expense)
   const [undo, offerUndo, clearUndo] = useUndo();
+  const [fresh, flash] = useFlash();                        // the expense just typed into the row at the top
 
   useEffect(() => {
     newRef.current = canEdit ? () => setCard({ id: null }) : null;
@@ -43,7 +48,26 @@ export default function ExpensesTab() {
     [expenses, q],
   );
   const unpaid = found.filter((x) => x.status !== "Paid");
-  const shown = filter === "unpaid" ? unpaid : filter === "paid" ? found.filter((x) => x.status === "Paid") : found;
+  // What the Filters panel offers for this list: paid or not, a category, how it was paid, a VAT bill, who logged it, how much.
+  const defs = useMemo(() => [
+    {
+      id: "pay", label: "Payment", kind: "chips",
+      options: [{ value: "all", label: "All" }, { value: "unpaid", label: "Not paid", tone: "warn" }, { value: "paid", label: "Paid" }],
+      test: (x, v) => (v === "unpaid" ? x.status !== "Paid" : x.status === "Paid"),
+    },
+    { id: "category", label: "Category", kind: "select", of: (x) => x.category, any: "Any category", none: "No category" },
+    { id: "via", label: "Paid with", kind: "select", of: payLabel, any: "Any way of paying" },
+    {
+      id: "vat", label: "VAT bill", kind: "chips",
+      options: [{ value: "any", label: "Any" }, { value: "yes", label: "Has a VAT bill" }, { value: "no", label: "No VAT bill" }],
+      test: (x, v) => (v === "yes" ? Boolean(x.vatBill) : !x.vatBill),
+    },
+    { id: "by", label: "Logged by", kind: "select", of: (x) => (x.loggedBy || "").trim(), any: "Anyone", none: "Not recorded" },
+    { id: "amount", label: "Amount", kind: "range", get: (x) => Number(x.amountNPR), unit: "NPR" },
+  ], []);
+  const tf = useTabFilters(defs, found);
+  const shown = tf.rows;
+  useHiddenNote(fresh, expenses, shown);                    // a record just typed in that the search or a filter hides is said so
   const total = shown.reduce((s, x) => s + Number(x.amountNPR || 0), 0);
   const [capped, more] = usePhoneRows(shown);
 
@@ -93,7 +117,7 @@ export default function ExpensesTab() {
     },
     {
       id: "by", label: "Logged by", width: 132, drop: 6, sort: (x) => (x.loggedBy || "").trim().toLowerCase(),
-      render: (x) => <span className="dt-clip dt-dim">{(x.loggedBy || "").trim() || "—"}</span>,
+      render: (x) => <span className="dt-clip dt-dim">{(x.loggedBy || "").trim() ? <PersonLink className="kpl--clip" name={(x.loggedBy || "").trim()} /> : "—"}</span>,
     },
     {
       id: "amt", label: "Amount", width: 124, align: "end", first: "desc", sort: (x) => Number(x.amountNPR) || 0,
@@ -131,21 +155,9 @@ export default function ExpensesTab() {
     <>
       <FinPane
         title="Expenses"
-        note={q || filter !== "all" ? `${shown.length} of ${expenses.length}` : `${expenses.length} ${plural(expenses.length, "entry", "entries")}`}
+        note={q || tf.count > 0 ? `${shown.length} of ${expenses.length}` : `${expenses.length} ${plural(expenses.length, "entry", "entries")}`}
         id="fin-pane" labelledBy="fin-tab-expenses"
-        tools={(
-          <>
-            <SearchBox value={query} onChange={setQuery} placeholder="Search expenses" label="Search expenses by category, note, payment or who logged them" />
-            <FilterChips
-              label="Which expenses" value={filter} onChange={setFilter}
-              options={[
-                { value: "all", label: "All", count: found.length },
-                { value: "unpaid", label: "Not paid", count: unpaid.length, tone: unpaid.length > 0 ? "warn" : undefined },
-                { value: "paid", label: "Paid", count: found.length - unpaid.length },
-              ]}
-            />
-          </>
-        )}
+        tools={<FindBar value={query} onChange={setQuery} placeholder="Search expenses" label="Search expenses by category, note, payment or who logged them" filters={tf} />}
         actions={(
           <>
             <ExportButton name="expenses" columns={csv} rows={shown} />
@@ -162,7 +174,7 @@ export default function ExpensesTab() {
             <Foot>
               <FootSum count label={plural(shown.length, "entry", "entries")} value={shown.length} />
               <FootSum label="Total" value={money(total)} />
-              {filter === "all" && unpaid.length > 0 && <FootSum label="Not paid" value={money(unpaid.reduce((s, x) => s + Number(x.amountNPR || 0), 0))} tone="warn" />}
+              {tf.values.pay === "all" && unpaid.length > 0 && <FootSum label="Not paid" value={money(unpaid.reduce((s, x) => s + Number(x.amountNPR || 0), 0))} tone="warn" />}
             </Foot>
           </>
         )}
@@ -178,6 +190,8 @@ export default function ExpensesTab() {
           onOpen={(x) => setCard({ id: x.id })}
           rowLabel={(x) => `Open ${x.category || "expense"} of ${money(Number(x.amountNPR) || 0)}`}
           activeKey={card?.id || undefined}
+          flashKey={fresh}
+          entry={canEdit ? (c) => (fits(c, EXPENSE_NEEDS) ? <ExpenseEntry ctx={c} onSaved={flash} /> : null) : undefined}
           loading={loading}
           empty={<EmptyNote icon={<Icons.File size={22} sw={1.5} />}>{expenses.length === 0 ? empty : "Nothing matches that."}</EmptyNote>}
         />

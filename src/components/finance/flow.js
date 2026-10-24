@@ -18,13 +18,17 @@ const FIELDS = [
 
 const visible = (el) => el.offsetParent !== null || el === document.activeElement;
 
+// A card's fields are in a <form>; a row of fields in a table is not (it is a table row), so it names itself with data-flow-root.
+// Something inside a data-flow-skip (the small calendar button beside a typed date) is not a stop on the way through.
+const rootOf = (el) => el?.closest?.("form, [data-flow-root]") || null;
+
 export function fieldsIn(root) {
-  return [...root.querySelectorAll(FIELDS)].filter(visible);
+  return [...root.querySelectorAll(FIELDS)].filter((el) => visible(el) && !el.closest("[data-flow-skip]"));
 }
 
 /** Move focus to the field after `from`: "moved", "last" (it was the last one) or "unknown" (it is not one of the fields). */
 export function focusAfter(from, root) {
-  const scope = root || from.closest("form") || document;
+  const scope = root || rootOf(from) || document;
   const all = fieldsIn(scope);
   const at = all.indexOf(from);
   if (at < 0) return "unknown";
@@ -50,13 +54,19 @@ export function enterAdvance(e, onLast) {
     if (t.tagName === "INPUT" && !["file", "radio", "submit", "button"].includes(t.type)) e.preventDefault();
     return;
   }
-  // a tick box is a stop on the way through, as it was on the old forms: Enter on it goes on to the next field instead of submitting
+  // a tick box is a stop on the way through, as it was on the old forms: Enter on it goes on to the next field instead of submitting.
+  // One that says data-enter="tick" (an expense's VAT and Paid) is also ticked by that Enter: "yes, and on to the next" in one key, so a
+  // stack of bills is typed without leaving the keyboard. It never unticks (Space or the mouse does) and Tab goes on without ticking. On the
+  // last box the Enter that ticks stays to be looked at, and the next one saves (ticking VAT in a card brings up the file to attach: it must
+  // not be saved away at once).
   if (t.tagName === "INPUT" && t.type === "checkbox") {
     e.preventDefault();
-    const scope = t.closest("form") || document;
+    const ticks = t.dataset.enter === "tick" && !t.checked;
+    if (ticks) t.click();
+    const scope = rootOf(t) || document;
     const next = fieldsIn(scope).find((f) => t.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING);
     if (next) next.focus();
-    else onLast?.();
+    else if (!ticks) onLast?.();
     return;
   }
   const choice = t.matches?.('[role="radio"]');
@@ -66,7 +76,7 @@ export function enterAdvance(e, onLast) {
   e.preventDefault();
   // a choice that has just been changed is the chosen part by the time the next key arrives; if not yet, go on from the chosen one
   const from = choice ? (t.closest(".ec-seg")?.querySelector('[aria-checked="true"]') || t) : t;
-  const where = focusAfter(from, t.closest("form"));
+  const where = focusAfter(from, rootOf(t));
   if (where === "last") onLast?.();
 }
 
@@ -74,12 +84,13 @@ export function enterAdvance(e, onLast) {
 export function advance() {
   requestAnimationFrame(() => {
     const el = document.activeElement;
-    if (el && el !== document.body && el.closest("form")) focusAfter(el, el.closest("form"));
+    const root = el && el !== document.body ? rootOf(el) : null;
+    if (root) focusAfter(el, root);
   });
 }
 
-/** Wrap an onChange so that making the choice also moves on to the next field. */
-export const thenAdvance = (onChange) => (v) => { onChange(v); advance(); };
+/** Wrap an onChange so that making the choice also moves on to the next field (or wherever `go` says: a choice that makes a new field appear sends the cursor there). */
+export const thenAdvance = (onChange, go = advance) => (v) => { onChange(v); go(v); };
 
 /** Focus the first field of a card once it is on screen (or the one `selector` names). */
 export function focusFirst(root, selector) {

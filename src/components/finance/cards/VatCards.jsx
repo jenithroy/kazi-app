@@ -11,6 +11,7 @@ import FileDrop from "../FileDrop";
 import { useFin } from "../FinanceContext";
 import { useMoney } from "../parts";
 import { removeVatBill, uploadVatBill } from "../../../lib/financeWrites";
+import ShareButton from "../../share/ShareButton";
 import { kathmanduDate, tsDate } from "../../../utils/date";
 import { focusFirst } from "../flow";
 
@@ -126,6 +127,7 @@ export function VatBillCard({ bill, purchase, onClose }) {
     <EditCard
       title={`${bill.expenseId || "VAT bill"}`} subtitle={(bill.expenseItem || "").trim() || bill.fileName}
       main={main} side={side} canEdit={editable} onClose={onClose} closeLabel="Close"
+      footerExtra={<ShareButton type="vat_bill" record={bill} title="Send this bill to someone in Chat" />}
       onDelete={async () => { const r = await removeVatBill(bill); if (r.ok) await reload(); return r; }}
       deleteName={bill.fileName || "this bill"} deleteNote="The file is removed too. This can't be undone."
     />

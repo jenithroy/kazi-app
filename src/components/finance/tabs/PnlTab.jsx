@@ -4,6 +4,7 @@
  * it takes you there. The three bars on the right are the same three numbers, to see them against each other.
  */
 import FinPane from "../FinPane";
+import { FindBar } from "../FilterMenu";
 import { StatBlock } from "../Statement";
 import { Meter } from "../../bento/Bento";
 import { useFin } from "../FinanceContext";
@@ -23,6 +24,7 @@ export default function PnlTab() {
   return (
     <FinPane
       title="Profit & loss" note={describePeriod({ fy, range: dateRange, mode: dateMode })} id="fin-pane" labelledBy="fin-tab-p-l"
+      tools={<FindBar />}
       foot={(
         <Foot>
           <FootSum label="Income" value={money(pl.totalIncome)} tone="good" />

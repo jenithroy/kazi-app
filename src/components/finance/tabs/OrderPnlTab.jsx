@@ -4,7 +4,8 @@
  */
 import { useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips, SearchBox } from "../../table/Bar";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
 import FinPane from "../FinPane";
@@ -21,22 +22,40 @@ export default function OrderPnlTab() {
   const { orders, regionOrders, orderCosts, labourRate, canEditTab, loading, fyActive, fy } = f;
   const money = useMoney();
   const canEdit = canEditTab("order p&l");
-  const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(null);                    // an order's id
 
   const q = query.trim().toLowerCase();
-  const rows = useMemo(
-    () => orderPnlRows(orders.filter((o) => orderStatusMatches(o, status) && (!q || has(o.orderId || o.id, q) || has(o.customerName, q))), orderCosts, labourRate),
-    [orders, status, q, orderCosts, labourRate],
+  const found = useMemo(
+    () => orderPnlRows(orders.filter((o) => !q || has(o.orderId || o.id, q) || has(o.customerName, q)), orderCosts, labourRate),
+    [orders, q, orderCosts, labourRate],
   );
+  // What the Filters panel offers for this list: active or finished, costs entered or not, a profit or a loss, a customer, a stage, what it is worth, its margin.
+  const defs = useMemo(() => [
+    {
+      id: "status", label: "Orders", kind: "chips",
+      options: [{ value: "all", label: "All" }, { value: "active", label: "Active" }, { value: "completed", label: "Completed" }],
+      test: (r, v) => orderStatusMatches(r, v),
+    },
+    {
+      id: "costs", label: "Costs", kind: "chips",
+      options: [{ value: "any", label: "Any" }, { value: "with", label: "Costs entered" }, { value: "without", label: "No costs yet", tone: "warn" }],
+      test: (r, v) => (v === "with" ? r.hasCosts : !r.hasCosts),
+    },
+    {
+      id: "result", label: "Result", kind: "chips",
+      options: [{ value: "any", label: "Any" }, { value: "profit", label: "Profit" }, { value: "loss", label: "Loss", tone: "bad" }],
+      test: (r, v) => r.hasCosts && (v === "profit" ? r.profit >= 0 : r.profit < 0),
+    },
+    { id: "customer", label: "Customer", kind: "select", of: (r) => r.customerName, any: "Any customer", none: "No customer" },
+    { id: "stage", label: "Stage", kind: "select", of: stateOf, any: "Any stage" },
+    { id: "worth", label: "Worth", kind: "range", get: (r) => r.revenue, unit: "NPR" },
+    { id: "margin", label: "Margin", kind: "range", get: (r) => (r.hasCosts ? r.margin : null), unit: "%" },
+  ], []);
+  const tf = useTabFilters(defs, found);
+  const rows = tf.rows;
   const totals = useMemo(() => orderPnlTotals(rows), [rows]);
   const [capped, more] = usePhoneRows(rows);
-  const counts = useMemo(() => ({
-    all: orders.length,
-    active: orders.filter((o) => orderStatusMatches(o, "active")).length,
-    completed: orders.filter((o) => orderStatusMatches(o, "completed")).length,
-  }), [orders]);
 
   const order = open ? regionOrders.find((o) => o.id === open) || null : null;
 
@@ -81,15 +100,7 @@ export default function OrderPnlTab() {
     <>
       <FinPane
         title="Order P&L" note={`${rows.length} of ${orders.length}`} id="fin-pane" labelledBy="fin-tab-order-p-l"
-        tools={(
-          <>
-            <SearchBox value={query} onChange={setQuery} placeholder="Search orders" label="Search orders by number or customer" />
-            <FilterChips
-              label="Which orders" value={status} onChange={setStatus}
-              options={[{ value: "all", label: "All", count: counts.all }, { value: "active", label: "Active", count: counts.active }, { value: "completed", label: "Completed", count: counts.completed }]}
-            />
-          </>
-        )}
+        tools={<FindBar value={query} onChange={setQuery} placeholder="Search orders" label="Search orders by number or customer" filters={tf} />}
         actions={<ExportButton name="order-pnl" columns={csv} rows={rows} />}
         foot={(
           <Foot>

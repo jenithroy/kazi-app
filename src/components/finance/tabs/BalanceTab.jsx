@@ -3,6 +3,7 @@
  * of the chosen period. It is a position, not a period: every journal entry dated up to that day counts, not only the period's.
  */
 import FinPane from "../FinPane";
+import { FindBar } from "../FilterMenu";
 import { StatBlock } from "../Statement";
 import { useFin } from "../FinanceContext";
 import { Chip, Foot, FootSum, useMoney } from "../parts";
@@ -21,6 +22,7 @@ export default function BalanceTab() {
   return (
     <FinPane
       title="Balance sheet" note={note} id="fin-pane" labelledBy="fin-tab-balance-sheet"
+      tools={<FindBar />}
       foot={(
         <Foot>
           <FootSum label="Assets" value={money(bs.totalAssets)} />

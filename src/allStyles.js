@@ -20,6 +20,7 @@ import "./components/table/table.css";
 import "./components/edit-card.css";
 import "./components/inventory/inventory.css";
 import "./components/finance/finance.css";
+import "./components/finance/entry/entry.css";
 import "./components/filters/filters.css";
 import "./components/budget/budget.css";
 import "./components/billing/billing.css";

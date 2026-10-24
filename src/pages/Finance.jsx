@@ -2,7 +2,8 @@
  * Finance, on the same frosted-glass frame as the Dashboard, Sales and Inventory: one screen, no page scroll, the tables
  * scroll inside their pane and their heads and totals stay put.
  *
- *   header   the period (a fiscal year or any From / To), A.D. or B.S., UK or Nepal
+ *   header   the title and, in words, what is on screen (the side of the business, the period). The choices themselves are the Filters
+ *            button beside each tab's search box (components/finance/FilterMenu.jsx): Nepal or UK, A.D. or B.S., the period
  *   top row  income, purchases, expenses, payroll, and where that leaves the books
  *   left     the sections of Finance in three groups, each with how many records it holds
  *   pane     the chosen section: a table to read and a card to enter or change (nothing is typed into a row)
@@ -15,8 +16,6 @@ import { useNavigate } from "react-router-dom";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
 import { PageTabs } from "../components/table/Bar";
-import { RegionSwitch } from "../components/RegionSwitch";
-import PeriodBar, { DateModeSwitch } from "../components/finance/PeriodBar";
 import TabRail from "../components/finance/TabRail";
 import FinanceTiles from "../components/finance/Tiles";
 import FinPane from "../components/finance/FinPane";
@@ -85,7 +84,7 @@ const VIEWS = {
 export default function Finance() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const { region } = useRegion();
+  const { region, label: regionLabel } = useRegion();
   const { ratesVersion } = useCurrency();
   const [dateMode, , show] = useDateMode();
   const narrow = useMedia("(max-width: 1099px)");           // the rail is not drawn here, so the dropdown is what a guided tour points at
@@ -111,6 +110,7 @@ export default function Finance() {
       if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
       if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.tagName === "SELECT" || t?.isContentEditable) return;
+      if (t?.closest?.("[data-no-shortcuts], .kdp-pop")) return;       // a capital typed in a dropdown of the row of fields (Shift + T for Transport), or in an open calendar, is typing
       if (document.querySelector(".kmodal-overlay")) return;
       const key = e.key.toLowerCase();
       // taken before anything under it sees the key: a dropdown that has the focus would otherwise also open on the letter
@@ -251,10 +251,12 @@ export default function Finance() {
     inventoryItems, labourRate: data.labourRate, allExpenses: data.expenses, allPurchases: data.purchases,
     bankNames, cashBank, dayBook, ledger, ledgerAsOf, pl, bs, summary,
     openTab: setActiveTab,
+    filterYears: yearsHere,                      // the fiscal years the Filters menu offers: the ones this tab's records fall in
+    untagged: countUntagged([...data.expenses, ...data.purchases, ...data.entries]),
   };
 
   const View = VIEWS[tab];
-  const sub = describePeriod({ fy, range: dateRange, mode: dateMode });
+  const sub = `${regionLabel} · ${describePeriod({ fy, range: dateRange, mode: dateMode })}`;
 
   if (visibleTabs.length === 0) {
     return (
@@ -272,13 +274,6 @@ export default function Finance() {
           <div className="kb-head-l">
             <h1>Finance</h1>
             <p className="kb-head-sub"><span>{sub}</span></p>
-          </div>
-          <div className="kb-head-r fn-head-r">
-            <div className="kb-head-row">
-              <RegionSwitch untagged={countUntagged([...data.expenses, ...data.purchases, ...data.entries])} size="sm" />
-              <DateModeSwitch />
-            </div>
-            <PeriodBar years={yearsHere} />
           </div>
         </header>
 

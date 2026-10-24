@@ -27,6 +27,7 @@ import { currentFiscalYear, fiscalYearForDate } from "../../../utils/fiscalYear"
 import { kathmanduDate } from "../../../utils/date";
 import { REGIONS } from "../../../utils/region";
 import { enterAdvance, focusFirst, thenAdvance } from "../flow";
+import ShareButton from "../../share/ShareButton";
 
 const PAYMENT = [["CASH", "Cash"], ["Bank", "Bank"], ["Credit", "Credit"]];
 const VAT = [["yes", "Yes, 13%"], ["no", "No"], ["na", "N/A"]];
@@ -43,7 +44,7 @@ function newForm(region) {
   return { ...emptyPurchaseForm, date: startDate(), region, items: addLineItem([]) };
 }
 
-export default function PurchaseCard({ purchase, bills = [], parties = [], onClose }) {
+export default function PurchaseCard({ purchase, bills = [], parties = [], seed, onAdded, onClose }) {
   const { profile, region, canEditTab, reload, notify, show, inventoryItems } = useFin();
   const money = useMoney();
   const uid = useId();
@@ -58,6 +59,8 @@ export default function PurchaseCard({ purchase, bills = [], parties = [], onClo
   const [saved, setSaved] = useState("");
 
   useEffect(() => { focusFirst(root.current?.closest("form"), `#${CSS.escape(`${uid}-party`)}`); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  // `seed`: what the row at the top of the list had typed (Full form). It comes in as typing, not as the card's starting point, so Cancel asks first.
+  useEffect(() => { if (seed && creating) setForm((f) => ({ ...f, ...seed })); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const totals = purchaseTotals(form);
   const fy = fiscalYearForDate(form.date) || currentFiscalYear();
@@ -96,6 +99,7 @@ export default function PurchaseCard({ purchase, bills = [], parties = [], onClo
       const res = await addPurchase({ form, region, inventoryItems, profile });
       if (!res.ok) { if (res.field === "party") setPartyError(res.message); return res; }
       lastEntry = { date: form.date, at: Date.now() };
+      onAdded?.();                                       // (the row at the top that this form came from has nothing left to keep)
       const bill = { file, vatBill: form.vatBill };
       if (!again) { await attach(res.row, bill); await reload(); return { ok: true }; }
       // the next bill starts at once, so what is typed from here on is its own; the bill's file and the list catch up behind it
@@ -279,6 +283,8 @@ export default function PurchaseCard({ purchase, bills = [], parties = [], onClo
       submitLabel={creating ? "Save" : "Save changes"}
       footerExtra={creating && editable ? (
         <button type="submit" className="ghost-button" title="Ctrl + Enter" onClick={() => { mode.current = "again"; }}>Save and add another</button>
+      ) : !creating && !dirty && !file ? (
+        <ShareButton type="purchase" record={{ purchase, bills }} compact title="Send this purchase to someone in Chat" />
       ) : null}
     />
   );

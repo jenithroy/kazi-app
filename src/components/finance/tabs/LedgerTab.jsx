@@ -8,7 +8,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips } from "../../table/Bar";
+import Select from "../../Select";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
 import FinPane from "../FinPane";
@@ -36,24 +38,40 @@ export default function LedgerTab() {
   const account = names.includes(which) ? which : which === OTHERS ? OTHERS : "Cash";
   const data = account === OTHERS ? null : cashBank[account];
 
+  // which book to read: each account with its closing balance beside it (the way the chips used to say it)
   const options = [
-    ...names.map((n) => ({ value: n, label: n, count: money(cashBank[n]?.closingBalance || 0), tone: (cashBank[n]?.closingBalance || 0) < 0 ? "bad" : undefined })),
+    ...names.map((n) => ({ value: n, label: n, hint: money(cashBank[n]?.closingBalance || 0) })),
     { value: OTHERS, label: "Other accounts" },
   ];
 
-  // the account's lines, behind the opening balance
+  // the account's lines, then the Filters panel narrows them; the opening balance stays on top whatever is chosen
+  const body = useMemo(() => (data ? data.rows.map((r, i) => ({ ...r, key: `r-${i}` })) : []), [data]);
+  const defs = useMemo(() => [
+    {
+      id: "side", label: "Side", kind: "chips",
+      options: [{ value: "any", label: "Both" }, { value: "dr", label: "Debits (Dr)" }, { value: "cr", label: "Credits (Cr)" }],
+      test: (r, v) => Number(v === "dr" ? r.dr : r.cr) > 0,
+    },
+    {
+      id: "from", label: "From", kind: "chips",
+      options: [{ value: "all", label: "All" }, ...Object.entries(SOURCE).map(([value, label]) => ({ value, label }))],
+      test: (r, v) => r.sourceType === v,
+    },
+    { id: "amount", label: "Amount", kind: "range", get: (r) => Math.max(Number(r.dr) || 0, Number(r.cr) || 0), unit: "NPR" },
+  ], []);
+  const tf = useTabFilters(defs, body);
   const lines = useMemo(() => {
     if (!data) return [];
     const opening = {
       key: "opening", opening: true, date: data.openingBalanceDate,
       particulars: fyActive ? `Balance brought forward (before FY ${fy})` : "Opening balance", dr: 0, cr: 0, balance: data.openingBalanceNPR,
     };
-    return [opening, ...data.rows.map((r, i) => ({ ...r, key: `r-${i}` }))];
-  }, [data, fyActive, fy]);
+    return [opening, ...tf.rows];
+  }, [data, fyActive, fy, tf.rows]);
   const shown = phone && !all && lines.length > 61 ? [lines[0], ...lines.slice(-60)] : lines;
 
-  const totalDr = data ? data.rows.reduce((s, r) => s + Number(r.dr || 0), 0) : 0;
-  const totalCr = data ? data.rows.reduce((s, r) => s + Number(r.cr || 0), 0) : 0;
+  const totalDr = tf.rows.reduce((s, r) => s + Number(r.dr || 0), 0);
+  const totalCr = tf.rows.reduce((s, r) => s + Number(r.cr || 0), 0);
 
   const bankOpen = card?.kind === "bank" ? regionBankTxns.find((t) => t.id === card.id) || null : null;
   const entryOpen = card?.kind === "journal" ? regionEntries.find((e) => e.id === card.id) || null : null;
@@ -126,9 +144,14 @@ export default function LedgerTab() {
   return (
     <>
       <FinPane
-        title="Ledger" note={onOthers ? `${others.length} ${plural(others.length, "account")}` : `${data?.rows.length || 0} ${plural(data?.rows.length || 0, "line")}`}
+        title="Ledger" note={onOthers ? `${others.length} ${plural(others.length, "account")}` : tf.count > 0 ? `${tf.rows.length} of ${body.length} ${plural(body.length, "line")}` : `${body.length} ${plural(body.length, "line")}`}
         id="fin-pane" labelledBy="fin-tab-ledger"
-        tools={<FilterChips label="Which account" value={account} onChange={(v) => { setWhich(v); setAll(false); }} options={options} />}
+        tools={(
+          <>
+            <Select variant="pill" label="Account" value={account} onChange={(v) => { setWhich(v); setAll(false); }} options={options} searchable={false} on={false} minWidth={220} />
+            <FindBar filters={onOthers ? undefined : tf} />
+          </>
+        )}
         actions={onOthers ? null : <ExportButton name={`ledger-${account.toLowerCase().replace(/\W+/g, "-")}`} columns={csv} rows={lines} />}
         foot={onOthers ? (
           <Foot>

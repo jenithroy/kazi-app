@@ -6,11 +6,15 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips, SearchBox } from "../../table/Bar";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
 import FinPane from "../FinPane";
 import { VatBillCard, VatUploadCard } from "../cards/VatCards";
+import VatEntry, { VAT_NEEDS } from "../entry/VatEntry";
+import { fits } from "../entry/EntryRow";
+import useFlash, { useHiddenNote } from "../entry/useFlash";
 import { useFin, emptyWords } from "../FinanceContext";
 import { Amt, ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows } from "../parts";
 import { kathmanduDate, tsDate, tsMillis } from "../../../utils/date";
@@ -26,6 +30,7 @@ export default function VatTab() {
   const [query, setQuery] = useState("");
   const [bill, setBill] = useState(null);                    // a filed bill's id
   const [upload, setUpload] = useState(null);                // null, or { purchase } (purchase null = choose one)
+  const [fresh, flash] = useFlash();                          // the bill just filed from the row at the top
 
   useEffect(() => {
     newRef.current = canEdit ? () => setUpload({ purchase: null }) : null;
@@ -43,6 +48,30 @@ export default function VatTab() {
     [vatBills, q],
   );
   const needRows = useMemo(() => needs.filter((p) => !q || has(p.expenseId, q) || has(p.expenseItem, q) || has(p.category, q)), [needs, q]);
+
+  // What the Filters panel offers: which of the two lists to show, then what narrows that list.
+  const viewDef = useMemo(() => ({
+    id: "view", label: "Show", kind: "chips", controlled: { value: view, set: setView },
+    options: [
+      { value: "bills", label: "Filed", count: vatBills.length },
+      { value: "needs", label: "Needs a bill", count: needs.length, tone: needs.length > 0 ? "warn" : undefined },
+    ],
+  }), [view, vatBills.length, needs.length]);
+  const billDefs = useMemo(() => [
+    viewDef,
+    { id: "by", label: "Uploaded by", kind: "select", of: (b) => (b.uploadedBy || "").trim(), any: "Anyone", none: "Not recorded" },
+  ], [viewDef]);
+  const needDefs = useMemo(() => [
+    viewDef,
+    { id: "party", label: "Bought from", kind: "select", of: (p) => p.expenseItem, any: "Any supplier", none: "Not recorded" },
+    { id: "category", label: "Category", kind: "select", of: (p) => p.category, any: "Any category", none: "No category" },
+    { id: "amount", label: "Amount", kind: "range", get: (p) => Number(p.amountNPR), unit: "NPR" },
+  ], [viewDef]);
+  const billTf = useTabFilters(billDefs, billRows);
+  const needTf = useTabFilters(needDefs, needRows);
+  const billShown = billTf.rows;
+  const needShown = needTf.rows;
+  useHiddenNote(fresh, vatBills, billShown);                // a bill just filed that the search or a filter hides is said so
 
   const openBill = bill ? regionVatBills.find((b) => b.id === bill) || null : null;
   useEffect(() => { if (bill && !loading && !openBill) setBill(null); }, [bill, loading, openBill]);
@@ -93,9 +122,10 @@ export default function VatTab() {
   ], []);
 
   const onBills = view === "bills";
-  const [billsCapped, billsMore] = usePhoneRows(billRows);
-  const [needsCapped, needsMore] = usePhoneRows(needRows);
-  const shownCount = onBills ? billRows.length : needRows.length;
+  const tf = onBills ? billTf : needTf;
+  const [billsCapped, billsMore] = usePhoneRows(billShown);
+  const [needsCapped, needsMore] = usePhoneRows(needShown);
+  const shownCount = onBills ? billShown.length : needShown.length;
   const empty = onBills
     ? emptyWords({ fyActive, fy, noun: "VAT bills", regionCount: regionVatBills.length, fallback: "No VAT bills uploaded yet." })
     : "Every purchase marked as having a VAT bill has one filed.";
@@ -103,22 +133,11 @@ export default function VatTab() {
   return (
     <>
       <FinPane
-        title="VAT bills" note={`${vatBills.length} filed · ${needs.length} to file`} id="fin-pane" labelledBy="fin-tab-vat-bills"
-        tools={(
-          <>
-            <SearchBox value={query} onChange={setQuery} placeholder="Search bills" label="Search VAT bills" />
-            <FilterChips
-              label="Which VAT bills" value={view} onChange={setView}
-              options={[
-                { value: "bills", label: "Filed", count: vatBills.length },
-                { value: "needs", label: "Needs a bill", count: needs.length, tone: needs.length > 0 ? "warn" : undefined },
-              ]}
-            />
-          </>
-        )}
+        title={onBills ? "VAT bills" : "VAT bills: needing a bill"} note={`${vatBills.length} filed · ${needs.length} to file`} id="fin-pane" labelledBy="fin-tab-vat-bills"
+        tools={<FindBar value={query} onChange={setQuery} placeholder="Search bills" label="Search VAT bills" filters={tf} />}
         actions={(
           <>
-            <ExportButton name={onBills ? "vat-bills" : "vat-bills-needed"} columns={onBills ? csvBills : csvNeeds} rows={onBills ? billRows : needRows} />
+            <ExportButton name={onBills ? "vat-bills" : "vat-bills-needed"} columns={onBills ? csvBills : csvNeeds} rows={onBills ? billShown : needShown} />
             {canEdit && (
               <button type="button" className="kb-btn kb-btn--primary" onClick={() => setUpload({ purchase: null })} title="Shift + N">
                 <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> Upload a bill
@@ -129,7 +148,7 @@ export default function VatTab() {
         foot={(
           <Foot>
             <FootSum count label={onBills ? plural(shownCount, "bill") : plural(shownCount, "purchase")} value={shownCount} />
-            {!onBills && <FootSum label="Total" value={money(needRows.reduce((sum, p) => sum + Number(p.amountNPR || 0), 0))} />}
+            {!onBills && <FootSum label="Total" value={money(needShown.reduce((sum, p) => sum + Number(p.amountNPR || 0), 0))} />}
           </Foot>
         )}
       >
@@ -139,7 +158,8 @@ export default function VatTab() {
           <DataTable
             className="fn-dense" label="VAT bills" rows={billsCapped} rowKey={(b) => b.id} columns={billColumns}
             defaultSort={{ id: "on", dir: "desc" }} onOpen={(b) => setBill(b.id)} rowLabel={(b) => `Open the bill for ${b.expenseId || "a purchase"}`}
-            activeKey={bill || undefined} loading={loading}
+            activeKey={bill || undefined} loading={loading} flashKey={fresh}
+            entry={canEdit ? (c) => (fits(c, VAT_NEEDS) ? <VatEntry ctx={c} onSaved={flash} /> : null) : undefined}
             empty={<EmptyNote icon={<Icons.File size={22} sw={1.5} />}>{vatBills.length === 0 ? empty : "Nothing matches that."}</EmptyNote>}
           />
         ) : (

@@ -1,0 +1,172 @@
+/* ══════════════════════════════════════════════════════════════════
+   FINANCE ENTRY ROW — the row of empty fields at the top of a table   (everything is `.fe-*`)
+
+   A record is typed straight into the table: a date, a few choices, an amount, Enter. The row is drawn by DataTable
+   (its `entry` prop, `.dt-entry` in table.css, which gives it the table's own column tracks and keeps it above the
+   scrolling rows); this sheet only draws what is inside its cells: flat boxes 30px high that read like the cells of a
+   spreadsheet, the dropdowns and the date picker's calendar restyled to match, the round button that saves, and the
+   bubble that says what is wrong. It reads the page's `--kb-*` tokens, so light, dark and the glass follow.
+
+   Loaded after table.css, edit-card.css, controls.css and finance.css (allStyles.js), so where two rules weigh the same
+   these win; the shared controls are restyled by a selector one class longer than their own.
+══════════════════════════════════════════════════════════════════ */
+
+/* a box is a faint wash of the page's ink, so it reads as a box without lifting the glass behind its words (text on glass has to hold 4.5:1) */
+.fe-row { min-height: 50px; --fe-fill: color-mix(in srgb, var(--kb-ink) 3.5%, transparent); }
+.fe-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fe-cell.fe-end { justify-content: flex-end; }
+
+/* ── A box: text, an amount, a date ─────────────────────────────── */
+
+.fe-in {
+  display: block; width: 100%; min-width: 0; height: 30px; padding: 0 9px;
+  border: 1px solid var(--kb-line-hi); border-radius: 9px; background: var(--fe-fill); color: var(--kb-ink);
+  font: 400 13px/1 var(--font); letter-spacing: 0; text-overflow: ellipsis;
+  transition: border-color .15s, background-color .15s;
+}
+.fe-in::placeholder { color: var(--kb-ink-3); opacity: 1; }
+/* in the dark the glass behind a box can be as light as #44524f where the page's glow shows through, and the dimmer ink only holds 4:1 there */
+:root[data-theme="dark"] .fe-in::placeholder { color: var(--kb-ink-2); }
+.fe-in:hover:not(:disabled):not(:focus-visible) { border-color: var(--kb-ink-3); }
+.fe-in:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; border-radius: 9px; }
+.fe-in:disabled { opacity: .55; cursor: not-allowed; }
+.fe-in.is-bad:focus-visible, .fe-date.is-bad .fe-in:focus-visible { outline-color: var(--kb-bad); }
+.fe-num { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* While the table shows pounds, an amount says what it is in, inside the box: the books (and this box) are kept in rupees.
+   The sign is one character wide: the amount column is narrow (88px in Purchases and Journal, beside the +). */
+.fe-amt { position: relative; display: block; width: 100%; min-width: 0; }
+.fe-unit {
+  position: absolute; top: 50%; left: 9px; transform: translateY(-50%); pointer-events: none;
+  color: var(--kb-ink-3); font: 600 12px/1 var(--font);
+}
+:root[data-theme="dark"] .fe-unit { color: var(--kb-ink-2); }
+.fe-amt.has-unit .fe-in { padding-left: 24px; }
+.fe-amt:has(.fe-in:disabled) .fe-unit { opacity: .55; }
+.fe-in.is-bad, .fe-pick.is-bad, .fe-clip.is-bad { border-color: var(--kb-bad); background: color-mix(in srgb, var(--kb-bad) 9%, transparent); }
+.fe-date.is-bad .fe-in { border-color: var(--kb-bad); background: color-mix(in srgb, var(--kb-bad) 9%, transparent); }
+
+/* the date: a typed box with a small calendar inside its right edge (A.D. only; B.S. is typed) */
+.fe-date { position: relative; display: block; width: 100%; min-width: 0; }
+/* the date column is 116px: "30 Sept 2026" (and, in B.S., "30 Shrawan 2083") has to fit beside the calendar button, so the text is a size down */
+.fe-date .fe-in { padding: 0 26px 0 8px; font-size: 12px; }
+.fe-date.is-bs .fe-in { padding-right: 8px; }
+.fe-cal { position: absolute; top: 50%; right: 2px; display: block; transform: translateY(-50%); }
+.fe-cal .kdp.kdp--pill { display: block; width: auto; }
+.fe-cal .kdp .kdp-trigger--pill { width: 22px; height: 22px; max-width: none; padding: 0; justify-content: center; gap: 0; border: 0; border-radius: 8px; color: var(--kb-ink-3); }
+.fe-cal .kdp .kdp-trigger--pill .kdp-val { display: none; }
+.fe-cal .kdp .kdp-trigger--pill:hover:not(:disabled) { background-color: var(--kb-chip); color: var(--kb-accent); }
+
+/* ── A dropdown (the shared Select, drawn flat) ─────────────────── */
+
+.fe-row .ksel--pill.fe-pick {
+  width: 100%; max-width: none; height: 30px; padding: 0 8px 0 10px; justify-content: space-between; gap: 6px;
+  border-radius: 9px; border-color: var(--kb-line-hi); background: var(--fe-fill); color: var(--kb-ink); font: 500 13px/1 var(--font);
+}
+.fe-row .ksel--pill.fe-pick .ksel-val { text-align: left; }
+.fe-row .ksel--pill.fe-pick .ksel-val.is-ph { color: var(--kb-ink-3); }
+:root[data-theme="dark"] .fe-row .ksel--pill.fe-pick .ksel-val.is-ph { color: var(--kb-ink-2); }
+.fe-row .ksel--pill.fe-pick:hover:not(:disabled):not(.is-open) { border-color: var(--kb-ink-3); background: var(--fe-fill); }
+.fe-row .ksel--pill.fe-pick.is-open { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-ink); }
+.fe-row .ksel--pill.fe-pick:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; border-radius: 9px; }
+.fe-row .ksel--pill.fe-pick.is-bad { border-color: var(--kb-bad); }
+.fe-row .ksel--pill.fe-pick:disabled { opacity: .55; }
+
+/* ── A short choice split in parts (Out | In) ───────────────────── */
+
+.fe-row .kregion-seg.fe-seg { width: 100%; height: 30px; box-sizing: border-box; padding: 2px; gap: 0; background: var(--fe-fill); border: 1px solid var(--kb-line-hi); }
+.fe-row .fe-seg .kregion-seg-btn { flex: 1 1 0; justify-content: center; min-height: 0; padding: 0 6px; font-size: 12px; color: var(--kb-ink-2); }
+.fe-row .fe-seg .kregion-seg-btn:hover:not(.is-on) { color: var(--kb-ink); }
+.fe-row .fe-seg .kregion-seg-btn.is-on { background: var(--kb-surface); color: var(--kb-accent); box-shadow: var(--kb-shadow); }
+.fe-row .fe-seg .kregion-seg-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
+
+/* ── A tick, a paperclip, the full form ─────────────────────────── */
+
+.fe-chk {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 30px; padding: 0 8px 0 6px; border-radius: 9px;
+  color: var(--kb-ink-2); font: 500 12.5px/1 var(--font); white-space: nowrap; cursor: pointer; user-select: none;
+}
+.fe-chk input { width: 15px; height: 15px; margin: 0; accent-color: var(--kb-accent); cursor: pointer; }
+.fe-chk:hover { background: var(--kb-well); color: var(--kb-ink); }
+.fe-chk.is-on { color: var(--kb-ink); }
+.fe-chk:has(input:focus-visible) { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
+
+.fe-clip {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 6px; width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--kb-line-hi); border-radius: 9px; background: transparent; color: var(--kb-ink-2); cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.fe-clip:hover:not(:disabled) { background: var(--kb-well); color: var(--kb-ink); }
+.fe-clip:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.fe-clip.has-file { border-color: var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent); }
+.fe-clip:disabled { opacity: .55; cursor: not-allowed; }
+.fe-clip-name { display: none; }
+.fe-clip.is-named { flex: 1 1 auto; width: auto; min-width: 30px; max-width: 100%; padding: 0 9px; justify-content: flex-start; color: var(--kb-ink-2); }
+/* the file's name is read, so it is in the page's ink (the accent on the chip is 4.2:1 in the dark); the paperclip itself keeps the accent */
+.fe-clip.is-named.has-file { color: var(--kb-ink); }
+.fe-clip.is-named.has-file svg { color: var(--kb-accent); }
+.fe-clip.is-named .fe-clip-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/1 var(--font); }
+
+.fe-full {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px dashed var(--kb-line-hi); border-radius: 9px;
+  background: transparent; color: var(--kb-ink-2); font: 500 12px/1 var(--font); white-space: nowrap; cursor: pointer;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.fe-full:hover:not(:disabled) { background: var(--kb-well); border-color: var(--kb-ink-3); color: var(--kb-ink); }
+.fe-full:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
+.fe-full:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ── The button that saves: a round +, a tick for a moment once it has ── */
+
+.fe-save {
+  flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--kb-accent); color: var(--kb-on-accent); cursor: pointer;
+  transition: background-color .15s, color .15s, transform .12s, opacity .15s;
+}
+.fe-save:hover { transform: scale(1.06); }
+.fe-save:active { transform: scale(.94); }
+.fe-save:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+.fe-save.is-busy { opacity: .75; cursor: progress; transform: none; }
+.fe-save.is-wait { opacity: .55; cursor: not-allowed; transform: none; }
+.fe-save.is-done { background: var(--kb-good-bg); color: var(--kb-good); box-shadow: inset 0 0 0 1.5px var(--kb-good); }
+.fe-spin { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: fe-spin .7s linear infinite; }
+@keyframes fe-spin { to { transform: rotate(360deg); } }
+
+/* ── Two boxes in one cell (a category and a note, a supplier and what was bought) ── */
+
+/* (the outer box is what the width is asked of: a box cannot query itself, so the two boxes sit in an inner one) */
+.fe-what { container: fe / inline-size; width: 100%; min-width: 0; }
+.fe-what-in { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fe-what-in > * { min-width: 0; }
+.fe-row .fe-what-in > .ksel--pill.fe-pick { flex: 0 1 min(148px, 44%); width: auto; }
+.fe-what-in > .fe-in, .fe-what-in > .ec-sug { flex: 1 1 0; width: auto; }
+.fe-what-in > .ec-sug .fe-in { width: 100%; }
+/* a column too narrow for two boxes side by side: they stack, and the row grows by one line rather than hide a field */
+@container fe (max-width: 200px) {
+  .fe-what-in { flex-direction: column; align-items: stretch; gap: 4px; }
+  .fe-row .fe-what-in > .ksel--pill.fe-pick { flex: none; width: 100%; }
+  .fe-what-in > .fe-in, .fe-what-in > .ec-sug { flex: none; width: 100%; }
+}
+
+/* ── What is wrong, in a bubble under the box it is about; what was typed is kept ── */
+
+.fe-cell.has-msg { position: relative; }
+.fe-msg {
+  position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(400px, 56vw);
+  padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--kb-bad) 40%, transparent); border-radius: 12px;
+  background: color-mix(in srgb, var(--kb-bad) 13%, var(--kb-surface)); color: var(--kb-ink); box-shadow: var(--kb-shadow-hi);
+  font: 500 12.5px/1.4 var(--font); text-align: left; white-space: normal;
+}
+.fe-msg--end { left: auto; right: 0; }
+.fe-msg > svg { flex: none; color: var(--kb-bad); }
+.fe-msg > span { min-width: 0; }
+.fe-msg-act {
+  flex: none; padding: 5px 11px; border: 1px solid var(--kb-line-hi); border-radius: 999px; background: transparent; color: var(--kb-ink);
+  font: 600 12px/1.2 var(--font); cursor: pointer;
+}
+.fe-msg-act:hover { background: var(--kb-well); }
+.fe-msg-act:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fe-in, .fe-clip, .fe-full, .fe-save { transition: none; }
+  .fe-spin { animation: none; }
+}

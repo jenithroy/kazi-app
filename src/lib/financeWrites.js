@@ -227,13 +227,13 @@ export async function uploadVatBill({ purchase, file, profile, region }) {
   if (!purchase || !file) return { ok: false, message: "Choose the purchase and the file first." };
   try {
     const { url, path } = await uploadPublicFile("finance-attachments", `vat-bills/${purchase.id}`, file);
-    await insertRow("vat_bills", {
+    const row = await insertRow("vat_bills", {
       expenseId: purchase.expenseId || "", purchaseId: purchase.id, expenseItem: purchase.expenseItem || "",
       fileName: file.name, fileUrl: url, storagePath: path, fileType: file.type,
       uploadedBy: profile?.name || "Unknown",
       region: purchase.region || region,
     });
-    return { ok: true };
+    return { ok: true, row };
   } catch (err) {
     console.error("Upload failed:", err);
     return { ok: false, message: `Upload failed: ${err?.message || "try again"}` };
@@ -259,13 +259,13 @@ export const emptyJournal = (date) => ({
 
 export async function addJournalEntry({ form, profile, region, advance }) {
   try {
-    await insertRow("journal_entries", {
+    const row = await insertRow("journal_entries", {
       ...form, amountNPR: Number(form.amountNPR),
       region: form.region || region,
       partyName: advance ? form.partyName.trim() : "",
       createdBy: profile?.name || "Unknown",
     });
-    return { ok: true };
+    return { ok: true, row };
   } catch (err) {
     console.error("Failed to post journal entry:", err);
     return { ok: false, message: "Not posted. Please try again." };
@@ -305,7 +305,7 @@ export const emptyBankTxn = (date) => ({ date, description: "", amount: "", type
 
 export async function addBankTxn({ form, region }) {
   try {
-    await insertRow("bank_transactions", {
+    const row = await insertRow("bank_transactions", {
       timestamp: form.date,
       type: form.type === "Credit" ? "Credit" : "Debit",
       amount: Number(form.amount),
@@ -313,7 +313,7 @@ export async function addBankTxn({ form, region }) {
       remarks: form.reference || null,
       region: region || null,
     });
-    return { ok: true };
+    return { ok: true, row };
   } catch (err) {
     console.error("Failed to log the bank transaction:", err);
     return { ok: false, message: "Not saved. Please try again." };

@@ -7,15 +7,20 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips, SearchBox } from "../../table/Bar";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
 import FinPane from "../FinPane";
 import PurchaseCard from "../cards/PurchaseCard";
+import PurchaseEntry, { PURCHASE_NEEDS } from "../entry/PurchaseEntry";
+import { fits } from "../entry/EntryRow";
+import useFlash, { useHiddenNote } from "../entry/useFlash";
 import ConfirmDialog from "../ConfirmDialog";
 import { useFin, emptyWords } from "../FinanceContext";
 import { Amt, Chip, ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows } from "../parts";
 import { planPurchaseRenumber, resequencePurchaseExpenseIds } from "../../../utils/financeRows";
+import foldNames from "../../../lib/foldNames";
 
 const payLabel = (p) => (p.paymentType === "Bank" ? (p.bankName || "Bank") : p.paymentType === "Credit" ? "Credit" : "Cash");
 const has = (hay, q) => String(hay || "").toLowerCase().includes(q);
@@ -48,9 +53,9 @@ export default function PurchasesTab({ showRenumber = false, initialQuery = "", 
   const money = useMoney();
   const canEdit = canEditTab("purchases");
   const [query, setQuery] = useState(initialQuery);
-  const [filter, setFilter] = useState("all");
-  const [card, setCard] = useState(null);                 // null, or { id } (null id = a new purchase)
+  const [card, setCard] = useState(null);                 // null, or { id, seed, added } (null id = a new purchase; a seed is what the row at the top had typed, `added` empties that row once the card has saved it)
   const [renumbering, setRenumbering] = useState(false);
+  const [fresh, flash] = useFlash();                        // the purchase just typed into the row at the top
 
   useEffect(() => {
     newRef.current = canEdit ? () => setCard({ id: null }) : null;
@@ -75,9 +80,30 @@ export default function PurchasesTab({ showRenumber = false, initialQuery = "", 
     () => ordered.filter((p) => !q || has(p.expenseId, q) || has(p.expenseItem, q) || has(p.category, q) || itemNames(p).some((n) => has(n, q))),
     [ordered, q],
   );
-  const vatRows = found.filter((p) => p.vatBill === true);
-  const missing = canSeeBills ? vatRows.filter((p) => !billsOf.has(p.id)) : [];      // without the right to read the bills, "no bill filed" would be true of all
-  const shown = filter === "vat" ? vatRows : filter === "missing" ? missing : found;
+  // What the Filters panel offers for this list: VAT bill or one still to file, a category, who it was bought from, how it was paid, how much.
+  const defs = useMemo(() => {
+    const parties = foldNames(ordered, (p) => p.expenseItem);          // names typed with other capitals or spaces are one name
+    const categories = foldNames(ordered, (p) => p.category);
+    return [
+    {
+      id: "bill", label: "VAT bill", kind: "chips",
+      options: [
+        { value: "all", label: "All" }, { value: "vat", label: "VAT bill" },
+        ...(canSeeBills ? [{ value: "missing", label: "Needs bill", tone: "warn" }] : []),
+      ],
+      test: (p, v) => p.vatBill === true && (v !== "missing" || !billsOf.has(p.id)),
+    },
+    { id: "category", label: "Category", kind: "select", of: (p) => categories.keyOf(p.category), nameOf: categories.nameOf, any: "Any category", none: "No category" },
+    { id: "party", label: "Bought from", kind: "select", of: (p) => parties.keyOf(p.expenseItem), nameOf: parties.nameOf, any: "Any supplier", none: "Not recorded" },
+    { id: "via", label: "Paid with", kind: "select", of: payLabel, any: "Any way of paying" },
+    { id: "amount", label: "Amount", kind: "range", get: (p) => Number(p.amountNPR), unit: "NPR" },
+    ];
+  }, [canSeeBills, billsOf, ordered]);
+  const tf = useTabFilters(defs, found);
+  const shown = tf.rows;
+  // the bills still to file among the ones on screen (without the right to read the bills, "no bill filed" would be true of all)
+  const missing = canSeeBills ? shown.filter((p) => p.vatBill === true && !billsOf.has(p.id)) : [];
+  useHiddenNote(fresh, purchases, shown);                    // a record just typed in that the search or a filter hides is said so
   const total = shown.reduce((s, p) => s + Number(p.amountNPR || 0), 0);
   const vatTotal = shown.reduce((s, p) => s + (p.vatBill === true ? Number(p.vatAmountNPR || 0) : 0), 0);
 
@@ -160,21 +186,9 @@ export default function PurchasesTab({ showRenumber = false, initialQuery = "", 
     <>
       <FinPane
         title="Purchases"
-        note={q || filter !== "all" ? `${shown.length} of ${purchases.length}` : `${purchases.length} ${plural(purchases.length, "bill")}`}
+        note={q || tf.count > 0 ? `${shown.length} of ${purchases.length}` : `${purchases.length} ${plural(purchases.length, "bill")}`}
         id="fin-pane" labelledBy={labelledBy}
-        tools={(
-          <>
-            <SearchBox value={query} onChange={setQuery} placeholder="Search purchases" label="Search purchases by supplier, category, item or number" />
-            <FilterChips
-              label="Which purchases" value={filter} onChange={setFilter}
-              options={[
-                { value: "all", label: "All", count: found.length },
-                { value: "vat", label: "VAT bill", count: vatRows.length },
-                ...(canSeeBills ? [{ value: "missing", label: "Needs bill", count: missing.length, tone: missing.length > 0 ? "warn" : undefined }] : []),
-              ]}
-            />
-          </>
-        )}
+        tools={<FindBar value={query} onChange={setQuery} placeholder="Search purchases" label="Search purchases by supplier, category, item or number" filters={tf} />}
         actions={(
           <>
             <ExportButton name="purchases" columns={csv} rows={shown} />
@@ -190,7 +204,7 @@ export default function PurchasesTab({ showRenumber = false, initialQuery = "", 
             <FootSum count label={plural(shown.length, "bill")} value={shown.length} />
             <FootSum label="Total" value={money(total)} />
             {vatTotal > 0 && <FootSum label="VAT in these" value={money(vatTotal)} />}
-            {filter !== "missing" && missing.length > 0 && <FootSum label="Need a bill" value={missing.length} tone="warn" />}
+            {tf.values.bill !== "missing" && missing.length > 0 && <FootSum label="Need a bill" value={missing.length} tone="warn" />}
           </Foot>
         )}
       >
@@ -212,6 +226,8 @@ export default function PurchasesTab({ showRenumber = false, initialQuery = "", 
           onOpen={(p) => setCard({ id: p.id })}
           rowLabel={(p) => `Open ${p.expenseId || "purchase"} from ${(p.expenseItem || "").trim() || "no supplier"}, ${money(Number(p.amountNPR) || 0)}`}
           activeKey={card?.id || undefined}
+          flashKey={fresh}
+          entry={canEdit ? (c) => (fits(c, PURCHASE_NEEDS) ? <PurchaseEntry ctx={c} parties={parties} onSaved={flash} onFull={(seed, added) => setCard({ id: null, seed, added })} /> : null) : undefined}
           loading={loading}
           empty={<EmptyNote icon={<Icons.Cart size={22} sw={1.5} />}>{purchases.length === 0 ? empty : "Nothing matches that."}</EmptyNote>}
         />
@@ -220,7 +236,7 @@ export default function PurchasesTab({ showRenumber = false, initialQuery = "", 
 
       {card && (!card.id || open) && (
         <PurchaseCard
-          key={card.id || "new"} purchase={open} parties={parties}
+          key={card.id || "new"} purchase={open} parties={parties} seed={card.seed} onAdded={card.added}
           bills={open ? billsOf.get(open.id) || [] : []} onClose={() => setCard(null)}
         />
       )}

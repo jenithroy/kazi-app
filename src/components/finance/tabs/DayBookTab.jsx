@@ -6,7 +6,8 @@
  */
 import { useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips, SearchBox } from "../../table/Bar";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
 import FinPane from "../FinPane";
@@ -37,7 +38,28 @@ export default function DayBookTab() {
   const [all, setAll] = useState(false);
 
   const q = query.trim().toLowerCase();
-  const matched = useMemo(() => dayBook.filter((r) => !q || has(r.particulars, q) || has(r.account, q)), [dayBook, q]);
+  const found = useMemo(() => dayBook.filter((r) => !q || has(r.particulars, q) || has(r.account, q)), [dayBook, q]);
+  // What the Filters panel offers: which way round to read it, then where a line came from, its account, which side it is on, how much.
+  const defs = useMemo(() => [
+    {
+      id: "order", label: "Order", kind: "chips", controlled: { value: order, set: setOrder },
+      options: [{ value: "new", label: "Newest first" }, { value: "old", label: "Oldest first" }],
+    },
+    {
+      id: "from", label: "From", kind: "chips",
+      options: [{ value: "all", label: "All" }, ...Object.entries(SOURCE).map(([value, label]) => ({ value, label }))],
+      test: (r, v) => r.sourceType === v,
+    },
+    { id: "account", label: "Account", kind: "select", of: (r) => r.account, any: "Any account" },
+    {
+      id: "side", label: "Side", kind: "chips",
+      options: [{ value: "any", label: "Both" }, { value: "dr", label: "Debits (Dr)" }, { value: "cr", label: "Credits (Cr)" }],
+      test: (r, v) => Number(v === "dr" ? r.dr : r.cr) > 0,
+    },
+    { id: "amount", label: "Amount", kind: "range", get: (r) => Math.max(Number(r.dr) || 0, Number(r.cr) || 0), unit: "NPR" },
+  ], [order]);
+  const tf = useTabFilters(defs, found);
+  const matched = tf.rows;
   const drTotal = matched.reduce((s, r) => s + Number(r.dr || 0), 0);
   const crTotal = matched.reduce((s, r) => s + Number(r.cr || 0), 0);
 
@@ -101,13 +123,7 @@ export default function DayBookTab() {
     <FinPane
       title="Day book" note={`${dayBook.length} ${plural(dayBook.length, "entry", "entries")}`} id="fin-pane" labelledBy="fin-tab-day-book"
       tools={(
-        <>
-          <SearchBox value={query} onChange={(v) => { setQuery(v); setAll(false); }} placeholder="Search the day book" label="Search the day book by particulars or account" />
-          <FilterChips
-            label="Order" value={order} onChange={setOrder}
-            options={[{ value: "new", label: "Newest first" }, { value: "old", label: "Oldest first" }]}
-          />
-        </>
+        <FindBar value={query} onChange={(v) => { setQuery(v); setAll(false); }} placeholder="Search the day book" label="Search the day book by particulars or account" filters={tf} />
       )}
       actions={<ExportButton name="day-book" columns={csv} rows={matched} />}
       foot={(

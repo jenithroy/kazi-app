@@ -20,6 +20,7 @@ import { kathmanduDate } from "../../../utils/date";
 import { enterAdvance, focusFirst, thenAdvance } from "../flow";
 import useCardForm from "./useCardForm";
 import { REGIONS } from "../../../utils/region";
+import ShareButton from "../../share/ShareButton";
 
 const PAYMENT = [["CASH", "Cash"], ["Bank", "Bank"], ["Credit", "Credit"]];
 
@@ -124,7 +125,7 @@ export default function ExpenseCard({ expense, bill, onClose }) {
       <div className="ec-block ec-wide">
         <span className="ec-cap">VAT bill</span>
         <label className="fn-check">
-          <input type="checkbox" checked={form.vatBill} disabled={!editable} onChange={(e) => set({ vatBill: e.target.checked })} />
+          <input type="checkbox" data-enter="tick" checked={form.vatBill} disabled={!editable} onChange={(e) => set({ vatBill: e.target.checked })} />
           <span>This expense has a VAT bill</span>
         </label>
         {form.vatBill && creating && <FileDrop file={file} onFile={setFile} disabled={!editable} label="Attach the bill" />}
@@ -154,6 +155,8 @@ export default function ExpenseCard({ expense, bill, onClose }) {
       submitLabel={creating ? "Save" : "Save changes"}
       footerExtra={creating && editable ? (
         <button type="submit" className="ghost-button" onClick={() => { mode.current = "again"; }}>Save and add another</button>
+      ) : !creating && !dirty && !file ? (
+        <ShareButton type="expense" record={expense} compact title="Send this expense to someone in Chat" />
       ) : null}
     />
   );

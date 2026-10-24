@@ -1,15 +1,19 @@
 /**
  * Journal: every entry posted to the books, newest first, each showing what was debited, what was credited and how much. A row
- * opens the entry's card; "New entry" opens it empty. "All accounts" narrows the list to the entries that touch one account.
+ * opens the entry's card; "New entry" opens it empty. The Filters button narrows the list to one account, a person, who posted it or an amount.
  */
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { SearchBox } from "../../table/Bar";
-import Select from "../../Select";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
+import PersonLink from "../../profile/PersonLink";
 import FinPane from "../FinPane";
 import JournalCard from "../cards/JournalCard";
+import JournalEntry, { JOURNAL_NEEDS } from "../entry/JournalEntry";
+import { fits } from "../entry/EntryRow";
+import useFlash, { useHiddenNote } from "../entry/useFlash";
 import { useFin, emptyWords } from "../FinanceContext";
 import { Amt, ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows } from "../parts";
 
@@ -21,27 +25,31 @@ export default function JournalTab() {
   const money = useMoney();
   const canEdit = canEditTab("journal");
   const [query, setQuery] = useState("");
-  const [account, setAccount] = useState("");
   const [card, setCard] = useState(null);
+  const [fresh, flash] = useFlash();                        // the entry just typed into the row at the top
 
   useEffect(() => {
     newRef.current = canEdit ? () => setCard({ id: null }) : null;
     return () => { newRef.current = null; };
   }, [newRef, canEdit]);
 
-  const used = useMemo(() => {
-    const names = new Set();
-    entries.forEach((e) => { names.add(e.debitAccount); names.add(e.creditAccount); });
-    return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
-  }, [entries]);
-  const accountOptions = useMemo(() => [{ value: "", label: "All accounts" }, ...used.map((n) => ({ value: n, label: n }))], [used]);
-
   const q = query.trim().toLowerCase();
-  const shown = useMemo(
-    () => entries.filter((e) => (!account || e.debitAccount === account || e.creditAccount === account)
-      && (!q || has(e.description, q) || has(e.debitAccount, q) || has(e.creditAccount, q) || has(e.reference, q) || has(e.partyName, q) || has(e.amountNPR, q))),
-    [entries, account, q],
+  const found = useMemo(
+    () => entries.filter((e) => !q || has(e.description, q) || has(e.debitAccount, q) || has(e.creditAccount, q) || has(e.reference, q) || has(e.partyName, q) || has(e.amountNPR, q)),
+    [entries, q],
   );
+  // What the Filters panel offers for this list: an account (either side, or debit or credit only), who the entry is with, who posted it, how much.
+  const defs = useMemo(() => [
+    { id: "account", label: "Account, either side", kind: "select", of: (e) => [e.debitAccount, e.creditAccount], any: "All accounts" },
+    { id: "debit", label: "Debit account", kind: "select", of: (e) => e.debitAccount, any: "Any debit account" },
+    { id: "credit", label: "Credit account", kind: "select", of: (e) => e.creditAccount, any: "Any credit account" },
+    { id: "party", label: "Customer or supplier", kind: "select", of: (e) => e.partyName, any: "Anyone", none: "Nobody named" },
+    { id: "by", label: "Posted by", kind: "select", of: (e) => (e.createdBy || "").trim(), any: "Anyone", none: "Not recorded" },
+    { id: "amount", label: "Amount", kind: "range", get: (e) => Number(e.amountNPR), unit: "NPR" },
+  ], []);
+  const tf = useTabFilters(defs, found);
+  const shown = tf.rows;
+  useHiddenNote(fresh, entries, shown);                    // a record just typed in that the search or a filter hides is said so
   const total = shown.reduce((s, e) => s + Number(e.amountNPR || 0), 0);
   const [capped, more] = usePhoneRows(shown);
 
@@ -62,7 +70,7 @@ export default function JournalTab() {
     },
     { id: "dr", label: "Debit (Dr)", width: 156, drop: 2, sort: (e) => (e.debitAccount || "").toLowerCase(), render: (e) => <span className="dt-clip fn-dr">{e.debitAccount}</span> },
     { id: "cr", label: "Credit (Cr)", width: 156, drop: 3, sort: (e) => (e.creditAccount || "").toLowerCase(), render: (e) => <span className="dt-clip fn-cr">{e.creditAccount}</span> },
-    { id: "by", label: "Posted by", width: 128, drop: 4, sort: (e) => (e.createdBy || "").trim().toLowerCase(), render: (e) => <span className="dt-clip dt-dim">{(e.createdBy || "").trim() || "—"}</span> },
+    { id: "by", label: "Posted by", width: 128, drop: 4, sort: (e) => (e.createdBy || "").trim().toLowerCase(), render: (e) => <span className="dt-clip dt-dim">{(e.createdBy || "").trim() ? <PersonLink className="kpl--clip" name={(e.createdBy || "").trim()} /> : "—"}</span> },
     { id: "amt", label: "Amount", width: 124, align: "end", first: "desc", sort: (e) => Number(e.amountNPR) || 0, render: (e) => <Amt n={e.amountNPR} strong /> },
   ], [show]);
 
@@ -77,14 +85,9 @@ export default function JournalTab() {
   return (
     <>
       <FinPane
-        title="Journal" note={q || account ? `${shown.length} of ${entries.length}` : `${entries.length} ${plural(entries.length, "entry", "entries")}`}
+        title="Journal" note={q || tf.count > 0 ? `${shown.length} of ${entries.length}` : `${entries.length} ${plural(entries.length, "entry", "entries")}`}
         id="fin-pane" labelledBy="fin-tab-journal"
-        tools={(
-          <>
-            <SearchBox value={query} onChange={setQuery} placeholder="Search entries" label="Search the journal by description, account, reference or amount" />
-            <Select variant="pill" label="Account" value={account} onChange={setAccount} options={accountOptions} searchPlaceholder="Search accounts" minWidth={230} />
-          </>
-        )}
+        tools={<FindBar value={query} onChange={setQuery} placeholder="Search entries" label="Search the journal by description, account, reference or amount" filters={tf} />}
         actions={(
           <>
             <ExportButton name="journal" columns={csv} rows={shown} />
@@ -107,7 +110,8 @@ export default function JournalTab() {
           className="fn-dense" label="Journal" rows={capped} rowKey={(e) => e.id} columns={columns}
           defaultSort={{ id: "date", dir: "desc" }} onOpen={(e) => setCard({ id: e.id })}
           rowLabel={(e) => `Open the entry ${e.description || ""}: debit ${e.debitAccount}, credit ${e.creditAccount}, ${money(Number(e.amountNPR) || 0)}`}
-          activeKey={card?.id || undefined} loading={loading}
+          activeKey={card?.id || undefined} loading={loading} flashKey={fresh}
+          entry={canEdit ? (c) => (fits(c, JOURNAL_NEEDS) ? <JournalEntry ctx={c} onSaved={flash} /> : null) : undefined}
           empty={<EmptyNote icon={<Icons.File size={22} sw={1.5} />}>{entries.length === 0 ? empty : "Nothing matches that."}</EmptyNote>}
         />
         {more}

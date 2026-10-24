@@ -111,6 +111,7 @@ export function useShiftN(onNew) {
       if (!latest.current || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "n") return;
       const t = e.target;
       if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.tagName === "SELECT" || t?.isContentEditable) return;
+      if (t?.closest?.("[data-no-shortcuts], .kdp-pop")) return;       // a capital typed in a dropdown of the row of fields, or in an open calendar, is typing
       if (document.querySelector(".kmodal-overlay, .modal-overlay")) return;
       e.preventDefault();
       e.stopPropagation();

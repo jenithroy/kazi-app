@@ -4,11 +4,15 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import DataTable from "../../table/DataTable";
-import { FilterChips, SearchBox } from "../../table/Bar";
+import { FindBar } from "../FilterMenu";
+import useTabFilters from "../useTabFilters";
 import { EmptyNote } from "../../bento/Bento";
 import { Icons } from "../../ui";
 import FinPane from "../FinPane";
 import BankCard from "../cards/BankCard";
+import BankEntry, { BANK_NEEDS } from "../entry/BankEntry";
+import { fits } from "../entry/EntryRow";
+import useFlash, { useHiddenNote } from "../entry/useFlash";
 import { useFin, emptyWords } from "../FinanceContext";
 import { Chip, ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows } from "../parts";
 import { bankText, isBankCredit } from "../../../lib/finance";
@@ -21,8 +25,8 @@ export default function BankTab() {
   const money = useMoney();
   const canEdit = canEditTab("bank");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
   const [card, setCard] = useState(null);
+  const [fresh, flash] = useFlash();                        // the transaction just typed into the row at the top
 
   useEffect(() => {
     newRef.current = canEdit ? () => setCard({ id: null }) : null;
@@ -31,9 +35,18 @@ export default function BankTab() {
 
   const q = query.trim().toLowerCase();
   const found = useMemo(() => bankTxns.filter((t) => !q || has(bankText(t), q) || has(t.remarks, q) || has(t.amount, q)), [bankTxns, q]);
-  const ins = found.filter(isBankCredit);
-  const outs = found.filter((t) => !isBankCredit(t));
-  const shown = filter === "in" ? ins : filter === "out" ? outs : found;
+  // What the Filters panel offers for this list: money in or out, and how much.
+  const defs = useMemo(() => [
+    {
+      id: "dir", label: "Money", kind: "chips",
+      options: [{ value: "all", label: "All" }, { value: "in", label: "Money in" }, { value: "out", label: "Money out" }],
+      test: (t, v) => (v === "in" ? isBankCredit(t) : !isBankCredit(t)),
+    },
+    { id: "amount", label: "Amount", kind: "range", get: (t) => Number(t.amount), unit: "NPR" },
+  ], []);
+  const tf = useTabFilters(defs, found);
+  const shown = tf.rows;
+  useHiddenNote(fresh, bankTxns, shown);                    // a record just typed in that the search or a filter hides is said so
   const sum = (list) => list.reduce((s, t) => s + Number(t.amount ?? 0), 0);
   const totalIn = sum(shown.filter(isBankCredit));
   const totalOut = sum(shown.filter((t) => !isBankCredit(t)));
@@ -81,21 +94,9 @@ export default function BankTab() {
   return (
     <>
       <FinPane
-        title="Bank" note={q || filter !== "all" ? `${shown.length} of ${bankTxns.length}` : `${bankTxns.length} ${plural(bankTxns.length, "transaction")}`}
+        title="Bank" note={q || tf.count > 0 ? `${shown.length} of ${bankTxns.length}` : `${bankTxns.length} ${plural(bankTxns.length, "transaction")}`}
         id="fin-pane" labelledBy="fin-tab-bank"
-        tools={(
-          <>
-            <SearchBox value={query} onChange={setQuery} placeholder="Search the bank" label="Search bank transactions by description, note or amount" />
-            <FilterChips
-              label="Which transactions" value={filter} onChange={setFilter}
-              options={[
-                { value: "all", label: "All", count: found.length },
-                { value: "in", label: "Money in", count: ins.length },
-                { value: "out", label: "Money out", count: outs.length },
-              ]}
-            />
-          </>
-        )}
+        tools={<FindBar value={query} onChange={setQuery} placeholder="Search the bank" label="Search bank transactions by description, note or amount" filters={tf} />}
         actions={(
           <>
             <ExportButton name="bank" columns={csv} rows={shown} />
@@ -120,7 +121,8 @@ export default function BankTab() {
           className="fn-dense" label="Bank transactions" rows={capped} rowKey={(t) => t.id} columns={columns}
           defaultSort={{ id: "when", dir: "desc" }} onOpen={(t) => setCard({ id: t.id })}
           rowLabel={(t) => `Open the ${isBankCredit(t) ? "money in" : "money out"} of ${money(Number(t.amount) || 0)} on ${show(t.date)}`}
-          activeKey={card?.id || undefined} loading={loading}
+          activeKey={card?.id || undefined} loading={loading} flashKey={fresh}
+          entry={canEdit ? (c) => (fits(c, BANK_NEEDS) ? <BankEntry ctx={c} onSaved={flash} /> : null) : undefined}
           empty={<EmptyNote icon={<Icons.Wallet size={22} sw={1.5} />}>{bankTxns.length === 0 ? empty : "Nothing matches that."}</EmptyNote>}
         />
         {more}
