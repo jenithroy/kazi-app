@@ -1,0 +1,67 @@
+/* ══════════════════════════════════════════════════════════════════
+   SEND TO CHAT — the dialog a record is sent from (components/share/ShareDialog.jsx)
+   A glass dialog (Modal glass), so the base tokens are the card's (--ink-*, --line, --mint-*), not a page's --kb-*. The people list reuses
+   Chat's own rows (.kchat-person, .kchat-check, .kchat-dlg-search in chat/chat.css) so it looks and works like "New conversation".
+══════════════════════════════════════════════════════════════════ */
+
+/* what is being sent */
+.ksh-file {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 13px;
+  border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-2);
+}
+.ksh-file-ico { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--mint-soft); color: var(--mint-deep); }
+.ksh-file-body { flex: 1 1 auto; min-width: 0; }
+.ksh-file-name { margin: 0; font: 600 13.5px/1.3 var(--font); color: var(--ink); overflow-wrap: anywhere; }
+.ksh-file-meta { margin: 2px 0 0; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.ksh-file--err { border-color: rgba(168, 68, 44, .45); }
+.ksh-file--err .ksh-file-ico { background: var(--terra-soft); color: #a8442c; }
+.ksh-file--err .ksh-file-meta { color: #a8442c; }
+.ksh-retry { flex: none; }
+
+.ksh-spin {
+  display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--line-strong); border-top-color: var(--mint-deep);
+  border-radius: 50%; animation: ksh-spin .8s linear infinite;
+}
+@keyframes ksh-spin { to { transform: rotate(360deg); } }
+
+/* who it goes to */
+.ksh-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 6px; font: 600 11.5px/1.2 var(--font); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.ksh-h b { font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink-2); }
+.ksh-list { max-height: 248px; }
+.ksh-sub { position: sticky; top: 0; z-index: 1; margin: 0; padding: 6px 12px 4px; background: var(--bg-2); font: 600 11px/1.2 var(--font); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.ksh-list .kchat-person { min-height: 48px; }
+
+/* the message */
+.ksh-msg { display: block; margin-top: 14px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.ksh-text {
+  display: block; width: 100%; box-sizing: border-box; min-height: 66px; max-height: 160px; margin-top: 5px; padding: 9px 12px; resize: vertical;
+  border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--mg-input, #fff); color: var(--ink); font: 400 14px/1.4 var(--font);
+}
+.ksh-text:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+.ksh-text::placeholder { color: var(--ink-3); opacity: 1; }
+
+/* the answer */
+.ksh-done { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); }
+.ksh-done li { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; line-height: 1.4; color: var(--ink); }
+.ksh-done li:last-child { border-bottom: 0; }
+.ksh-done-ico { flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%; background: var(--mint-deep); color: #fff; }
+.ksh-done .is-bad .ksh-done-ico { background: #a8442c; }
+.ksh-done-why { display: block; margin-top: 1px; font-size: 12.5px; color: #a8442c; }
+.ksh-lead { margin: 0 0 10px; font: 600 14px/1.4 var(--font); color: var(--ink); }
+.ksh-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* a Send button drawn inside a card's own action row takes that row's look; this is only the icon gap */
+.ksh-btn svg { flex: none; }
+
+@media (max-width: 640px) {
+  .ksh-list { max-height: 220px; }
+  .ksh-file { padding: 10px 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ksh-spin { animation-duration: 2.4s; }
+}
+
+/* the label is its own span so a full footer can drop it on a phone (<ShareButton compact />) and keep the icon */
+@media (max-width: 480px) {
+  .ksh-btn--compact .ksh-btn-t { display: none; }
+}

@@ -8,6 +8,7 @@
  */
 import { useLayoutEffect, useRef, useState } from "react";
 import DocViewer from "./viewer/DocViewer";
+import ShareButton from "./share/ShareButton";
 import { fmtCurrency, fmtCurrencyExact, fmtDate, fmtDateBSLabel, numWords, COMPANY_PAN, COMPANY_NAME, formatDescription } from "../utils/billing.jsx";
 import { roundAmount } from "../utils/format";
 import { statusTone } from "../lib/billing";
@@ -159,6 +160,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; }
       onClose={onClose}
       onPrint={openPrintWindow}
       onDownload={handleDownloadPDF}
+      footerExtra={<ShareButton type="document" record={{ data, docType }} compact className="ghost-button dv-print" title="Send this document to someone in Chat" />}
     >
       <>
         {/* ── The sheet: A4 at 96 dpi. Nothing between here and the closing fragment is the viewer's; it is the legal copy. ── */}

@@ -7,6 +7,7 @@ import useActivityLog from "../hooks/useActivityLog";
 import { useApplyTheme } from "../hooks/useTheme";
 import Spotlight from "./Spotlight";
 import { PersonProvider } from "./profile/PersonProvider";
+import { ShareProvider } from "./share/ShareProvider";
 import "./glass.css";
 import "./nav-theme.css";
 
@@ -63,7 +64,8 @@ function AppLayout({ children }) {
       <main className={cn("kmain", isNative && "kmain--native")}>
         <div className="kscroll">
           {/* Any name on any page can open that person's profile (components/profile/): the provider draws no box, only the card. */}
-          <PersonProvider>{children}</PersonProvider>
+          {/* Any record's card can send it to Chat (components/share/): one dialog, opened from a card's Send button. */}
+          <PersonProvider><ShareProvider>{children}</ShareProvider></PersonProvider>
         </div>
         {isNative && <BottomNav profile={profile} />}
       </main>

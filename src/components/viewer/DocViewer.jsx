@@ -22,6 +22,7 @@
  *   notice                 { tone: "good" | "bad", text } what the last Print or Download said, in the footer
  *   busy, busyLabel        the file is being made: the button says so and ignores presses (aria-disabled, so the cursor stays)
  *   onPrint, onDownload    the two actions; a button is drawn only for one that is given
+ *   footerExtra            more buttons, drawn between Print and Download PDF (the Send to chat button)
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Modal from "../Modal";
@@ -43,7 +44,7 @@ const SpinnerIcon = (p) => <Ico {...p} d="M21 12a9 9 0 1 1-6.22-8.56" />;
 export default function DocViewer({
   title, number, meta = [], status, paper = { width: 794, height: 1123 }, banner, notice,
   busy = false, busyLabel = "Making the PDF…", downloadLabel = "Download PDF",
-  onClose, onPrint, onDownload, children,
+  onClose, onPrint, onDownload, footerExtra, children,
 }) {
   const W = paper.width;
   const H = paper.height;
@@ -122,6 +123,10 @@ export default function DocViewer({
   useEffect(() => {
     const onKey = (e) => {
       const fn = live.current;
+      // A dialog opened over the viewer (Send to chat) has the keys while the cursor is in it: its Escape closes it and nothing else, the
+      // message typed into it keeps its 0, 1, + and - (the zoom keys below would take them), and Tab stays inside it.
+      const over = e.target instanceof Element ? e.target.closest(".kmodal") : null;
+      if (over && over !== stageRef.current?.closest(".kmodal")) return;
       const mod = e.ctrlKey || e.metaKey;
       if (e.key === "Escape") {
         if (e.defaultPrevented) return;
@@ -254,6 +259,7 @@ export default function DocViewer({
           <span className="dv-lbl">Print</span>
         </button>
       ) : null}
+      {footerExtra}
       {onDownload ? (
         <button type="button" className="primary-button dv-download" onClick={press(onDownload)} aria-disabled={busy} aria-busy={busy} title="Download as a PDF file (Ctrl + S)">
           {busy ? <SpinnerIcon size={15} sw={2.2} className="dv-spin" aria-hidden="true" /> : <Icons.Download size={15} sw={1.9} aria-hidden="true" />}
