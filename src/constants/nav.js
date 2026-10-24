@@ -36,6 +36,8 @@ export const NAV_GROUPS = [
       { id: "dashboard",  to: "/dashboard",  label: "Overview",   Icon: Icons.Dashboard,  desc: "Your start page",         can: section("dashboard") },
       { id: "tasks",      to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks,      desc: "Team task board",         can: section("tasks") },
       { id: "attendance", to: "/attendance", label: "Attendance", Icon: Icons.Attendance, desc: "Clock-in and daily logs", can: section("attendance") },
+      // A preview for everyone: it shows nobody's data, so like Roles & Duties it is open to anyone signed in.
+      { id: "leaderboard", to: "/leaderboard", label: "Leaderboard", Icon: Icons.Trophy, desc: "Coming soon", can: everyone },
     ],
   },
   {

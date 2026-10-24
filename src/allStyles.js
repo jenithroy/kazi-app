@@ -27,6 +27,7 @@ import "./components/viewer/viewer.css";
 import "./components/salary-slip.css";
 import "./components/employees/employees.css";
 import "./components/roles/roles.css";
+import "./components/leaderboard/leaderboard.css";
 import "./components/sales/sales.css";
 import "./components/customers/customers.css";
 import "./components/chat/chat.css";

@@ -3,7 +3,7 @@ import Login from "./pages/Login";
 // Every other page is fetched when it is first needed (and ahead of time, quietly): see lib/lazyPages.js.
 import {
   Dashboard, Attendance, Production, Inventory, Finance, FiscalYearTransactions, Purchases, Tasks, Budget, Billing,
-  Employees, AdminPanel, Usage, Roles, Customers, Messenger, Sales, Marketing, MetaAds, BugReport, Changelog,
+  Employees, AdminPanel, Usage, Roles, Leaderboard, Customers, Messenger, Sales, Marketing, MetaAds, BugReport, Changelog,
 } from "./lib/lazyPages";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
@@ -76,6 +76,8 @@ function App() {
             need them. It shows only the duties their permissions already
             allow, so it discloses nothing the sidebar doesn't. */}
         <Route path="/roles"       element={<Roles />} />
+        {/* The Leaderboard is a preview for everyone (it shows no one's data), so it is ungated too. */}
+        <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/bug-report"  element={<SysPage><BugReport /></SysPage>} />
         <Route path="/changelog"   element={<SysPage><Changelog /></SysPage>} />
 

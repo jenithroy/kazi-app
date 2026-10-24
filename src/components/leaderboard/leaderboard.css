@@ -1,0 +1,139 @@
+/* ══════════════════════════════════════════════════════════════════
+   LEADERBOARD — the preview page's own parts (everything is `.lb-*`)
+
+   The page is a bento frame (`.kb`, bento.css): a header, then two panes of glass:
+
+     board  a podium and a few rows drawn as grey placeholders (no names, no numbers), softly blurred, with a glass
+            card on top that says "Coming soon"
+     you    an empty ring and "Nothing is counted yet"
+
+   It is a picture of the board that is coming, not the board: it reads no data. Inside a tile everything reads the
+   `--kb-*` tokens, so light, dark and the solid fallback follow. Loaded after bento.css; the grid is written
+   `.kb-grid.kb-grid--leaderboard` (one class more than bento's own `.kb-grid` rules) so it wins at every size.
+   Sizes follow the tile (`cqh` / `cqw` are the tile's own height and width), so the picture fits a short laptop
+   window and a tall one alike. On a phone the tiles are width-only containers, `cqh` falls back to the window's
+   height, and the clamps keep every size sensible.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── The grid ─────────────────────────────────────────────────── */
+
+.kb-grid.kb-grid--leaderboard {
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 26vw, 330px);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "board you";
+}
+
+/* Phone: one column, the page scrolls and each tile grows with what is in it. */
+@media (max-width: 768px) {
+  .kb-grid.kb-grid--leaderboard { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "board" "you"; }
+}
+
+/* ── The board ────────────────────────────────────────────────── */
+
+/* the tile's body centres the stage; the stage is the picture's box, and the veil is laid over exactly that box */
+.kb-tile.lb-board .kb-main { align-items: center; justify-content: center; }
+.lb-stage { position: relative; flex: 0 1 auto; width: 100%; max-width: 760px; height: 100%; max-height: 640px; min-height: 0; }
+
+/* the picture: blurred a little so it reads as "behind glass", and out of reach of the pointer and the keyboard */
+.lb-preview {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: clamp(10px, 3cqh, 22px);
+  filter: blur(2.5px); pointer-events: none; user-select: none;
+}
+
+.lb-av {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--kb-well); border: 1px solid var(--kb-line); color: var(--kb-faint);
+}
+.lb-av svg { width: 62%; height: 62%; }
+.lb-av--lg { width: clamp(38px, 11cqh, 80px); height: clamp(38px, 11cqh, 80px); }
+.lb-bar { display: block; height: 8px; border-radius: 999px; background: var(--kb-track); }
+.lb-bar--name { width: 68%; }
+.lb-bar--pts { width: 34%; height: 6px; opacity: .7; }
+
+/* the podium: second, first and third; the winner stands in the middle and tallest */
+.lb-podium {
+  flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end;
+  gap: clamp(8px, 2.2cqw, 20px); padding: 0 clamp(0px, 4cqw, 28px);
+}
+.lb-step { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.lb-crown { color: var(--kb-accent); margin-bottom: -2px; }
+.lb-step--1 .lb-av--lg { border-color: var(--kb-accent); box-shadow: 0 0 0 3px var(--kb-chip); }
+.lb-block { width: 100%; display: grid; place-items: center; border-radius: 12px 12px 6px 6px; background: var(--kb-chip); }
+.lb-block::before { content: attr(data-n); font: 600 24px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-accent); opacity: .85; }
+.lb-step--1 .lb-block { height: clamp(56px, 18cqh, 150px); background: color-mix(in srgb, var(--kb-accent) 22%, transparent); }
+.lb-step--2 .lb-block { height: clamp(44px, 14cqh, 120px); }
+.lb-step--3 .lb-block { height: clamp(36px, 11cqh, 96px); }
+
+/* the rows under it: as many as fit, the rest wrap out of sight (the same trick as bento's `.kb-list`) */
+.lb-rows {
+  flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start;
+  overflow: hidden; margin: 0; padding: 0; list-style: none;
+}
+.lb-rows > li {
+  flex: 0 0 auto; width: 100%; display: grid; grid-template-columns: 20px 30px minmax(0, 1fr) 52px;
+  align-items: center; gap: 10px; padding: 8px 4px;
+}
+.lb-rows > li + li { border-top: 1px solid var(--kb-line); }
+.lb-n::before { content: attr(data-n); display: block; text-align: right; font: 600 13px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-3); }
+.lb-rows .lb-bar--name { width: 62%; }
+.lb-rows > li:nth-child(2) .lb-bar--name { width: 54%; }
+.lb-rows > li:nth-child(3) .lb-bar--name { width: 70%; }
+.lb-rows > li:nth-child(4) .lb-bar--name { width: 48%; }
+.lb-rows > li:nth-child(5) .lb-bar--name { width: 58%; }
+.lb-rows .lb-bar--pts { width: 100%; }
+
+/* the glass card over it, low in the picture so the whole podium shows above it: the one thing on the tile that is real text */
+.lb-veil { position: absolute; inset: 0; display: grid; place-items: end center; padding: 0 8px clamp(18px, 9%, 64px); }
+.lb-card {
+  width: min(300px, 100%); display: grid; justify-items: center; gap: 8px; padding: 20px 22px 18px;
+  border: 1px solid var(--kb-line-hi); border-radius: 16px; text-align: center;
+  background: color-mix(in srgb, var(--kb-surface) 74%, transparent); box-shadow: var(--kb-glass-shadow);
+}
+.lb-card-chip { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--kb-chip); color: var(--kb-accent); }
+.lb-card h3 { margin: 2px 0 0; font-size: 17px; font-weight: 600; letter-spacing: -.015em; line-height: 1.25; color: var(--kb-ink); }
+.lb-card p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--kb-ink-2); }
+
+/* a short tile (a laptop window): a smaller card, so the podium above it is not touched */
+@container kb (max-height: 440px) {
+  .lb-card { padding: 14px 22px; gap: 4px; }
+  .lb-card-chip { display: none; }
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .lb-card { -webkit-backdrop-filter: blur(14px) saturate(1.4); backdrop-filter: blur(14px) saturate(1.4); }
+}
+/* an operating-system setting asking for less see-through UI: an opaque card, like the tiles */
+@media (prefers-reduced-transparency: reduce) {
+  .lb-card { background: var(--kb-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  .lb-card { background: Canvas; border-color: CanvasText; }
+}
+
+/* ── Your place ───────────────────────────────────────────────── */
+
+.kb-tile.lb-you .kb-main { align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.lb-ring { position: relative; flex: none; width: clamp(104px, min(64cqw, 38cqh), 196px); aspect-ratio: 1; display: grid; place-items: center; }
+.lb-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* a ring of dots: nothing is counted yet, so nothing is drawn round it */
+.lb-ring-track { fill: none; stroke: var(--kb-track); stroke-width: 6; stroke-linecap: round; stroke-dasharray: .1 8.9; }
+.lb-ring-mid::before { content: "—"; font: 600 30px/1 var(--font); color: var(--kb-ink-3); }
+.lb-cap { margin: 0; font-size: 13px; line-height: 1.4; color: var(--kb-ink-2); }
+
+/* ── Phone ────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* the tiles grow with what is in them here, so nothing in them may take its height from the tile */
+  .kb-tile.lb-board .kb-main, .kb-tile.lb-you .kb-main { flex: 0 0 auto; }
+  .lb-stage { flex: 0 0 auto; height: auto; max-height: none; }
+  .lb-preview { height: auto; gap: 14px; }
+  .lb-av--lg { width: 44px; height: 44px; }
+  .lb-step--1 .lb-block { height: 84px; }
+  .lb-step--2 .lb-block { height: 66px; }
+  .lb-step--3 .lb-block { height: 52px; }
+  .lb-rows { flex: none; overflow: visible; }
+  .lb-rows > li:nth-child(n + 4) { display: none; }
+  .lb-veil { padding: 0 0 14px; }
+  .lb-card { background: color-mix(in srgb, var(--kb-surface) 90%, transparent); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}

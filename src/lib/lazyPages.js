@@ -34,6 +34,7 @@ export const Employees = page(() => import("../pages/Employees"));
 export const AdminPanel = page(() => import("../pages/AdminPanel"));
 export const Usage = page(() => import("../pages/Usage"));
 export const Roles = page(() => import("../pages/Roles"));
+export const Leaderboard = page(() => import("../pages/Leaderboard"));
 export const Customers = page(() => import("../pages/Customers"));
 export const Messenger = page(() => import("../pages/Messenger"));
 export const Sales = page(() => import("../pages/Sales"));
@@ -66,6 +67,7 @@ const BY_PATH = [
   [under("/admin"), AdminPanel],
   [under("/usage"), Usage],
   [under("/roles"), Roles],
+  [under("/leaderboard"), Leaderboard],
   [under("/bug-report"), BugReport],
   [under("/changelog"), Changelog],
 ];
