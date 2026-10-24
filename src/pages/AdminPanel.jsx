@@ -3,6 +3,7 @@ import { fetchAll, supabase, updateRow } from "../lib/db";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
 import { Avatar, Ico, Icons, cn } from "../components/ui";
+import PersonLink from "../components/profile/PersonLink";
 
 /**
  * Roles & Permissions.
@@ -1001,9 +1002,11 @@ export default function AdminPanel() {
                             <p className="kap-people-empty">Nobody yet — add someone from the right.</p>
                           ) : holders.map((h) => (
                             <div key={h.id} className="kap-person">
-                              <Avatar name={h.name} hue={hueFromName(h.name)} size={26} />
+                              <PersonLink decor personId={h.id} name={h.name}>
+                                <Avatar name={h.name} personId={h.id} hue={hueFromName(h.name)} size={26} />
+                              </PersonLink>
                               <span className="kap-person-id">
-                                <span className="kap-person-name">{h.name}</span>
+                                <span className="kap-person-name"><PersonLink className="kpl--clip" personId={h.id} name={h.name} /></span>
                                 <em>{h.department || h.email || "—"}</em>
                               </span>
                               {canManagePeople && (
@@ -1043,9 +1046,11 @@ export default function AdminPanel() {
                                 <p className="kap-people-empty">Nobody else matches.</p>
                               ) : candidates.slice(0, 50).map((p) => (
                                 <div key={p.id} className="kap-person">
-                                  <Avatar name={p.name} hue={hueFromName(p.name)} size={26} />
+                                  <PersonLink decor personId={p.id} name={p.name}>
+                                    <Avatar name={p.name} personId={p.id} hue={hueFromName(p.name)} size={26} />
+                                  </PersonLink>
                                   <span className="kap-person-id">
-                                    <span className="kap-person-name">{p.name}</span>
+                                    <span className="kap-person-name"><PersonLink className="kpl--clip" personId={p.id} name={p.name} /></span>
                                     <em>{roleLabel(p.positionId) || "no role"}</em>
                                   </span>
                                   <button

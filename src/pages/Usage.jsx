@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import PageHeader from "../components/PageHeader";
-import Select from "../components/Select";
-import { Avatar, Btn, Card, Icons, KPI, Pill, cn } from "../components/ui";
+import { Avatar, Btn, Card, Icons, KPI, Pill } from "../components/ui";
+import PersonLink from "../components/profile/PersonLink";
+import { FindBar } from "../components/filters/FilterMenu";
+import useFilters from "../components/filters/useFilters";
 import {
   fetchActivityFeed,
   fetchUsageDaily,
@@ -32,6 +34,12 @@ import {
  *
  * Nothing on this page writes anything. It is a mirror, and a mirror with a
  * Delete button would not be one.
+ *
+ * One Filters button (components/filters) holds every choice: the period (which decides what
+ * is READ, so changing it asks the database again), the person and the page (they narrow the
+ * numbers, the charts and the feed), and what the activity list shows (it and the search in
+ * the bar narrow only that list). A line beside the button says the period, the person and the
+ * page in words.
  */
 
 /* ── Range ──────────────────────────────────────────────── */
@@ -123,6 +131,64 @@ const ACTION_FILTERS = [
 
 const isWrite = (a) => a === "create" || a === "update" || a === "save" || a === "delete";
 
+/** Does an event of this kind belong under one of the activity list's choices? */
+const actionOk = (action, key) => (key === "view" ? action === "view" : key === "sign_in" ? action === "sign_in" : key === "write" ? isWrite(action) : true);
+
+/* The period in words, for the line beside the Filters button. */
+const RANGE_WORDS = { "1d": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days", "90d": "the last 90 days", all: "all time" };
+
+/* Who and which page a row belongs to. The roll-up and the feed say it the same way, so one choice narrows both. An event that names no
+   page (a sign-in) is filed under "Elsewhere", which is what the charts call it. */
+const ELSEWHERE = "__elsewhere__";
+const personKey = (r) => r.person_id || r.person_name || "unknown";
+const pageKey = (r) => r.section_id || ELSEWHERE;
+
+/* The panel counts a person or a page by the actions logged (what "Actions logged" says once it is chosen), not by the roll-up rows the
+   log is kept in: a count of rows would be a number nobody can see anywhere on the page. */
+function countedInActions(sections, daily, person, page) {
+  return sections.map((s) => {
+    if (s.kind !== "select") return s;
+    const [keyOf, others] = s.id === "person"
+      ? [personKey, (r) => !page || pageKey(r) === page]
+      : [pageKey, (r) => !person || personKey(r) === person];
+    const events = new Map();
+    for (const r of daily) if (others(r)) events.set(keyOf(r), (events.get(keyOf(r)) || 0) + (Number(r.events) || 0));
+    return { ...s, options: s.options.map((o) => (o.value === "" ? o : { ...o, hint: (events.get(o.value) || 0).toLocaleString() })) };
+  });
+}
+
+/* Somebody flipping between two pages for ten minutes is one thing they did, not forty. Runs of the same event by the same person
+   collapse into a single line with a count, which keeps the feed readable without throwing away the underlying rows -- the charts
+   still count every one. */
+function collapseFeed(events) {
+  const out = [];
+  for (const e of events) {
+    const last = out[out.length - 1];
+    const sameThing =
+      last &&
+      last.person_id === e.person_id &&
+      last.action === e.action &&
+      last.section_id === e.section_id &&
+      (last.target || "") === (e.target || "") &&
+      Date.parse(last.oldestAt) - Date.parse(e.created_at) < 15 * 60 * 1000;
+
+    if (sameThing) {
+      last.count += 1;
+      last.oldestAt = e.created_at;
+      last.duration_ms = (last.duration_ms || 0) + (e.duration_ms || 0);
+    } else {
+      out.push({ ...e, count: 1, oldestAt: e.created_at });
+    }
+  }
+  return out;
+}
+
+/* A person in the log opens their profile. The log knows who by `person_id`, so there is a link only where it has one:
+   somebody who has since been removed stays plain text (never looked up by name, a newer person might share it). */
+function WhoLink({ id, name, decor, children }) {
+  return id ? <PersonLink decor={decor} personId={id} name={name}>{children}</PersonLink> : <>{children}</>;
+}
+
 /* ── A donut with its own legend ────────────────────────── */
 function SharePie({ data, total, unit = "actions", empty }) {
   if (!data.length) return <div className="kusg-empty-sm">{empty}</div>;
@@ -198,11 +264,8 @@ function RankedBar({ rows, max }) {
 
 /* ── Page ───────────────────────────────────────────────── */
 export default function Usage() {
-  const [range, setRange]     = useState("30d");
-  const [person, setPerson]   = useState("all");
-  const [section, setSection] = useState("all");
-  const [action, setAction]   = useState("all");
-  const [query, setQuery]     = useState("");
+  const [range, setRange]     = useState("30d");      // how much is read (it asks the database for that period): a choice in the Filters panel
+  const [query, setQuery]     = useState("");         // searches the activity list only
   const [shown, setShown]     = useState(60);
 
   const [daily, setDaily] = useState([]);
@@ -270,23 +333,29 @@ export default function Usage() {
     return [...m].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [daily]);
 
-  /* The two pickers: the first entry of each says "no narrowing" (value ""), which the page keeps as "all". */
-  const personOptions = useMemo(
-    () => [{ value: "", label: "Everyone" }, ...people.map((p) => ({ value: p.key, label: p.name }))],
-    [people]
-  );
-  const pageOptions = useMemo(
-    () => [{ value: "", label: "Every page" }, ...sections.map((s) => ({ value: s.key, label: s.name }))],
-    [sections]
-  );
+  // Names of everyone and every page seen so far, not just in the period on screen: a person chosen in one period who has nothing in a
+  // shorter one stays chosen (and on the list, with nothing under them), and must keep their name.
+  const seen = useRef({ people: new Map(), pages: new Map() });
+  const personNames = useMemo(() => { people.forEach((p) => seen.current.people.set(p.key, p.name)); return new Map(seen.current.people); }, [people]);
+  const pageNames = useMemo(() => { sections.forEach((s) => seen.current.pages.set(s.key, s.name)); return new Map(seen.current.pages); }, [sections]);
+  const pageName = useCallback((key) => (key === ELSEWHERE ? "Elsewhere" : pageNames.get(key) || key), [pageNames]);
 
-  /* Person and page narrow everything; the feed's own search and verb filter
-     narrow only the feed. */
-  const scopedDaily = useMemo(() => daily.filter((r) => {
-    if (person !== "all" && (r.person_id || r.person_name || "unknown") !== person) return false;
-    if (section !== "all" && r.section_id !== section) return false;
-    return true;
-  }), [daily, person, section]);
+  /* ── The Filters panel (components/filters) ──────────────────────────────────────────────────────────────────────────────
+     One button for the page. The period is a choice the page keeps (it decides what is read, so it is never a pill). Person and page
+     narrow everything: the charts, the numbers and the feed. The activity list has two of its own, the search and what was done,
+     which narrow only that list; they are told apart in the panel by their heading. */
+  const dailyDefs = useMemo(() => [
+    {
+      id: "range", label: "Period", kind: "chips", controlled: { value: range, set: setRange },
+      options: RANGES.map((r) => ({ value: r.key, label: r.label })),
+    },
+    { id: "person", label: "Person", kind: "select", of: personKey, nameOf: (k) => personNames.get(k) || k, any: "Everyone" },
+    { id: "page", label: "Page", kind: "select", of: pageKey, nameOf: pageName, any: "Every page" },
+  ], [range, personNames, pageName]);
+  const dailyTf = useFilters(dailyDefs, daily);
+  const person = dailyTf.values.person || "";             // "" is everyone
+  const page = dailyTf.values.page || "";                 // "" is every page
+  const scopedDaily = dailyTf.rows;
 
   const totals = useMemo(() => {
     let events = 0, activeMs = 0, views = 0, writes = 0;
@@ -325,7 +394,7 @@ export default function Usage() {
     for (const r of scopedDaily) {
       const key = r.person_id || r.person_name || "unknown";
       const cur = m.get(key) || {
-        key, name: r.person_name || "Removed user",
+        key, personId: r.person_id || null, name: r.person_name || "Removed user",
         value: 0, activeMs: 0, writes: 0, lastAt: null, sections: new Map(),
       };
       cur.value    += Number(r.events) || 0;
@@ -371,48 +440,38 @@ export default function Usage() {
   );
 
   /* ── The feed ─────────────────────────────────────────── */
-  const filteredFeed = useMemo(() => {
+  // the chosen person and page, then the search...
+  const searchedFeed = useMemo(() => {
     const q = query.trim().toLowerCase();
     return feed.filter((e) => {
-      if (person !== "all" && (e.person_id || e.person_name || "unknown") !== person) return false;
-      if (section !== "all" && e.section_id !== section) return false;
-      if (action === "view" && e.action !== "view") return false;
-      if (action === "sign_in" && e.action !== "sign_in") return false;
-      if (action === "write" && !isWrite(e.action)) return false;
+      if (person && personKey(e) !== person) return false;
+      if (page && pageKey(e) !== page) return false;
       if (q) {
         const hay = `${e.person_name} ${e.section_label} ${e.action} ${e.target || ""} ${e.path || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [feed, person, section, action, query]);
+  }, [feed, person, page, query]);
 
-  /* Somebody flipping between two pages for ten minutes is one thing they did,
-     not forty. Runs of the same event by the same person collapse into a
-     single line with a count, which keeps the feed readable without throwing
-     away the underlying rows -- the charts still count every one. */
-  const collapsedFeed = useMemo(() => {
-    const out = [];
-    for (const e of filteredFeed) {
-      const last = out[out.length - 1];
-      const sameThing =
-        last &&
-        last.person_id === e.person_id &&
-        last.action === e.action &&
-        last.section_id === e.section_id &&
-        (last.target || "") === (e.target || "") &&
-        Date.parse(last.oldestAt) - Date.parse(e.created_at) < 15 * 60 * 1000;
+  // ...then what was done. The list shows runs (see collapseFeed), so each choice is counted in runs: "Changes 12" is the 12 lines it shows.
+  const feedDefs = useMemo(() => [{
+    id: "action", label: "In the activity list", kind: "chips", test: (e, v) => actionOk(e.action, v),
+    options: ACTION_FILTERS.map((f) => ({ value: f.key, label: f.label, count: collapseFeed(searchedFeed.filter((e) => actionOk(e.action, f.key))).length })),
+  }], [searchedFeed]);
+  const feedTf = useFilters(feedDefs, searchedFeed);
+  const filteredFeed = feedTf.rows;
+  const action = feedTf.values.action;
 
-      if (sameThing) {
-        last.count += 1;
-        last.oldestAt = e.created_at;
-        last.duration_ms = (last.duration_ms || 0) + (e.duration_ms || 0);
-      } else {
-        out.push({ ...e, count: 1, oldestAt: e.created_at });
-      }
-    }
-    return out;
-  }, [filteredFeed]);
+  const collapsedFeed = useMemo(() => collapseFeed(filteredFeed), [filteredFeed]);
+
+  // what the one button shows: the page's choices, then the list's own
+  const filters = useMemo(() => ({
+    sections: [...countedInActions(dailyTf.sections, daily, person, page), ...feedTf.sections],
+    active: [...dailyTf.active, ...feedTf.active],
+    count: dailyTf.count + feedTf.count,
+    clear: () => { dailyTf.clear(); feedTf.clear(); },
+  }), [dailyTf, feedTf, daily, person, page]);
 
   const feedDays = useMemo(() => {
     const groups = [];
@@ -425,10 +484,11 @@ export default function Usage() {
     return groups;
   }, [collapsedFeed, shown]);
 
-  useEffect(() => { setShown(60); }, [person, section, action, query, range]);
+  useEffect(() => { setShown(60); }, [person, page, action, query, range]);
 
-  const scoped = person !== "all" || section !== "all";
   const nothingYet = !loading && !error && daily.length === 0;
+  // what is on screen, in words (the choices are behind the Filters button)
+  const showing = `Showing ${RANGE_WORDS[range]} · ${person ? personNames.get(person) || "one person" : "everyone"} · ${page ? pageName(page) : "every page"}`;
 
   return (
     <div className="kusg">
@@ -445,36 +505,13 @@ export default function Usage() {
         }
       />
 
-      {/* ── Scope ── */}
-      <div className="kusg-scope">
-        <div className="kusg-chips" role="group" aria-label="Date range">
-          {RANGES.map((r) => (
-            <button
-              key={r.key}
-              type="button"
-              className={cn("kusg-chip", range === r.key && "is-on")}
-              onClick={() => setRange(r.key)}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="kusg-selects">
-          <Select
-            variant="pill" label="Person" value={person === "all" ? "" : person} onChange={(v) => setPerson(v || "all")}
-            options={personOptions} placeholder="Everyone" searchPlaceholder="Find a person"
-          />
-          <Select
-            variant="pill" label="Page" value={section === "all" ? "" : section} onChange={(v) => setSection(v || "all")}
-            options={pageOptions} placeholder="Every page" searchPlaceholder="Find a page"
-          />
-          {scoped && (
-            <button type="button" className="kusg-clear" onClick={() => { setPerson("all"); setSection("all"); }}>
-              <Icons.X size={12} /> Clear
-            </button>
-          )}
-        </div>
+      {/* ── Scope: one Filters button (period, person, page, and what the activity list shows), and what it comes to in words ── */}
+      <div className="kusg-scope fn-barrow">
+        <FindBar
+          filters={filters} value={query} onChange={setQuery}
+          placeholder="Search activity…" label="Search the activity list by person, page or what was done"
+        />
+        <p className="kusg-now">{showing}</p>
       </div>
 
       {error && <div className="kusg-error">{error}</div>}
@@ -607,8 +644,10 @@ export default function Usage() {
                         <tr key={p.key}>
                           <td>
                             <span className="kusg-who">
-                              <Avatar name={p.name} hue={hueFromName(p.name)} size={26} />
-                              <span className="kusg-who-name">{p.name}</span>
+                              <WhoLink decor id={p.personId} name={p.name}>
+                                <Avatar name={p.name} personId={p.personId || undefined} hue={hueFromName(p.name)} size={26} />
+                              </WhoLink>
+                              <span className="kusg-who-name"><WhoLink id={p.personId} name={p.name}>{p.name}</WhoLink></span>
                             </span>
                           </td>
                           <td className="ta-r mono">{p.value.toLocaleString()}</td>
@@ -631,35 +670,6 @@ export default function Usage() {
           <Card
             title="Activity"
             sub={`${collapsedFeed.length.toLocaleString()} entries${feed.length >= 600 ? " (most recent 600 events)" : ""}`}
-            action={
-              <div className="kusg-feed-filters">
-                <label className="kusg-search">
-                  <Icons.Search size={13} />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search activity…"
-                  />
-                  {query && (
-                    <button type="button" onClick={() => setQuery("")} aria-label="Clear search">
-                      <Icons.X size={12} />
-                    </button>
-                  )}
-                </label>
-                <div className="kusg-chips kusg-chips--sm">
-                  {ACTION_FILTERS.map((f) => (
-                    <button
-                      key={f.key}
-                      type="button"
-                      className={cn("kusg-chip", action === f.key && "is-on")}
-                      onClick={() => setAction(f.key)}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            }
           >
             {feedDays.length === 0 ? (
               <div className="kusg-empty-sm">Nothing matches those filters.</div>
@@ -671,10 +681,12 @@ export default function Usage() {
                     <ul className="kusg-events">
                       {g.items.map((e) => (
                         <li key={e.id} className="kusg-event">
-                          <Avatar name={e.person_name || "?"} hue={hueFromName(e.person_name || "")} size={28} />
+                          <WhoLink decor id={e.person_id} name={e.person_name}>
+                            <Avatar name={e.person_name || "?"} personId={e.person_id || undefined} hue={hueFromName(e.person_name || "")} size={28} />
+                          </WhoLink>
                           <div className="kusg-event-body">
                             <p className="kusg-event-line">
-                              <strong>{e.person_name || "Removed user"}</strong>
+                              <strong><WhoLink id={e.person_id} name={e.person_name}>{e.person_name || "Removed user"}</WhoLink></strong>
                               {" "}
                               <span className="kusg-verb">{VERBS[e.action] || e.action}</span>
                               {e.action === "view" ? (

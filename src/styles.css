@@ -2868,30 +2868,6 @@ span.kap-personal { cursor: default; }
   display: flex; flex-wrap: wrap; align-items: center;
   justify-content: space-between; gap: 10px;
 }
-.kusg-chips {
-  display: inline-flex; gap: 2px; padding: 3px;
-  background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-}
-.kusg-chip {
-  border: none; background: none; cursor: pointer;
-  padding: 5px 12px; border-radius: var(--r-pill);
-  font: inherit; font-size: 12.5px; font-weight: 600;
-  color: var(--ink-3); transition: background .14s, color .14s;
-  white-space: nowrap;
-}
-.kusg-chip:hover { color: var(--ink); }
-.kusg-chip.is-on { background: var(--card); color: var(--mint-deep); box-shadow: var(--shadow-1); }
-.kusg-chips--sm .kusg-chip { padding: 4px 10px; font-size: 11.5px; }
-
-.kusg-selects { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.kusg-clear {
-  display: inline-flex; align-items: center; gap: 5px;
-  border: none; background: none; cursor: pointer;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--ink-4);
-  padding: 6px 4px;
-}
-.kusg-clear:hover { color: var(--terra); }
 
 .kusg-error {
   padding: 12px 14px; border-radius: var(--r-input);
@@ -2987,23 +2963,6 @@ span.kap-personal { cursor: default; }
 .kusg-dim { color: var(--ink-4); }
 
 /* ── Feed ── */
-.kusg-feed-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.kusg-search {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 30px; padding: 0 8px 0 10px;
-  background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-pill); color: var(--ink-4);
-}
-.kusg-search input {
-  border: none; background: none; outline: none;
-  font: inherit; font-size: 12.5px; color: var(--ink); width: 150px;
-}
-.kusg-search button {
-  border: none; background: none; cursor: pointer; color: var(--ink-4);
-  display: flex; padding: 2px; border-radius: 999px;
-}
-.kusg-search button:hover { color: var(--terra); }
-
 .kusg-day + .kusg-day { margin-top: 14px; }
 .kusg-day-h {
   position: sticky; top: 0; z-index: 1;
@@ -3053,15 +3012,12 @@ span.kap-personal { cursor: default; }
 
 @media (max-width: 720px) {
   .kusg-scope { align-items: stretch; }
-  .kusg-chips { overflow-x: auto; }
   /* Beside a 190px donut, a legend leaves neither of them enough room. */
   .kusg-pie { flex-direction: column; align-items: stretch; gap: 10px; }
   .kusg-legend { flex: 0 0 auto; }
   /* Timestamps drop under the line rather than squeezing it to two words. */
   .kusg-event { flex-wrap: wrap; }
   .kusg-event-when { width: 100%; padding-left: 39px; }
-  .kusg-search { flex: 1 1 100%; }
-  .kusg-search input { width: 100%; }
 }
 
 /* ── Bug Report: which section the report came from ── */

@@ -15,6 +15,7 @@ import {
 import { Ring, Trend, MiniBars, StackBar } from "../../components/bento/charts";
 import { Bank, TrendUp } from "../../components/bento/icons";
 import ClockInCard from "../../components/ClockInCard";
+import PersonLink from "../../components/profile/PersonLink";
 import { useAuth } from "../../context/AuthContext";
 import { useCurrency } from "../../context/CurrencyContext";
 import { useRegion } from "../../context/RegionContext";
@@ -111,11 +112,13 @@ const stageTone = (stage) => {
 
 function AssignTag({ a }) {
   if (!a) return null;
-  const who = a.workerName || "someone";
+  // The worker's name opens their profile (plain text when the hand-off names nobody we know). The words round it sit in one
+  // inner span, so the pill is as wide as it was with plain text.
+  const who = <PersonLink personId={a.personId || undefined} name={a.workerName}>{a.workerName || "someone"}</PersonLink>;
   if (a.status === "timed_out") return <span className="kb-tag kb-tag--bad">No response</span>;
-  if (a.status === "pending") return <span className="kb-tag kb-tag--warn">Awaiting {who}</span>;
-  if (a.status === "accepted") return <span className="kb-tag kb-tag--good">{who} on it</span>;
-  if (a.status === "in_progress") return <span className="kb-tag kb-tag--good">{who} working</span>;
+  if (a.status === "pending") return <span className="kb-tag kb-tag--warn"><span>Awaiting {who}</span></span>;
+  if (a.status === "accepted") return <span className="kb-tag kb-tag--good"><span>{who} on it</span></span>;
+  if (a.status === "in_progress") return <span className="kb-tag kb-tag--good"><span>{who} working</span></span>;
   return null;
 }
 
@@ -383,12 +386,20 @@ function ApprovalRow({ br, canDecide, reviewer }) {
 
   return (
     <li className="kb-row kb-appr">
-      <Avatar name={who} hue={60} size={28} />
+      <PersonLink decor personId={br.requested_by_id || undefined} name={who}>
+        <Avatar name={who} personId={br.requested_by_id || undefined} hue={60} size={28} />
+      </PersonLink>
       <span className="kb-appr-t">
         <b>{br.title || br.item || "Budget request"}</b>
         {problem
           ? <span className="kb-appr-err" role="alert">{problem}</span>
-          : <span>{who}{br.urgency === "high" ? " · urgent" : ""}</span>}
+          : (
+            // the name is cut with "…" when the line is short, and "urgent" stays beside it
+            <span style={br.urgency === "high" ? { display: "flex" } : undefined}>
+              <PersonLink className="kpl--clip" personId={br.requested_by_id || undefined} name={who} />
+              {br.urgency === "high" && <span style={{ flex: "none", whiteSpace: "pre" }}>{" · urgent"}</span>}
+            </span>
+          )}
       </span>
       <span className="kb-appr-amt"><b><Money npr={amt} compact /></b><span>{moneyAlt(amt)}</span></span>
       {state !== null ? (
@@ -449,7 +460,7 @@ export function BudgetTile({ pending = [], loading, list = false }) {
             <li className="kb-row" key={br.id}>
               <span className="kb-appr-t">
                 <b>{br.title || br.item || "Budget request"}</b>
-                <span>{br.requestedBy || br.submittedBy || br.name || "—"}</span>
+                <span><PersonLink className="kpl--clip" personId={br.requested_by_id || undefined} name={br.requestedBy || br.submittedBy || br.name || "—"} /></span>
               </span>
               <span className="kb-bud-amt"><Money npr={Number(br.amountNPR || br.amount || 0)} compact /></span>
             </li>
@@ -499,9 +510,11 @@ export function TasksTile({ data, loading }) {
               <i className={cn("kb-prio", t.priority === "High" && "kb-prio--high", t.priority === "Medium" && "kb-prio--med")} />
               <span className="kb-tk-t">
                 <b>{t.title}</b>
-                <span>{t.assignee || "Unassigned"}</span>
+                <span><PersonLink className="kpl--clip" personId={t.assignee_id || undefined} name={t.assignee}>{t.assignee || "Unassigned"}</PersonLink></span>
               </span>
-              <Avatar name={t.assignee || "?"} hue={92} size={22} />
+              <PersonLink decor personId={t.assignee_id || undefined} name={t.assignee}>
+                <Avatar name={t.assignee || "?"} personId={t.assignee_id || undefined} hue={92} size={22} />
+              </PersonLink>
             </li>
           ))}
         </RowList>
@@ -698,8 +711,10 @@ export function WhosOutTile({ area = "money", people: all = [], loading }) {
         <RowList className="kb-fill">
           {people.slice(0, 10).map((p, i) => (
             <li className="kb-row" key={`${p.name}-${i}`}>
-              <Avatar name={p.name} hue={hueFromName(p.name)} size={26} />
-              <span className="kb-tk-t"><b>{p.name}</b></span>
+              <PersonLink decor personId={p.personId} name={p.name}>
+                <Avatar name={p.name} personId={p.personId} hue={hueFromName(p.name)} size={26} />
+              </PersonLink>
+              <span className="kb-tk-t"><b><PersonLink className="kpl--clip" personId={p.personId} name={p.name} /></b></span>
               <span className={`kb-tag kb-tag--${p.kind === "late" ? "warn" : p.kind === "leave" ? "info" : "bad"}`}>{p.note}</span>
             </li>
           ))}

@@ -172,13 +172,13 @@ export function whosOut(attendance, users, today) {
   const marked = new Set(rows.map((r) => (r.staffName || "").toLowerCase()));
   const out = [];
   rows.forEach((r) => {
-    if (r.status === "Late") out.push({ name: r.staffName, kind: "late", note: r.lateMinutes ? `${r.lateMinutes} min late` : "Late" });
-    else if (r.status === "Leave") out.push({ name: r.staffName, kind: "leave", note: "On leave" });
-    else if (r.status === "Absent") out.push({ name: r.staffName, kind: "absent", note: "Absent" });
+    if (r.status === "Late") out.push({ name: r.staffName, personId: r.person_id, kind: "late", note: r.lateMinutes ? `${r.lateMinutes} min late` : "Late" });
+    else if (r.status === "Leave") out.push({ name: r.staffName, personId: r.person_id, kind: "leave", note: "On leave" });
+    else if (r.status === "Absent") out.push({ name: r.staffName, personId: r.person_id, kind: "absent", note: "Absent" });
   });
   users
     .filter((u) => u.status !== "Inactive" && ["nepal_admin", "employee", "nepal_staff"].includes(u.role))
-    .forEach((u) => { if (!marked.has((u.name || "").toLowerCase())) out.push({ name: u.name, kind: "absent", note: "Not in yet" }); });
+    .forEach((u) => { if (!marked.has((u.name || "").toLowerCase())) out.push({ name: u.name, personId: u.personId, kind: "absent", note: "Not in yet" }); });
   const rank = { absent: 0, leave: 1, late: 2 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }

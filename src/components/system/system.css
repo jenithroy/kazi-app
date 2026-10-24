@@ -219,7 +219,6 @@
 .sys .kap-seg-btn:not(.is-on) { color: var(--ink-3); }
 .sys .kap-seg--view .kap-seg-btn.is-on { color: color-mix(in srgb, var(--kb-info) 72%, var(--kb-ink)); }
 .sys .kap-seg--edit .kap-seg-btn.is-on { color: color-mix(in srgb, var(--kb-good) 72%, var(--kb-ink)); }
-.sys .kusg-clear:hover { color: var(--kb-bad); }
 .sys .kchg-badge--terra { color: var(--kb-bad); }
 .sys .kchg-badge--blue { color: var(--kb-info); }
 
@@ -241,6 +240,15 @@
 
 /* the sticky day heading in the feed never sticks (its card clips), and a solid fill would be a slab on the glass */
 .sys .kusg-day-h { background: transparent; }
+
+/* ══ Usage & Activity: the one Filters button, and what is on screen in words ═════════════════════════════════
+   The bar is the search box and the button (components/filters: FindBar, `fn-barrow` on the row), then the pills for what is narrowing;
+   the line at the right says the period, the person and the page, because their choices are behind the button. */
+.sys .kusg-scope { justify-content: flex-start; }
+.kusg-now { margin: 0 0 0 auto; font-size: 12.5px; line-height: 1.4; color: var(--ink-3); }
+@media (max-width: 768px) {            /* the same breakpoint as the bar's own phone rule (`fn-barrow`): the search and the button take the first row, this line the next */
+  .kusg-now { margin-left: 0; flex: 1 1 100%; }
+}
 
 /* ══ Keyboard focus: the kit's accent ring ═════════════════════════
    The old pages used the site-wide ring (a 2px gap and a 2px --mint-2 band, which is 2:1 on glass). The kit's ring
