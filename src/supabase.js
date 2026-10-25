@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { auth as firebaseAuth } from "./firebase";
+import { readsAgain } from "./lib/retryFetch";
 
 const url     = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -69,9 +70,15 @@ async function currentAccessToken() {
   return null;
 }
 
-/** Use this for every query. It carries whichever identity is signed in. */
+/**
+ * Use this for every query. It carries whichever identity is signed in.
+ *
+ * A read whose connection dropped is asked once more (lib/retryFetch.js): on a link that stalls, the connection a page is reading on is
+ * sometimes reset, every read on it fails together, and the page would say "did not load" for a try that would have worked. Writes are never repeated.
+ */
 export const supabase = createClient(url, anonKey, {
   accessToken: currentAccessToken,
+  global: { fetch: readsAgain() },
 });
 
 /**

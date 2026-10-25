@@ -176,9 +176,11 @@ async function writeChildren(collection, parentId, nested) {
  *   filters  [{ field, op, value }]  op defaults to "eq"
  *   orderBy  a key from the view; orderDir "asc" | "desc"
  *   limit    max rows
+ *   columns  the columns to read, a comma list or an array (default: all). A table whose rows hold whole pictures (tech packs:
+ *            lib/packColumns.js) must not be read whole just to draw a list.
  */
-export async function fetchAll(collection, { filters = [], orderBy, orderDir = "desc", limit } = {}) {
-  let q = supabase.from(readFrom(collection)).select("*");
+export async function fetchAll(collection, { filters = [], orderBy, orderDir = "desc", limit, columns } = {}) {
+  let q = supabase.from(readFrom(collection)).select(Array.isArray(columns) ? columns.join(",") : columns || "*");
 
   for (const { field, op = "eq", value } of filters) {
     if (value === undefined) continue;
