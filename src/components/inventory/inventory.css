@@ -68,11 +68,6 @@
 .dt-bal { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
 .dt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* tech packs are still the old cards until they are redone: a scrolling grid inside the pane */
-.inv-legacy { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 16px; color: var(--ink); }
-.inv-legacy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
-.inv-legacy .kb-empty { color: var(--kb-ink-3); }
-
 /* ── The printed ledger lives in <body>: hidden on screen, shown to the printer ── */
 .inv-print-root { display: none; }
 @media print { .inv-print-root { display: block; } }
@@ -102,7 +97,6 @@
   .inv-find { flex: 1 1 100%; }
   .inv-layout { flex: 0 0 auto; display: block; }
   .kb-tile.inv-pane { display: flex; }
-  .inv-legacy { overflow: visible; }
   .inv-ledger-bar { padding: 10px 12px 8px; }
   .kb-pillbtn.inv-print { margin-left: 0; }
 }

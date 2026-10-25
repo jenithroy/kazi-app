@@ -12,7 +12,9 @@
  * and LibraryCards.jsx, on components/EditCard.jsx), which is where things are edited. Nothing is edited in a row, so
  * there is no Save to find at the far end of a wide table.
  *
- * Tech packs keep their old cards and editor until they are redone (components/inventory/TechPackLegacy.jsx).
+ * Tech packs are not a table: they are cards in a grid (components/techpack/PackGrid.jsx). A card opens the printed sheet (or the
+ * photographed pages of an older pack); the editor, the sheet and the pages are opened through components/techpack/TechPackProvider.jsx,
+ * so every page can open them. What a tech pack is lives in lib/techpack.js.
  *
  * What each tab shows, which positions may edit, the stock sums and every write are the old page's. (One thing the
  * old page did not do: deleting an item, process, fabric or sample. Its delete handler was named like the database
@@ -22,7 +24,7 @@
  * components/inventory/inventoryFilters.js): the side of the business (the Nepal / UK switch that used to fill the header),
  * the old All / Low and All / Heavy / Light chips, the Stock ledger's From and To, and more. Each tab keeps its own choices.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BentoPage, EmptyNote } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
 import { PageTabs } from "../components/table/Bar";
@@ -36,14 +38,17 @@ import Rail from "../components/inventory/Rail";
 import {
   costFilters, fabricFilters, ledgerFilters, patternFilters, processFilters, sampleFilters, stockFilters,
 } from "../components/inventory/inventoryFilters";
-import { TechPackCard, TechPackSpecModal, TechPackSpecPreview, TechPackViewer } from "../components/inventory/TechPackLegacy";
+import PackGrid from "../components/techpack/PackGrid";
+import { useTechPack } from "../components/techpack/TechPackProvider";
 import "../components/inventory/inventory.css";
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { useReveal } from "../hooks/useReveal";
 import { sectionCanEdit, sectionVisible } from "../utils/permissions";
-import { deleteRow, fetchAll, insertRow } from "../lib/db";
+import { fetchAll, insertRow } from "../lib/db";
+import { PACK_LIST_COLUMNS, PACK_PICTURE_COLUMNS } from "../lib/packColumns";
+import { brandName, completeness, readPack, searchText } from "../lib/techpack";
 import { STOCK_MOVEMENTS_COLLECTION } from "../utils/stockLedger";
 import { countUntagged, countUntaggedBy, filterByRegion, filterByRegionField } from "../utils/region";
 import { kathmanduDate } from "../utils/date";
@@ -96,17 +101,37 @@ function Inventory() {
   const [ledgerTo, setLedgerTo] = useState(() => kathmanduDate());
 
   /* ── the data ───────────────────────────────────────────────── */
-  const [data, setData] = useState({ rows: NONE, econ: {}, movements: NONE, fabrics: NONE, processes: NONE, patterns: NONE, samples: NONE });
+  const [data, setData] = useState({ rows: NONE, econ: {}, movements: NONE, fabrics: NONE, processes: NONE, patterns: NONE, samples: NONE, customers: NONE, orders: NONE });
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(NONE);
   const [notice, setNotice] = useState("");          // something a person did that did not work, said on the page rather than in a browser pop-up
 
+  /* The photographs kept inside an older tech pack's row are 2 MB of the 2.2 the packs weigh, and every tab of this page would wait for them.
+     So the page reads the packs without them, and the Tech packs tab asks for them the first time it is opened (a pack's own pictures are
+     read again after every reload from then on). `pictures` is { [pack id]: { tech_pack_images, frontSketchUrl, backSketchUrl } }, null until they are in. */
+  const [pictures, setPictures] = useState(null);
+  const picturesWanted = useRef(false);
+  const readPictures = useCallback(async () => {
+    try {
+      const rows = await fetchAll("patterns", { columns: PACK_PICTURE_COLUMNS });
+      setPictures(Object.fromEntries(rows.map((r) => [String(r.id), r])));
+      setFailed((f) => f.filter((k) => k !== "pictures"));
+    } catch (err) {
+      console.error("Failed to read the tech pack pictures:", err);
+      setPictures((p) => p || {});                    // the cards are drawn without them rather than not at all, and the notice below says so
+      setFailed((f) => (f.includes("pictures") ? f : [...f, "pictures"]));
+    }
+  }, []);
+
   const load = useCallback(async ({ quiet = false } = {}) => {
     if (!showPage) { setLoading(false); return; }
     if (!quiet) setLoading(true);
+    if (picturesWanted.current) readPictures();       // (not waited for: the cards are there already)
     const jobs = {
       rows: fetchAll("inventory"), econ: fetchAll("unit_economics"), movements: fetchAll(STOCK_MOVEMENTS_COLLECTION),
-      fabrics: fetchAll("fabrics"), processes: fetchAll("processes"), patterns: fetchAll("patterns"), samples: fetchAll("samples"),
+      fabrics: fetchAll("fabrics"), processes: fetchAll("processes"), patterns: fetchAll("patterns", { columns: PACK_LIST_COLUMNS }), samples: fetchAll("samples"),
+      // who a tech pack is for and how many orders were made from it (a position that may not read them gets an empty list, not an error)
+      customers: fetchAll("customers"), orders: fetchAll("orders"),
     };
     const keys = Object.keys(jobs);
     const results = await Promise.allSettled(keys.map((k) => jobs[k]));
@@ -120,12 +145,19 @@ function Inventory() {
       else next[keys[i]] = r.value;
     });
     setData((prev) => ({ ...prev, ...next }));
-    setFailed(bad);
+    setFailed((f) => [...bad, ...f.filter((k) => k === "pictures")]);       // (the pictures are read on their own and keep their own notice)
     setLoading(false);
-  }, [showPage]);
+  }, [showPage, readPictures]);
 
   useEffect(() => { load().catch(console.error); }, [load, profile]);
   const reload = useCallback(() => load({ quiet: true }), [load]);
+
+  // the Tech packs tab opened for the first time: now the pictures are wanted
+  useEffect(() => {
+    if (tab !== "patterns" || !showPage || picturesWanted.current) return;
+    picturesWanted.current = true;
+    readPictures();
+  }, [tab, showPage, readPictures]);
 
   /* ── one region at a time ──────────────────────────────────────
      Everything the page draws comes from these, so the switch in the header reaches every tab without any of them being
@@ -152,7 +184,27 @@ function Inventory() {
   );
   const fabricsFound = useMemo(() => fabrics.filter((r) => !q || has(r.name, q) || has(r.composition, q) || has(r.supplier, q)), [fabrics, q]);
   const processesFound = useMemo(() => processes.filter((r) => !q || has(r.name, q) || has(r.category, q) || has(r.description, q)), [processes, q]);
-  const patternsFound = useMemo(() => patterns.filter((r) => !q || has(r.name, q) || has(r.product_type, q)), [patterns, q]);
+  // A tech pack with what the cards and filters need beside it: the pack as the app reads it, whether it is complete, who it is for, how many orders.
+  const customerById = useMemo(() => new Map(data.customers.map((c) => [String(c.id), c])), [data.customers]);
+  const ordersByPack = useMemo(() => {
+    const n = new Map();
+    for (const o of data.orders) if (o.patternId) n.set(o.patternId, (n.get(o.patternId) || 0) + 1);
+    return n;
+  }, [data.orders]);
+  const packs = useMemo(() => patterns.map((listed) => {
+    const row = pictures && pictures[listed.id] ? { ...listed, ...pictures[listed.id] } : listed;     // (the list row, with its pictures once they are in)
+    const pack = readPack(row);
+    const c = completeness(pack);
+    const customer = customerById.get(pack.customerId) || null;
+    return {
+      id: row.id, row, pack, c, customer, customerName: brandName(pack, customer),
+      state: pack.legacy ? "old" : c.ok ? "complete" : "needs",
+      orders: ordersByPack.get(row.id) || 0,
+      search: searchText(pack, customer),
+    };
+  }).sort((a, b) => String(b.row.updatedAt || b.row.createdAt || "").localeCompare(String(a.row.updatedAt || a.row.createdAt || "")) || a.pack.name.localeCompare(b.pack.name)),
+  [patterns, customerById, ordersByPack, pictures]);
+  const patternsFound = useMemo(() => packs.filter((w) => !q || w.search.includes(q)), [packs, q]);
   const samplesFound = useMemo(
     () => samples.filter((r) => !q || has(r.name, q) || has(r.product_type, q) || has(r.stage, q) || has(r.fabric_used, q)),
     [samples, q],
@@ -183,7 +235,7 @@ function Inventory() {
   );
   const fabricDefs = useMemo(() => fabricFilters({ fabrics }), [fabrics]);
   const processDefs = useMemo(() => processFilters({ processes }), [processes]);
-  const patternDefs = useMemo(() => patternFilters({ patterns }), [patterns]);
+  const patternDefs = useMemo(() => patternFilters({ packs }), [packs]);
   const sampleDefs = useMemo(() => sampleFilters({ samples }), [samples]);
   const tfStock = useFilters(stockDefs, stockFound);
   const tfCost = useFilters(costDefs, stockFound);
@@ -203,7 +255,8 @@ function Inventory() {
 
   /* ── what is open on top of the page ────────────────────────── */
   const [dialog, setDialog] = useState(null);       // { kind: "item" | "fabric" | "process" | "sample", mode: "create" | "edit" | …, id?, section? }
-  const [pack, setPack] = useState({ edit: undefined, view: null, spec: null });   // tech packs: edit (null = new), the viewer, the spec sheet
+  // Tech packs open through the provider (components/techpack/): the printed sheet, the photographed pages of an older pack, the editor.
+  const { openSheet, openPages, openEditor } = useTechPack();
   const [seeding, setSeeding] = useState(false);
   const found = {
     item: dialog?.kind === "item" && dialog.mode === "edit" ? data.rows.find((r) => r.id === dialog.id) : null,
@@ -245,16 +298,13 @@ function Inventory() {
     }
   }
 
-  async function deleteTechPack(item) {
-    if (!canEdit) return;
-    if (!window.confirm(`Delete "${item.name}"?`)) return;
-    try {
-      await deleteRow("patterns", item.id);
-      await reload();
-    } catch (err) {
-      setNotice(`The tech pack could not be deleted: ${err.message}`);
-    }
-  }
+  // A card opens the printed sheet. An older pack that is only photographs of the paper (and has no sheet's worth of data yet) opens those pages.
+  const openPack = useCallback((w) => {
+    if (w.pack.legacy && w.pack.pages.length && openPages) openPages({ id: w.id });
+    else if (openSheet) openSheet({ id: w.id });
+  }, [openSheet, openPages]);
+  const editPack = useCallback((w) => openEditor?.({ id: w.id, onSaved: reload, onDeleted: reload }), [openEditor, reload]);
+  const newPack = useCallback(() => openEditor?.({ id: null, onSaved: reload }), [openEditor, reload]);
 
   useReveal(() => document.querySelectorAll(".inv-page .kb-tile"));
 
@@ -267,7 +317,7 @@ function Inventory() {
       fabrics: () => setDialog({ kind: "fabric", mode: "create" }),
       processes: () => setDialog({ kind: "process", mode: "create" }),
       samples: () => setDialog({ kind: "sample", mode: "create" }),
-      patterns: () => setPack((p) => ({ ...p, edit: null })),
+      patterns: newPack,
     }[tab];
     return (
       <button type="button" className="kb-btn kb-btn--primary inv-newbtn" data-tour={tab === "stock" || tab === "cost" ? "add-stock" : undefined} onClick={open}>
@@ -331,7 +381,7 @@ function Inventory() {
     );
   };
 
-  const failedText = failed.map((k) => ({ rows: "stock", econ: "costs", movements: "stock movements", fabrics: "fabrics", processes: "processes", patterns: "tech packs", samples: "samples" }[k])).join(", ");
+  const failedText = failed.map((k) => ({ rows: "stock", econ: "costs", movements: "stock movements", fabrics: "fabrics", processes: "processes", patterns: "tech packs", pictures: "the tech pack pictures", samples: "samples", customers: "customers", orders: "orders" }[k])).join(", ");
 
   if (!showPage) {
     return (
@@ -434,37 +484,19 @@ function Inventory() {
           )}
 
           {tab === "patterns" && (
-            <div className="inv-legacy">
-              {loading ? (
-                <div className="kb-skel-wrap" aria-hidden="true"><span className="kb-skel kb-skel--lg" /><span className="kb-skel" /></div>
-              ) : patternsShown.length === 0 ? (
-                emptyFor(patterns.length, patternsShown.length, () => setPack((p) => ({ ...p, edit: null })))
-              ) : (
-                <div className="inv-legacy-grid">
-                  {patternsShown.map((item) => (
-                    <TechPackCard
-                      key={item.id}
-                      item={item}
-                      canEdit={canEdit}
-                      onView={() => setPack((p) => ({ ...p, view: item }))}
-                      onViewSpec={() => setPack((p) => ({ ...p, spec: item }))}
-                      onEdit={() => setPack((p) => ({ ...p, edit: item }))}
-                      onDelete={() => deleteTechPack(item)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            <PackGrid
+              packs={patternsShown}
+              loading={loading || pictures === null}
+              canEdit={canEdit && Boolean(openEditor)}
+              onOpen={openPack}
+              onEdit={editPack}
+              empty={emptyFor(patterns.length, patternsShown.length, canEdit && openEditor ? newPack : null)}
+            />
           )}
         </section>
 
         {showRail && <Rail stock={stock} movements={data.movements} loading={loading} onOpen={openItem} />}
       </div>
-
-      {/* the fabric names the tech pack editor suggests from */}
-      <datalist id="kinv-fabric-names">
-        {fabrics.map((f) => <option key={f.id} value={f.name} />)}
-      </datalist>
 
       {dialog?.kind === "item" && (dialog.mode !== "edit" || found.item) && (
         <ItemCard
@@ -493,23 +525,6 @@ function Inventory() {
         <SampleCard key={dialog.id || "new"} item={found.sample} canEdit={canEdit} region={region} onChanged={reload} onClose={() => setDialog(null)} />
       )}
 
-      {pack.edit !== undefined && (
-        <TechPackSpecModal
-          item={pack.edit}
-          fabrics={fabrics}
-          patterns={patterns}
-          onClose={() => setPack((p) => ({ ...p, edit: undefined }))}
-          onSaved={async () => { setPack((p) => ({ ...p, edit: undefined })); await reload(); }}
-        />
-      )}
-      {pack.view && <TechPackViewer item={pack.view} onClose={() => setPack((p) => ({ ...p, view: null }))} />}
-      {pack.spec && (
-        <TechPackSpecPreview
-          item={pack.spec}
-          onClose={() => setPack((p) => ({ ...p, spec: null }))}
-          onEdit={canEdit ? () => setPack({ edit: pack.spec, view: null, spec: null }) : undefined}
-        />
-      )}
     </BentoPage>
   );
 }

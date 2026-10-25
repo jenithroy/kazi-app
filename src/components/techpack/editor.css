@@ -1,0 +1,388 @@
+/* ══════════════════════════════════════════════════════════════════
+   TECH PACK EDITOR   (everything is `.tpe-*`; Editor.jsx and the Editor*.jsx / MeasureBoard / Pictures files)
+
+   The card is the shared EditCard (edit-card.css) made wide. It is portalled to <body>, so it reads the app's base tokens
+   (--ink, --line, --card …), which a glass dialog remaps for dark, and the `--ec-*` meaning colours. Never the page's `--kb-*`.
+
+   Loaded after edit-card.css, so a rule that must beat one of its own is one class more specific (`.tpe-card …`).
+══════════════════════════════════════════════════════════════════ */
+
+.kmodal--card.kmodal--ec.tpe-card {
+  --kmodal-w: min(1180px, 96vw);
+  --tpe-accent: var(--mint-deep);
+  --tpe-on-accent: #fff;
+  --tpe-red: #c8261e;                  /* the red of the printed sheet's lines (the picture is a photo or a white drawing in both themes) */
+  --tpe-red-ink: #a8231b;              /* the same red as TEXT on the card */
+  --tpe-link: color-mix(in srgb, var(--ec-good) 68%, var(--ink));      /* the green of a small action, darker so it holds 4.5:1 on a tinted row */
+  --tpe-pic-h: clamp(290px, calc(100dvh - 380px), 440px);
+}
+:root[data-theme="dark"] .kmodal--card.kmodal--ec.tpe-card {
+  --tpe-accent: var(--mint);
+  --tpe-on-accent: #0a1c14;
+  --tpe-red-ink: #ff8a80;
+}
+
+.tpe-flow { display: contents; }
+
+/* what an empty box or an empty dropdown says is read in the card's secondary ink: the shared placeholder ink is 3:1 on the glass, which is not enough for words that tell someone what to type */
+.kmodal.tpe-card input::placeholder, .kmodal.tpe-card textarea::placeholder { color: var(--ink-3); opacity: 1; }
+.kmodal.tpe-card .ksel-val.is-ph, .kmodal.tpe-card .kdp-val.is-ph { color: var(--ink-3); }
+
+@media (min-width: 641px) {
+  .tpe-card .ec--sections { min-height: min(720px, calc(100dvh - 178px)); }
+  .tpe-card .ec { grid-template-columns: minmax(0, 1fr) clamp(260px, 32%, 380px); }
+  .tpe-card .ec--solo { grid-template-columns: minmax(0, 1fr); }
+}
+/* a box whose rows lay themselves out by the width they are given (the pane's width, not the window's) */
+.tpe-cq { container: tpem / inline-size; min-width: 0; }
+.tpe-card .ec-sections .kregion-seg-btn { padding-left: 11px; padding-right: 11px; }
+.tpe-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ── The section switch: a dot that says whether the section is done ─ */
+
+.tpe-tab { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tpe-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box; }
+.tpe-dot.is-todo { border: 1.5px solid var(--ink-4); }
+.tpe-dot.is-done { background: var(--ec-good); }
+.tpe-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--ec-well); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* ── The footer: what is still needed ───────────────────────────── */
+
+.tpe-need { flex: 1 1 220px; min-width: 0; margin: 0; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+.tpe-need.is-ok { color: var(--ec-good); font-weight: 600; }
+
+/* ── Notes, messages and small buttons that read as words ───────── */
+
+.tpe-legacy { padding: 10px 12px; border-radius: 10px; background: var(--ec-info-bg); color: var(--ink-2); }
+.tpe-warn { padding: 8px 10px; border-radius: 10px; background: var(--ec-warn-bg); color: var(--ec-warn); }
+.tpe-warn b { color: inherit; }
+.tpe-over { color: var(--ec-warn); font-weight: 600; }
+.tpe-msg { display: block; margin: 0; font-size: 12px; font-weight: 400; line-height: 1.4; color: var(--ec-bad); }
+.tpe-empty { margin: 0; padding: 18px 12px; text-align: center; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); border: 1px dashed var(--line-strong); border-radius: 10px; }
+.tpe-link {
+  appearance: none; -webkit-appearance: none; margin: 0 0 0 4px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: 600 inherit/inherit var(--font); color: var(--tpe-link); text-decoration: underline; text-underline-offset: 2px; border-radius: 6px;
+}
+.tpe-link:first-child { margin-left: 0; }
+.tpe-link:hover { filter: brightness(.9); }
+.tpe-link:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; box-shadow: none; }
+.tpe-old { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+
+.tpe-iconbtn {
+  flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-3); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.tpe-iconbtn:hover:not(:disabled) { background: var(--line); color: var(--ink); }
+.tpe-iconbtn:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 1px; box-shadow: none; }
+.tpe-iconbtn:disabled { opacity: .35; cursor: default; }
+.tpe-card .ghost-button svg { margin-right: 6px; vertical-align: -2px; }
+
+/* ── Sizes, header lines ────────────────────────────────────────── */
+
+.tpe-sizes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.tpe-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tpe-chip {
+  min-width: 42px; height: 32px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 999px; background: transparent;
+  color: var(--ink-2); font: 600 12.5px/1 var(--font); cursor: pointer; transition: border-color .15s, background-color .15s, color .15s;
+}
+.tpe-chip:hover:not(:disabled):not(.is-on) { border-color: var(--ink-5); background: var(--ec-well); }
+.tpe-chip.is-on { border-color: var(--ec-good); background: var(--ec-good-bg); color: var(--ec-good); }
+.tpe-chip:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; box-shadow: none; }
+.tpe-chip:disabled { cursor: default; }
+.tpe-chip:disabled:not(.is-on) { opacity: .5; }
+.tpe-add { display: flex; gap: 8px; }
+.tpe-add input { flex: 1 1 auto; }
+.tpe-hls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.tpe-hl { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr) auto; gap: 8px; align-items: center; }
+.tpe-hl-add { justify-self: start; }
+
+/* ── One picture ────────────────────────────────────────────────── */
+
+.tpe-slot { --ar: 1; position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-content: start; }
+.tpe-slot.is-tall { --ar: 4 / 5; }
+.tpe-slot.is-wide { --ar: 3 / 1; }
+.tpe-slot-pic, .tpe-drop { aspect-ratio: var(--ar); width: 100%; border-radius: 12px; }
+.tpe-slot-pic { position: relative; overflow: hidden; background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+.tpe-slot-pic:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; }
+.tpe-slot-pic img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.tpe-slot--cover .tpe-slot-pic img { object-fit: cover; }
+.tpe-slot-acts { position: absolute; top: 6px; right: 6px; display: flex; gap: 3px; padding: 2px; border-radius: 10px; background: color-mix(in srgb, var(--card) 88%, transparent); box-shadow: 0 0 0 1px var(--line); }
+.tpe-slot-acts .tpe-iconbtn { width: 26px; height: 26px; }
+.tpe-busy { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink); font-size: 12px; font-weight: 600; }
+.tpe-drop {
+  display: grid; place-items: center; align-content: center; gap: 4px; padding: 10px; border: 1.5px dashed var(--line-strong); background: transparent;
+  color: var(--ink-3); font: 500 12.5px/1.35 var(--font); text-align: center; cursor: pointer; transition: border-color .15s, background-color .15s;
+}
+.tpe-drop b { font-weight: 600; color: var(--ink-2); }
+.tpe-drop small { font-size: 11.5px; font-weight: 400; color: var(--ink-3); }
+.tpe-drop .tpe-drop-size { margin-top: 2px; }
+.tpe-slot--mini .tpe-drop small { display: none; }
+.tpe-drop:hover:not(:disabled), .tpe-slot.is-over .tpe-drop { border-color: var(--mint-2); background: var(--ec-well); }
+.tpe-drop:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+.tpe-drop:disabled { cursor: default; opacity: .7; }
+.tpe-slot.is-over .tpe-slot-pic { box-shadow: inset 0 0 0 2px var(--mint-2); }
+/* the small slot in a row of fields (a swatch, a print) */
+.tpe-slot--mini { width: 84px; --ar: 1; }
+.tpe-slot--mini .tpe-drop { padding: 4px; }
+.tpe-slot--mini .tpe-drop b, .tpe-slot--mini .tpe-drop small { display: none; }
+.tpe-slot--mini .tpe-slot-acts { top: 3px; right: 3px; padding: 1px; gap: 1px; }
+.tpe-slot--mini .tpe-slot-acts .tpe-iconbtn { width: 22px; height: 22px; border-radius: 6px; }
+
+/* ── The views along the top of the sheet ───────────────────────── */
+
+.tpe-views { display: grid; grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); gap: 16px 14px; margin: 0; padding: 0; list-style: none; }
+.tpe-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; min-width: 0; }
+.tpe-view-n { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.tpe-view-acts { display: flex; align-items: center; gap: 2px; }
+.tpe-view-acts .tpe-view-remove { margin-left: auto; }
+.tpe-addview { margin-top: 14px; }
+.tpe-addprint { margin-top: 10px; }
+.tpe-prints + .tpe-addprint { margin-top: 0; }
+
+/* a text box that is not inside a Field: the card's field look */
+.tpe-card :is(.tpe-view, .tpe-mat, .tpe-add, .tpe-tile) :is(input:not([type="file"]), textarea) {
+  display: block; width: 100%; min-width: 0; max-width: 100%; height: 40px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px;
+  background-color: var(--mg-input, #fff); color: var(--ink); font: 400 14px/1.3 var(--font); letter-spacing: 0; transition: border-color .15s, box-shadow .15s;
+}
+.tpe-card :is(.tpe-view, .tpe-mat, .tpe-add, .tpe-tile) :is(input, textarea):hover:not(:disabled):not(:focus) { border-color: var(--ink-5); }
+.tpe-card :is(.tpe-view, .tpe-mat, .tpe-add, .tpe-tile) :is(input, textarea):focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+.tpe-card :is(.tpe-view, .tpe-mat, .tpe-add, .tpe-tile) :is(input, textarea):disabled { background-color: var(--bg); color: var(--ink-4); cursor: not-allowed; }
+
+/* ── Close-up pictures with a caption (Details, labels, construction) ─ */
+
+.tpe-tiles-wrap { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-radius: 14px; transition: box-shadow .15s; }
+.tpe-tiles-wrap.is-over { box-shadow: 0 0 0 2px var(--mint-2); }
+.tpe-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 14px 12px; margin: 0; padding: 0; list-style: none; }
+.tpe-tile { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-content: start; min-width: 0; }
+.tpe-tile-pic { position: relative; aspect-ratio: 1; overflow: hidden; border-radius: 12px; background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+.tpe-tile-pic img { display: block; width: 100%; height: 100%; object-fit: contain; }      /* a label or a print is seen whole, never cropped to a square */
+.tpe-tile-none { display: grid; place-items: center; height: 100%; font-size: 12px; color: var(--ink-3); }
+.tpe-card .tpe-tile textarea.tpe-tile-cap { height: auto; min-height: 0; padding: 7px 10px; resize: none; font-size: 13px; line-height: 1.35; }
+.tpe-tile-acts { display: flex; align-items: center; gap: 2px; }
+.tpe-tile-acts .tpe-tile-remove { margin-left: auto; }
+.tpe-tile-add { display: grid; min-width: 0; }
+.tpe-addtile {
+  display: grid; place-items: center; align-content: center; gap: 4px; min-height: 148px; padding: 10px; border: 1.5px dashed var(--line-strong); border-radius: 12px; background: transparent;
+  color: var(--ink-3); font: 500 12.5px/1.35 var(--font); text-align: center; cursor: pointer; transition: border-color .15s, background-color .15s;
+}
+.tpe-addtile b { font-weight: 600; color: var(--ink-2); }
+.tpe-addtile small { font-size: 11.5px; font-weight: 400; }
+.tpe-addtile:hover { border-color: var(--mint-2); background: var(--ec-well); }
+.tpe-addtile:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+
+/* ── Materials ──────────────────────────────────────────────────── */
+
+.tpe-mat-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.tpe-mat-lib { flex: 1 1 260px; min-width: 0; max-width: 420px; }
+.tpe-mats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.tpe-mat {
+  display: grid; grid-template-columns: 84px minmax(120px, 190px) minmax(0, 1fr) auto; gap: 8px 12px; align-items: start;
+  grid-template-areas: "sw kind name acts" "sw colour spec acts";
+  padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--ec-well);
+}
+.tpe-mat > .tpe-slot { grid-area: sw; }
+.tpe-mat > .tpe-mat-kind { grid-area: kind; }
+.tpe-mat > .tpe-mat-name-f { grid-area: name; }
+.tpe-mat > .tpe-mat-colour { grid-area: colour; }
+.tpe-mat > .tpe-mat-spec-f { grid-area: spec; }
+.tpe-card .tpe-mat textarea.tpe-mat-spec { height: auto; min-height: 76px; padding: 9px 12px; line-height: 1.45; resize: vertical; }
+.tpe-mat-acts { grid-area: acts; display: flex; flex-direction: column; gap: 2px; }
+
+/* ── Prints ─────────────────────────────────────────────────────── */
+
+.tpe-prints { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 0 0 12px; padding: 0; list-style: none; }
+.tpe-print { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--ec-well); }
+.tpe-print-f { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.tpe-print-f .tpe-print-place { min-width: 0; }
+
+@container tpem (max-width: 620px) {
+  .tpe-mat { grid-template-columns: 84px minmax(0, 1fr) auto; grid-template-areas: "sw kind acts" "name name name" "colour colour colour" "spec spec spec"; }
+  .tpe-mat-acts { flex-direction: row; align-self: start; }
+  .tpe-print { grid-template-columns: 72px minmax(0, 1fr) auto; }
+  .tpe-print-f { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Finishing and notes ────────────────────────────────────────── */
+
+.ec-f textarea.tpe-lines-box { line-height: 1.55; }
+
+/* ══════════════════════════════════════════════════════════════════
+   THE MEASUREMENT BOARD
+══════════════════════════════════════════════════════════════════ */
+
+.tpe-boardc { container: tpeb / inline-size; min-width: 0; }
+.tpe-board { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0; }
+@container tpeb (min-width: 920px) {
+  .tpe-board { grid-template-columns: minmax(280px, .72fr) minmax(0, 1.28fr); gap: 22px; align-items: start; }
+  .tpe-board-pic { position: sticky; top: 0; }
+}
+.tpe-board-pic, .tpe-board-table { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+.tpe-viewseg .ec-seg { max-width: 100%; }
+.tpe-viewseg .kregion-seg-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tpe-armed { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px; background: var(--ec-info-bg); color: var(--ec-info); font-size: 12.5px; }
+.tpe-armed b { font-weight: 700; }
+.tpe-help { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+
+.tpe-stage { display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; min-height: 160px; padding: 10px; border-radius: 14px; background: var(--ec-well); box-shadow: inset 0 0 0 1px var(--line); }
+
+/* the wrapper IS the picture's rectangle: it shrinks to the image, so a pointer's place on it is the place on the picture */
+.tpe-pic {
+  position: relative; display: inline-block; max-width: 100%; line-height: 0; background: #fff; border-radius: 3px;
+  box-shadow: 0 1px 2px rgba(10, 28, 20, .25); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.tpe-pic.is-live { cursor: crosshair; }
+.tpe-pic:focus-visible { outline: 3px solid var(--tpe-accent); outline-offset: 3px; }
+.tpe-pic img { display: block; max-width: 100%; max-height: var(--tpe-pic-h); width: auto; height: auto; -webkit-user-drag: none; user-select: none; }
+
+.tpe-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.tpe-halo { stroke: #fff; stroke-width: 5; stroke-linecap: round; opacity: .9; }
+.tpe-stroke { stroke: var(--tpe-red); stroke-width: 2; stroke-linecap: round; }
+.tpe-line.is-sel .tpe-stroke { stroke: var(--tpe-accent); stroke-width: 3; }
+.tpe-hit { stroke: transparent; stroke-width: 16; stroke-linecap: round; pointer-events: stroke; cursor: pointer; }
+.tpe-pic.is-drawing .tpe-hit { pointer-events: none; }
+.tpe-rubber { stroke: var(--tpe-accent); stroke-width: 2; stroke-dasharray: 6 4; stroke-linecap: round; }
+
+.tpe-end {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; padding: 0; border-radius: 50%; border: 2px solid #fff; background: var(--tpe-red);
+  box-shadow: 0 0 0 1px rgba(10, 28, 20, .45), 0 1px 3px rgba(10, 28, 20, .35); cursor: grab; touch-action: none; z-index: 2;
+}
+.tpe-end::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; }
+.tpe-end:active { cursor: grabbing; }
+.tpe-end:focus-visible { outline: 3px solid var(--tpe-accent); outline-offset: 2px; box-shadow: 0 0 0 1px rgba(10, 28, 20, .45); }
+.tpe-pts.is-sel .tpe-end { width: 16px; height: 16px; margin: -8px 0 0 -8px; background: var(--tpe-accent); z-index: 3; }
+.tpe-pic.is-drawing .tpe-end, .tpe-pic.is-drawing .tpe-tag { pointer-events: none; }
+.tpe-tag {
+  position: absolute; display: grid; place-items: center; width: 22px; height: 22px; margin: -11px 0 0 -11px; padding: 0; border-radius: 50%;
+  border: 1.5px solid var(--tpe-red); background: #fff; color: var(--tpe-red); font: 700 11.5px/1 var(--font); cursor: pointer; z-index: 2;
+  box-shadow: 0 1px 3px rgba(10, 28, 20, .3);
+}
+.tpe-tag:focus-visible { outline: 3px solid var(--tpe-accent); outline-offset: 2px; }
+.tpe-pts.is-sel .tpe-tag { background: var(--tpe-accent); border-color: var(--tpe-accent); color: var(--tpe-on-accent); z-index: 3; }
+.tpe-start {
+  position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0; border-radius: 50%; border: 3px solid #fff; background: var(--tpe-accent);
+  box-shadow: 0 0 0 1px rgba(10, 28, 20, .45), 0 0 0 0 color-mix(in srgb, var(--tpe-accent) 50%, transparent); cursor: pointer; z-index: 4; animation: tpe-pulse 1.2s ease-out infinite;
+}
+.tpe-start::after { content: ""; position: absolute; inset: -12px; border-radius: 50%; }
+.tpe-start:focus-visible { outline: 3px solid var(--tpe-accent); outline-offset: 3px; }
+@keyframes tpe-pulse {
+  0% { box-shadow: 0 0 0 1px rgba(10, 28, 20, .45), 0 0 0 0 color-mix(in srgb, var(--tpe-accent) 55%, transparent); }
+  100% { box-shadow: 0 0 0 1px rgba(10, 28, 20, .45), 0 0 0 14px color-mix(in srgb, var(--tpe-accent) 0%, transparent); }
+}
+
+.tpe-nopic { display: grid; justify-items: center; gap: 10px; padding: 30px 18px; text-align: center; border: 1.5px dashed var(--line-strong); border-radius: 14px; color: var(--ink-3); }
+.tpe-nopic p { margin: 0; max-width: 28ch; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+
+/* ── The controls and the table ─────────────────────────────────── */
+
+.tpe-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+@container tpeb (max-width: 700px) { .tpe-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container tpeb (max-width: 420px) { .tpe-controls { grid-template-columns: minmax(0, 1fr); } }
+
+.tpe-tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--ec-well); }
+.tpe-tablewrap:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; }
+.tpe-table { min-width: min-content; }
+.tpe-tr { display: grid; grid-template-columns: 30px minmax(150px, 1.6fr) auto 84px; grid-template-areas: "l n c a" ". s . ."; gap: 0 8px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--line); transition: background-color .15s; }
+.tpe-thead .tpe-tr { border-top: 0; padding-top: 8px; padding-bottom: 8px; }
+.tpe-tbody .tpe-tr:first-child { border-top: 1px solid var(--line-strong); }
+.tpe-th { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.tpe-th .tpe-td-num { text-align: right; padding-right: 9px; }
+.tpe-th .tpe-td-num em { margin-left: 4px; font-style: normal; font-size: 10.5px; letter-spacing: .04em; color: var(--tpe-link); }
+.tpe-th .tpe-unit { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.tpe-cells { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(46px, 56px)); gap: 5px; }
+.tpe-tr.is-sel { background: color-mix(in srgb, var(--tpe-accent) 10%, transparent); }
+.tpe-td { min-width: 0; }
+.tpe-td-letter { grid-area: l; }
+.tpe-td-name { grid-area: n; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.tpe-cells { grid-area: c; }
+.tpe-td-acts { grid-area: a; }
+.tpe-td-sub { grid-area: s; }
+.tpe-thead .tpe-td-sub { display: none; }
+.tpe-sub { display: flex; align-items: center; gap: 0 4px; min-height: 16px; min-width: 0; font-size: 11.5px; line-height: 1.35; color: var(--ink-3); }
+.tpe-sub > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpe-sub .tpe-link { flex: none; white-space: nowrap; }
+.tpe-vname { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpe-td-acts { justify-self: end; }
+.tpe-thead .tpe-tr { grid-template-areas: "l n c a"; }
+.tpe-row-acts { display: flex; align-items: center; gap: 0; }
+.tpe-letter {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--tpe-red-ink); background: var(--card);
+  color: var(--tpe-red-ink); font: 700 12px/1 var(--font);
+}
+.tpe-tr.is-sel .tpe-letter { background: var(--tpe-accent); border-color: var(--tpe-accent); color: var(--tpe-on-accent); }
+.tpe-size-label { display: none; }
+/* on the chosen row (tinted with the accent) the quiet words go one step darker, so they still hold 4.5:1 */
+.tpe-tr.is-sel .tpe-sub, .tpe-tr.is-sel .tpe-size-label { color: var(--ink-2); }
+.tpe-td-num.is-off { opacity: .75; }
+.tpe-numnote { grid-column: 1 / -1; flex: 1 1 100%; min-width: 0; margin: 2px 0 0; font-size: 11.5px; line-height: 1.35; color: var(--ink-2); }
+
+.tpe-card .tpe-tablewrap :is(input:not([type="file"])) {
+  display: block; width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1.5px solid var(--line-strong); border-radius: 9px;
+  background-color: var(--mg-input, #fff); color: var(--ink); font: 400 14px/1.3 var(--font); letter-spacing: 0; transition: border-color .15s, box-shadow .15s;
+}
+.tpe-card .tpe-tablewrap input:hover:not(:disabled):not(:focus) { border-color: var(--ink-5); }
+.tpe-card .tpe-tablewrap input:focus-visible { outline: none; border-color: var(--mint-2); box-shadow: 0 0 0 3px rgba(90, 185, 138, .25); }
+.tpe-card .tpe-tablewrap input:disabled { background-color: var(--bg); color: var(--ink-4); cursor: not-allowed; }
+.tpe-card .tpe-tablewrap input.tpe-num { text-align: right; font-variant-numeric: tabular-nums; padding: 0 8px; }
+.tpe-card .tpe-tablewrap .tpe-td-num.is-ref input.tpe-num { background-color: color-mix(in srgb, var(--tpe-accent) 11%, var(--mg-input, #fff)); }
+
+.tpe-board-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.tpe-said { flex: 1 1 200px; min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.tpe-said .tpe-link { margin-left: 8px; }
+
+/* a narrow board (a phone, a narrow card): each line is a small card, the size boxes wrap under its name */
+@container tpeb (max-width: 560px) {
+  .tpe-thead { display: none; }
+  .tpe-tr { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "l n a" "l s a" "c c c"; row-gap: 4px; padding: 10px; }
+  .tpe-td-letter { align-self: start; padding-top: 4px; }
+  .tpe-td-acts { align-self: start; }
+  .tpe-cells { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .tpe-td-num { display: grid; gap: 2px; flex: 1 1 54px; max-width: 72px; min-width: 0; }      /* five sizes fit one row of a phone */
+  .tpe-size-label { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+}
+
+/* ── A short window, a phone, a finger ──────────────────────────── */
+
+@media (max-height: 699px) and (min-width: 641px) {
+  .tpe-controls .ec-f:nth-child(n+2) .ec-hint { display: none; }          /* the rows of the table need the room more than these two hints do */
+  .tpe-stage { min-height: 120px; }
+}
+@media (max-width: 640px) {
+  .kmodal--card.kmodal--ec.tpe-card { --tpe-pic-h: min(380px, 52dvh); }
+  .tpe-need { font-size: 12.5px; }
+  .tpe-hl { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .tpe-views { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tpe-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .tpe-slot--mini { width: 72px; }
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .tpe-card :is(.tpe-view, .tpe-mat, .tpe-add, .tpe-tile) :is(input:not([type="file"]), textarea) { font-size: 16px; }
+  .tpe-card :is(.tpe-view, .tpe-mat, .tpe-add) :is(input:not([type="file"])) { height: 44px; }
+  .tpe-card .tpe-tablewrap :is(input:not([type="file"])) { height: 44px; font-size: 16px; }
+  .tpe-iconbtn { width: 40px; height: 40px; }
+  .tpe-slot-acts .tpe-iconbtn { width: 40px; height: 40px; }
+  .tpe-slot--mini .tpe-slot-acts .tpe-iconbtn { width: 28px; height: 28px; }
+  .tpe-chip { height: 40px; min-width: 48px; }
+  .tpe-end { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+  .tpe-end::after { inset: -14px; }
+  .tpe-pts.is-sel .tpe-end { width: 18px; height: 18px; margin: -9px 0 0 -9px; }
+  .tpe-tag { width: 26px; height: 26px; margin: -13px 0 0 -13px; font-size: 12.5px; }
+  .tpe-start::after { inset: -14px; }
+  .tpe-link { padding: 6px 2px; }
+}
+@media (max-width: 359px) {
+  .tpe-views, .tpe-tiles { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tpe-start { animation: none; }
+  .tpe-chip, .tpe-drop, .tpe-addtile, .tpe-iconbtn, .tpe-tr, .tpe-tiles-wrap { transition: none; }
+  .tpe-card :is(.tpe-view, .tpe-mat, .tpe-add, .tpe-tile) :is(input, textarea), .tpe-card .tpe-tablewrap input { transition: none; }
+}
+@media (forced-colors: active) {
+  .tpe-stroke, .tpe-rubber { stroke: CanvasText; }
+  .tpe-line.is-sel .tpe-stroke { stroke: Highlight; }
+  .tpe-end, .tpe-start { background: CanvasText; border-color: Canvas; forced-color-adjust: none; }
+  .tpe-pts.is-sel .tpe-end, .tpe-pts.is-sel .tpe-tag { background: Highlight; }
+}

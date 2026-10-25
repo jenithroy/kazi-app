@@ -1,0 +1,165 @@
+/* ══════════════════════════════════════════════════════════════════
+   THE PRINTED TECH SHEET   (everything is `.ts-*`)    components/techpack/TechSheet.jsx
+
+   Paper: white, near-black ink, the same in light and dark and with or without glass. It uses no app token on purpose (a dialog remaps
+   the tokens), and it is written to be read from TWO places that must agree: the app (on screen, inside the document viewer) and the print
+   window, which loads only this file. So nothing here leans on the app's own resets: every box says its own margin, border style, display
+   and line height. It is also drawn into the PDF by html2canvas, which does not know `object-fit`, `box-shadow`, `text-overflow` or
+   `line-clamp`: the sheet does not use them (a picture that must be fitted is fitted by sheetPdf.js before it is captured).
+
+   Every region has a fixed size in millimetres (sheetPlan.js works the sizes out and hands them in as inline styles) and clips: a long
+   text can never push the page out of shape.
+══════════════════════════════════════════════════════════════════ */
+
+.ts-sheet, .ts-sheet *, .ts-sheet *::before, .ts-sheet *::after { box-sizing: border-box; }
+.ts-sheet * {
+  margin: 0; padding: 0; border: 0 solid #111; background: none;
+  font: inherit; color: inherit; letter-spacing: inherit; list-style: none;
+}
+.ts-sheet img, .ts-sheet svg { display: block; max-width: none; }
+/* words for a screen reader that the paper does not print (the chart's empty corner) */
+.ts-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.ts-sheet {
+  font-family: "Geist", "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 6.5pt; line-height: 2.65mm; font-weight: 400; font-style: normal; letter-spacing: 0;
+  text-transform: none; text-align: left; white-space: normal; text-indent: 0;
+  overflow-wrap: anywhere;                    /* a pasted link breaks at the edge of its box instead of being cut off */
+  color: #111; background: #fff; color-scheme: light;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* on screen the pages stand one under the other with a gap that reads as the table under two sheets of paper */
+.ts-sheet--screen { width: 297mm; display: flex; flex-direction: column; gap: 16px; background: #dfe3e0; }
+.ts-sheet--print { width: 297mm; }
+
+/* ── A page: A4 landscape, a ruled frame inside it ─────────────── */
+
+.ts-page { position: relative; flex: none; width: 297mm; height: 210mm; padding: 6mm; background: #fff; overflow: hidden; }
+.ts-sheet--print .ts-page { break-after: page; page-break-after: always; }
+.ts-sheet--print .ts-page:last-child { break-after: auto; page-break-after: auto; }
+.ts-frame { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; height: 100%; border: 0.3mm solid #111; overflow: hidden; }
+
+/* a region of the frame: padded, never taller than its row, clips whatever does not fit */
+.ts-block { min-width: 0; min-height: 0; overflow: hidden; padding: 1.2mm 2.4mm; }
+.ts-label {
+  height: 4mm; overflow: hidden; white-space: nowrap;
+  font-size: 6.6pt; line-height: 3.2mm; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+}
+.ts-sep-b { border-bottom: 0.2mm solid #111; }
+.ts-sep-t { border-top: 0.2mm solid #111; }
+.ts-sep-r { border-right: 0.2mm solid #111; }
+.ts-sep-l { border-left: 0.2mm solid #111; }
+
+/* ── Header band ────────────────────────────────────────────────── */
+
+.ts-head { display: grid; grid-template-columns: 46fr 31fr 23fr; min-height: 0; overflow: hidden; border-bottom: 0.3mm solid #111; }
+.ts-head > div { min-width: 0; min-height: 0; overflow: hidden; padding: 1.8mm 3mm 1.4mm; border-right: 0.2mm solid #111; }
+.ts-head > div:last-child { border-right: 0; }
+.ts-brandcell { display: flex; flex-direction: column; justify-content: space-between; }
+.ts-wordmark {
+  font-family: Georgia, "Times New Roman", Times, serif; font-weight: 400; text-transform: uppercase;
+  letter-spacing: .12em; line-height: 1.12; white-space: nowrap; overflow: hidden;
+}
+.ts-logo { width: auto; height: auto; max-width: 80mm; max-height: 10mm; }
+.ts-title { font-size: 8.5pt; line-height: 3.6mm; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+
+.ts-facts { display: flex; flex-direction: column; padding-top: 1.7mm; }
+.ts-facts--cols { flex-direction: row; column-gap: 3mm; }
+.ts-fcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+/* a header line never shrinks to fit: the cell clips instead (a flex item that may shrink would draw two lines on top of each other) */
+.ts-fact { flex: none; overflow: hidden; font-size: 7pt; line-height: 2.85mm; text-transform: uppercase; letter-spacing: .01em; }
+.ts-k { font-weight: 700; }
+
+/* ── The views row ──────────────────────────────────────────────── */
+
+.ts-views { display: flex; min-height: 0; overflow: hidden; border-bottom: 0.2mm solid #111; }
+.ts-view { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 2.4mm 3mm 1mm; }
+.ts-vpic { position: relative; flex: 1 1 0; min-height: 0; }
+.ts-vcap { flex: none; height: 5.4mm; padding-top: 1.4mm; overflow: hidden; text-align: center; text-transform: uppercase; font-size: 6.5pt; line-height: 2.6mm; }
+.ts-fit { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; }
+.ts-noview {
+  flex: 1 1 0; margin: 3mm; display: flex; align-items: center; justify-content: center;
+  border: 0.3mm dashed #8a8a8a; color: #6b6b6b; font-size: 8pt; line-height: 4mm;
+}
+
+/* ── The lower area ─────────────────────────────────────────────── */
+
+.ts-lower { display: grid; min-height: 0; overflow: hidden; border-bottom: 0.2mm solid #111; }
+.ts-lcol, .ts-rcol { display: grid; min-width: 0; min-height: 0; overflow: hidden; }
+.ts-rcol--solo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+/* details: square-ish photos in a row, a caption of at most two lines under each */
+.ts-tiles { display: flex; align-items: flex-start; gap: 2.4mm; }
+.ts-tile { flex: none; width: var(--tile); }
+.ts-tpic { position: relative; width: var(--tile); height: var(--tile); border: 0.15mm solid #d0d0d0; }
+.ts-tcap { margin-top: 1mm; height: 5.4mm; overflow: hidden; font-size: 6.5pt; line-height: 2.7mm; text-transform: uppercase; white-space: pre-line; }
+
+/* measurements: the drawing(s) and the list for the reference size, then the size chart */
+.ts-measure { display: grid; min-height: 0; overflow: hidden; }
+.ts-mrow { display: flex; align-items: flex-start; gap: 2mm; }
+/* a drawing keeps 2.6 mm either side of its picture for a letter that stands off a line at the edge; the dots and letters sit above any
+   neighbouring picture, so one that reaches over is drawn whole */
+.ts-draw { flex: none; box-sizing: border-box; padding: 0 2.6mm; display: flex; align-items: flex-end; justify-content: center; }
+.ts-dwrap { position: relative; display: inline-block; line-height: 0; }
+.ts-dimg { display: block; width: auto; height: auto; }
+.ts-dsvg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+.ts-dot { position: absolute; z-index: 1; width: 1.1mm; height: 1.1mm; margin: -0.55mm 0 0 -0.55mm; border-radius: 50%; background: #c8261e; }
+.ts-badge {
+  position: absolute; z-index: 2; min-width: 3mm; height: 3mm; padding: 0 0.5mm; border-radius: 1.5mm; overflow: hidden;
+  background: #c8261e; color: #fff; text-align: center; font-size: 6.5pt; line-height: 3mm; font-weight: 700; white-space: nowrap;
+}
+.ts-mlist { flex: 1 1 0; min-width: 0; font-size: 7.2pt; line-height: 3.1mm; }
+.ts-mlist li { overflow: hidden; white-space: nowrap; }
+
+.ts-chart { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; border-top: 0.15mm solid #444; border-left: 0.15mm solid #444; }
+.ts-chart th, .ts-chart td {
+  height: 3.2mm; padding: 0 0.8mm; overflow: hidden; white-space: nowrap; text-align: center; vertical-align: middle;
+  border-right: 0.15mm solid #444; border-bottom: 0.15mm solid #444;
+  font-size: 6.8pt; line-height: 2.6mm; font-weight: 400;      /* the line plus the border must stay under the row's 3.2 mm, or the content sets the height */
+}
+.ts-chart thead th { font-weight: 700; }
+.ts-chart .ts-rowhead { text-align: left; font-size: 6.5pt; }
+.ts-chart .ts-ref { background: #e3e3e3; font-weight: 700; }
+
+/* materials and finishing */
+.ts-mat { display: flex; align-items: flex-start; gap: 2mm; margin-bottom: 1.5mm; overflow: hidden; }
+.ts-mat:last-child { margin-bottom: 0; }
+.ts-swatch { position: relative; flex: none; border: 0.15mm solid #b8b8b8; background: #f3f3f3; }
+.ts-mtext { flex: 1 1 0; min-width: 0; overflow: hidden; text-transform: uppercase; font-size: 6.5pt; line-height: 2.65mm; }
+.ts-mkind { font-weight: 700; }
+.ts-fin li, .ts-notes li { overflow: hidden; }
+.ts-fin li { font-size: 6.5pt; line-height: 2.65mm; }
+.ts-notes li { display: grid; grid-template-columns: 2.4mm minmax(0, 1fr); font-size: 6.8pt; line-height: 2.7mm; }
+
+/* ── The bottom strip ───────────────────────────────────────────── */
+
+.ts-foot { display: grid; grid-template-columns: minmax(0, 1fr) 62mm; min-height: 0; overflow: hidden; }
+.ts-foot .ts-block { padding-top: 0.6mm; }
+.ts-foot .ts-label { height: 3.8mm; }
+.ts-mark { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; overflow: hidden; padding: 1mm 3mm; font-family: Georgia, "Times New Roman", Times, serif; text-transform: uppercase; }
+.ts-mark-big { max-width: 100%; white-space: nowrap; overflow: hidden; letter-spacing: .12em; line-height: 1.12; text-indent: .12em; }
+.ts-mark-small { margin-top: 0.8mm; font-size: 7.5pt; line-height: 3mm; letter-spacing: .16em; text-indent: .16em; }
+.ts-mark .ts-logo { max-width: 100%; max-height: 14mm; }
+
+/* ── Page 2 ─────────────────────────────────────────────────────── */
+
+.ts-head2 { display: flex; align-items: center; justify-content: space-between; gap: 5mm; padding: 0 3mm; overflow: hidden; border-bottom: 0.3mm solid #111; }
+.ts-head2 .ts-wordmark { flex: none; }
+.ts-h2name { flex: 1 1 0; min-width: 0; display: flex; column-gap: 7mm; overflow: hidden; white-space: nowrap; font-size: 7.5pt; line-height: 3.4mm; text-transform: uppercase; }
+.ts-h2name > span { flex: none; max-width: 100%; overflow: hidden; }
+.ts-h2page { flex: none; font-size: 7pt; line-height: 3.4mm; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+
+.ts-bandA, .ts-bandB { display: grid; min-height: 0; overflow: hidden; }
+.ts-bandA { border-bottom: 0.2mm solid #111; }
+.ts-bandB.ts-sep-b { border-bottom: 0.2mm solid #111; }
+.ts-bandA > .ts-block + .ts-block, .ts-bandB > .ts-block + .ts-block { border-left: 0.2mm solid #111; }
+/* page 2's pictures: boxes of a size the plan gives them (a column wide, about as tall), captions under them */
+.ts-grid2 { display: grid; gap: 2.4mm; align-content: start; justify-content: start; }
+.ts-t2 { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ts-t2pic { position: relative; flex: none; border: 0.15mm solid #d0d0d0; }
+.ts-t2cap { flex: none; margin-top: 1mm; overflow: hidden; max-height: 8.1mm; text-transform: uppercase; font-size: 6.5pt; line-height: 2.7mm; white-space: pre-line; }
+.ts-t2cap--print { max-height: 13.5mm; white-space: normal; }
+.ts-matgrid { display: grid; column-gap: 3mm; align-content: start; }
+.ts-matgrid .ts-mat { margin-bottom: 1.5mm; }

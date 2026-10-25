@@ -10,7 +10,7 @@
  *                  its closing balance, category, unit, what the closing stock is worth
  *   Fabrics        weight (the old "All / Heavy / Light"), status, composition, supplier, GSM, price a kg, no price set
  *   Processes      category, cost a unit, minimum order, lead time
- *   Tech packs     product type, category, season, designer, size, has pictures, has measurements
+ *   Tech packs     whether the sheet is complete, customer, collection, category, product type, designer, size, has pictures, has measurements, has orders
  *   Samples        stage, status, product type, fabric used, colour, size, cost, has a photo
  *
  * A name people type (a supplier, a fabric) is grouped without caring about capitals (lib/foldNames.js), and a list that no row
@@ -195,15 +195,32 @@ export function processFilters({ processes }) {
   ].filter(Boolean);
 }
 
-export function patternFilters({ patterns }) {
+/**
+ * The tech packs' filters. A row here is the page's wrapper of a pack (`{ pack, state, customerName, orders }`, see Inventory.jsx), not
+ * the table row: `pack` is what lib/techpack.js `readPack` makes of it, and `state` is "complete", "needs" (a new-format pack that
+ * still lacks something) or "old" (made before the technical sheet).
+ */
+export function patternFilters({ packs }) {
   return [
-    names(patterns, (p) => p.product_type, { id: "type", label: "Product type", any: "Any product", none: "No product type" }),
-    names(patterns, (p) => p.category, { id: "category", label: "Category", any: "Any category", none: "No category" }),
-    names(patterns, (p) => p.season, { id: "season", label: "Season", any: "Any season", none: "No season" }),
-    names(patterns, (p) => p.designerName, { id: "designer", label: "Designer", any: "Anyone", none: "No designer" }),
-    listed(patterns, (p) => p.sizes_available, { id: "size", label: "Size", any: "Any size", none: "No sizes" }),
-    { id: "pictures", label: "Has pictures", kind: "toggle", text: "Has pictures", pill: "Has pictures", test: (p) => Array.isArray(p.tech_pack_images) && p.tech_pack_images.length > 0 },
-    { id: "measured", label: "Has measurements", kind: "toggle", text: "Has measurements", pill: "Has measurements", test: (p) => Array.isArray(p.measurements) && p.measurements.length > 0 },
+    {
+      id: "state", label: "Sheet", kind: "chips",
+      options: [
+        { value: "any", label: "Any" },
+        { value: "complete", label: "Complete" },
+        { value: "needs", label: "Needs info", tone: "warn" },
+        { value: "old", label: "Old format" },
+      ],
+      test: (w, v) => w.state === v,
+    },
+    names(packs, (w) => w.customerName, { id: "customer", label: "Customer", any: "Any customer", none: "No customer" }),
+    names(packs, (w) => w.pack.season, { id: "season", label: "Collection", any: "Any collection", none: "No collection" }),
+    names(packs, (w) => w.pack.category, { id: "category", label: "Category", any: "Any category", none: "No category" }),
+    names(packs, (w) => w.pack.productType, { id: "type", label: "Product type", any: "Any product", none: "No product type" }),
+    names(packs, (w) => w.pack.designerName, { id: "designer", label: "Designer", any: "Anyone", none: "No designer" }),
+    listed(packs, (w) => w.pack.sizes, { id: "size", label: "Size", any: "Any size", none: "No sizes" }),
+    { id: "pictures", label: "Has pictures", kind: "toggle", text: "Has pictures", pill: "Has pictures", test: (w) => w.pack.views.some((v) => v.url) || w.pack.pages.length > 0 },
+    { id: "measured", label: "Has measurements", kind: "toggle", text: "Has measurements", pill: "Has measurements", test: (w) => w.pack.points.length > 0 },
+    { id: "ordered", label: "Has orders", kind: "toggle", text: "Has orders", pill: "Has orders", test: (w) => w.orders > 0 },
   ].filter(Boolean);
 }
 
