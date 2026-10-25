@@ -36,7 +36,7 @@ Built for exactly one company's two-country operation. NPR is the stored currenc
 ## Capabilities and Constraints
 
 - Stack: React 18 + Vite SPA, React Router 6, Recharts, Supabase (auth, Postgres with RLS, storage, realtime), deployed on Cloudflare Workers, wrapped by Capacitor.
-- Printed and PDF documents (tax invoices, challans, quotations, salary slips, stock-ledger and tech-pack spec print sheets) are compliance artefacts. Their output stays exactly as it is; only the app UI around them may change.
+- Printed and PDF documents (tax invoices, challans, quotations, salary slips, the stock-ledger print sheet) are compliance artefacts. Their output stays exactly as it is; only the app UI around them may change. **The tech pack sheet is the exception, by the owner's decision on 2026-10-24:** it was replaced by the factory's own technical-sheet format (the Cavalls Studio sheets; see DESIGN.md "Tech packs"), so its output follows that format, not the old Garment Specification Sheet.
 - Business logic (VAT, fiscal-year numbering, stock balances, payroll maths, double-entry validation, region filtering, permission checks) must not change as a side effect of UI work.
 - Some product docs in the repo (PERMISSIONS.md, README.md, PRODUCT_BRIEF.md) still describe the older Firebase / hard-coded-role version of the app and are stale. DESIGN.md was rewritten on 2026-10-17 and is current.
 
