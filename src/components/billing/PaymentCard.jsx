@@ -9,6 +9,7 @@
 import { useEffect, useId, useState } from "react";
 import EditCard, { Field, KV, NumberInput } from "../EditCard";
 import Select from "../Select";
+import CustomerLink from "../customer-link/CustomerLink";
 import DateField from "../finance/DateField";
 import useCardForm from "../finance/cards/useCardForm";
 import { enterAdvance, thenAdvance } from "../finance/flow";
@@ -130,9 +131,15 @@ export default function PaymentCard({ info, canEdit, profile, api, onClose, onSa
     </div>
   );
 
+  // who paid, under the title: their name opens the customer's card (`info.clientName` is the invoice's own, as Billing hands it over)
+  const who = (info.clientName || "").trim();
+  const subtitle = who
+    ? <>{info.docNum} · <CustomerLink customerId={info.customerId} name={who}>{who}</CustomerLink> · Total {fmtNPR(info.totalNPR)}</>
+    : `${info.docNum} · Total ${fmtNPR(info.totalNPR)}`;
+
   return (
     <EditCard
-      title={open ? "Record payment" : "Payment history"} subtitle={`${info.docNum} · Total ${fmtNPR(info.totalNPR)}`}
+      title={open ? "Record payment" : "Payment history"} subtitle={subtitle}
       className="bl-pay" main={main} side={side} creating canEdit={canEdit && open} dirty={dirty}
       onClose={onClose} onSave={canEdit && open ? save : undefined} submitLabel="Save payment" closeLabel={open ? "Cancel" : "Close"}
     />

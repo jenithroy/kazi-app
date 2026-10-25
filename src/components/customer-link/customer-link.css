@@ -1,0 +1,105 @@
+/* ══════════════════════════════════════════════════════════════════
+   CUSTOMERS EVERYWHERE   (`.cl-*`)
+   components/customer-link/: CustomerLink (a customer's name that opens their card), the small dialogs the card sits
+   in while it loads, and the Tech packs list inside the customer's card (components/sales/CustomerCard.jsx).
+
+   The card is the shared EditCard, portalled to <body>, so what is drawn inside it reads the app's base tokens
+   (--ink, --line ...) and the card's own --ec-* pairs, never the page's --kb-*.
+   Loaded before styles.css, so a rule that must beat an old one is written one class more specific.
+══════════════════════════════════════════════════════════════════ */
+
+/* ══ A customer's name that opens their card ══════════════════════
+   It takes the look of the text around it and only underlines when pointed at. It sits above a row's or a tile's
+   stretched link (the same z-index as .dt-act / .kb-act / .kpl), so pressing the name never presses the row. */
+.cl-link {
+  appearance: none; -webkit-appearance: none;
+  position: relative; z-index: 2;
+  margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: inherit; line-height: inherit; color: inherit;
+  /* a button resets these to its own, and the page's text (`text-rendering: optimizeLegibility`) is drawn a hair differently without them */
+  text-rendering: inherit; font-kerning: inherit; font-feature-settings: inherit; font-variation-settings: inherit; word-spacing: inherit; text-shadow: inherit;
+  cursor: pointer; border-radius: 6px; max-width: 100%; min-width: 0;
+}
+.cl-link:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.cl-link:focus-visible { outline: 2px solid var(--kb-accent, var(--mint-2)); outline-offset: 2px; text-decoration: underline; }
+
+/* a name in a line that cuts long names short with "…": as wide as the name (never wider, so only the name is pressed), cut the same way.
+   Also the way to put any button (a tech pack's name in the card) in such a line.
+   Two things keep it drawing the text exactly as the line did without it (checked pixel for pixel): a rounded corner on a clipping box shaves the
+   corner of the first letter, so it is square at rest; and a letter's ink can reach a pixel past its advance, which the link's own clip would shave,
+   so it has two pixels of room each side, taken back by the margin so nothing moves, and a cap that is four pixels wider so a long name is cut at
+   the very place it was. */
+.cl-clip {
+  display: block; width: fit-content; max-width: calc(100% + 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+  border-radius: 0; padding-inline: 2px; margin-inline: -2px;
+}
+.cl-clip:focus-visible { outline-offset: -2px; border-radius: 6px; }       /* the cell clips what sticks out of it, so the ring is drawn inside the name */
+
+/* a finger needs a little more than a line of text: the press area grows a few pixels each way without growing the line */
+@media (pointer: coarse) {
+  .cl-link:not(.cl-clip)::after { content: ""; position: absolute; inset: -5px -3px; }
+}
+@media (forced-colors: active) {
+  .cl-link { color: LinkText; }
+}
+
+/* in a dialog's heading the name is the heading: it keeps the heading's size and weight, and an underline says it can be pressed */
+.kmodal-title .cl-link, .kmodal-sub .cl-link { text-decoration: underline; text-decoration-color: var(--line-strong); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.kmodal-title .cl-link:hover, .kmodal-sub .cl-link:hover { text-decoration-color: currentColor; }
+
+/* ══ The small dialogs the card waits in ══════════════════════════
+   (a glass <Modal size="sm">: while the customer is being read, when they could not be read, and when they are gone) */
+.cl-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.cl-note--err { color: var(--ink); }
+.cl-skel { display: grid; gap: 10px; padding: 2px 0; }
+.cl-skel > i { display: block; height: 12px; border-radius: 6px; background: var(--line); animation: cl-pulse 1.3s ease-in-out infinite; }
+.cl-skel > i:nth-child(1) { width: 62%; }
+.cl-skel > i:nth-child(2) { width: 88%; animation-delay: .1s; }
+.cl-skel > i:nth-child(3) { width: 46%; animation-delay: .2s; }
+@keyframes cl-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cl-skel > i { animation: none; } }
+
+/* ══ In the customer's card: the Details form's hints ═════════════
+   The shared field hint colour (--ink-4) measures 3:1 on the glass in light and under 4:1 in dark (the project's own rule is 4.5:1), and this card is
+   one a name anywhere now opens, so its empty boxes say what goes in them in the quiet ink the page's text uses. */
+.sl-card .ec-f input::placeholder, .sl-card .ec-f textarea::placeholder { color: var(--ink-3); }
+
+/* ══ In the customer's card: the footer, and what could not be read ═══ */
+.kmodal-ft a.cl-linkbtn, .kmodal-ft a.cl-linkbtn:hover { text-decoration: none; }
+.cl-lost { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--ink-2); }
+.cl-lost button { padding: 0; border: 0; background: none; font: 600 12.5px/1.4 var(--font); color: var(--ec-good); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cl-lost button:disabled { opacity: .6; cursor: progress; }
+.cl-lost button:focus-visible { outline: 2px solid var(--mint-2); outline-offset: 2px; border-radius: 6px; }
+
+/* ══ In the customer's card: the Tech packs list ══════════════════
+   Rows are the card's small list (.ec-hist) with a row that is one button; a position that may not open a sheet gets the same row as plain text. */
+.ec-hist.cl-packs { max-height: 392px; }
+@media (max-height: 699px) and (min-width: 641px) { .ec-hist.cl-packs { max-height: 168px; } }
+@media (max-width: 640px) { .ec-hist.cl-packs { max-height: 330px; } }      /* a phone's rows are taller (the status goes under the name) */
+.ec-hist.cl-packs li { display: block; padding: 0; }
+.cl-pack {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; width: 100%; min-width: 0; margin: 0; padding: 9px 12px;
+  border: 0; border-radius: 0; background: transparent; font: inherit; color: inherit; text-align: left;
+}
+button.cl-pack { cursor: pointer; transition: background-color .12s; }
+button.cl-pack:hover { background: var(--ec-well); }
+button.cl-pack:focus-visible { outline: 2px solid var(--mint-2); outline-offset: -2px; border-radius: 8px; }
+.cl-pack-t { min-width: 0; display: grid; gap: 1px; }
+.cl-pack-t > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink); }
+.cl-pack-t > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+.cl-pack-ref { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0; }
+.cl-pack .ec-tag { justify-self: end; }
+/* a long "Needs a picture of the garment, a material and ...": under the name, with room for all its words (a short one stays beside it) */
+.cl-pack--long { grid-template-columns: minmax(0, 1fr); }
+.cl-pack--long .ec-tag { justify-self: start; max-width: 100%; white-space: normal; border-radius: 10px; }
+/* a phone: every status goes under the name, so the name keeps the width */
+@media (max-width: 640px) {
+  .cl-pack { grid-template-columns: minmax(0, 1fr); }
+  .cl-pack .ec-tag { justify-self: start; max-width: 100%; white-space: normal; border-radius: 10px; }
+}
+
+/* Five sections (Details, Invoices, Payments, Orders, Tech packs) do not fit the strip on a tablet or a phone, and a tab half out of the edge
+   reads as a mistake: the strip wraps to a second row instead, and is a little tighter so a desktop card keeps one row (measured: 413px of 428). */
+.sl-card.cl-wrap .ec-sections .kregion-seg { flex-wrap: wrap; overflow: visible; row-gap: 2px; border-radius: 18px; }
+.sl-card.cl-wrap .ec-sections .kregion-seg-btn { padding-inline: 8px; gap: 4px; }
+.sl-card.cl-wrap .sl-count { margin-left: 2px; }

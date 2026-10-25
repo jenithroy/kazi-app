@@ -14,6 +14,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import EditCard, { Field, KV, NumberInput, Seg, Tag } from "../EditCard";
 import Select from "../Select";
 import CustomerPicker from "../CustomerPicker";
+import CustomerLink from "../customer-link/CustomerLink";
 import DateField from "../finance/DateField";
 import ItemsEditor from "./ItemsEditor";
 import FxDialog from "./FxDialog";
@@ -30,6 +31,13 @@ import { saveDoc } from "../../lib/billingWrites";
 const PAYMENT = [["CASH", "Cash"], ["Bank", "Bank"], ["Credit", "Credit"]];
 const PAN_MESSAGE = "PAN number is required for invoices exceeding NPR 50,000 (Nepal IRD regulation).";
 const DISCOUNT = [["pct", "%"], ["amount", "Amount"]];
+
+/** "INV-034: Acme Ltd": the card's title for a saved document. The client's name opens the customer's card (the document's own client, as saved). */
+function titleOf(tab, doc, words) {
+  const who = (doc.clientName || "").trim();
+  if (!who) return `${numberOf(tab, doc)}: ${words.one}`;
+  return <>{numberOf(tab, doc)}: <CustomerLink customerId={doc.customerId} name={who}>{who}</CustomerLink></>;
+}
 
 export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems, canEdit, canAddCustomers, profile, region, api, onClose }) {
   const meta = DOC_TYPES[tab];
@@ -369,7 +377,7 @@ export default function DocCard({ tab, doc, allOfKind, customers, inventoryItems
   return (
     <>
       <EditCard
-        title={creating ? `New ${words.one}` : `${numberOf(tab, doc)}: ${(doc.clientName || "").trim() || words.one}`}
+        title={creating ? `New ${words.one}` : titleOf(tab, doc, words)}
         subtitle={creating ? (tab === "quotation" ? "Numbered by its date, one run across all years" : `Numbered by its date, ${meta.prefix}-001 onwards each fiscal year`) : `${doc.status} · ${fmtCurrency(Number(doc.totalNPR) || 0, doc.currency)}`}
         className="fn-pc bl-dc"
         main={main} side={side} canEdit={editable} creating={creating} dirty={dirty}

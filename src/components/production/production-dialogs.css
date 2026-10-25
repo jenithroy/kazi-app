@@ -249,6 +249,11 @@
 
 /* ── Materials used ── */
 
+/* the line under the tech pack picker that opens the chosen pack's sheet */
+.kof-packnote { grid-column: 1 / -1; margin: -4px 0 0; font-size: 12.5px; color: var(--ink-3); }
+.kof-packnote .tpl { font-weight: 600; color: var(--mint-deep); text-decoration: underline; text-underline-offset: 2px; }
+:root[data-theme="dark"] .kmodal--glass .kof-packnote .tpl { color: var(--mint); }
+
 .pr-mat-strip { margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 12px; border-radius: 12px; background: var(--pr-well); color: var(--ink); font-size: 13px; line-height: 1.45; }
 .pr-mat-strip.is-warn { background: var(--pr-warn-bg); }
 .pr-mat-strip.is-bad { background: var(--pr-bad-bg); color: var(--pr-bad); font-weight: 600; }

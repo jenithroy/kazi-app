@@ -31,7 +31,7 @@ import { clientsFromDocuments } from "../utils/billingClients";
 import { notifyStageChange } from "../utils/telegram";
 import { awardPoints, resolveUidByName } from "../utils/rewardService";
 import { orderRefOf } from "../utils/productionConsumption";
-import { countUntagged, filterByRegion } from "../utils/region";
+import { countUntagged, filterByRegion, filterByRegionField } from "../utils/region";
 import { Icons } from "../components/ui";
 import useFilters from "../components/filters/useFilters";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
@@ -44,6 +44,7 @@ import AttentionTile from "../components/production/AttentionTile";
 import OrderCard from "../components/production/OrderCard";
 import OrderFormDialog, { emptyInvFields } from "../components/production/OrderFormDialog";
 import InvoiceDialog from "../components/production/InvoiceDialog";
+import { useTechPack } from "../components/techpack/TechPackProvider";
 import { DONE, orderFilters } from "../components/production/filters";
 import useProductionData from "../hooks/useProductionData";
 import {
@@ -83,8 +84,21 @@ export default function Production() {
   const monthKey = today.slice(0, 7);
 
   const data = useProductionData({ canDeductStock });
-  const { status, error: loadError, reload, reloadOrders, addCustomer } = data;
+  const { status, error: loadError, reload, reloadOrders, addCustomer, addPattern } = data;
   const allOrders = data.orders;
+
+  // An order is made from a tech pack. The picker only appears once the database has the column (`fs_orders` carries `patternId`):
+  // a form that asked for a tech pack and then could not save it would lose what was typed.
+  const packLink = allOrders.length === 0 || "patternId" in allOrders[0];
+  const { openEditor } = useTechPack();
+  // "Create a new tech pack" in the order form: the editor opens over the form, and the pack that is saved is chosen in it
+  const createPack = useCallback((presetCustomerId, onCreated) => {
+    openEditor?.({ id: null, presetCustomerId, onSaved: (row) => { addPattern(row); onCreated(row); } });
+  }, [openEditor, addPattern]);
+  // "Finish it" on a tech pack the order form has chosen but that still lacks something
+  const finishPack = useCallback((id, onDone) => {
+    openEditor?.({ id, onSaved: (row) => { addPattern(row); onDone(row); } });
+  }, [openEditor, addPattern]);
 
   /* ── what is on screen ─────────────────────────────────── */
 
@@ -140,6 +154,8 @@ export default function Production() {
   const samples = useMemo(() => filterByRegion(data.samples, region), [data.samples, region]);
   const fabrics = useMemo(() => filterByRegion(data.fabrics, region), [data.fabrics, region]);
   const customers = useMemo(() => filterByRegion(data.customers, region), [data.customers, region]);
+  // the tech packs of the side being worked on (a pack carries a `market`, as on the Inventory page; one with none shows on both)
+  const patterns = useMemo(() => filterByRegionField(data.patterns, region, "market"), [data.patterns, region]);
   // Clients who have been invoiced, sent a challan or quoted in Billing but were never added to
   // Customers, so the customer picker offers them too. Checked against every customer, not just this
   // region's, so one filed on the other side is not offered again as new.
@@ -464,6 +480,7 @@ export default function Production() {
           notes:         f.notes,
           sampleId:            f.sampleId || null,
           sampleName:          f.sampleName,
+          ...(packLink ? { patternId: f.patternId || null } : {}),
           fabricGramsUsed:     Number(f.fabricGramsUsed || 0),
           fabricCostPerPcNPR:  Number(f.fabricCostPerPcNPR || 0),
           materialCostTotalNPR,
@@ -494,6 +511,7 @@ export default function Production() {
         delete orderDoc.assignedTo;
         orderDoc.assigned_to = f.assignedTo || null;
         orderDoc.sampleId = f.sampleId || null;
+        if (packLink) orderDoc.patternId = f.patternId || null; else delete orderDoc.patternId;
         // customerId is the form's own key; the column is customer_id, and toRow() drops anything it
         // cannot map rather than erroring, so the link has to be spelled out here or it silently
         // never persists.
@@ -631,6 +649,11 @@ export default function Production() {
           invoices={invoices}
           challans={challans}
           latestInvoice={latestInvoice}
+          patterns={patterns}
+          packLink={packLink}
+          canCreatePack={Boolean(openEditor)}
+          onCreatePack={createPack}
+          onEditPack={finishPack}
           canCreateCustomer={sectionCanEdit(profile, "customers")}
           dateMode={dateMode}
           onDateMode={setDateMode}

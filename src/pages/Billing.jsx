@@ -29,6 +29,7 @@ import DocCard from "../components/billing/DocCard";
 import PaymentCard from "../components/billing/PaymentCard";
 import useAsk from "../components/billing/useAsk";
 import DocPreview from "../components/DocPreview";
+import CustomerLink from "../components/customer-link/CustomerLink";
 import useBillingData from "../hooks/useBillingData";
 import useDateMode from "../hooks/useDateMode";
 import { useAuth } from "../context/AuthContext";
@@ -265,12 +266,18 @@ export default function Billing() {
       {
         // a narrow table has no room for the number, the date, the status or the credit due: they go under the client
         id: "client", label: "Client", grow: true, min: 160, max: 520, sort: (r) => (r.clientName || "").toLowerCase(),
-        render: (r, { dropped }) => (
-          <NameCell
-            main={(r.clientName || "").trim() || "—"} rest={r.clientPAN ? `PAN ${r.clientPAN}` : ""}
-            extra={[dropped.has("no") && numberOf(tab, r), dropped.has("date") && show(r.date), dropped.has("status") && r.status, invoice && dropped.has("due") && dueText(r)]}
-          />
-        ),
+        render: (r, { dropped }) => {
+          const who = (r.clientName || "").trim();
+          const rest = r.clientPAN ? `PAN ${r.clientPAN}` : "";
+          return (
+            <NameCell
+              // the client's name opens the customer's card (an invoice carries the customer's id; a challan or a quotation has only the typed name)
+              main={who ? <CustomerLink className="cl-clip" customerId={r.customerId} name={who}>{who}</CustomerLink> : "—"} rest={rest}
+              title={[who || "—", rest].filter(Boolean).join(" · ")}
+              extra={[dropped.has("no") && numberOf(tab, r), dropped.has("date") && show(r.date), dropped.has("status") && r.status, invoice && dropped.has("due") && dueText(r)]}
+            />
+          );
+        },
       },
       ...(tab === "quotation"
         ? [{ id: "rel", label: "Valid until", width: 116, drop: 8, sort: (r) => r.validUntil || "", render: (r) => <span className="dt-num dt-dim">{r.validUntil ? show(r.validUntil) : "—"}</span> }]
@@ -426,7 +433,7 @@ export default function Billing() {
       )}
       {payDoc && (
         <PaymentCard
-          key={payDoc.id} info={payInfo(payDoc)} canEdit={canEdit} profile={profile} api={api}
+          key={payDoc.id} info={{ ...payInfo(payDoc), clientName: payDoc.clientName }} canEdit={canEdit} profile={profile} api={api}
           onChanged={() => { payChanged.current = true; }}
           onClose={() => { setPayId(null); if (payChanged.current) setCard(null); payChanged.current = false; }}
           onSaved={() => { setPayId(null); setCard(null); payChanged.current = false; }}

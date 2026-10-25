@@ -8,6 +8,8 @@ import { useApplyTheme } from "../hooks/useTheme";
 import Spotlight from "./Spotlight";
 import { PersonProvider } from "./profile/PersonProvider";
 import { ShareProvider } from "./share/ShareProvider";
+import { TechPackProvider } from "./techpack/TechPackProvider";
+import { CustomerProvider } from "./customer-link/CustomerProvider";
 import "./glass.css";
 import "./nav-theme.css";
 
@@ -65,7 +67,9 @@ function AppLayout({ children }) {
         <div className="kscroll">
           {/* Any name on any page can open that person's profile (components/profile/): the provider draws no box, only the card. */}
           {/* Any record's card can send it to Chat (components/share/): one dialog, opened from a card's Send button. */}
-          <PersonProvider><ShareProvider>{children}</ShareProvider></PersonProvider>
+          {/* Any tech pack can be opened from anywhere (components/techpack/): its printed sheet, or the editor. */}
+          {/* Any customer's name can open that customer's card (components/customer-link/); inside the tech pack provider, because the card opens tech packs. */}
+          <PersonProvider><ShareProvider><TechPackProvider><CustomerProvider>{children}</CustomerProvider></TechPackProvider></ShareProvider></PersonProvider>
         </div>
         {isNative && <BottomNav profile={profile} />}
       </main>

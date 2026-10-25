@@ -3,6 +3,7 @@ import { Icons } from "../ui";
 import { EmptyNote, Money, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
 import { FindBar } from "../filters/FilterMenu";
+import CustomerLink from "../customer-link/CustomerLink";
 import { StageTag } from "./parts";
 import { ORDER_STAGES } from "../../constants/enums";
 import { deliveredOn, isDelivered, isOpen, orderWhen } from "../../lib/sales";
@@ -15,7 +16,13 @@ function columnsFor(today) {
     },
     {
       id: "customer", label: "Customer", grow: true, min: 160, max: 420, sort: (o) => (o.customerName || "").toLowerCase(),
-      render: (o) => <TwoLine main={<span title={o.customerName || ""}>{o.customerName || "No customer"}</span>} sub={o.styleName || "No style yet"} />,
+      // the customer's name opens their card (the order carries the customer's id); the row itself still opens the order
+      render: (o) => (
+        <TwoLine
+          main={o.customerName ? <CustomerLink className="cl-clip" customerId={o.customer_id} name={o.customerName} plainTitle={o.customerName}>{o.customerName}</CustomerLink> : <span>No customer</span>}
+          sub={o.styleName || "No style yet"}
+        />
+      ),
     },
     {
       id: "stage", label: "Stage", width: 132, sort: (o) => ORDER_STAGES.indexOf(o.stage),

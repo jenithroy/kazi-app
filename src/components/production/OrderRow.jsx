@@ -1,6 +1,7 @@
 import { Avatar, Icons, cn, hueFromName } from "../ui";
 import { Money } from "../bento/Bento";
 import PersonLink from "../profile/PersonLink";
+import CustomerLink from "../customer-link/CustomerLink";
 import { StageBar, StageTag } from "./StageMark";
 import { dueInfo, isOpen, nextStageOf } from "../../lib/production";
 
@@ -32,7 +33,8 @@ export default function OrderRow({ order, today, canEdit, busy, onOpen, onAdvanc
       <span className="pr-c-id">{order.orderId}</span>
 
       <span className="pr-c-main">
-        <b>{order.customerName || "No customer"}</b>
+        {/* the customer's name opens their card (it sits above the row's own button, so the order does not open) */}
+        <b>{order.customerName ? <CustomerLink className="cl-clip" customerId={order.customer_id} name={order.customerName}>{order.customerName}</CustomerLink> : "No customer"}</b>
         <span>{what || "No style yet"}</span>
       </span>
 

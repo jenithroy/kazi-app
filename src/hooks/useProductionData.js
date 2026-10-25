@@ -12,13 +12,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchAll } from "../lib/db";
+import { PACK_LIST_COLUMNS } from "../lib/packColumns";
 
 const POLL_MS = 60000;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 const NONE = {
   orders: [], employees: [], invoices: [], orderCosts: {}, labourRatePerUnit: null,
-  fabrics: [], samples: [], customers: [], challans: [], quotations: [], deductedRefs: new Set(),
+  fabrics: [], samples: [], customers: [], challans: [], quotations: [], patterns: [], deductedRefs: new Set(),
 };
 
 const STALE = "Could not refresh just now. This is what was loaded last.";
@@ -39,7 +40,7 @@ export default function useProductionData({ canDeductStock }) {
   const reload = useCallback(async () => {
     const mine = ++token.current;
     try {
-      const [batchRows, orderRows, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows, challanRows, quotationRows, deductionRows] = await Promise.all([
+      const [batchRows, orderRows, empRows, invRows, costRows, payrollData, fabricRows, sampleRows, customerRows, challanRows, quotationRows, patternRows, deductionRows] = await Promise.all([
         fetchAll("production"),
         fetchAll("orders"),
         fetchAll("employees"),
@@ -53,6 +54,10 @@ export default function useProductionData({ canDeductStock }) {
         // client names on them). A role that cannot read them still gets the invoices.
         fetchAll("challans").catch(() => []),
         fetchAll("quotations").catch(() => []),
+        // The tech packs an order is made from (the order form's picker). Anyone who can raise an order can read them (migration 0044's
+        // production_read policy); a read that fails leaves the picker empty, and the form says so. Without the photographs kept inside
+        // an older pack's row (2 MB of the table's 2.2): the picker never shows them, and a pack that is opened is read whole.
+        fetchAll("patterns", { columns: PACK_LIST_COLUMNS }).catch(() => []),
         // Which orders already had their materials deducted. Only asked for by people who can act on
         // it: the database returns nothing to anyone without inventory access, which would read as
         // "nothing deducted".
@@ -94,6 +99,7 @@ export default function useProductionData({ canDeductStock }) {
         customers: customerRows,
         challans: challanRows,
         quotations: quotationRows,
+        patterns: patternRows,
         deductedRefs: new Set(deductionRows.map((m) => m.sourceId).filter(Boolean)),
       }));
       setStatus({ state: "ready", full: "", orders: "" });
@@ -133,6 +139,8 @@ export default function useProductionData({ canDeductStock }) {
   }, [reloadOrders]);
 
   const addCustomer = useCallback((c) => setData((d) => ({ ...d, customers: [...d.customers, c] })), []);
+  // a tech pack made from inside the order form is in the picker at once (the next full read would find it anyway)
+  const addPattern = useCallback((p) => setData((d) => ({ ...d, patterns: [...d.patterns.filter((x) => x.id !== p.id), p] })), []);
 
-  return { ...data, status: status.state, error: status.full || status.orders, reload, reloadOrders, addCustomer };
+  return { ...data, status: status.state, error: status.full || status.orders, reload, reloadOrders, addCustomer, addPattern };
 }

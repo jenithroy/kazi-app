@@ -55,7 +55,7 @@ export default function MergeDialog({ source, rows, onClose, onMerge }) {
     >
       <div className="sl-merge">
         <p className="sl-text">
-          Move every order, invoice and payment from <b>{source.name}</b> onto another customer, then
+          Move every order, invoice, payment and tech pack from <b>{source.name}</b> onto another customer, then
           delete <b>{source.name}</b>. Use this for duplicates: the same buyer typed two different ways.
         </p>
         <Field label="Merge into" htmlFor={`${uid}-target`}>

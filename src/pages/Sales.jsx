@@ -46,6 +46,7 @@ import {
   stageCounts, stageShort, unlinkedInvoices, visibleCustomers,
 } from "../lib/sales";
 import { filterRows } from "../lib/customers";
+import { mergeCustomerRows } from "../lib/customerWrites";
 import "../components/sales/sales.css";
 
 const PHONE_ROWS = 8;     // a phone's page scrolls, so each list shows this many until "Show all" is pressed
@@ -298,36 +299,13 @@ export default function Sales() {
     return o.length + i.length + p.length;
   }
 
-  /* Repoint the losing customer's records, then remove them. Done row by row from the client because that is the only write
-     path the app has; the orders/invoices/payments FKs make the result consistent either way. Each move is checked before
-     anything is deleted, so a refused one cannot end with a customer gone and their records left behind; and so is
-     whatever was added to them since the page last looked. */
+  /* Merge a duplicate into another customer: the shared write (lib/customerWrites.js) moves their orders, invoices, payments AND tech
+     packs, checking each move, before the duplicate is deleted. */
   async function mergeCustomers(source, targetId) {
-    try {
-      const moved = await Promise.all([
-        ...source.orders.map(async (o) => (await updateRow("orders", o.id, { customer_id: targetId }))?.customer_id === targetId),
-        ...source.invoices.map(async (i) => (await updateRow("invoices", i.id, { customerId: targetId }))?.customerId === targetId),
-        ...source.payments.map(async (p) => (await updateRow("payments", p.id, { customerId: targetId }))?.customerId === targetId),
-      ]);
-      if (moved.some((ok) => !ok)) throw new Error("The database refused to move some records.");
-      if ((await linkedCount(source.id)) > 0) {
-        await load();
-        return { ok: false, message: `Something new was added to ${source.name} while you were merging, so they were not deleted. Merge again to move it too.` };
-      }
-      await deleteRow("customers", source.id);
-      if (await fetchOne("customers", source.id)) {
-        await load();
-        return { ok: false, message: `Everything was moved, but ${source.name} could not be deleted. You may not have permission to edit customers.` };
-      }
-      setMerging(null);
-      setPanel(null);
-      await load();
-      return { ok: true };
-    } catch (err) {
-      console.error("Merge failed:", err);
-      await load();
-      return { ok: false, message: "Merge failed partway. Check the customer before trying again." };
-    }
+    const res = await mergeCustomerRows(source, targetId);
+    if (res.ok) { setMerging(null); setPanel(null); }
+    if (res.reload) await load();
+    return res;
   }
 
   async function deleteCustomer(c) {

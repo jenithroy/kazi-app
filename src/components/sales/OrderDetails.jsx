@@ -4,6 +4,9 @@ import EditCard, { KV, Tag } from "../EditCard";
 import { Icons, cn } from "../ui";
 import PersonLink from "../profile/PersonLink";
 import ShareButton from "../share/ShareButton";
+import CustomerLink from "../customer-link/CustomerLink";
+import OrderPackLine from "../customer-link/OrderPackLine";
+import { useTechPack } from "../techpack/TechPackProvider";
 import { useCurrency } from "../../context/CurrencyContext";
 import { toNPR } from "../../utils/currency";
 import { normaliseRegion, regionLabel } from "../../utils/region";
@@ -23,6 +26,7 @@ const LAST = ORDER_STAGES.length - 1;
  */
 export default function OrderDetails({ order, invoice, canSeeInvoices = true, today, canOpenCustomer, canOpenProduction, onOpenCustomer, onClose }) {
   const { fmt } = useCurrency();
+  const { openSheet } = useTechPack();
   const [allMoves, setAllMoves] = useState(false);
 
   const open = isOpen(order);
@@ -156,6 +160,8 @@ export default function OrderDetails({ order, invoice, canSeeInvoices = true, to
 
   const rows = [
     ["Style", order.styleName || "—"],
+    // the tech pack the order was made from (none on an order made before they were picked, or for a position that may not read them)
+    ...(order.patternId && openSheet ? [["Tech pack", <OrderPackLine key="pack" patternId={order.patternId} />]] : []),
     ["Pieces", qty.toLocaleString()],
     ["Price a piece", price > 0 ? fmt(price) : "—"],
     ["Ordered", order.date ? fmtDay(order.date) : "—"],
@@ -181,7 +187,7 @@ export default function OrderDetails({ order, invoice, canSeeInvoices = true, to
   return (
     <EditCard
       className="sl-card"
-      title={order.customerName || "Order"}
+      title={order.customerName ? <CustomerLink customerId={order.customer_id} name={order.customerName}>{order.customerName}</CustomerLink> : "Order"}
       subtitle={[order.orderId, order.styleName, `${qty.toLocaleString()} pcs`].filter(Boolean).join(" · ")}
       canEdit={false}
       mainLabel="Progress"

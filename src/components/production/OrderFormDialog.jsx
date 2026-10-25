@@ -10,6 +10,11 @@ import { adToBsParts } from "../../utils/fiscalYear";
 import { sameName } from "../../utils/billingClients";
 import { REGIONS } from "../../utils/region";
 import { FABRIC_TYPES, STAGES, dueIn30, parseInvoiceDescription } from "../../lib/production";
+import { brandName, completeness, missingWords, readPack } from "../../lib/techpack";
+import TechPackLink from "../techpack/TechPackLink";
+
+/** The dropdown's last choice: not a tech pack, a way to make one (the owner's rule: no tech pack yet = make it first, then the order). */
+const NEW_PACK = "__new_pack__";
 
 const VAT_RATE = 0.13;
 
@@ -35,6 +40,7 @@ const emptyOrderForm = () => ({
   notes: "",
   sampleId: "",
   sampleName: "",
+  patternId: "",
   // Not entered on the form any more. They are carried through so that saving an
   // older order does not wipe the fabric figures it was created with.
   fabricGramsUsed: "",
@@ -60,6 +66,7 @@ function formFromOrder(order) {
     notes:         order.notes || "",
     sampleId:            order.sampleId || "",
     sampleName:          order.sampleName || "",
+    patternId:           order.patternId || "",
     fabricGramsUsed:     order.fabricGramsUsed || "",
     fabricCostPerPcNPR:  order.fabricCostPerPcNPR || "",
     region:              order.region || "",
@@ -250,6 +257,7 @@ function documentOptions({ value, invoices, challans, locked, customer }) {
  */
 export default function OrderFormDialog({
   order, today, samples, fabrics, employees, customers, billingClients, invoices, challans, latestInvoice,
+  patterns = [], packLink = false, canCreatePack = false, onCreatePack, onEditPack,
   canCreateCustomer, dateMode, onDateMode, onCustomerCreated, onSave, onClose,
 }) {
   const uid = useId();
@@ -277,6 +285,64 @@ export default function OrderFormDialog({
     value: form.invoiceRef, invoices, challans, locked: issueInvoice && !editing,
     customer: form.customerId ? { id: form.customerId, name: form.customerName } : null,
   }), [form.invoiceRef, form.customerId, form.customerName, invoices, challans, issueInvoice, editing]);
+
+  /* ── the tech pack ─────────────────────────────────────────────
+     Every new order is made FROM a tech pack. The list is the packs that can be used (a finished new-format pack, or any older one);
+     one that still lacks something is shown but cannot be chosen, and says so. With a customer picked the list narrows to their packs
+     and the ones nobody has filed under a customer (the older packs have none), so another customer's pack is never one slip away. */
+  const packRows = useMemo(() => patterns.map((row) => {
+    const pack = readPack(row);
+    return { row, pack, c: completeness(pack) };
+  }), [patterns]);
+  const packOptions = useMemo(() => {
+    const mine = form.customerId;
+    const shown = packRows
+      .filter(({ row, pack }) => row.id === form.patternId || !mine || !pack.customerId || pack.customerId === mine)
+      .sort((a, b) => (Number(b.pack.customerId === mine && Boolean(mine)) - Number(a.pack.customerId === mine && Boolean(mine))) || a.pack.name.localeCompare(b.pack.name));
+    const who = (pack) => brandName(pack, customers.find((c) => String(c.id) === pack.customerId));
+    return [
+      ...(editing && !order?.patternId ? [{ value: "", label: "None (made before tech packs)" }] : []),
+      ...shown.map(({ row, pack, c }) => ({
+        value: row.id,
+        label: [pack.styleNo, pack.name || "Untitled tech pack"].filter(Boolean).join(" · "),
+        hint: c.ok ? who(pack) || (pack.legacy ? "Old format" : "") : "Not finished",
+        disabled: !c.ok && row.id !== form.patternId,
+      })),
+      ...(canCreatePack ? [{ value: NEW_PACK, label: "+ Create a new tech pack…" }] : []),
+    ];
+  }, [packRows, form.customerId, form.patternId, customers, editing, order, canCreatePack]);
+  const pickedPack = packRows.find(({ row }) => row.id === form.patternId) || null;
+
+  function selectPack(row) {
+    if (!row) { set({ patternId: "" }); return; }
+    const pack = readPack(row);
+    const customer = pack.customerId ? customers.find((c) => String(c.id) === pack.customerId) : null;
+    const colours = pack.colour.split(/[,/&]|\sand\s/i).map((s) => s.trim()).filter(Boolean);
+    const fabric = pack.materials.find((m) => m.kind === "fabric" && m.name.trim())?.name.trim();
+    // what the tech pack knows fills the form; what it does not know is left as it was
+    setForm((f) => ({
+      ...f,
+      patternId: row.id,
+      styleName: pack.name || f.styleName,
+      ...(customer ? { customerId: customer.id, customerName: customer.name } : {}),
+      fabricType: fabric || f.fabricType,
+      colorway: colours.length === 1 ? colours[0] : f.colorway,
+    }));
+    setError("");
+  }
+  function choosePack(v) {
+    if (v === NEW_PACK) { onCreatePack?.(form.customerId, selectPack); return; }
+    selectPack(v ? patterns.find((p) => p.id === v) || null : null);
+  }
+  // another customer is picked: a tech pack that belongs to somebody else does not stay chosen
+  function chooseCustomer({ id, name }) {
+    setForm((f) => {
+      const cur = patterns.find((p) => p.id === f.patternId);
+      const clash = Boolean(cur?.customerId && id && String(cur.customerId) !== String(id));
+      return { ...f, customerId: id, customerName: name, patternId: clash ? "" : f.patternId };
+    });
+    setError("");
+  }
 
   function selectSample(sampleId) {
     const sample = samples.find((s) => s.id === sampleId);
@@ -329,6 +395,15 @@ export default function OrderFormDialog({
   async function submit(e) {
     e.preventDefault();
     if (saving) return;
+    // A new order is made from a tech pack (an older order that has none may be saved as it is).
+    if (packLink && !editing && !form.patternId) {
+      setError(canCreatePack ? "Pick a tech pack for this order, or choose “Create a new tech pack” in the list and make it first." : "Pick a tech pack for this order. If it has none yet, someone who can edit tech packs has to make it first.");
+      return;
+    }
+    if (packLink && pickedPack && !pickedPack.c.ok) {
+      setError(`That tech pack is not finished: it still needs ${missingWords(pickedPack.c)}. Finish it in Inventory first.`);
+      return;
+    }
     // The picker's `required` select is unmounted while its inline "add new
     // customer" panel is open, so the browser cannot enforce this for us at
     // exactly the moment a half-finished customer is on screen.
@@ -367,6 +442,37 @@ export default function OrderFormDialog({
       )}
 
       <div className="kof">
+        {packLink && (
+          <>
+            <h3 className="kof-sec">Tech pack</h3>
+            <Box
+              label={<>Tech pack{!editing && <span className="kof-req" aria-hidden="true">*</span>}</>} htmlFor={fid("pack")}
+              hint={
+                patterns.length === 0
+                  ? "There are no tech packs yet. Make the first one from the list."
+                  : editing && !order?.patternId
+                    ? "This order was made before tech packs. You can link one."
+                    : "Every order starts from a tech pack. Pick the customer's, or make a new one first."
+              }
+            >
+              <Select
+                id={fid("pack")} label="Tech pack" value={form.patternId} onChange={choosePack} options={packOptions}
+                placeholder="Pick the tech pack" searchPlaceholder="Find a tech pack"
+              />
+            </Box>
+            {pickedPack && (
+              <p className="kof-packnote" role={pickedPack.c.ok ? undefined : "status"}>
+                {pickedPack.c.ok
+                  ? (pickedPack.pack.legacy ? "Old-format tech pack." : "Tech pack ready.")
+                  : <>Not finished yet: it still needs {missingWords(pickedPack.c)}.{" "}
+                    {canCreatePack && onEditPack && (
+                      <><button type="button" className="tpl" onClick={() => onEditPack(pickedPack.row.id, selectPack)}>Finish it</button>{" · "}</>
+                    )}</>}{" "}
+                <TechPackLink patternId={pickedPack.row.id}>View its sheet</TechPackLink>
+              </p>
+            )}
+          </>
+        )}
         <h3 className="kof-sec">Customer &amp; dates</h3>
         <div className="kof-f">
           <label className="kof-l" htmlFor={fid("customer")}>
@@ -378,7 +484,7 @@ export default function OrderFormDialog({
             suggestions={billingClients}
             valueId={form.customerId}
             valueName={form.customerName}
-            onChange={({ id, name }) => set({ customerId: id, customerName: name })}
+            onChange={chooseCustomer}
             onCustomerCreated={onCustomerCreated}
             canCreate={canCreateCustomer}
           />

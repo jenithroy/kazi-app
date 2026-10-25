@@ -31,6 +31,20 @@ async function linkedCount(customerId) {
   return o.length + i.length + p.length;
 }
 
+/**
+ * The tech packs made for a customer (`patterns.customer_id`), read fresh. A position that may not read tech packs is answered an empty
+ * list by row-level security, so it merges as it always did (the packs it cannot see are unlinked when the duplicate goes, as for a
+ * delete). A database that does not have the column yet (migration 0063) has no linked packs either.
+ */
+async function packsOf(customerId) {
+  try {
+    return await fetchAll("patterns", { filters: [{ field: "customerId", value: customerId }], columns: "id" });     // (only the ids are moved)
+  } catch (err) {
+    if (err?.code === "42703") return [];          // undefined column
+    throw err;
+  }
+}
+
 /** Save a customer's details (`id` null: a new customer). */
 export async function saveCustomerRow(payload, id) {
   try {
@@ -54,16 +68,32 @@ export async function saveCustomerRow(payload, id) {
  * row from the client because that is the only write path the app has; the foreign keys make the result consistent
  * either way. Each move is checked before anything is deleted, so a refused one cannot end with a customer gone and
  * their records left behind.
+ *
+ * The tech packs made for the duplicate (`patterns.customer_id`) move too, read fresh (the page's copy has no tech packs in it) and
+ * checked the same way. Only a position that may change tech packs can move them, and the database refuses the rest without an error,
+ * so the first pack goes first and alone: a refusal stops the merge before anything else has been moved, and says so.
  */
 export async function mergeCustomerRows(source, targetId) {
+  let packs;
   try {
+    packs = await packsOf(source.id);
+  } catch (err) {
+    console.error("Merge: could not read the tech packs:", err);
+    return { ok: false, message: "Could not check which tech packs they have, so nothing was merged. Try again." };
+  }
+  try {
+    const movePack = async (p) => (await updateRow("patterns", p.id, { customerId: targetId }))?.customerId === targetId;
+    if (packs.length && !(await movePack(packs[0]))) {
+      return { ok: false, message: `${source.name} has ${packs.length} tech ${packs.length === 1 ? "pack" : "packs"} and you may not move ${packs.length === 1 ? "it" : "them"}, so nothing was merged. Someone who can edit tech packs needs to move ${packs.length === 1 ? "it" : "them"} first.` };
+    }
     const moved = await Promise.all([
       ...source.orders.map(async (o) => (await updateRow("orders", o.id, { customer_id: targetId }))?.customer_id === targetId),
       ...source.invoices.map(async (i) => (await updateRow("invoices", i.id, { customerId: targetId }))?.customerId === targetId),
       ...source.payments.map(async (p) => (await updateRow("payments", p.id, { customerId: targetId }))?.customerId === targetId),
+      ...packs.slice(1).map(movePack),
     ]);
     if (moved.some((ok) => !ok)) throw new Error("The database refused to move some records.");
-    if ((await linkedCount(source.id)) > 0) {
+    if ((await linkedCount(source.id)) > 0 || (await packsOf(source.id)).length > 0) {
       return { ok: false, reload: true, message: `Something new was added to ${source.name} while you were merging, so they were not deleted. Merge again to move it too.` };
     }
     await deleteRow("customers", source.id);
@@ -77,7 +107,10 @@ export async function mergeCustomerRows(source, targetId) {
   }
 }
 
-/** Delete a customer (their orders, invoices and payments stay, unlinked). `c` is the page's row for them. */
+/**
+ * Delete a customer (their orders, invoices and payments stay, unlinked). `c` is the page's row for them.
+ * Their tech packs stay too, unlinked: `patterns.customer_id` is `on delete set null`, so the database does it and there is nothing to write.
+ */
 export async function deleteCustomerRow(c) {
   try {
     if ((await linkedCount(c.id)) > c.orders.length + c.invoices.length + c.payments.length) {

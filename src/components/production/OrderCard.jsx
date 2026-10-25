@@ -3,6 +3,9 @@ import Modal from "../Modal";
 import DatePicker from "../DatePicker";
 import { Avatar, Icons, cn, hueFromName } from "../ui";
 import PersonLink from "../profile/PersonLink";
+import CustomerLink from "../customer-link/CustomerLink";
+import OrderPackLine from "../customer-link/OrderPackLine";
+import { useTechPack } from "../techpack/TechPackProvider";
 import ShareButton from "../share/ShareButton";
 import { fmtField } from "../../lib/calendar";
 import { useCurrency } from "../../context/CurrencyContext";
@@ -37,6 +40,7 @@ export default function OrderCard({
 }) {
   const uid = useId();
   const { fmt } = useCurrency();
+  const { openSheet } = useTechPack();
   const [tab, setTab] = useState("progress");          // on a phone: "progress" | "details"
   const [dates, setDates] = useState(null);            // the reschedule editor: { date, deliveryDate, saving, error } or null
   const [moneyOpen, setMoneyOpen] = useState(false);
@@ -110,7 +114,7 @@ export default function OrderCard({
 
   return (
     <Modal
-      title={order.customerName || "Order"}
+      title={order.customerName ? <CustomerLink customerId={order.customer_id} name={order.customerName}>{order.customerName}</CustomerLink> : "Order"}
       subtitle={[order.orderId, order.styleName, `${qty.toLocaleString()} pcs`].filter(Boolean).join(" · ")}
       size="card"
       className="pr-dlg kmodal--order"
@@ -268,6 +272,8 @@ export default function OrderCard({
               )}
             </Fact>
             <Fact label="Sample">{order.sampleName || "—"}</Fact>
+            {/* the tech pack the order was made from (none on an order made before they were picked, or for a position that may not read them) */}
+            {order.patternId && openSheet && <Fact label="Tech pack" wide><OrderPackLine patternId={order.patternId} /></Fact>}
             {order.region && <Fact label="Region">{regionLabel(order.region)}</Fact>}
             {order.notes && <Fact label="Note" wide>{order.notes}</Fact>}
           </dl>
