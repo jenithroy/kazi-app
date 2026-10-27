@@ -28,6 +28,7 @@
     "@capacitor/status-bar": "^8.0.2",
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/supabase-js": "^2.112.4",
+    "clipper-lib": "^6.4.2",
     "firebase": "^11.8.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
