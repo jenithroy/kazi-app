@@ -45,6 +45,9 @@ npm-debug.log*
 # Local scratch directory
 scratch/
 
+# The owner's own pictures for trying the Embroidery Digitizer: other people's artwork, not ours to publish
+sample images/
+
 .dev.vars*
 !.dev.vars.example
 !.env.example
