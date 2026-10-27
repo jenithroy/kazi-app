@@ -46,6 +46,8 @@ export const NAV_GROUPS = [
     items: [
       { id: "production", to: "/production", label: "Production",           Icon: Icons.Production, desc: "Pipeline from order to dispatch", can: section("production") },
       { id: "inventory",  to: "/inventory",  label: "Inventory & Library",  Icon: Icons.Inventory,  desc: "Stock, fabrics and tech packs",   can: anyOf("inventory", "library") },
+      // Runs entirely in the browser and keeps nothing in the database, so it follows the pages it serves (Production, tech packs).
+      { id: "digitizer",  to: "/digitizer",  label: "Embroidery Digitizer", Icon: Icons.Needle,     desc: "A logo or text into a stitch file", can: anyOf("production", "inventory", "library") },
     ],
   },
   {

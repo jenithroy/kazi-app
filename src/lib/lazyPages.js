@@ -24,6 +24,7 @@ export const Dashboard = page(() => import("../pages/Dashboard"));
 export const Attendance = page(() => import("../pages/Attendance"));
 export const Production = page(() => import("../pages/Production"));
 export const Inventory = page(() => import("../pages/Inventory"));
+export const Digitizer = page(() => import("../pages/Digitizer"));
 export const Finance = page(() => import("../pages/Finance"));
 export const FiscalYearTransactions = page(() => import("../pages/FiscalYearTransactions"));
 export const Purchases = page(() => import("../pages/Purchases"));
@@ -53,6 +54,7 @@ const BY_PATH = [
   [under("/attendance"), Attendance],
   [under("/production"), Production],
   [under("/inventory"), Inventory],
+  [under("/digitizer"), Digitizer],
   [under("/sales"), Sales],
   [exact("/finance"), Finance],
   [under("/finance"), FiscalYearTransactions],

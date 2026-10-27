@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
 // Every other page is fetched when it is first needed (and ahead of time, quietly): see lib/lazyPages.js.
 import {
-  Dashboard, Attendance, Production, Inventory, Finance, FiscalYearTransactions, Purchases, Tasks, Budget, Billing,
+  Dashboard, Attendance, Production, Inventory, Digitizer, Finance, FiscalYearTransactions, Purchases, Tasks, Budget, Billing,
   Employees, AdminPanel, Usage, Roles, Leaderboard, Customers, Messenger, Sales, Marketing, MetaAds, BugReport, Changelog,
 } from "./lib/lazyPages";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -55,6 +55,8 @@ function App() {
         <Route path="/production"  element={<RequireSection section="production"><Production /></RequireSection>} />
         {/* Inventory and Product Library are one merged screen, so either opens it. */}
         <Route path="/inventory"   element={<RequireSection anyOf={["inventory", "library"]}><Inventory /></RequireSection>} />
+        {/* The Digitizer keeps nothing in the database; it follows the pages it serves. */}
+        <Route path="/digitizer"   element={<RequireSection anyOf={["production", "inventory", "library"]}><Digitizer /></RequireSection>} />
         <Route path="/sales"       element={<RequireSection section="sales"><Sales /></RequireSection>} />
         <Route path="/finance"     element={<RequireSection section="finance"><Finance /></RequireSection>} />
         <Route path="/finance/:fy" element={<RequireSection section="finance"><FiscalYearTransactions /></RequireSection>} />
