@@ -12,9 +12,13 @@ import { REGIONS } from "../../utils/region";
 import { FABRIC_TYPES, STAGES, dueIn30, parseInvoiceDescription } from "../../lib/production";
 import { brandName, completeness, missingWords, readPack } from "../../lib/techpack";
 import TechPackLink from "../techpack/TechPackLink";
+import PackPreview from "./PackPreview";
 
 /** The dropdown's last choice: not a tech pack, a way to make one (the owner's rule: no tech pack yet = make it first, then the order). */
 const NEW_PACK = "__new_pack__";
+
+/** Whether a NEW order has to be made from a tech pack. Off for now (the owner, 2026-10-26: the tech packs are still being filled in); true asks for one again. */
+const PACK_REQUIRED = false;
 
 const VAT_RATE = 0.13;
 
@@ -287,7 +291,8 @@ export default function OrderFormDialog({
   }), [form.invoiceRef, form.customerId, form.customerName, invoices, challans, issueInvoice, editing]);
 
   /* ── the tech pack ─────────────────────────────────────────────
-     Every new order is made FROM a tech pack. The list is the packs that can be used (a finished new-format pack, or any older one);
+     A new order is made FROM a tech pack when it has one (it has to, while PACK_REQUIRED is on).
+     The list is the packs that can be used (a finished new-format pack, or any older one);
      one that still lacks something is shown but cannot be chosen, and says so. With a customer picked the list narrows to their packs
      and the ones nobody has filed under a customer (the older packs have none), so another customer's pack is never one slip away. */
   const packRows = useMemo(() => patterns.map((row) => {
@@ -296,12 +301,14 @@ export default function OrderFormDialog({
   }), [patterns]);
   const packOptions = useMemo(() => {
     const mine = form.customerId;
+    const madeBefore = editing && !order?.patternId;
     const shown = packRows
       .filter(({ row, pack }) => row.id === form.patternId || !mine || !pack.customerId || pack.customerId === mine)
       .sort((a, b) => (Number(b.pack.customerId === mine && Boolean(mine)) - Number(a.pack.customerId === mine && Boolean(mine))) || a.pack.name.localeCompare(b.pack.name));
     const who = (pack) => brandName(pack, customers.find((c) => String(c.id) === pack.customerId));
     return [
-      ...(editing && !order?.patternId ? [{ value: "", label: "None (made before tech packs)" }] : []),
+      // "none" is a choice for an older order that has no pack, and for every order while a pack is not required
+      ...(madeBefore || !PACK_REQUIRED ? [{ value: "", label: madeBefore ? "None (made before tech packs)" : "No tech pack" }] : []),
       ...shown.map(({ row, pack, c }) => ({
         value: row.id,
         label: [pack.styleNo, pack.name || "Untitled tech pack"].filter(Boolean).join(" · "),
@@ -312,6 +319,7 @@ export default function OrderFormDialog({
     ];
   }, [packRows, form.customerId, form.patternId, customers, editing, order, canCreatePack]);
   const pickedPack = packRows.find(({ row }) => row.id === form.patternId) || null;
+  const pickedBrand = pickedPack ? brandName(pickedPack.pack, customers.find((c) => String(c.id) === pickedPack.pack.customerId)) : "";
 
   function selectPack(row) {
     if (!row) { set({ patternId: "" }); return; }
@@ -395,8 +403,8 @@ export default function OrderFormDialog({
   async function submit(e) {
     e.preventDefault();
     if (saving) return;
-    // A new order is made from a tech pack (an older order that has none may be saved as it is).
-    if (packLink && !editing && !form.patternId) {
+    // While PACK_REQUIRED is on, a new order is made from a tech pack (an older order that has none may be saved as it is).
+    if (PACK_REQUIRED && packLink && !editing && !form.patternId) {
       setError(canCreatePack ? "Pick a tech pack for this order, or choose “Create a new tech pack” in the list and make it first." : "Pick a tech pack for this order. If it has none yet, someone who can edit tech packs has to make it first.");
       return;
     }
@@ -446,13 +454,15 @@ export default function OrderFormDialog({
           <>
             <h3 className="kof-sec">Tech pack</h3>
             <Box
-              label={<>Tech pack{!editing && <span className="kof-req" aria-hidden="true">*</span>}</>} htmlFor={fid("pack")}
+              label={<>Tech pack{PACK_REQUIRED && !editing && <span className="kof-req" aria-hidden="true">*</span>}</>} htmlFor={fid("pack")}
               hint={
                 patterns.length === 0
-                  ? "There are no tech packs yet. Make the first one from the list."
+                  ? (PACK_REQUIRED ? "There are no tech packs yet. Make the first one from the list." : "There are no tech packs yet. You can skip this for now.")
                   : editing && !order?.patternId
                     ? "This order was made before tech packs. You can link one."
-                    : "Every order starts from a tech pack. Pick the customer's, or make a new one first."
+                    : PACK_REQUIRED
+                      ? "Every order starts from a tech pack. Pick the customer's, or make a new one first."
+                      : "Optional for now. Pick the customer's tech pack, or make a new one from the list."
               }
             >
               <Select
@@ -460,6 +470,7 @@ export default function OrderFormDialog({
                 placeholder="Pick the tech pack" searchPlaceholder="Find a tech pack"
               />
             </Box>
+            <PackPreview picked={pickedPack} brand={pickedBrand} />
             {pickedPack && (
               <p className="kof-packnote" role={pickedPack.c.ok ? undefined : "status"}>
                 {pickedPack.c.ok
