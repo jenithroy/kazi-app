@@ -40,12 +40,13 @@
  * Pure ES module: no DOM, no Node-only calls. Everything is deterministic (same input and options, same output).
  */
 import { prepare, denoise, ALPHA_CUT } from "./prep.js";
-import { buildPalette, classifyPixels, flatMask, softMembership, clusterMeans, transitionalEntries, HARD_MAX_COLORS } from "./quantize.js";
+import { buildPalette, missingColours, classifyPixels, flatMask, softMembership, clusterMeans, transitionalEntries, HARD_MAX_COLORS } from "./quantize.js";
 import { cleanLabels, connectedComponents, OUT } from "./labels.js";
 import { buildChains, chainRawPoints, traceLoops } from "./contours.js";
 import { processChains } from "./simplify.js";
 import { findCrossing, pullBack } from "./repair.js";
 import { renderTrace } from "./render.js";
+import { detectKind, kuwahara } from "./photo.js";
 import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
 
 export { renderTrace };
@@ -67,6 +68,16 @@ export const DEFAULT_OPTIONS = Object.freeze({
   cornerAngleDeg: 40,
   seed: 1,
   maxSide: 1600,
+  // the kind of picture decides how its colours are found: "logo" (a few flat colours, the default), "art" (drawn or painted,
+  // soft shading), "photo" (smoothed into paint-like patches first), or "auto" (look at the picture and choose)
+  mode: "logo",
+  mergeDE: 0, // colours closer than this (delta-E) are one colour; 0 = the kind's own (logo 11, art 8, photo 6)
+  workMm: 0.25, // a photograph is traced on a grid this many millimetres a pixel (it has no finer detail to keep)
+  smoothR: 3, // the Kuwahara radius (pixels) a photograph is flattened with
+  thicken: false, // keep long thin strokes (lettering, hairlines) of the minor colours and widen them, instead of removing them
+  thickenMm: 0, // how wide such a stroke becomes (0 = the smallest sewable detail, at least 0.9 mm)
+  strokeMm: 1.5, // a thin piece must be this long to count as a stroke
+  bgSpread: 7, // a background of artwork or a photograph must be this even (delta-E spread around its colour)
 });
 
 const num = (v, d, lo, hi) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -96,6 +107,14 @@ export function normalizeOptions(opts = {}) {
     cornerAngleDeg: num(opts.cornerAngleDeg, DEFAULT_OPTIONS.cornerAngleDeg, 10, 170),
     seed: Math.round(num(opts.seed, DEFAULT_OPTIONS.seed, 0, 2147483647)),
     maxSide: Math.round(num(opts.maxSide, DEFAULT_OPTIONS.maxSide, 64, 8192)),
+    mode: ["logo", "art", "photo", "auto"].includes(opts.mode) ? opts.mode : DEFAULT_OPTIONS.mode,
+    mergeDE: num(opts.mergeDE, DEFAULT_OPTIONS.mergeDE, 0, 40),
+    workMm: num(opts.workMm, DEFAULT_OPTIONS.workMm, 0.05, 5),
+    smoothR: Math.round(num(opts.smoothR, DEFAULT_OPTIONS.smoothR, 0, 8)),
+    thicken: !!opts.thicken,
+    thickenMm: num(opts.thickenMm, DEFAULT_OPTIONS.thickenMm, 0, 5),
+    strokeMm: num(opts.strokeMm, DEFAULT_OPTIONS.strokeMm, 0.2, 20),
+    bgSpread: num(opts.bgSpread, DEFAULT_OPTIONS.bgSpread, 1, 40),
   };
 }
 
@@ -106,6 +125,23 @@ function checkImage(image) {
   if (image.width < 1 || image.height < 1 || image.data.length < image.width * image.height * 4) {
     throw new TypeError("the picture data is smaller than width x height x 4");
   }
+}
+
+/** The kind of picture to trace as: the asked-for mode, or, for "auto", what the picture looks like (see photo.js). */
+function resolveKind(image, o) {
+  if (o.mode !== "auto") return { kind: o.mode, info: null };
+  const wk = prepare(image, 256);
+  const info = detectKind(wk.rgb, wk.w, wk.h);
+  return { kind: info.kind, info };
+}
+
+/** How many pixels on the long side the working copy has. */
+function workSide(image, o) {
+  // A machine places a stitch to 0.1 mm: a grid finer than 0.06 mm a pixel only costs time (widening a thin stroke grows with the
+  // cube of the pixels a millimetre), so a small design is traced on a coarser copy of a big picture.
+  const longMm = Math.max(image.width, image.height) * o.mmPerPx;
+  const grid = o.kind === "photo" ? o.workMm : 0.06; // a photograph needs no finer grid than `workMm`
+  return Math.max(240, Math.min(o.maxSide, Math.round(longMm / grid)));
 }
 
 /**
@@ -121,7 +157,9 @@ function analyse(image, o, maxSide) {
   stages.prepare = now() - t;
   t = now();
   const dn = denoise(wk.rgb, w, h);
-  const rgbD = dn.rgb;
+  const kind = o.kind || "logo";
+  // a photograph is first painted in flat patches that keep their edges, so its colours can be found and its regions are calm
+  const rgbD = kind === "photo" && o.smoothR >= 1 ? kuwahara(dn.rgb, w, h, o.smoothR) : dn.rgb;
   stages.denoise = now() - t;
   t = now();
   const scale = Math.sqrt(wk.sx * wk.sy);
@@ -142,7 +180,10 @@ function analyse(image, o, maxSide) {
   const pal = buildPalette(rgbD, w, h, {
     maxColors: maxFg,
     seed: o.seed,
-    mergeDE: 11,
+    mergeDE: o.mergeDE || (kind === "photo" ? 6 : kind === "art" ? 8 : 11),
+    allPixels: kind === "photo",
+    weightPower: kind === "photo" ? 0.5 : 1,
+    crumbs: kind === "logo" ? "loose" : "strict",
     minFeaturePx,
     noiseTol: dn.tol,
     excludeLab,
@@ -150,12 +191,20 @@ function analyse(image, o, maxSide) {
     skip,
   });
   let Kfg = pal.n;
-  let fgRgb = Array.from(pal.rgb);
+  let fgRgb = Array.from(pal.rgb).slice(0, Kfg * 3);
+  // ink that is only thin lines has no flat pixel, so the palette misses it: look for colours nothing explains (not in photographs)
+  if (kind !== "photo" && Kfg < maxFg) {
+    const have = bgColor ? [...fgRgb, bgColor[0], bgColor[1], bgColor[2]] : fgRgb;
+    const extra = missingColours(rgbD, w, h, have, have.length / 3, { skip, most: Math.min(2, maxFg - Kfg), minPixels: Math.max(20, Math.round(N * 0.0004)) });
+    for (const c of extra) { fgRgb.push(c[0], c[1], c[2]); Kfg++; }
+  }
+  const fgLab = new Float64Array(Math.max(1, Kfg) * 3);
+  for (let k = 0; k < Kfg; k++) rgbFloatToLab(fgRgb[k * 3], fgRgb[k * 3 + 1], fgRgb[k * 3 + 2], fgLab, k * 3);
   // colours that are only the soft edge between two others (anti-aliasing, JPEG halos) are not colours of their own
   let preLabels = null;
   if (Kfg >= 3) {
-    const pre = classifyPixels(rgbD, N, pal.lab, Kfg);
-    const drop = transitionalEntries(pre, w, h, pal.rgb, Kfg);
+    const pre = classifyPixels(rgbD, N, fgLab, Kfg);
+    const drop = transitionalEntries(pre, w, h, Float64Array.from(fgRgb), Kfg);
     let dropped = 0;
     for (let k = 0; k < Kfg; k++) dropped += drop[k];
     if (dropped) {
@@ -200,13 +249,31 @@ function analyse(image, o, maxSide) {
   stages.classify = now() - t;
   t = now();
   if (hasAlpha) applyAlpha(labels, lab2, soft, cov, w, h, cut, transIndex);
-  const cleaned = cleanLabels(labels, w, h, { rgb: rgbD, palLab, K, soft, lab2 }, minAreaPx, minFeaturePx);
+  // strokes (lettering, hairlines) of the minor colours are kept and widened to a sewable width instead of being cleaned away
+  let strokes = null;
+  if (o.thicken) {
+    const early = decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex, rgbD);
+    const share = new Float64Array(256);
+    for (let i = 0; i < N; i++) share[labels[i]]++;
+    const accent = new Uint8Array(256);
+    for (let k = 0; k < K; k++) accent[k] = k === transIndex || early.indices.includes(k) || share[k] / N >= 0.25 ? 0 : 1;
+    // Thin lettering of any other colour is kept too (a logo whose lettering is in its main colour, or white lettering on a
+    // dark badge); in a photograph only the background's colours, or thin crumbs of every colour would be kept.
+    const solo = new Uint8Array(256);
+    for (let k = 0; k < K; k++) solo[k] = k === transIndex ? 0 : o.kind !== "photo" || early.indices.includes(k) ? 1 : 0;
+    const targetMm = o.thickenMm || Math.max(o.minFeatureMm, 0.9);
+    // In a photograph or artwork the patches of colour are blobs: only long thin pieces (twigs, outlines, hairlines) are strokes.
+    const photo = o.kind === "photo";
+    const strokeMm = photo ? Math.max(o.strokeMm, 3) : o.strokeMm;
+    strokes = { accent, solo, minExtent: Math.max(3, (strokeMm / o.mmPerPx) / scale), minAspect: photo ? 5 : o.kind === "art" ? 2.5 : 0, targetPx: targetMm / o.mmPerPx / scale };
+  }
+  const cleaned = cleanLabels(labels, w, h, { rgb: rgbD, palLab, K, soft, lab2 }, minAreaPx, minFeaturePx, strokes);
   stages.clean = now() - t;
   t = now();
 
   // which entries are the background colours
   const bg = new Uint8Array(256);
-  const bgInfo = decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex);
+  const bgInfo = decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex, rgbD);
   for (const k of bgInfo.indices) bg[k] = 1;
   // "background" is only the part connected to the picture edge (or to see-through pixels): pixels of a background
   // colour that are enclosed by other colours (white letters inside a navy disc on a white page) become a new palette
@@ -360,7 +427,7 @@ function applyAlpha(labels, lab2, soft, cov, w, h, cut, transIndex) {
 /**
  * Decide which palette entries are the background. Returns { type: "transparent" | "color" | "none", indices, share }.
  */
-function decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex) {
+function decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex, rgb = null) {
   const indices = [];
   const near = (a, tol) => {
     const out = [];
@@ -396,6 +463,24 @@ function decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgCo
   let share = 0;
   for (const k of group) share += counts[k];
   share /= ring;
+  // artwork and photographs: a sky or a studio gradient is part of the picture, only an even backdrop is a background
+  if (rgb && o.kind && o.kind !== "logo" && share >= 0.55 && group.length < K) {
+    const inGroup = new Uint8Array(K);
+    for (const k of group) inGroup[k] = 1;
+    const lab = new Float64Array(3);
+    let n = 0, s0 = 0, s1 = 0, s2 = 0, q0 = 0, q1 = 0, q2 = 0;
+    const visit = (i) => {
+      if (!inGroup[labels[i]]) return;
+      rgbToLab(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], lab, 0);
+      n++; s0 += lab[0]; s1 += lab[1]; s2 += lab[2]; q0 += lab[0] * lab[0]; q1 += lab[1] * lab[1]; q2 += lab[2] * lab[2];
+    };
+    for (let x = 0; x < w; x++) { visit(x); if (h > 1) visit((h - 1) * w + x); }
+    for (let y = 1; y < h - 1; y++) { visit(y * w); if (w > 1) visit(y * w + w - 1); }
+    if (n > 0) {
+      const spread = Math.sqrt(Math.max(0, q0 / n - (s0 / n) ** 2) + Math.max(0, q1 / n - (s1 / n) ** 2) + Math.max(0, q2 / n - (s2 / n) ** 2));
+      if (spread > o.bgSpread) return { type: "none", indices, share, spread };
+    }
+  }
   if (share >= 0.55 && group.length < K) {
     for (const k of group) indices.push(k);
     return { type: "color", indices, share };
@@ -432,7 +517,8 @@ function publicPalette(a, srcPixels) {
  */
 export function quantize(image, opts = {}) {
   checkImage(image);
-  const o = normalizeOptions(opts);
+  const o0 = normalizeOptions(opts);
+  const o = { ...o0, kind: resolveKind(image, o0).kind };
   const side = Math.round(num(opts.previewSide, 480, 32, o.maxSide));
   const a = analyse(image, o, side);
   return {
@@ -544,8 +630,10 @@ function repairCrossings(loops, chains, pts) {
 export function traceImage(image, opts = {}) {
   const tStart = now();
   checkImage(image);
-  const o = normalizeOptions(opts);
-  const a = analyse(image, o, o.maxSide);
+  const o0 = normalizeOptions(opts);
+  const { kind, info } = resolveKind(image, o0);
+  const o = { ...o0, kind };
+  const a = analyse(image, o, workSide(image, o));
   const { w, h, labels, lab2, soft, K } = a;
   let t = now();
 
@@ -700,6 +788,11 @@ export function traceImage(image, opts = {}) {
       repairs,
       removedSpeckPixels: a.cleaned.specks,
       removedSliverPixels: a.cleaned.slivers,
+      widenedPixels: a.cleaned.widened || 0,
+      strokeCount: a.cleaned.strokeCount || 0,
+      strokeMedianMm: (a.cleaned.strokeMedian || 0) * a.scale * o.mmPerPx,
+      kind,
+      kindInfo: info,
       stages: a.stages,
     },
   };

@@ -7,6 +7,7 @@
  * Exit code 0 when every check passes, 1 otherwise.
  */
 import { traceImage, renderTrace, quantize, detectBackground } from "./index.js";
+import { contentBox, fillScale } from "../../digitizer/convert.js";
 
 // ---------------------------------------------------------------- tiny drawing kit (exact anti-aliasing)
 
@@ -393,8 +394,101 @@ log("7. options, previews, odd inputs");
   check("pictures over 1600 px are traced smaller but coordinates stay in the original grid", Math.abs(bb[0] - 600.2) < 1.5 && Math.abs(bb[2] - 1801) < 1.5 && Math.abs(bb[3] - 901) < 1.5, bb.map((v) => v.toFixed(1)).join(","));
 }
 
+log("8. thin lines and lettering are kept, widened, and keep their colour; kinds of picture; fitting to the hoop");
+{
+  // what the page asks for (convert.js traceOptions): 0.2 mm a pixel, details down to 0.8 mm
+  const page = { mode: "logo", thicken: true, mmPerPx: 0.2, minFeatureMm: 0.8, minAreaMm2: 1.2, simplifyMm: 0.05 };
+
+  // two lines 0.6 mm wide (3 px) on white: thinner than a needle can follow
+  for (const [name, ink] of [["black", BLACK], ["red", RED]]) {
+    const img = makeImage(200, 200);
+    paint(img, [rect(40.3, 99.4, 120, 3)], ink);
+    paint(img, [rect(98.6, 40.2, 3, 120)], ink);
+    const res = traceImage(img, page);
+    const sew = res.palette.find((p) => !p.background && !p.enclosedBackground);
+    check(`thin ${name} lines are kept as shapes`, res.shapes.length >= 1 && res.stats.widenedPixels > 0, `${res.shapes.length} shapes, ${res.stats.widenedPixels} px widened`);
+    check(`thin ${name} lines are widened (more area than the source ink: 720 px^2)`, res.shapes.reduce((s, q) => s + q.area, 0) > 720 * 1.25, `${res.shapes.reduce((s, q) => s + q.area, 0).toFixed(0)} px^2`);
+    const far = sew ? Math.abs(sew.r - ink[0]) + Math.abs(sew.g - ink[1]) + Math.abs(sew.b - ink[2]) : 999;
+    check(`thin ${name} lines keep their own colour, not a washed-out mix with the page`, far < 100, sew ? `${sew.hex} for [${ink}]` : "no colour");
+  }
+
+  // thin white lettering inside a dark disc (a bar of white 3 px wide each): the letters are not filled in
+  {
+    const img = makeImage(240, 240);
+    paint(img, [circle(120.2, 120.4, 100, 720)], NAVY);
+    for (let i = 0; i < 5; i++) paint(img, [rect(78.3 + i * 20, 100.2, 3, 40)], WHITE);
+    const res = traceImage(img, page);
+    const bars = res.shapes.filter((s) => res.palette[s.color].enclosedBackground);
+    check("five thin white bars inside a navy disc all come back as shapes", bars.length >= 5, `${bars.length}`);
+  }
+
+  // the shapes made from widened strokes are as clean as any others (no crossing contour, holes inside, winding right)
+  {
+    const img = makeImage(240, 160);
+    paint(img, [rect(30.3, 40.2, 180, 3)], BLACK);
+    paint(img, [rect(100.6, 20.4, 3, 120)], BLACK);
+    paint(img, [circle(60.2, 100.4, 22, 360), circle(60.2, 100.4, 20, 360)], RED);
+    structure("thin lines and a thin ring, widened", traceImage(img, page));
+  }
+
+  // a photograph's patches of colour are not strokes: turning the widening on does not turn them into slivers
+  {
+    const photo = makeImage(420, 300);
+    let seed = 9;
+    const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    for (let y = 0; y < 300; y++) for (let x = 0; x < 420; x++) {
+      const o = (y * 420 + x) * 4;
+      const v = Math.sin(x * 0.045 + y * 0.03) * 55 + Math.sin(x * 0.09 - y * 0.05) * 30 + (rnd() - 0.5) * 10;
+      photo.data[o] = 128 + v; photo.data[o + 1] = 120 + v * 0.7; photo.data[o + 2] = 110 - v * 0.5;
+    }
+    const opts = { mode: "photo", mmPerPx: 0.2, minFeatureMm: 0.8, minAreaMm2: 1.2, simplifyMm: 0.05 };
+    const plain = traceImage(photo, { ...opts, thicken: false }).shapes.length;
+    const widened = traceImage(photo, { ...opts, thicken: true });
+    check("widening strokes adds almost no shapes to a photograph", widened.shapes.length <= plain * 1.25 + 3, `${plain} -> ${widened.shapes.length}`);
+    check("and none of them is a sliver (smallest shape at least 3 px^2 ... 0.12 mm^2)", Math.min(...widened.shapes.map((q) => q.area)) >= 3, `${Math.min(...widened.shapes.map((q) => q.area)).toFixed(1)} px^2`);
+  }
+
+  // kinds of picture, found by looking
+  {
+    // ten flat colours (as many as a logo can have) with JPEG-like noise: still a logo, not "a photograph"
+    const ten = makeImage(300, 200);
+    const cols = [[200, 30, 40], [250, 140, 20], [250, 220, 40], [40, 160, 60], [20, 190, 190], [30, 90, 200], [120, 50, 160], [230, 90, 160], [20, 20, 20], [120, 120, 120]];
+    cols.forEach((c, i) => paint(ten, [rect(10 + (i % 5) * 56, 15 + Math.floor(i / 5) * 90, 52, 80)], c));
+    addNoise(ten, 2, 1.5, 21);
+    check("ten flat colours with noise are a logo", traceImage(ten, { mode: "auto" }).stats.kind === "logo", traceImage(ten, { mode: "auto" }).stats.kind);
+    const flat = makeImage(300, 200);
+    paint(flat, [circle(100.4, 100.2, 70, 360)], NAVY);
+    paint(flat, [rect(180.2, 50.3, 90, 100)], RED);
+    check('a clean flat-colour logo is a "logo"', traceImage(flat, { mode: "auto" }).stats.kind === "logo");
+    addNoise(flat, 3, 2, 11);
+    check('the same logo with JPEG-like noise is still not taken for a photograph', traceImage(flat, { mode: "auto" }).stats.kind !== "photo");
+    const grad = makeImage(300, 300);
+    for (let y = 0; y < 300; y++) for (let x = 0; x < 300; x++) {
+      const o = (y * 300 + x) * 4;
+      grad.data[o] = 20 + (x / 300) * 220; grad.data[o + 1] = 40 + (y / 300) * 160; grad.data[o + 2] = 200 - ((x + y) / 600) * 150;
+    }
+    check('a smooth gradient is a "photo"', traceImage(grad, { mode: "auto" }).stats.kind === "photo");
+  }
+
+  // a picture with margins is made bigger so that what is stitched fills the hoop (the page does it once, when it is placed)
+  {
+    const hoop = { w: 100, h: 100 };
+    check("a small box in a big hoop is scaled up to 92 % of it", Math.abs(fillScale({ x0: -20, y0: -5, x1: 20, y1: 5 }, hoop) - 2.3) < 0.001);
+    check("a box that already fills the hoop is left alone", fillScale({ x0: -45, y0: -30, x1: 45, y1: 30 }, hoop) === 1);
+    check("nothing to stitch changes nothing", fillScale(null, hoop) === 1);
+    check("a tiny box is not scaled up more than 2.5 times", fillScale({ x0: -1, y0: -1, x1: 1, y1: 1 }, hoop) === 2.5);
+    const img = makeImage(200, 100);
+    paint(img, [rect(50.2, 30.3, 100, 40)], RED);
+    const res = traceImage(img, page);
+    const box = contentBox(res, { originX: -10, originY: -5, mmPerPx: 0.1, fabric: "#f4f1ea" });
+    check("contentBox is the stitched part in hoop millimetres (not the page round it)", box && Math.abs(box.x0 - (-10 + 50.2 * 0.1)) < 0.2 && Math.abs(box.x1 - (-10 + 150.2 * 0.1)) < 0.2, JSON.stringify(box));
+    const hidden = contentBox(res, { originX: 0, originY: 0, mmPerPx: 0.1, fabric: "#c82228" });
+    check("a colour like the cloth is not part of it", hidden === null, JSON.stringify(hidden));
+  }
+}
+
 if (process.argv.includes("--perf")) {
-  log("8. speed");
+  log("9. speed");
   const logo = (size) => {
     const k = size / 1500;
     const img = makeImage(size, size);

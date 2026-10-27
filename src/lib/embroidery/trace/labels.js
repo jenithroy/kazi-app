@@ -12,6 +12,8 @@ import { rgbToLab } from "./color.js";
 
 export const OUT = 255;
 const UNSET = 254;
+/** The `soft` value of a pixel painted by thickenKept: never produced by the soft-edge step (its largest is 251), and not 255 (pure). */
+export const PAINTED = 254;
 
 /**
  * Connected pieces of equal label (4-neighbour connectivity: pixels that only touch at a corner are separate pieces).
@@ -139,16 +141,48 @@ export function reassign(labels, flag, soft, lab2, rgb, w, h, palLab, K) {
   return todo;
 }
 
-/** Flag every connected piece smaller than `minArea` pixels. Returns the number of pixels flagged. */
-export function flagSpecks(labels, w, h, minArea, flag) {
+/**
+ * Flag every connected piece smaller than `minArea` pixels. Returns the number of pixels flagged.
+ * With `keep`, a small piece of an accent colour that is long (a stroke of lettering, a hairline) is not flagged but
+ * recorded in keep.mask, to be made wide enough later (see thickenKept).
+ */
+export function flagSpecks(labels, w, h, minArea, flag, keep = null) {
   const cc = connectedComponents(labels, w, h);
   const small = new Uint8Array(cc.count);
   let any = 0;
   for (let c = 0; c < cc.count; c++) if (cc.area[c] < minArea) { small[c] = 1; any++; }
   if (!any) return 0;
+  if (keep) {
+    const n0 = w * h;
+    const ext = new Int32Array(cc.count * 4);
+    for (let c = 0; c < cc.count; c++) { ext[c * 4] = 1 << 30; ext[c * 4 + 1] = -1; ext[c * 4 + 2] = 1 << 30; ext[c * 4 + 3] = -1; }
+    for (let i = 0; i < n0; i++) {
+      const c = cc.comp[i];
+      if (!small[c]) continue;
+      const x = i % w;
+      const y = (i - x) / w;
+      if (x < ext[c * 4]) ext[c * 4] = x;
+      if (x > ext[c * 4 + 1]) ext[c * 4 + 1] = x;
+      if (y < ext[c * 4 + 2]) ext[c * 4 + 2] = y;
+      if (y > ext[c * 4 + 3]) ext[c * 4 + 3] = y;
+    }
+    let kept = 0;
+    for (let c = 0; c < cc.count; c++) {
+      if (!small[c]) continue;
+      const v = cc.label[c];
+      // an accent colour always; any other colour when the piece lies inside the picture (lettering inside a badge)
+      if (!keep.accent[v] && !(keep.solo && keep.solo[v] && ext[c * 4] > 0 && ext[c * 4 + 1] < w - 1 && ext[c * 4 + 2] > 0 && ext[c * 4 + 3] < h - 1)) continue;
+      const len = Math.max(ext[c * 4 + 1] - ext[c * 4] + 1, ext[c * 4 + 3] - ext[c * 4 + 2] + 1);
+      if (len >= keep.minExtent && (!keep.minAspect || (len * len) / cc.area[c] >= keep.minAspect)) { small[c] = 2; kept++; }
+    }
+    if (kept) {
+      for (let i = 0; i < n0; i++) if (small[cc.comp[i]] === 2) { keep.mask[i] = 1; keep.lab[i] = labels[i]; }
+      for (let c = 0; c < cc.count; c++) if (small[c] === 2) small[c] = 0;
+    }
+  }
   let flagged = 0;
   const n = w * h;
-  for (let i = 0; i < n; i++) if (small[cc.comp[i]]) { flag[i] = 1; flagged++; }
+  for (let i = 0; i < n; i++) if (small[cc.comp[i]] === 1) { flag[i] = 1; flagged++; }
   // never flag everything: if the whole picture is one tiny piece, leave it
   if (flagged === n) { flag.fill(0); return 0; }
   return flagged;
@@ -162,7 +196,7 @@ export function flagSpecks(labels, w, h, minArea, flag) {
  * The picture edge is not an edge: parts reaching it are measured as if they went on.
  * Returns the number of pixels flagged.
  */
-export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5) {
+export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5, keep = null) {
   if (r < 0.75) return 0;
   const R = 2 * Math.ceil(r) + 2;
   const pw = w + 2 * R;
@@ -277,6 +311,27 @@ export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5) {
     }
     for (let g = 0; g < nIface; g++) mark[iface[g]] = 0;
     if (places >= 2 || meet === 0 || cnt / meet > tipRatio * r) {
+      // a long thin piece of an accent colour is a stroke (a line of lettering, a hairline): keep it, to be widened later.
+      // So is a whole letter of any other colour when it is thin all through and lies inside the picture (white lettering on a
+      // dark badge: the white is the cloth, and thin letters of it would otherwise be filled in).
+      if (keep && (keep.accent[v] || (keep.solo && keep.solo[v] && meet === 0))) {
+        let x0 = w, x1 = -1, y0 = h, y1 = -1;
+        for (let k = 0; k < cnt; k++) {
+          const i = list[k];
+          const x = i % w;
+          const y = (i - x) / w;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+        const inside = x0 > 0 && y0 > 0 && x1 < w - 1 && y1 < h - 1;
+        const ext = Math.max(x1 - x0 + 1, y1 - y0 + 1);
+        if ((keep.accent[v] || inside) && ext >= keep.minExtent && (!keep.minAspect || (ext * ext) / cnt >= keep.minAspect)) {
+          for (let k = 0; k < cnt; k++) { keep.mask[list[k]] = 1; keep.lab[list[k]] = v; }
+          continue;
+        }
+      }
       for (let k = 0; k < cnt; k++) flag[list[k]] = 1;
       flagged += cnt;
     }
@@ -288,24 +343,146 @@ export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5) {
 /**
  * Clean a label map: specks, then slivers, then specks again (removing slivers can leave crumbs).
  * `ctx` = { rgb, palLab, K, soft, lab2 }. `labels`, `soft`, `lab2` are changed in place.
- * Returns { specks, slivers } pixel counts.
+ * Returns { specks, slivers } pixel counts, `widened` (pixels painted to thicken strokes), and `strokeCount` / `strokeMedian`:
+ * how many thin strokes were kept and the median length (px) of them.
  */
-export function cleanLabels(labels, w, h, ctx, minArea, minFeature) {
+export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = null) {
   const n = w * h;
   const flag = new Uint8Array(n);
   let specks = 0;
   let slivers = 0;
   const give = () => reassign(labels, flag, ctx.soft, ctx.lab2, ctx.rgb, w, h, ctx.palLab, ctx.K);
+  // `strokes` = { accent: Uint8Array(256), minExtent: px } asks for long thin pieces of the accent colours to be kept and widened
+  // `strokes.solo` (optional) names the colours whose thin pieces are kept too when the piece is a whole letter inside the picture
+  // `strokes.minAspect` (optional): a kept piece must be this many times longer than it is wide (extent^2 / area): a photograph's
+  // patches of colour are blobs, a stroke is long and thin
+  const keep = strokes ? { accent: strokes.accent, solo: strokes.solo || null, minExtent: strokes.minExtent, minAspect: strokes.minAspect || 0, mask: new Uint8Array(n), lab: new Uint8Array(n) } : null;
   // specks first, then slivers; removing slivers can leave crumbs, so go round again until a round finds nothing
   for (let round = 0; round < 4; round++) {
     flag.fill(0);
-    const sp = flagSpecks(labels, w, h, minArea, flag);
+    const sp = flagSpecks(labels, w, h, minArea, flag, keep);
     if (sp) { give(); specks += sp; }
     flag.fill(0);
-    const sl = flagSlivers(labels, w, h, minFeature / 2, flag);
+    const sl = flagSlivers(labels, w, h, minFeature / 2, flag, 1.5, keep);
     if (sl) { give(); slivers += sl; }
     if (!sp && !sl) break;
     if (!sl) break; // only specks went: nothing new can have been made
   }
-  return { specks, slivers };
+  let widened = 0;
+  let strokeCount = 0;
+  let strokeMedian = 0;
+  if (keep) {
+    // a kept pixel that a later round gave to another colour is no longer part of a stroke
+    for (let i = 0; i < n; i++) if (keep.mask[i] && labels[i] !== keep.lab[i]) keep.mask[i] = 0;
+    // how long (px, the longer side of its box) each kept stroke is: the size of the smallest lettering the picture holds
+    const aux = new Uint8Array(n);
+    for (let i = 0; i < n; i++) aux[i] = keep.mask[i] ? labels[i] : OUT;
+    const cc = connectedComponents(aux, w, h);
+    const box = new Int32Array(cc.count * 4);
+    for (let c = 0; c < cc.count; c++) { box[c * 4] = 1 << 30; box[c * 4 + 1] = -1; box[c * 4 + 2] = 1 << 30; box[c * 4 + 3] = -1; }
+    for (let i = 0; i < n; i++) {
+      if (!keep.mask[i]) continue;
+      const c = cc.comp[i];
+      const x = i % w;
+      const y = (i - x) / w;
+      if (x < box[c * 4]) box[c * 4] = x;
+      if (x > box[c * 4 + 1]) box[c * 4 + 1] = x;
+      if (y < box[c * 4 + 2]) box[c * 4 + 2] = y;
+      if (y > box[c * 4 + 3]) box[c * 4 + 3] = y;
+    }
+    const lens = [];
+    for (let c = 0; c < cc.count; c++) if (cc.label[c] !== OUT && box[c * 4 + 1] >= 0) lens.push(Math.max(box[c * 4 + 1] - box[c * 4] + 1, box[c * 4 + 3] - box[c * 4 + 2] + 1));
+    lens.sort((a, b) => a - b);
+    strokeCount = lens.length;
+    strokeMedian = lens.length ? lens[lens.length >> 1] : 0;
+    widened = thickenKept(labels, ctx.soft, ctx.lab2, keep.mask, w, h, (strokes.targetPx || minFeature) / 2);
+    if (widened) {
+      // painting leaves a one- or two-pixel sliver here and there where a stroke grew up against another colour: take those away
+      flag.fill(0);
+      if (flagSlivers(labels, w, h, 1, flag, 1.5, null)) give();
+    }
+  }
+  return { specks, slivers, widened, strokeCount, strokeMedian };
+}
+
+/**
+ * Make the kept strokes as wide as the smallest sewable detail (2 * r pixels). Every kept stroke is a thin piece, so its
+ * middle line is where its distance to the stroke's edge is greatest (locally: the arms of an E have their own lines); a
+ * disc of radius r is painted on every pixel of that middle line, which leaves every part of the stroke at least 2 * r wide
+ * and a stroke that was wide enough alone.
+ * Painted pixels become pure pixels of the stroke's colour. Returns the number of pixels painted.
+ */
+export function thickenKept(labels, soft, lab2, mask, w, h, r) {
+  const n = w * h;
+  let any = false;
+  for (let i = 0; i < n; i++) if (mask[i]) { any = true; break; }
+  if (!any) return 0;
+  // chamfer distance (3 per step, 4 on a diagonal) of every kept pixel to the nearest pixel that is not part of its stroke
+  const same = (i, j) => mask[j] && labels[j] === labels[i];
+  const d = new Int32Array(n);
+  for (let i = 0; i < n; i++) d[i] = mask[i] ? 1 << 20 : 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!mask[i]) continue;
+      let v = d[i];
+      if (x > 0) v = Math.min(v, same(i, i - 1) ? d[i - 1] + 3 : 3);
+      else v = Math.min(v, 3);
+      if (y > 0) v = Math.min(v, same(i, i - w) ? d[i - w] + 3 : 3);
+      else v = Math.min(v, 3);
+      if (x > 0 && y > 0) v = Math.min(v, same(i, i - w - 1) ? d[i - w - 1] + 4 : 4);
+      if (x < w - 1 && y > 0) v = Math.min(v, same(i, i - w + 1) ? d[i - w + 1] + 4 : 4);
+      d[i] = v;
+    }
+  }
+  for (let y = h - 1; y >= 0; y--) {
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      if (!mask[i]) continue;
+      let v = d[i];
+      if (x < w - 1) v = Math.min(v, same(i, i + 1) ? d[i + 1] + 3 : 3);
+      else v = Math.min(v, 3);
+      if (y < h - 1) v = Math.min(v, same(i, i + w) ? d[i + w] + 3 : 3);
+      else v = Math.min(v, 3);
+      if (x < w - 1 && y < h - 1) v = Math.min(v, same(i, i + w + 1) ? d[i + w + 1] + 4 : 4);
+      if (x > 0 && y < h - 1) v = Math.min(v, same(i, i + w - 1) ? d[i + w - 1] + 4 : 4);
+      d[i] = v;
+    }
+  }
+  const rr = Math.max(1, Math.ceil(r - 0.5));
+  const offs = [];
+  for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) if (dx * dx + dy * dy <= rr * rr + 0.5) offs.push([dx, dy]);
+  let painted = 0;
+  for (let i = 0; i < n; i++) {
+    if (!mask[i]) continue;
+    const x = i % w;
+    const y = (i - x) / w;
+    // on the middle line: no neighbour of the same stroke is deeper (a letter's arms are thinner than its stem, each has its own line)
+    let ridge = true;
+    for (let dy = -1; dy <= 1 && ridge; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const xx = x + dx;
+        const yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        const j = yy * w + xx;
+        if (same(i, j) && d[j] > d[i]) { ridge = false; break; }
+      }
+    }
+    if (!ridge) continue;
+    const v = labels[i];
+    for (let k = 0; k < offs.length; k++) {
+      const xx = x + offs[k][0];
+      const yy = y + offs[k][1];
+      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+      const j = yy * w + xx;
+      if (labels[j] === v) continue;
+      if (mask[j]) continue; // another stroke's own pixels stay as they are
+      labels[j] = v;
+      soft[j] = PAINTED; // not 255: the picture's own pixel here is NOT this colour, so it must not be counted when the colour is measured
+      lab2[j] = 255;
+      painted++;
+    }
+  }
+  return painted;
 }
