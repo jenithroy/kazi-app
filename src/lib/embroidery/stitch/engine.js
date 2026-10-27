@@ -26,7 +26,11 @@ export const ENGINE_DEFAULTS = {
   ...PLAN_DEFAULTS,
   fabric: DEFAULT_FABRIC,
   optimizeColors: true, // reorder objects to save colour changes where nothing overlaps
-  maxSatinWidth: 7, // full width, mm: a wider stroke is filled
+  maxSatinWidth: 7, // full width, mm: a wider stroke is filled (when satin is asked for by hand)
+  autoSatinWidth: 5, // for "auto": a stroke wider than this is filled (a satin stitch longer than about 5 mm sags, and wide curves fan out)
+  autoSatinRatio: 3.5, // for "auto": the stroke must be this many times longer than it is wide, so a blob is never a fan of satin
+  autoSatinSteady: 2.2, // for "auto": its widest part may be this many times its average width
+  satinGap: 1.3, // mm: the stitches of one edge of a satin column are never further apart than this (a bend fans them out, and cloth shows)
   minIsland: 0.6, // mm2: a smaller piece is dropped (it cannot be sewn)
   satinCoverage: 0.85, // a satin attempt must cover this much of its island (thread drawn 1.5 x the spacing wide) ...
   satinSpill: 0.15, // ... and put no more than this share of the island's area outside it
@@ -168,6 +172,18 @@ function strokeSettings(stroke) {
   };
 }
 
+/** The widest gap, in mm, between neighbouring stitches along one edge of a satin column (needle points two apart in the list). */
+function satinEdgeGap(paths) {
+  let worst = 0;
+  for (const p of paths) {
+    for (let k = 0; k + 2 < p.length; k++) {
+      const d = Math.hypot(p[k][0] - p[k + 2][0], p[k][1] - p[k + 2][1]);
+      if (d > worst) worst = d;
+    }
+  }
+  return worst;
+}
+
 /** About how many stitches the items come to, so a design that is far too big is turned down before the engine works on it. */
 function estimateStitches(items, S) {
   let n = 0;
@@ -184,6 +200,46 @@ function estimateStitches(items, S) {
     }
   }
   return n;
+}
+
+/**
+ * The order to sew separate pieces (the letters of a word, the islands of a shape) in: from the piece nearest the needle, or the
+ * top left one when there is no needle yet, always on to a near one, then untangled (2-opt) so a long hop is not left for the end.
+ * Works on the pieces' centres. Returns the pieces in sewing order.
+ */
+function planIslands(pieces, from) {
+  const n = pieces.length;
+  if (n < 2) return pieces;
+  const c = pieces.map((t) => { const b = bboxOf([t.is.outer]); return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; });
+  const dist = (i, j) => Math.hypot(c[i][0] - c[j][0], c[i][1] - c[j][1]);
+  let first = 0;
+  if (from) { let bd = Infinity; for (let i = 0; i < n; i++) { const d = Math.hypot(c[i][0] - from[0], c[i][1] - from[1]); if (d < bd) { bd = d; first = i; } } }
+  else { let bk = Infinity; for (let i = 0; i < n; i++) { const k = c[i][0] + 2 * c[i][1]; if (k < bk) { bk = k; first = i; } } }
+  const path = [first];
+  const left = new Set(Array.from({ length: n }, (_, i) => i));
+  left.delete(first);
+  while (left.size) {
+    const last = path[path.length - 1];
+    let best = -1, bd = Infinity;
+    for (const j of left) { const d = dist(last, j); if (d < bd) { bd = d; best = j; } }
+    path.push(best);
+    left.delete(best);
+  }
+  if (n >= 4 && n <= 400) {
+    // the first piece stays first; the path is open at its far end
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (let i = 1; i < n - 1; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const a = path[i - 1], b = path[i], d = path[j], e = j + 1 < n ? path[j + 1] : -1;
+          const gain = dist(a, b) + (e >= 0 ? dist(d, e) : 0) - dist(a, d) - (e >= 0 ? dist(b, e) : 0);
+          if (gain > 1e-6) { for (let lo = i, hi = j; lo < hi; lo++, hi--) { const t = path[lo]; path[lo] = path[hi]; path[hi] = t; } changed = true; }
+        }
+      }
+      if (!changed) break;
+    }
+  }
+  return path.map((i) => pieces[i]);
 }
 
 /**
@@ -204,19 +260,8 @@ function objectRuns(item, needle, S, warn, info) {
     const fs = fillSettings(obj, S.fabric);
     const ss = satinSettings(obj, S.fabric, S);
     // Islands in the order the needle meets them.
-    const islands = islandsOf(rings).map((is) => ({ is, shape: [is.outer, ...is.holes] }));
-    const todo = islands.slice();
-    while (todo.length) {
-      let bi = 0;
-      if (at) {
-        let bd = Infinity;
-        todo.forEach((t, i) => {
-          const b = bboxOf([t.is.outer]);
-          const d = Math.hypot((b[0] + b[2]) / 2 - at[0], (b[1] + b[3]) / 2 - at[1]);
-          if (d < bd) { bd = d; bi = i; }
-        });
-      }
-      const [{ is, shape }] = todo.splice(bi, 1);
+    const islands = planIslands(islandsOf(rings).map((is) => ({ is, shape: [is.outer, ...is.holes] })), at);
+    for (const { is, shape } of islands) {
       const area = ringArea(is.outer) - is.holes.reduce((s, h) => s + ringArea(h), 0);
       if (area < S.minIsland) { warn.push({ kind: "tiny", objectId: obj.id, message: `A piece of "${obj.name || obj.id}" is too small to sew (${area.toFixed(2)} mm²) and was left out.` }); continue; }
 
@@ -225,18 +270,23 @@ function objectRuns(item, needle, S, warn, info) {
       let why = kind === "tatami" ? "chosen" : kind === "satin" ? "" : "wide area";
       if (kind === "auto" || kind === "satin") {
         const meanW = (2 * area) / Math.max(1e-6, shape.reduce((s, r) => s + ringPerimeter(r), 0));
-        const tryable = kind === "satin" || meanW <= S.maxSatinWidth * 0.6;
+        const limit = kind === "auto" ? S.autoSatinWidth : S.maxSatinWidth;
+        const tryable = kind === "satin" || meanW <= limit * 0.8;
         if (tryable) {
           satin = satinIsland(shape, { ...ss, start: at });
           why = satin ? "" : "no stroke to follow";
           if (satin) {
-            const strokeLike = satin.maxWidth <= S.maxSatinWidth && satin.length >= 2.2 * satin.meanWidth;
-            const cov = coverageOf(satin.tops, shape, { threadMm: ss.spacing * 1.5, res: 8 });
+            const strokeLike = satin.maxWidth <= limit && satin.length >= (kind === "auto" ? S.autoSatinRatio : 2.2) * satin.meanWidth
+              && (kind !== "auto" || satin.maxWidth <= S.autoSatinSteady * satin.meanWidth);
+            const cov = coverageOf(satin.tops, shape, { threadMm: Math.max(0.45, ss.spacing * 1.25), res: 8 });
+            const gap = satinEdgeGap(satin.tops);
             if (!strokeLike) why = `not stroke-like (${satin.maxWidth.toFixed(1)} mm wide, ${satin.length.toFixed(0)} mm long)`;
             else why = `satin check: covered ${cov.covered.toFixed(2)}, spill ${cov.spill.toFixed(2)}, dense ${cov.dense.toFixed(2)}, excess ${(satin.topLength / Math.max(1e-6, area / ss.spacing)).toFixed(2)}`;
             // The thread laid down against what the shape needs: well over means columns piled on each other or stitches flung sideways.
             const excess = satin.topLength / Math.max(1e-6, area / ss.spacing);
-            const good = cov.covered >= S.satinCoverage && cov.spill <= S.satinSpill && excess <= S.satinExcess && cov.dense <= S.satinDense;
+            // a narrow column needs more thread than its area says (the stitch is the column's width plus the pull allowance)
+            const allowed = S.satinExcess + 1.0 / Math.max(0.8, satin.meanWidth);
+            const good = cov.covered >= S.satinCoverage && cov.spill <= S.satinSpill && excess <= allowed && cov.dense <= S.satinDense && gap <= S.satinGap;
             if (kind === "auto" && !(strokeLike && good)) satin = null;
             else if (kind === "satin" && !good) {
               warn.push({ kind: "satin-gaps", objectId: obj.id, message: `Satin on "${obj.name || obj.id}" would leave gaps here (${Math.round(cov.covered * 100)}% covered); it was filled instead.` });
@@ -326,6 +376,14 @@ export function generate(design, options = {}) {
     if (runs.length) needle = plan.needle();
   }
   const pattern = plan.finish(design.name || "design");
+
+  // A traced picture has many specks too small to sew: say so once, not once for each.
+  const tiny = warn.filter((w) => w.kind === "tiny");
+  if (tiny.length > 1) {
+    const rest = warn.filter((w) => w.kind !== "tiny");
+    warn.length = 0;
+    warn.push(...rest, { kind: "tiny", objectId: tiny[0].objectId, count: tiny.length, message: `${tiny.length} specks smaller than ${S.minIsland} mm² were left out: a needle cannot sew them.` });
+  }
 
   // Checks a person would want to hear about.
   let longest = 0;

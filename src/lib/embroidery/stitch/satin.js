@@ -13,7 +13,7 @@ import { offsetRings } from "../geometry/clip.js";
 import { satinAlong, runAlong, dedupe } from "./path.js";
 
 export const SATIN_DEFAULTS = {
-  spacing: 0.4, // mm between stitches along the column
+  spacing: 0.3, // mm between stitches along the column (the holes on one edge are twice this apart: any more and cloth shows between them)
   pullComp: 0.25, // mm added to the width in total (half each side): thread pulls the stroke narrower
   maxWidth: 7, // full width above which a stroke is not stitched as satin
   minWidth: 0.5, // below this a stroke gets a running stitch instead
@@ -21,7 +21,7 @@ export const SATIN_DEFAULTS = {
   underlayLen: 2.5, // stitch length of the underlay
   inset: 0.35, // how far the edge underlay sits inside the edge
   throughDeg: 150, // two strokes meeting at a junction run through as one when they are at least this far from folding back
-  minStroke: 0.8, // parts of a shape thinner than this (mm) are left out of the column layout
+  minStroke: 0.6, // parts of a shape thinner than this (mm) are left out of the column layout (a widened hairline is about 0.8 to 1 mm)
 };
 
 /** Distance along a ray from (px, py) to the nearest edge of the rings, or `maxD` if there is none that near. */

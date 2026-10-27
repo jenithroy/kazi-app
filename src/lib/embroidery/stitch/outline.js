@@ -19,7 +19,7 @@ export const OUTLINE_DEFAULTS = {
   width: 1.5, // satin width, mm
   len: 2.5, // running stitch length, mm
   position: "center", // satin: "center" | "inside" | "outside"
-  spacing: 0.4,
+  spacing: 0.3, // satin: as for a satin fill, the holes on one edge are twice this apart
   pullComp: 0.25,
   underlay: true,
 };

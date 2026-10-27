@@ -153,6 +153,48 @@ check("odd shapes give finite numbers", !odds || odds.pattern.stitches.every((s)
   check("leather sews a fill with no underlay and a woven shirt with one", woven.pattern.stitches.length - leather.pattern.stitches.length > 100, `${leather.pattern.stitches.length} vs ${woven.pattern.stitches.length}`);
 }
 
+// 5c. What the lettering and picture work relies on: satin dense enough to look solid, a sensible order for separate
+// pieces, one warning (not dozens) for specks too small to sew, and a blob is filled, not fanned out as satin.
+{
+  const bar = rect(-12, -0.9, 24, 1.8);
+  const res = generate({ objects: [{ id: "bar", rings: [bar], fill: { type: "auto", color: "#112233" } }] }, {});
+  check("a 1.8 mm wide strip is sewn as satin", res.info.some((i) => i.kind === "satin"));
+  const is = islandsOf([bar])[0];
+  const sat = satinIsland([is.outer, ...is.holes], { spacing: 0.3 });
+  const tops = sat ? sat.tops[0] : [];
+  const gaps = [];
+  for (let k = 0; k + 2 < tops.length; k++) gaps.push(Math.hypot(tops[k][0] - tops[k + 2][0], tops[k][1] - tops[k + 2][1]));
+  gaps.sort((p, q) => p - q);
+  const median = gaps.length ? gaps[gaps.length >> 1] : 99;
+  check("satin rows 0.3 mm apart put the needle holes on one edge about 0.6 mm apart", median > 0.5 && median < 0.7, median.toFixed(2));
+  if (sat) {
+    const cov = coverageOf(sat.tops, [is.outer], { threadMm: 0.45 });
+    check("that satin covers the strip when the thread is 0.45 mm wide", cov.covered > 0.93, JSON.stringify(cov));
+  }
+
+  // Six squares given in a scrambled order along a line are sewn left to right (no long hop left for the end).
+  const xs = [30, -30, 0, 60, -60, 90];
+  const row = generate({ objects: [{ id: "row", rings: xs.map((x) => rect(x - 3, -3, 6, 6)), fill: { type: "tatami", color: "#445566" } }] }, {});
+  const seen = [];
+  for (const [x, , c] of row.pattern.stitches) {
+    if (c !== CMD.STITCH) continue;
+    const at = xs.find((cx) => Math.abs(x / 10 - cx) <= 3.6); // which square this stitch is in
+    if (at !== undefined && seen[seen.length - 1] !== at) seen.push(at);
+  }
+  const increasing = seen.every((v, i) => i === 0 || v > seen[i - 1]);
+  check("separate squares are sewn from the left, nearest next", increasing && seen.length === 6, seen.join(" "));
+
+  // Specks too small to sew come back as ONE warning with their number.
+  const dots = Array.from({ length: 12 }, (_, i) => rect(-20 + i * 3, 10, 0.5, 0.5));
+  const dotted = generate({ objects: [{ id: "d", rings: [rect(-10, -10, 20, 12), ...dots], fill: { type: "tatami", color: "#778899" } }] }, {});
+  const tiny = dotted.warnings.filter((w) => w.kind === "tiny");
+  check("twelve specks too small to sew give one warning", tiny.length === 1 && /12 specks/.test(tiny[0].message), tiny.map((w) => w.message).join(" | "));
+
+  // A blob is not a stroke: it is filled, never fanned out as satin.
+  const blob = generate({ objects: [{ id: "blob", rings: [circle(0, 0, 4.5, 48)], fill: { type: "auto", color: "#aa5500" } }] }, {});
+  check("a 9 mm blob is filled, not satin", blob.info.every((i) => i.kind !== "satin"));
+}
+
 // 6. Same input, same stitches.
 const b = generate(design, {});
 check("deterministic", JSON.stringify(a.pattern.stitches) === JSON.stringify(b.pattern.stitches));

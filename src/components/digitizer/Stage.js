@@ -21,7 +21,7 @@ import { CMD } from "../../lib/embroidery/pattern.js";
 const HANDLE_PX = 7; // half the size of a handle square
 const ROTATE_OFFSET_PX = 26; // how far above the box the round handle sits
 const SNAP_PX = 6;
-const THREAD_MM = 0.4;
+const THREAD_MM = 0.45; // sewn thread lies flat and spreads a little: about this wide
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const CURSORS = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
@@ -863,10 +863,12 @@ export class Stage {
     for (const [thread, path] of paths) {
       const t = colors[thread];
       lctx.lineWidth = lw;
-      lctx.strokeStyle = `rgb(${Math.round(t.r * 0.62)},${Math.round(t.g * 0.62)},${Math.round(t.b * 0.62)})`;
+      // A thread is a little darker at its edges and lighter along its middle; kept gentle so a colour reads as itself
+      // (white thread must not look grey, and a picture's brightness must survive the preview).
+      lctx.strokeStyle = `rgb(${Math.round(t.r * 0.8)},${Math.round(t.g * 0.8)},${Math.round(t.b * 0.8)})`;
       lctx.stroke(path);
-      lctx.lineWidth = lw * 0.55;
-      lctx.strokeStyle = `rgb(${Math.min(255, Math.round(t.r * 1.05 + 10))},${Math.min(255, Math.round(t.g * 1.05 + 10))},${Math.min(255, Math.round(t.b * 1.05 + 10))})`;
+      lctx.lineWidth = lw * 0.62;
+      lctx.strokeStyle = `rgb(${Math.min(255, Math.round(t.r * 1.1 + 8))},${Math.min(255, Math.round(t.g * 1.1 + 8))},${Math.min(255, Math.round(t.b * 1.1 + 8))})`;
       lctx.stroke(path);
     }
     if (any) {

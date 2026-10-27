@@ -4,13 +4,14 @@
  *
  *   tooShort    stitches shorter than 0.3 mm: wasted time, and the thread can cut the cloth there
  *   tooLong     stitches longer than 7 mm: they snag and loop
- *   piledUp     places where 7 or more needle holes fall inside half a millimetre: the cloth tears or the needle breaks
+ *   piledUp     places where about 15 or more needle holes fall inside a millimetre and a half square (the lock stitches that
+ *               start and end every thread are a dozen at most): the cloth tears or the needle breaks
  *               (each is { x, y, holes } in millimetres, worst first)
  *   jumpsLong   jumps over 25 mm: a lot of loose thread and time
  */
 import { CMD } from "../pattern.js";
 
-export function checkStitches(flat, { shortMm = 0.3, longMm = 7, pileHoles = 7, cell = 0.5, jumpMm = 25 } = {}) {
+export function checkStitches(flat, { shortMm = 0.3, longMm = 7, pileHoles = 9, cell = 0.5, jumpMm = 25 } = {}) {
   const n = flat.length / 3;
   let tooShort = 0, tooLong = 0, jumpsLong = 0;
   let px = null, py = null;
