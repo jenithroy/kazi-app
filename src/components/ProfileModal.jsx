@@ -15,7 +15,6 @@ import { SECTION_LABEL } from "../lib/roles";
 import { LOCATION, addedDay, daysLabel, fmtDate } from "../lib/profileFormat";
 import { seesOf } from "../lib/personAccess";
 import { ProfileTabs } from "./profile/ProfileBits";
-import { fmtDateBS } from "../utils/fiscalYear";
 import "./profile-theme.css";
 
 // The two tabs that need more code are fetched when somebody opens them.
@@ -346,7 +345,6 @@ export default function ProfileModal({ onClose }) {
   const since = added ? fmtDate(added) : null;
   const showJoined = row?.joinDate && row.joinDate !== added;
   const joined = showJoined ? fmtDate(row.joinDate) : null;
-  const joinedBS = showJoined ? fmtDateBS(row.joinDate) : null;
   const hours = row?.scheduleStart && row?.scheduleEnd ? `${row.scheduleStart} – ${row.scheduleEnd}` : null;
   const days = daysLabel(row?.scheduleWorkingDays);
 
@@ -540,7 +538,7 @@ export default function ProfileModal({ onClose }) {
                 {(joined || since) && (
                   <section className="kprof-sec">
                     <h4 className="kprof-h">Member since</h4>
-                    {joined && <Row k="Joined">{joined}{joinedBS && joinedBS !== "—" ? <> · {joinedBS}</> : null}</Row>}
+                    {joined && <Row k="Joined">{joined}</Row>}
                     {since && <Row k="Since">{since}</Row>}
                   </section>
                 )}

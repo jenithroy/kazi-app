@@ -23,7 +23,6 @@ import { usePersonDays, usePersonRow } from "../../hooks/usePersonProfile";
 import { isoFromDate } from "../../lib/attendance";
 import { dayLine, dayOf, seesOf } from "../../lib/personProfile";
 import { LOCATION, addedDay, daysLabel, fmtDate } from "../../lib/profileFormat";
-import { fmtDateBS } from "../../utils/fiscalYear";
 import { sectionCanEdit } from "../../utils/permissions";
 import AttendancePanel from "./AttendancePanel";
 import PayPanel from "./PayPanel";
@@ -66,7 +65,6 @@ function Overview({ person, row, manager, see, loading }) {
   const since = added ? fmtDate(added) : null;
   const showJoined = see.contact && row?.joinDate && row.joinDate !== added;
   const joined = showJoined ? fmtDate(row.joinDate) : null;
-  const joinedBS = showJoined ? fmtDateBS(row.joinDate) : null;
 
   return (
     <>
@@ -99,7 +97,7 @@ function Overview({ person, row, manager, see, loading }) {
       {(joined || since) && (
         <section className="kprof-sec">
           <h4 className="kprof-h">Member since</h4>
-          {joined && <InfoRow k="Joined">{joined}{joinedBS && joinedBS !== "—" ? <> · {joinedBS}</> : null}</InfoRow>}
+          {joined && <InfoRow k="Joined">{joined}</InfoRow>}
           {since && <InfoRow k="Since">{since}</InfoRow>}
         </section>
       )}
