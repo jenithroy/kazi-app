@@ -13,10 +13,21 @@ const COLOR_CHOICES = [
   { value: 6, label: "6" },
   { value: 8, label: "8" },
   { value: 10, label: "10" },
+  { value: 12, label: "12" },
 ];
 
+const KIND_CHOICES = [
+  { value: "auto", label: "Auto", title: "Look at the picture and choose" },
+  { value: "logo", label: "Logo", title: "A few flat colours" },
+  { value: "art", label: "Artwork", title: "Drawn or painted, with soft shading" },
+  { value: "photo", label: "Photo", title: "Gradients and many colours: made into paint-like patches" },
+];
+const KIND_NAME = { logo: "a logo (flat colours)", art: "artwork (soft shading)", photo: "a photo (gradients)" };
+/** Lettering shorter than this (mm) cannot be sewn so that it reads: a satin letter needs a stroke of about a millimetre, and room round it. */
+const SMALL_LETTER_MM = 4;
+
 export default function PicturePanel({ api, pickFile }) {
-  const { design, hasImage, settings, palette, converting, convertError, crop, dropped } = api;
+  const { design, hasImage, settings, palette, converting, convertError, crop, dropped, traceInfo } = api;
   const ref = design.reference;
 
   if (!ref) {
@@ -32,6 +43,8 @@ export default function PicturePanel({ api, pickFile }) {
 
   const widthMm = ref.crop.w * ref.mmPerPx;
   const heightMm = ref.crop.h * ref.mmPerPx;
+  // How tall the smallest lettering is NOW: it was measured when the picture was converted, and grows with the picture.
+  const smallLetterMm = traceInfo && traceInfo.kind !== "photo" && traceInfo.letters >= 4 && traceInfo.letterMm > 0 && traceInfo.widthMm > 0 ? traceInfo.letterMm * (widthMm / traceInfo.widthMm) : 0;
   const colorValue = settings.colors === "auto" ? "auto" : settings.colors;
 
   return (
@@ -61,10 +74,13 @@ export default function PicturePanel({ api, pickFile }) {
       </Group>
 
       <Group title="Turn it into shapes">
-        <Row label="Colours" wide>
-          <Segmented label="Number of colours" value={colorValue} onChange={(v) => api.changeSettings(v === "auto" ? { colors: "auto", maxColors: 6 } : { colors: v })} options={COLOR_CHOICES} size="wrap" />
+        <Row label="Picture type" wide hint={settings.kind === "auto" && traceInfo ? `Looks like ${KIND_NAME[traceInfo.kind] || "a logo"}: the colours and detail are chosen for that.` : "A photo is smoothed into patches of colour; a logo keeps its flat colours exactly."}>
+          <Segmented label="Kind of picture" value={settings.kind || "auto"} onChange={(v) => api.changeSettings({ kind: v })} options={KIND_CHOICES} size="wrap" />
         </Row>
-        <Row label="Detail" hint="Simple drops small specks and thin lines. Detailed keeps more, but fine details may not sew well.">
+        <Row label="Colours" wide hint="Up to 12 is what a machine head can hold. Auto uses only as many as the picture needs.">
+          <Segmented label="Number of colours" value={colorValue} onChange={(v) => api.changeSettings(v === "auto" ? { colors: "auto", maxColors: 12 } : { colors: v })} options={COLOR_CHOICES} size="wrap" />
+        </Row>
+        <Row label="Detail" hint="Simple leaves out small specks and fine detail. Detailed keeps more, but fine details may not sew well.">
           <Slider label="Level of detail" value={settings.detail} min={0} max={1} step={0.05} onChange={(v) => api.changeSettings({ detail: v })} format={(v) => (v < 0.34 ? "Simple" : v > 0.66 ? "Detailed" : "Balanced")} />
         </Row>
         <Row label="Cloth" hint="What colour is the garment? Colours in the picture that match it are not stitched: the cloth shows through.">
@@ -77,8 +93,16 @@ export default function PicturePanel({ api, pickFile }) {
         </div>
         <p className="dz-hint">Converting again replaces the shapes made from the picture, including any changes you made to them.</p>
         {convertError && <p className="dz-warn" role="alert">{convertError}</p>}
-        {api.design.objects.filter((o) => o.source === "image").length > 120 && (
-          <p className="dz-warn">This picture has a lot of small shapes, which usually means a photo or a gradient. Embroidery works best with logos in flat colours: try fewer colours or a simpler picture.</p>
+        {api.design.objects.filter((o) => o.source === "image").length > 500 && (
+          <p className="dz-warn">This picture has a lot of small shapes. Fewer colours, or Simple detail, gives a cleaner design that sews faster.</p>
+        )}
+        {traceInfo && traceInfo.widenedMm2 >= 1 && !convertError && (
+          <p className="dz-note-inline">Thin lines and lettering were made about a millimetre wide, the thinnest a needle can follow. If letters run together, make the picture bigger.</p>
+        )}
+        {smallLetterMm > 0 && smallLetterMm < SMALL_LETTER_MM && !convertError && (
+          <p className="dz-warn">
+            The smallest lettering is only about {smallLetterMm.toFixed(1)} mm tall. Letters under {SMALL_LETTER_MM} mm do not sew clearly: make the whole design about {(SMALL_LETTER_MM / smallLetterMm).toFixed(1)} times bigger (it needs a bigger hoop), or leave the lettering out.
+          </p>
         )}
         {dropped >= 4 && !convertError && (
           <p className="dz-note-inline">About {Math.round(dropped)} mm² of the picture was too fine to sew (small text, thin lines) and was left out. A bigger picture keeps more of it; Detailed keeps the most.</p>

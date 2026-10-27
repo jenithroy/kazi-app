@@ -32,8 +32,11 @@ export const HOOPS = [
   { id: "cap", label: "Cap · 150 × 60 mm", w: 150, h: 60 },
 ];
 
+/** The cloth a new design is drawn on until the picture or the person says otherwise (a pale cream). */
+export const DEFAULT_CLOTH = "#f4f1ea";
+
 export function newDesign(partial = {}) {
-  return { name: "Untitled design", hoop: { w: 100, h: 100 }, fabric: "woven", fabricColor: "#f4f1ea", objects: [], reference: null, settings: {}, ...partial };
+  return { name: "Untitled design", hoop: { w: 100, h: 100 }, fabric: "woven", fabricColor: DEFAULT_CLOTH, objects: [], reference: null, settings: {}, ...partial };
 }
 
 // No underlay here on purpose: until one is chosen the fabric's own (leather: none, knit: more) is used.

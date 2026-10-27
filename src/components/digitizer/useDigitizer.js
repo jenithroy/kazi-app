@@ -8,10 +8,10 @@ import { createHistory } from "../../lib/digitizer/history";
 import { createEngine } from "../../lib/digitizer/engineClient";
 import {
   newDesign, makeObject, boxOfObjects, objectBox, objectCorners, moveObject, setObjectSize, setObjectCentre, withTransform, scaleObjectAbout, flipObject,
-  breakApart, fillHoles, cloneObjects, engineDesign, serializeDesign, parseDesign, DEFAULT_FILL, newId, centreRings,
+  breakApart, fillHoles, cloneObjects, engineDesign, serializeDesign, parseDesign, DEFAULT_FILL, DEFAULT_CLOTH, newId, centreRings,
 } from "../../lib/digitizer/model";
 import { loadPicture, extractImage, downloadBlob, fileSafe } from "../../lib/digitizer/image";
-import { objectsFromTrace, mergeTraceObjects } from "../../lib/digitizer/convert";
+import { objectsFromTrace, mergeTraceObjects, CONVERT_DEFAULTS, traceOptions, clothFromTrace, contentBox, fillScale } from "../../lib/digitizer/convert";
 import { drawText, textRings, DEFAULT_TEXT } from "../../lib/digitizer/text";
 import { summarize } from "../../lib/digitizer/stats";
 import { buildFile, buildPreview, productionSheetHtml, printSheet, loadFormats, centreStitches } from "../../lib/digitizer/exporter";
@@ -23,13 +23,10 @@ import { threadName } from "../../lib/embroidery/thread/chart";
 const AUTOSAVE_KEY = "kazi.digitizer.autosave";
 const SETTINGS_KEY = "kazi.digitizer.settings";
 
-export const CONVERT_DEFAULTS = { colors: "auto", maxColors: 6, detail: 0.5, background: "auto", snap: true };
+export { CONVERT_DEFAULTS };
 
-/** The detail slider (0 simple ... 1 detailed) as the tracer's size limits. */
-export function detailLimits(detail) {
-  const d = Math.max(0, Math.min(1, detail));
-  return { minFeatureMm: 1.3 - 1.0 * d, minAreaMm2: 2.2 - 1.9 * d, simplifyMm: 0.08 - 0.05 * d };
-}
+/** Is this still the picture placement a conversion began with (size, place, crop)? */
+const sameReference = (a, b) => !!a && !!b && a.mmPerPx === b.mmPerPx && a.x === b.x && a.y === b.y && a.crop.x === b.crop.x && a.crop.y === b.crop.y && a.crop.w === b.crop.w && a.crop.h === b.crop.h;
 
 const read = (key, fallback) => {
   try { const v = JSON.parse(localStorage.getItem(key) || "null"); return v ?? fallback; } catch { return fallback; }
@@ -61,6 +58,7 @@ export function useDigitizer() {
   const [converting, setConverting] = useState(false);
   const [convertError, setConvertError] = useState(null);
   const lastTrace = useRef(null);
+  const [traceInfo, setTraceInfo] = useState(null); // what the last conversion found out about the picture: { kind, widenedMm2 }
   const convertToken = useRef(0);
   const paletteRef = useRef([]); // what `palette` holds now, for code that must compare it with the next one
   const showPalette = useCallback((pal) => { paletteRef.current = pal; setPalette(pal); }, []);
@@ -70,6 +68,7 @@ export function useDigitizer() {
     clearTimeout(convertTimer.current);
     convertToken.current++;
     lastTrace.current = null;
+    setTraceInfo(null);
     showPalette([]);
     setSkip(new Set());
     setInclude(new Set());
@@ -382,13 +381,14 @@ export function useDigitizer() {
     const mmPerPx = ref.mmPerPx / lt.scale;
     const originX = ref.x + (lt.crop.x - ref.crop.x) * ref.mmPerPx;
     const originY = ref.y + (lt.crop.y - ref.crop.y) * ref.mmPerPx;
-    const { objects, palette: pal, rank } = objectsFromTrace(lt.res, { originX, originY, mmPerPx, skip: skipSet, include: includeSet, fabric, snap });
     const before = paletteRef.current;
+    const { objects, palette: pal, rank } = objectsFromTrace(lt.res, { originX, originY, mmPerPx, skip: skipSet, include: includeSet, fabric, snap, before: fresh ? null : before });
     return {
       palette: pal,
       change: (d) => {
         const list = mergeTraceObjects(d.objects, objects, { fresh, before, after: pal, rank });
-        return list === d.objects ? d : { ...d, objects: list };
+        const next = list === d.objects ? d : { ...d, objects: list };
+        return fabric && fabric !== next.fabricColor ? { ...next, fabricColor: fabric } : next;
       },
     };
   }, []);
@@ -401,30 +401,64 @@ export function useDigitizer() {
     if (fresh) setSelectionState([]); else sanitize();
   }, [traceUpdate, showPalette, commit, sanitize]);
 
-  const runConvert = useCallback(async (override = {}) => {
+  /** `fit`: a picture that has just been placed is made as big as the hoop allows (what is stitched, not the picture's margins), then converted again at that size. */
+  const runConvert = useCallback(async (override = {}, fit = false) => {
     const d = hist.current.present;
-    const ref = d.reference;
+    const ref0 = d.reference;
     const img = refImage.current;
-    if (!ref || !img) return;
+    if (!ref0 || !img) return;
     const s = { ...settings, ...override };
     const token = ++convertToken.current;
     setConverting(true);
     setConvertError(null);
     try {
-      const { image, scale } = extractImage(img.canvas, ref.crop, 1600);
-      const mmPerPx = ref.mmPerPx / scale;
-      const lim = detailLimits(s.detail);
-      const res = await engine.current.trace(image, {
-        colors: s.colors, maxColors: s.maxColors, mmPerPx, background: s.background === "none" ? "none" : "auto", ...lim,
-      }, "picture");
+      let ref = ref0;
+      const first = extractImage(img.canvas, ref0.crop, 1600);
+      const scale = first.scale;
+      let mmPerPx = ref.mmPerPx / scale;
+      let res = await engine.current.trace(first.image, traceOptions(s, mmPerPx), "picture");
       if (token !== convertToken.current) return;
+      // the cloth the picture was made for: a dark or coloured background means that garment, unless the person chose the cloth
+      const now0 = hist.current.present;
+      const clothOf = (r) => (now0.fabricAuto === false ? now0.fabricColor : clothFromTrace(r) || DEFAULT_CLOTH);
+      if (fit) {
+        const box = contentBox(res, { originX: ref0.x, originY: ref0.y, mmPerPx, fabric: clothOf(res) });
+        const k = fillScale(box, now0.hoop);
+        if (k > 1) {
+          // bigger, with what is stitched in the middle of the hoop; then look at the picture again at that size (thin lines and
+          // small lettering keep more of themselves in a bigger design, so the shapes are made afresh, not stretched)
+          const cx = (box.x0 + box.x1) / 2 - ref0.x, cy = (box.y0 + box.y1) / 2 - ref0.y;
+          const next = { ...ref0, mmPerPx: ref0.mmPerPx * k, x: -cx * k, y: -cy * k };
+          const again = extractImage(img.canvas, ref0.crop, 1600); // the first copy went to the worker (its memory moved over): take another
+          const mm2 = next.mmPerPx / again.scale;
+          const res2 = await engine.current.trace(again.image, traceOptions(s, mm2), "picture");
+          if (token !== convertToken.current) return;
+          // a bigger picture can keep fine strokes the smaller one dropped, so the stitched part may now reach a little further than
+          // measured: if it does not fit, scale the picture down a touch (no new trace is needed for that) and put it in the middle
+          let fitted = next;
+          const box2 = contentBox(res2, { originX: next.x, originY: next.y, mmPerPx: mm2, fabric: clothOf(res2) });
+          if (box2) {
+            const k2 = Math.min(1, (now0.hoop.w * 0.94) / (box2.x1 - box2.x0), (now0.hoop.h * 0.94) / (box2.y1 - box2.y0));
+            const mx = next.x + ((box2.x0 + box2.x1) / 2 - next.x) * k2, my = next.y + ((box2.y0 + box2.y1) / 2 - next.y) * k2;
+            fitted = { ...next, mmPerPx: next.mmPerPx * k2, x: next.x - mx, y: next.y - my };
+          }
+          // only when the person has not changed the picture (crop, move, size) while it was being looked at: theirs wins
+          if (sameReference(hist.current.present.reference, ref0)) {
+            commit((dd) => ({ ...dd, reference: fitted }));
+            ref = fitted;
+            res = res2;
+            mmPerPx = fitted.mmPerPx / again.scale;
+          }
+        }
+      }
       lastTrace.current = { res, scale, crop: { x: Math.round(ref.crop.x), y: Math.round(ref.crop.y) } };
-      const perWorkPx = mmPerPx / (res.stats?.scale || 1);
+      const perWorkPx = mmPerPx * (res.stats?.scale || 1); // millimetres a pixel of the tracer's own (maybe shrunk) copy is
       setDropped(((res.stats?.removedSliverPixels || 0) + (res.stats?.removedSpeckPixels || 0)) * perWorkPx * perWorkPx);
+      setTraceInfo({ kind: res.stats?.kind || "logo", widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx });
       const nextSkip = new Set(), nextInclude = new Set();
       setSkip(nextSkip);
       setInclude(nextInclude);
-      applyTrace(nextSkip, nextInclude, s.snap, hist.current.present.fabricColor, true);
+      applyTrace(nextSkip, nextInclude, s.snap, clothOf(res), true);
     } catch (e) {
       if (!e.stale) setConvertError(e.message || "The picture could not be converted.");
     } finally {
@@ -460,7 +494,7 @@ export function useDigitizer() {
     const u = traceUpdate(skip, include, settings.snap, hex, false);
     if (u) showPalette(u.palette);
     // Dragging through the colours is one undo step, not one for every colour passed.
-    coalesced((d) => (u ? u.change({ ...d, fabricColor: hex }) : { ...d, fabricColor: hex }));
+    coalesced((d) => (u ? u.change({ ...d, fabricColor: hex, fabricAuto: false }) : { ...d, fabricColor: hex, fabricAuto: false }));
     if (u) sanitize();
   }, [coalesced, traceUpdate, showPalette, sanitize, skip, include, settings.snap]);
 
@@ -480,14 +514,15 @@ export function useDigitizer() {
         x: -wMm / 2, y: -(pic.height * mmPerPx) / 2, opacity: 1, visible: true,
       };
       flush();
+      cancelConversion(); // a conversion of the picture that was here must not land on this one
       commit((dd) => ({ ...dd, name: dd.name === "Untitled design" ? fileSafe(pic.name, "Untitled design") : dd.name, objects: dd.objects.filter((o) => o.source !== "image"), reference }));
       setMode("picture");
       setCrop(false);
-      setTimeout(() => runConvertRef.current({}), 0);
+      setTimeout(() => runConvertRef.current({}, true), 0);
     } catch (e) {
       notify(e.message || "That file could not be opened.", "error");
     }
-  }, [commit, flush, notify]);
+  }, [commit, flush, notify, cancelConversion]);
 
   /** Move or scale the picture; the shapes made from it go with it. */
   const placeReference = useCallback((next) => {
@@ -767,7 +802,7 @@ export function useDigitizer() {
   useEffect(() => { if (selected.length) lastColor.current = selected[0].fill.color; }, [selected]);
 
   return {
-    design, selection, selected, tool, mode, crop, view, prefs, notice, hasImage, refImage, settings, palette, skip, converting, convertError, dropped,
+    design, selection, selected, tool, mode, crop, view, prefs, notice, hasImage, refImage, settings, palette, skip, converting, convertError, dropped, traceInfo,
     stitches, generating, genError, exporting, summary, stale, sim, restorable, openRequest, stageHooks,
     canUndo: hist.current.canUndo, canRedo: hist.current.canRedo, dragging,
     setTool, setMode, setCrop, setPrefs, setSelection, notify, dismissNotice: () => setNotice(null),
