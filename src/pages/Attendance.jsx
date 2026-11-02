@@ -16,6 +16,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deleteRow, fetchAll, updateRow, upsertRow } from "../lib/db";
 import { addHoliday, holidaysNotSetUp, removeHoliday } from "../lib/holidays";
+import { fetchOvertimeDays } from "../lib/overtime";
+import { rulesOfMonth, rulesOn } from "../lib/workRules";
 import { refreshHolidays, useHolidays } from "../hooks/useHolidays";
 import { useAuth } from "../context/AuthContext";
 import { financeTabAllowed, sectionCanEdit, sectionVisible, tier } from "../utils/permissions";
@@ -27,6 +29,7 @@ import { matchesPerson, rosterFilters } from "../components/attendance/filters";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import ConfirmDialog from "../components/tasks/ConfirmDialog";
 import HolidayDialog from "../components/attendance/HolidayDialog";
+import OvertimeDialog from "../components/attendance/OvertimeDialog";
 import ClockTile from "../components/attendance/ClockTile";
 import DayTile from "../components/attendance/DayTile";
 import RosterTile from "../components/attendance/RosterTile";
@@ -37,7 +40,7 @@ import TodayTile from "../components/attendance/TodayTile";
 import RecentTile from "../components/attendance/RecentTile";
 import {
   STATE_LABEL, addDays, buildRoster, dateInMonth, dayTitle, daySummary, hoursFor, isoFromDate, monthOf,
-  monthTitle, personMonth, shiftMonth, stateOf, teamMonth,
+  monthTitle, personMonth, shiftFor, shiftMonth, stateOf, teamMonth,
 } from "../lib/attendance";
 import "../components/attendance/attendance.css";
 
@@ -70,12 +73,13 @@ export default function Attendance() {
 
   const [month, setMonth] = useState(() => monthOf(isoFromDate(new Date())));
   const [date, setDate] = useState(() => isoFromDate(new Date()));
-  const [data, setData] = useState({ status: "loading", month: "", staff: [], records: [], clocks: [], employees: [], error: "" });
+  const [data, setData] = useState({ status: "loading", month: "", staff: [], records: [], clocks: [], employees: [], overtime: [], error: "" });
   const [mode, setMode] = useState("day");                 // team: "day" (roll call) | "report"
   const [query, setQuery] = useState("");                  // the roll call's search; its filters are in the Filters panel (below)
   const [edit, setEdit] = useState(false);
   const [reportId, setReportId] = useState("*");                // the report: "*" is everyone, else one person
   const [holOpen, setHolOpen] = useState(false);
+  const [otOpen, setOtOpen] = useState(false);
   const { rows: holidays, status: holStatus } = useHolidays();
   const [busy, setBusy] = useState(() => new Set());
   const [toast, setToast] = useState(null);
@@ -92,11 +96,12 @@ export default function Attendance() {
     if (!silent) setData((d) => ({ ...d, status: d.status === "ready" ? "ready" : "loading" }));
     try {
       const range = [{ field: "date", op: "gte", value: month.start }, { field: "date", op: "lte", value: month.end }];
-      const [staffAll, records, clocks, employees] = await Promise.all([
+      const [staffAll, records, clocks, employees, overtime] = await Promise.all([
         seesTeam ? fetchAll("users") : Promise.resolve([]),
         fetchAll("attendance", { filters: range }),
         fetchAll("clock_ins", { filters: range }),
         fetchAll("employees").catch(() => []),         // only the work schedules; the page reads fine without them
+        fetchOvertimeDays({ from: month.start, to: month.end }).catch(() => []),   // approved overtime; reads fine without it (not on the database yet, or none)
       ]);
       if (mine !== seq.current) return;                // a newer look is on its way
       if (silent && wrote !== writes.current) return;  // a save landed while this poll was out: its snapshot may be older than the save
@@ -105,6 +110,7 @@ export default function Attendance() {
         status: "ready", month: month.start, error: "",
         staff: staffAll.filter((m) => m.status !== "Inactive"), records, clocks,
         employees,                                      // already read for the schedules; the Filters panel also reads their departments from it
+        overtime,
       });
     } catch (err) {
       console.error("Failed to load attendance data:", err);
@@ -146,9 +152,10 @@ export default function Attendance() {
       staff,
       records: records.filter((r) => r.date === date),
       clocks: clocks.filter((c) => c.date === date),
+      overtime: data.overtime.filter((o) => o.date === date),
       date, today, now, holidays,
     }),
-    [staff, records, clocks, date, today, now, holidays],
+    [staff, records, clocks, data.overtime, date, today, now, holidays],
   );
   const summary = useMemo(() => daySummary(roster), [roster]);
 
@@ -241,7 +248,8 @@ export default function Attendance() {
       // no `note` here on purpose: a status change leaves what somebody wrote alone (an upsert only touches the columns it names),
       // where sending the copy this page loaded could put back a note somebody has since changed
       loggedBy: profile?.name || "Unknown",
-      lateCutApplied: status === "Late" ? (patch.cut ?? prev?.lateCutApplied === true) : false,
+      // the 25% cut only exists for days the old rule judged (before 1 December 2026); later days never carry one
+      lateCutApplied: status === "Late" && rulesOn(date) === "old" ? (patch.cut ?? prev?.lateCutApplied === true) : false,
       lateMinutes: status === "Late" ? Number(prev?.lateMinutes) || 0 : 0,
     };
     working(row.personId, true);
@@ -396,6 +404,11 @@ export default function Attendance() {
                 <Icons.Calendar size={13} sw={1.9} aria-hidden="true" /> Holidays
               </button>
             )}
+            {seesTeam && (
+              <button type="button" className="kb-pillbtn" onClick={() => setOtOpen(true)}>
+                <Icons.Clock size={13} sw={1.9} aria-hidden="true" /> Overtime
+              </button>
+            )}
             <button type="button" className="kb-pillbtn" onClick={() => load()} aria-label="Refresh attendance">
               <Icons.RefreshCw size={13} sw={1.9} aria-hidden="true" /> Refresh
             </button>
@@ -434,14 +447,14 @@ export default function Attendance() {
             />
           )}
           <MonthTile kind="team" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} byDay={ready ? team.byDay : NOTHING} loading={firstLoad} holidays={holidays} />
-          <StatsTile kind="team" summary={team} label={monthTitle(month)} loading={loadingTiles} />
+          <StatsTile kind="team" summary={team} label={monthTitle(month)} loading={loadingTiles} showCuts={rulesOfMonth(month.y, month.m) === "old"} />
         </BentoGrid>
       ) : (
         <BentoGrid layout={layout}>
           <ClockTile profile={profile} onClockChange={() => load({ silent: true })} />
           <TodayTile row={myRow} date={date} today={today} loading={loadingTiles} onSaveNote={(text) => saveNote(myRow, text)} />
           <MonthTile kind="me" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} days={ready ? myDays : NO_DAYS} loading={firstLoad} holidays={holidays} region={profile?.location} />
-          <StatsTile kind="me" summary={mine} label={monthTitle(month)} loading={loadingTiles} />
+          <StatsTile kind="me" summary={mine} label={monthTitle(month)} loading={loadingTiles} showCuts={rulesOfMonth(month.y, month.m) === "old"} />
           <RecentTile days={mine.days} today={today} date={date} onPick={goDate} loading={loadingTiles} />
         </BentoGrid>
       )}
@@ -458,6 +471,18 @@ export default function Attendance() {
           onRemove={removeHolidayRow}
           onRetry={refreshHolidays}
           onClose={() => setHolOpen(false)}
+        />
+      )}
+
+      {otOpen && (
+        <OvertimeDialog
+          staff={staff}
+          date={date}
+          today={today}
+          canManage={canEdit}
+          shiftOf={shiftFor}
+          onChanged={() => load({ silent: true })}
+          onClose={() => setOtOpen(false)}
         />
       )}
 

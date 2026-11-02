@@ -535,14 +535,23 @@ export const SCHEMA_MAP = {
       "staffId": "legacy_staff_id",
       "staffName": "legacy_staff_name",
       "role": "legacy_role",
-      "person_id": "person_id"
+      "person_id": "person_id",
+      "receivableDueNPR": "receivable_due_npr",
+      "advanceNPR": "advance_npr",
+      "tdsNPR": "tds_npr",
+      "tdsRatePct": "tds_rate_pct",
+      "unapprovedAbsences": "unapproved_absences",
+      "overtimeMinutes": "overtime_minutes",
+      "bonusReason": "bonus_reason"
     },
     "derived": [
       "region"
     ],
     "columns": [
+      "advance_npr",
       "basic_npr",
       "bonus_npr",
+      "bonus_reason",
       "created_at",
       "deduction_npr",
       "gross_npr",
@@ -557,11 +566,16 @@ export const SCHEMA_MAP = {
       "month",
       "net_npr",
       "note",
+      "overtime_minutes",
       "overtime_npr",
       "person_id",
       "pf_deduction_npr",
+      "receivable_due_npr",
       "salary_npr",
+      "tds_npr",
+      "tds_rate_pct",
       "total_deductions_npr",
+      "unapproved_absences",
       "year"
     ]
   },

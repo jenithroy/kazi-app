@@ -3,40 +3,29 @@ import EditCard, { Field, NumberInput } from "./EditCard";
 import { enterAdvance, thenAdvance } from "./finance/flow";
 import Select from "./Select";
 import { roundAmount } from "../utils/format";
+import { openPrintWindow, slipDocument, slipTotals, slipView } from "../lib/salarySlip";
 import "./salary-slip.css";
 
 export default function SalarySlipModal({ initialData, employees = [], onClose }) {
-  const [empId, setEmpId] = useState(initialData?.empId || "EMP-001");
-  const [empName, setEmpName] = useState(initialData?.empName || initialData?.name || initialData?.staffName || "");
-  const [designation, setDesignation] = useState(initialData?.designation || initialData?.role || "");
-  
-  // Format default month & year (e.g. Jul-26 or July 2026)
-  const defaultMonthYear = () => {
-    if (initialData?.month && initialData?.year) {
-      const shortMonth = initialData.month.slice(0, 3);
-      const shortYear = String(initialData.year).slice(-2);
-      return `${shortMonth}-${shortYear}`;
-    }
-    const d = new Date();
-    const shortMonth = d.toLocaleString("default", { month: "short" });
-    const shortYear = String(d.getFullYear()).slice(-2);
-    return `${shortMonth}-${shortYear}`;
-  };
-
-  const [monthYear, setMonthYear] = useState(initialData?.monthYear || defaultMonthYear());
+  // the starting values (and what they default to) are lib/salarySlip.js's, shared with the monthly payroll run's printing
+  const [init] = useState(() => slipView(initialData));
+  const [empId, setEmpId] = useState(init.empId);
+  const [empName, setEmpName] = useState(init.empName);
+  const [designation, setDesignation] = useState(init.designation);
+  const [monthYear, setMonthYear] = useState(init.monthYear);        // e.g. Jul-26
 
   // Earnings
-  const [basicSalary, setBasicSalary] = useState(initialData?.basicSalaryNPR ?? initialData?.basicNPR ?? 0);
-  const [allowances, setAllowances] = useState(initialData?.bonusNPR ?? 0);
-  const [otSalary, setOtSalary] = useState(initialData?.otSalary ?? 0);
-  const [receivableDue, setReceivableDue] = useState(initialData?.receivableDue ?? 0);
+  const [basicSalary, setBasicSalary] = useState(init.basicSalary);
+  const [allowances, setAllowances] = useState(init.allowances);
+  const [otSalary, setOtSalary] = useState(init.otSalary);
+  const [receivableDue, setReceivableDue] = useState(init.receivableDue);
 
   // Deductions
-  const [advance, setAdvance] = useState(initialData?.advance ?? 0);
-  const [taxRatePct, setTaxRatePct] = useState(initialData?.taxRatePct ?? 1); // default 1% tax
-  const [incomeTaxCustom, setIncomeTaxCustom] = useState(initialData?.incomeTax ?? null);
-  const [leaveDayDeduction, setLeaveDayDeduction] = useState(initialData?.lateDeductionNPR ?? 0);
-  const [otherPayment, setOtherPayment] = useState(initialData?.pfDeductionNPR ?? 0);
+  const [advance, setAdvance] = useState(init.advance);
+  const [taxRatePct, setTaxRatePct] = useState(init.taxRatePct); // default 1% tax
+  const [incomeTaxCustom, setIncomeTaxCustom] = useState(init.incomeTaxCustom);
+  const [leaveDayDeduction, setLeaveDayDeduction] = useState(init.leaveDayDeduction);
+  const [otherPayment, setOtherPayment] = useState(init.otherPayment);
 
   const uid = useId();
   const id = (k) => `${uid}-${k}`;
@@ -63,234 +52,16 @@ export default function SalarySlipModal({ initialData, employees = [], onClose }
     }
   };
 
-  // Auto-calculated Tax (1% of basic or custom)
-  const computedTax = incomeTaxCustom !== null ? Number(incomeTaxCustom) : Math.round((Number(basicSalary) * (Number(taxRatePct) / 100)) * 100) / 100;
-
-  // Earnings Total
-  const totalEarnings = Number(basicSalary || 0) + Number(allowances || 0) + Number(otSalary || 0) + Number(receivableDue || 0);
-
-  // Deductions Total
-  const totalDeductions = Number(advance || 0) + computedTax + Number(leaveDayDeduction || 0) + Number(otherPayment || 0);
-
-  // Net Salary
-  const netSalary = Math.max(0, totalEarnings - totalDeductions);
+  // Tax (1% of basic, or the figure a record carries), the totals and the net: lib/salarySlip.js
+  const { computedTax, totalEarnings, totalDeductions, netSalary } = slipTotals({
+    basicSalary, allowances, otSalary, receivableDue, advance, taxRatePct, incomeTaxCustom, leaveDayDeduction, otherPayment,
+  });
 
   /* ── Direct Print Function ── */
-  const handlePrint = () => {
-    const printWin = window.open("", "_blank", "width=850,height=1100");
-    if (!printWin) return false;
-
-    const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Salary Slip - ${empName || "Employee"} (${monthYear})</title>
-  <style>
-    @page {
-      size: A4 portrait;
-      margin: 15mm;
-    }
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-    }
-    body {
-      font-family: Arial, Helvetica, sans-serif;
-      background: #fff;
-      color: #000;
-      padding: 20px;
-    }
-    .slip-container {
-      width: 100%;
-      max-width: 800px;
-      margin: 0 auto;
-      background: #fff;
-      padding: 10px;
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    .header h1 {
-      font-size: 22px;
-      font-weight: bold;
-      color: #2e7d32;
-      margin-bottom: 4px;
-    }
-    .header h2 {
-      font-size: 18px;
-      font-weight: 600;
-      color: #000;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 20px;
-    }
-    th, td {
-      border: 1.5px solid #000;
-      padding: 6px 10px;
-      font-size: 14px;
-      vertical-align: middle;
-    }
-    .emp-table td {
-      width: 25%;
-    }
-    .emp-table .label {
-      font-weight: bold;
-    }
-    .emp-table .value {
-      font-weight: 600;
-    }
-    .pay-table th {
-      font-size: 15px;
-      font-weight: bold;
-      background-color: #f5f5f5;
-    }
-    .pay-table td.col-title {
-      font-weight: 500;
-      width: 30%;
-    }
-    .pay-table td.col-val {
-      text-align: right;
-      font-weight: bold;
-      width: 20%;
-    }
-    .text-center {
-      text-align: center;
-    }
-    .net-salary-row td {
-      font-size: 16px;
-      font-weight: bold;
-    }
-    .net-salary-val {
-      color: #d32f2f;
-      font-size: 18px;
-      font-weight: bold;
-      text-align: center;
-    }
-    .footer {
-      margin-top: 50px;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      padding: 0 20px;
-    }
-    .sig-block {
-      font-size: 14px;
-      font-weight: bold;
-    }
-    .sig-line {
-      display: inline-block;
-      min-width: 200px;
-      border-bottom: 1.5px dotted #000;
-      margin-left: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="slip-container">
-    <div class="header">
-      <h1>Kazi Manufacturing Pvt.Ltd</h1>
-      <h2>Monthly Salary Slip</h2>
-    </div>
-
-    <!-- Employee Details Table -->
-    <table class="emp-table">
-      <tr>
-        <td class="label">Employee ID</td>
-        <td class="value">${empId || "-"}</td>
-        <td class="label">Employee Name</td>
-        <td class="value">${empName || "-"}</td>
-      </tr>
-      <tr>
-        <td class="label">Designation</td>
-        <td class="value">${designation || "-"}</td>
-        <td class="label">Month & Year</td>
-        <td class="value text-center" style="font-weight: bold;">${monthYear || "-"}</td>
-      </tr>
-    </table>
-
-    <!-- Earnings & Deductions Table -->
-    <table class="pay-table">
-      <thead>
-        <tr>
-          <th style="width: 30%; text-align: left;">Earnings</th>
-          <th style="width: 20%; text-align: right;"></th>
-          <th style="width: 30%; text-align: left;">Deduction</th>
-          <th style="width: 20%; text-align: right;"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="col-title">Basic Salary</td>
-          <td class="col-val">${roundAmount(basicSalary || 0).toLocaleString()}</td>
-          <td class="col-title">Advance</td>
-          <td class="col-val">${Number(advance || 0) > 0 ? roundAmount(advance).toLocaleString() : "-"}</td>
-        </tr>
-        <tr>
-          <td class="col-title">Allowances</td>
-          <td class="col-val">${Number(allowances || 0) > 0 ? roundAmount(allowances).toLocaleString() : "-"}</td>
-          <td class="col-title">Income Tax (${taxRatePct}%)</td>
-          <td class="col-val">${computedTax > 0 ? roundAmount(computedTax).toLocaleString() : "-"}</td>
-        </tr>
-        <tr>
-          <td class="col-title">Ot Salary</td>
-          <td class="col-val">${Number(otSalary || 0) > 0 ? roundAmount(otSalary).toLocaleString() : "-"}</td>
-          <td class="col-title">Leave Day</td>
-          <td class="col-val">${Number(leaveDayDeduction || 0) > 0 ? roundAmount(leaveDayDeduction).toLocaleString() : "0"}</td>
-        </tr>
-        <tr>
-          <td class="col-title">Receivable Due</td>
-          <td class="col-val">${Number(receivableDue || 0) > 0 ? roundAmount(receivableDue).toLocaleString() : "-"}</td>
-          <td class="col-title">Other Payment</td>
-          <td class="col-val">${Number(otherPayment || 0) > 0 ? roundAmount(otherPayment).toLocaleString() : "-"}</td>
-        </tr>
-        <tr style="background: #fafafa;">
-          <td class="col-title" style="font-weight: bold;">Total</td>
-          <td class="col-val" style="font-size: 15px;">${roundAmount(totalEarnings).toLocaleString()}</td>
-          <td class="col-title" style="font-weight: bold;">Total</td>
-          <td class="col-val" style="font-size: 15px;">${roundAmount(totalDeductions).toLocaleString()}</td>
-        </tr>
-        <tr class="net-salary-row">
-          <td class="col-title" style="font-weight: bold;">Net Salary</td>
-          <td class="net-salary-val">${roundAmount(netSalary).toLocaleString()}</td>
-          <td colspan="2"></td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- Footer Signatures -->
-    <div class="footer">
-      <div class="sig-block">
-        Signature <span class="sig-line"></span>
-      </div>
-      <div class="sig-block">
-        Director <span class="sig-line"></span>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-    `;
-
-    printWin.document.write(htmlContent);
-    printWin.document.close();
-    printWin.onload = () => {
-      setTimeout(() => {
-        printWin.focus();
-        printWin.print();
-      }, 300);
-    };
-    setTimeout(() => {
-      printWin.focus();
-      printWin.print();
-    }, 800);
-  };
+  const handlePrint = () => openPrintWindow(slipDocument([{
+    empId, empName, designation, monthYear, basicSalary, allowances, otSalary, receivableDue, advance, taxRatePct,
+    computedTax, leaveDayDeduction, otherPayment, totalEarnings, totalDeductions, netSalary,
+  }]));
 
 
   const picked = employees.some((e) => e.name === empName) ? empName : "";

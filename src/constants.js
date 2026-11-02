@@ -1,4 +1,5 @@
 import { tsMillis } from "./utils/date";
+import { judgeArrival } from "./lib/workRules";
 
 export const GBP_RATE = 200;
 
@@ -118,43 +119,11 @@ export function parseLocalDate(dateStr) {
   return new Date(y, m - 1, d);
 }
 
+/**
+ * How a clock-in is judged against the person's own hours: { status, lateMinutes, lateCutApplied }. The rules themselves (the old
+ * 15-minute quarter-day cut before 2026-12-01, the memo's 10-minute grace with no cut from then on) are in lib/workRules.js.
+ */
 export function calculateAttendanceStatus(employeeName, clockInDate) {
-  const sched = getEmployeeScheduleForDate(employeeName, clockInDate);
-  if (!sched) {
-    const hour = clockInDate.getHours();
-    return {
-      status: hour >= 10 ? "Late" : "Present",
-      lateCutApplied: false,
-      lateMinutes: 0
-    };
-  }
-
-  const [startHour, startMin] = sched.start.split(":").map(Number);
-  const scheduledTime = new Date(clockInDate);
-  scheduledTime.setHours(startHour, startMin, 0, 0);
-
-  const diffMs = clockInDate.getTime() - scheduledTime.getTime();
-  const diffMins = diffMs / (1000 * 60);
-
-  if (diffMins >= 15) {
-    // 15+ minutes past scheduled start → forfeit 25% of that day's salary
-    return {
-      status: "Late",
-      lateCutApplied: true,
-      lateMinutes: Math.round(diffMins)
-    };
-  } else if (diffMins > 0) {
-    return {
-      status: "Late",
-      lateCutApplied: false,
-      lateMinutes: Math.round(diffMins)
-    };
-  } else {
-    return {
-      status: "Present",
-      lateCutApplied: false,
-      lateMinutes: 0
-    };
-  }
+  return judgeArrival(getEmployeeScheduleForDate(employeeName, clockInDate), clockInDate);
 }
 

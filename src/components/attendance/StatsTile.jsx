@@ -13,7 +13,7 @@ const BAD = "var(--kb-bad-fill)";
  * day anyone was recorded, with the people who were late most often underneath when there is room.
  * `summary` is personMonth() or teamMonth() from lib/attendance.js: they have the same counts.
  */
-export default function StatsTile({ kind, summary, label, loading }) {
+export default function StatsTile({ kind, summary, label, loading, showCuts = true }) {
   const { present, late, cuts, absent, leave, minutes } = summary;
   const arrived = present + late;
   const onTime = kind === "team" ? summary.onTimePct : (arrived ? Math.round((present / arrived) * 100) : null);
@@ -43,11 +43,14 @@ export default function StatsTile({ kind, summary, label, loading }) {
             <b>{r.n}</b>
           </li>
         ))}
-        <li>
-          <span className="kb-dot" style={{ background: "transparent", boxShadow: `inset 0 0 0 2px ${BAD}` }} />
-          <span className="kb-att-l">Salary cuts</span>
-          <b>{cuts}</b>
-        </li>
+        {/* the 25% cut ended on 2026-11-30: a month the new rules cover has none to count (unless an old record turns one up) */}
+        {(showCuts || cuts > 0) && (
+          <li>
+            <span className="kb-dot" style={{ background: "transparent", boxShadow: `inset 0 0 0 2px ${BAD}` }} />
+            <span className="kb-att-l">Salary cuts</span>
+            <b>{cuts}</b>
+          </li>
+        )}
       </ul>
 
       {kind === "team" && (

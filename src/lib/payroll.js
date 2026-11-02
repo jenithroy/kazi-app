@@ -1,7 +1,7 @@
 /**
- * Payroll: the sums the Payroll page shows, free of React. A payroll record is one person's pay for one month: basic and bonus make
- * the gross, the late cut and PF (or other) come off it, and what is left is the net. The record's own maths is `calcPayroll`
- * (lib/finance.js); this file groups records into months and adds them up.
+ * Payroll: the sums the Payroll page shows, free of React. A payroll record is one person's pay for one month: basic, bonus, overtime
+ * and receivable due make the gross, the late or leave deduction, advance, PF (or other) and TDS come off it, and what is left is the
+ * net. The record's own maths is `computePayroll` (lib/payrollMath.js); this file groups records into months and adds them up.
  */
 import { MONTHS, monthsCovered } from "./finance";
 

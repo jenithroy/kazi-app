@@ -78,7 +78,7 @@ function App() {
             need them. It shows only the duties their permissions already
             allow, so it discloses nothing the sidebar doesn't. */}
         <Route path="/roles"       element={<Roles />} />
-        {/* The Leaderboard is a preview for everyone (it shows no one's data), so it is ungated too. */}
+        {/* The Leaderboard is for everyone signed in: the database ranks the hours and returns only what the board shows, so it is ungated too. */}
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/bug-report"  element={<SysPage><BugReport /></SysPage>} />
         <Route path="/changelog"   element={<SysPage><Changelog /></SysPage>} />

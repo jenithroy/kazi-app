@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Tile } from "../bento/Bento";
 import { Icons, cn } from "../ui";
 import { STATE_LABEL, dayShort, fmtClock, fmtMinutes, humanNote } from "../../lib/attendance";
+import { rulesOn } from "../../lib/workRules";
 import NoteEditor from "./NoteEditor";
 
 const ICON = {
@@ -13,7 +14,7 @@ const ICON = {
 const closedWord = (row) => (row?.off?.kind === "holiday" ? "Holiday" : STATE_LABEL.closed);
 
 /** One plain sentence under the headline: why the day reads the way it does. */
-function why(row, isToday) {
+function why(row, isToday, date) {
   if (!row) return isToday ? "Not clocked in yet" : "Nothing was recorded";
   switch (row.state) {
     case "present": return row.inAt ? "You were on time" : "Marked present";
@@ -21,7 +22,7 @@ function why(row, isToday) {
       const by = row.lateMinutes
         ? `${row.lateMinutes} min after ${row.shift?.start || "the start"}`
         : row.inAt ? "Clocked in after the start time" : "Marked late";
-      return `${by} · ${row.lateCut ? "25% salary cut" : "no salary cut"}`;
+      return rulesOn(date) === "old" ? `${by} · ${row.lateCut ? "25% salary cut" : "no salary cut"}` : by;
     }
     case "half": return "Half a day";
     case "leave": return "You were on leave";
@@ -69,6 +70,9 @@ export default function TodayTile({ row, date, today, loading, onSaveNote }) {
     ["Out", outT || (row?.sofar != null ? "…" : "—"), ""],
     [row?.sofar != null && row?.worked == null ? "So far" : "Worked", length, "is-h240"],
     ...(row?.shift ? [["Shift", `${row.shift.start}–${row.shift.end}`, "is-h240"]] : []),
+    ...(row?.overtime
+      ? [["Overtime", row.overtime.minutes > 0 ? fmtMinutes(row.overtime.minutes) : `approved ${row.overtime.from}–${row.overtime.until}`, "is-h240"]]
+      : []),
     ["From the workshop", row?.distanceM != null ? `${row.distanceM} m` : "—", "is-h300"],
   ];
 
@@ -84,7 +88,7 @@ export default function TodayTile({ row, date, today, loading, onSaveNote }) {
         <span className="at-state-ic" aria-hidden="true"><Icon size={18} sw={2} /></span>
         <div>
           <b>{state === "closed" ? closedWord(row) : STATE_LABEL[state]}</b>
-          <span>{why(row, isToday)}</span>
+          <span>{why(row, isToday, date)}</span>
         </div>
       </div>
 

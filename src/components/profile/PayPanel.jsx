@@ -21,8 +21,9 @@ const amount = (n) => (Number(n) ? fmt.npr(n) : "—");
 
 function Latest({ r, onSlip }) {
   const lines = [
-    ["Basic", r.basicNPR], ["Bonus", r.bonusNPR], ["Gross", r.grossNPR || null],
-    ["Late cut", r.lateDeductionNPR ? -r.lateDeductionNPR : null], ["PF or other", r.pfDeductionNPR ? -r.pfDeductionNPR : null],
+    ["Basic", r.basicNPR], [r.bonusReason ? `Bonus (${r.bonusReason})` : "Bonus", r.bonusNPR], ["Overtime", r.overtimeNPR], ["Receivable due", r.receivableDueNPR], ["Gross", r.grossNPR || null],
+    ["Late or leave cut", r.lateDeductionNPR ? -r.lateDeductionNPR : null], ["Advance", r.advanceNPR ? -r.advanceNPR : null],
+    ["PF or other", r.pfDeductionNPR ? -r.pfDeductionNPR : null], ["TDS", r.tdsNPR ? -r.tdsNPR : null],
   ].filter(([, v]) => Number(v));
   return (
     <div className="kpp-latest">

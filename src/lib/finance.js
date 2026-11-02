@@ -517,20 +517,3 @@ export function labourRatePerUnit({ payroll, employees, production, now = new Da
     .reduce((s, b) => s + Number(b.passed || 0), 0);
   return lastMonthPayroll > 0 && lastMonthUnits > 0 ? lastMonthPayroll / lastMonthUnits : null;
 }
-
-/* ── Payroll ──────────────────────────────────────────────────────── */
-
-/** A payroll record's maths: gross is basic plus bonus, net is gross less the late cut and PF, never below nothing. */
-export function calcPayroll(f) {
-  const basic = Number(f.basicNPR || 0);
-  const autoLate = Number(f.lateSalaryCutDeduction || 0);
-  const adjustment = Number(f.lateAdjustmentNPR || 0);
-  const late = Math.max(0, autoLate + adjustment);
-  const pf = Number(f.pfDeductionNPR || 0);
-  const bonus = Number(f.bonusNPR || 0);
-  const gross = basic + bonus;
-  const totalDeductions = late + pf;
-  const rawNet = gross - totalDeductions;
-  const net = Math.max(0, rawNet);
-  return { gross, late, autoLate, adjustment, pf, totalDeductions, net, deductionsExceedGross: rawNet < 0 };
-}

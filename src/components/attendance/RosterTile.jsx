@@ -5,6 +5,7 @@ import { Undo } from "../bento/icons";
 import PersonLink from "../profile/PersonLink";
 import { FindBar } from "../filters/FilterMenu";
 import { STATE_LABEL, dayTitle, fmtClock, fmtMinutes, humanNote, isSat } from "../../lib/attendance";
+import { rulesOn } from "../../lib/workRules";
 import StatusTag from "./StatusTag";
 import ModeSwitch from "./ModeSwitch";
 import NoteEditor from "./NoteEditor";
@@ -19,12 +20,13 @@ const CHIPS = [
 ];
 
 /**
- * The five status buttons of a row in edit mode, then the 25% cut (for a late day) and the note.
+ * The five status buttons of a row in edit mode, then the 25% cut (for a late day the old rule judged: from 1 December 2026 there is
+ * no cut) and the note.
  * Pressing a status saves at once (and offers Undo). While that row is saving the buttons are
  * `aria-disabled` rather than `disabled`, so the one that was pressed keeps the keyboard focus (a
  * disabled button drops it). A note needs a day somebody has recorded, so it waits for a status.
  */
-function Chips({ row, busy, onSet, onCut, noting, onToggleNote, noteRef }) {
+function Chips({ row, busy, onSet, onCut, noting, onToggleNote, noteRef, showCut }) {
   const stored = row.missedClockOut ? null : row.status;
   const hasNote = Boolean(humanNote(row.record));
   return (
@@ -41,7 +43,7 @@ function Chips({ row, busy, onSet, onCut, noting, onToggleNote, noteRef }) {
           {label}
         </button>
       ))}
-      {row.state === "late" && (
+      {row.state === "late" && showCut && (
         <button
           type="button"
           className={cn("at-chip at-chip--cut", row.lateCut && "is-on")}
@@ -67,13 +69,21 @@ function Chips({ row, busy, onSet, onCut, noting, onToggleNote, noteRef }) {
   );
 }
 
+/** What approved overtime says for the day: what counted, or that it was approved and nothing was worked, or until when it runs. */
+function overtimeText(row) {
+  const ot = row.overtime;
+  if (!ot) return "";
+  if (ot.minutes > 0) return `${fmtMinutes(ot.minutes)} overtime`;
+  return ot.clockedOut ? "overtime approved, none worked" : `overtime approved until ${ot.until}`;
+}
+
 /** The quieter second line under a status: what is worth knowing beyond the status itself. */
-function detail(row) {
+function detail(row, rules) {
   const note = humanNote(row.record);
   let first = "";
-  if (row.state === "late") first = `${row.lateMinutes ? `${row.lateMinutes} min late` : "late"} · ${row.lateCut ? "25% cut" : "no cut"}`;
+  if (row.state === "late") first = `${row.lateMinutes ? `${row.lateMinutes} min late` : "late"}${rules === "old" ? ` · ${row.lateCut ? "25% cut" : "no cut"}` : ""}`;
   else if (row.missedClockOut) first = "no clock-out";
-  return [first, note].filter(Boolean).join(" · ");
+  return [first, overtimeText(row), note].filter(Boolean).join(" · ");
 }
 
 function Row({ row, date, edit, busy, onSet, onCut, onNote }) {
@@ -83,7 +93,8 @@ function Row({ row, date, edit, busy, onSet, onCut, onNote }) {
   const giveBack = useRef(false);                              // the box was closed from inside (Save, Cancel, Escape): the keyboard goes back to the Note button
   const live = row.worked == null && row.sofar != null;       // still clocked in: the time is running
   const hours = row.worked != null ? fmtMinutes(row.worked) : live ? fmtMinutes(row.sofar) : "";
-  const sub = detail(row);
+  const rules = rulesOn(date);                                // the day decides which rule judged it
+  const sub = detail(row, rules);
   const open = edit && noting;
 
   // another day, or leaving Edit: a box left open would save what was typed onto the wrong day
@@ -116,7 +127,7 @@ function Row({ row, date, edit, busy, onSet, onCut, onNote }) {
       </span>
       <span className="at-c-st">
         {edit ? (
-          <Chips row={row} busy={busy} onSet={onSet} onCut={onCut} noting={noting} onToggleNote={() => setNoting((v) => !v)} noteRef={noteBtn} />
+          <Chips row={row} busy={busy} onSet={onSet} onCut={onCut} noting={noting} onToggleNote={() => setNoting((v) => !v)} noteRef={noteBtn} showCut={rules === "old"} />
         ) : (
           <>
             {row.state === "closed" ? <span className="at-dim">—</span> : <StatusTag state={row.state} />}

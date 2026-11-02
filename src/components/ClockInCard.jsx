@@ -9,6 +9,7 @@ import { useReward } from "../context/RewardContext";
 import { getCurrentPosition, hapticSuccess } from "../utils/native";
 import { useHolidays } from "../hooks/useHolidays";
 import { holidayOn } from "../lib/holidayDays";
+import { fetchApprovals } from "../lib/overtime";
 
 function fmtHM(date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
@@ -50,6 +51,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
   const [clockedOutAtStr, setClockedOutAtStr] = useState(null);
   const [workedHours, setWorkedHours] = useState(null);
   const [confirmingOut, setConfirmingOut] = useState(false);
+  const [approval, setApproval] = useState(null);            // overtime approved for today ({ from, until }), said under the circle
 
   // Live timer
   useEffect(() => {
@@ -64,6 +66,16 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
       .then(setEmployeeScheduleOverrides)
       .catch(err => console.warn("Could not load employee schedules:", err));
   }, []);
+
+  // Overtime approved for today. It can only be approved before they clock in, so asking once a day is enough; a database
+  // without the overtime table (or a person nobody approved) simply has none.
+  useEffect(() => {
+    if (!personId) return undefined;
+    let live = true;
+    fetchApprovals({ from: today, to: today, personId }).then((rows) => { if (live) setApproval(rows[0] || null); }, () => {});
+    return () => { live = false; };
+  }, [personId, today]);
+  const otNote = approval ? `Overtime approved ${approval.from} to ${approval.until}.` : "";
 
   // Fetch initial clock-in status
   useEffect(() => {
@@ -337,6 +349,8 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
       extra = act("ghost", "Clock back in", handleClockBackIn);
     }
 
+    if (otNote && !isOfficeClosedToday && (status === "idle" || status === "clocked" || status === "clocked_out")) note = `${note} ${otNote}`;
+
     return (
       <div className="kb-clockring" data-tour="clock-in">
         <button
@@ -421,6 +435,8 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
       detail = workedHours != null ? `${workedHours} h logged today.` : "";
       acts = btn("ghost", "Clock back in", handleClockBackIn);
     }
+
+    if (otNote && !isOfficeClosedToday && (status === "idle" || status === "clocked" || status === "clocked_out")) detail = detail ? `${detail} ${otNote}` : otNote;
 
     return (
       <div className={`kb-clock kb-clock--${variant}`} data-tour="clock-in">

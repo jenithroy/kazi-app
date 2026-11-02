@@ -8,7 +8,8 @@
  *             Beside the search is the Filters button: the period (a fiscal year, or any From / To) and what narrows the records, a person,
  *             a position, a month, a net-pay range, a late cut, PF, a bonus, a note (lib/payrollFilters.js). The header line says the period.
  *
- * The salary maths, who may see or change payroll, the attendance-driven late cut and the salary slip are the old tab's.
+ * "Run payroll" fills a whole month at once (components/finance/cards/PayrollRunCard.jsx) and prints every salary slip. The salary maths is
+ * lib/payrollMath.js, who may see or change payroll is the old tab's, and so is the salary slip.
  */
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -20,6 +21,7 @@ import { FindBar } from "../components/filters/FilterMenu";
 import useFilters from "../components/filters/useFilters";
 import FinPane from "../components/finance/FinPane";
 import PayrollCard from "../components/finance/cards/PayrollCard";
+import PayrollRunCard from "../components/finance/cards/PayrollRunCard";
 import SalarySlipModal from "../components/SalarySlipModal";
 import { ExportButton, Foot, FootSum, NameCell, plural, useMoney, usePhoneRows, useShiftN } from "../components/finance/parts";
 import "../components/finance/finance.css";
@@ -31,6 +33,7 @@ import { useFiscalYearFilter } from "../components/FiscalYearFilter";
 import { useDateRangeFilter } from "../components/DateRangeFilter";
 import { describePeriod } from "../lib/period";
 import { groupByMonth, headline, totalsOf } from "../lib/payroll";
+import { slipOf } from "../lib/personPay";
 import { payrollFilterDefs } from "../lib/payrollFilters";
 import useDateMode from "../hooks/useDateMode";
 
@@ -52,6 +55,7 @@ export default function Payroll() {
   const [query, setQuery] = useState("");
   const [card, setCard] = useState(null);                  // null, or { id } (null id = a new record)
   const [slip, setSlip] = useState(null);                  // a salary slip's starting values
+  const [running, setRunning] = useState(false);           // the monthly run's card
   useShiftN(canEdit ? () => setCard({ id: null }) : null);
 
   // The fiscal year and a From / To narrow the records. A record carries a month name and a year, not a date, so the period is judged on
@@ -93,11 +97,6 @@ export default function Payroll() {
   const [shown, more] = usePhoneRows(list, 24);
 
   const open = card?.id ? data.payroll.find((r) => r.id === card.id) || null : null;
-  const slipOf = (r) => ({
-    empName: r.staffName, designation: r.role, month: r.month, year: r.year,
-    basicNPR: r.basicNPR, bonusNPR: r.bonusNPR, lateDeductionNPR: r.lateDeductionNPR, pfDeductionNPR: r.pfDeductionNPR,
-  });
-
   const columns = useMemo(() => [
     {
       // a narrow table has no room for the late cut or the gross: they go under the name
@@ -106,17 +105,21 @@ export default function Payroll() {
         <NameCell
           main={(r.staffName || "").trim() ? <PersonLink className="kpl--clip" personId={r.person_id || undefined} name={(r.staffName || "").trim()} /> : "—"} rest={r.role}
           title={[(r.staffName || "").trim(), r.role].filter(Boolean).join(" · ")}
-          extra={[dropped.has("late") && r.lateDeductionNPR > 0 && `Late cut − ${money(r.lateDeductionNPR)}`, dropped.has("gross") && r.grossNPR > 0 && `Gross ${money(r.grossNPR)}`]}
+          extra={[dropped.has("late") && r.lateDeductionNPR > 0 && `Late or leave cut − ${money(r.lateDeductionNPR)}`, dropped.has("gross") && r.grossNPR > 0 && `Gross ${money(r.grossNPR)}`]}
         />
       ),
     },
     { id: "basic", label: "Basic", width: 116, align: "end", drop: 5, render: (r) => <span className="dt-num">{r.basicNPR ? money(r.basicNPR) : "—"}</span> },
-    { id: "bonus", label: "Bonus", width: 100, align: "end", drop: 6, render: (r) => <span className="dt-num dt-dim">{r.bonusNPR ? money(r.bonusNPR) : "—"}</span> },
+    { id: "bonus", label: "Bonus", width: 100, align: "end", drop: 6, render: (r) => <span className="dt-num dt-dim" title={r.bonusNPR && r.bonusReason ? r.bonusReason : undefined}>{r.bonusNPR ? money(r.bonusNPR) : "—"}</span> },
+    { id: "ot", label: "Overtime", width: 100, align: "end", drop: 8, render: (r) => <span className="dt-num dt-dim">{r.overtimeNPR > 0 ? money(r.overtimeNPR) : "—"}</span> },
     {
-      id: "late", label: "Late cut", width: 116, align: "end", drop: 4,
-      render: (r) => (r.lateDeductionNPR ? <span className="dt-num dt-bad" title={r.lateCutsCount ? `${r.lateCutsCount} quarter-day cuts` : undefined}>− {money(r.lateDeductionNPR)}</span> : <span className="dt-dim">—</span>),
+      id: "late", label: "Late or leave", width: 116, align: "end", drop: 4,
+      render: (r) => (r.lateDeductionNPR
+        ? <span className="dt-num dt-bad" title={r.unapprovedAbsences ? `${r.unapprovedAbsences} unapproved absences` : r.lateCutsCount ? `${r.lateCutsCount} quarter-day cuts` : undefined}>− {money(r.lateDeductionNPR)}</span>
+        : <span className="dt-dim">—</span>),
     },
     { id: "pf", label: "PF or other", width: 108, align: "end", drop: 7, render: (r) => (r.pfDeductionNPR ? <span className="dt-num dt-bad">− {money(r.pfDeductionNPR)}</span> : <span className="dt-dim">—</span>) },
+    { id: "tds", label: "TDS", width: 100, align: "end", drop: 5, render: (r) => (r.tdsNPR > 0 ? <span className="dt-num dt-bad" title={r.tdsRatePct != null ? `${Number(r.tdsRatePct)}% of what they earned after the late or leave deduction` : undefined}>− {money(r.tdsNPR)}</span> : <span className="dt-dim">—</span>) },
     { id: "gross", label: "Gross", width: 120, align: "end", drop: 3, render: (r) => <span className="dt-num">{r.grossNPR ? money(r.grossNPR) : "—"}</span> },
     { id: "net", label: "Net pay", width: 124, align: "end", render: (r) => <span className="dt-num dt-strong">{money(r.netNPR || 0)}</span> },
     {
@@ -131,8 +134,10 @@ export default function Payroll() {
 
   const csv = useMemo(() => [
     { label: "Staff", value: (r) => (r.staffName || "").trim() }, { label: "Role", value: (r) => r.role }, { label: "Month", value: (r) => r.month },
-    { label: "Year", value: (r) => r.year }, { label: "Basic NPR", value: (r) => r.basicNPR }, { label: "Bonus NPR", value: (r) => r.bonusNPR },
-    { label: "Late deduction NPR", value: (r) => r.lateDeductionNPR }, { label: "PF or other NPR", value: (r) => r.pfDeductionNPR },
+    { label: "Year", value: (r) => r.year }, { label: "Basic NPR", value: (r) => r.basicNPR }, { label: "Bonus NPR", value: (r) => r.bonusNPR }, { label: "Bonus for", value: (r) => r.bonusReason },
+    { label: "Overtime NPR", value: (r) => r.overtimeNPR }, { label: "Receivable due NPR", value: (r) => r.receivableDueNPR },
+    { label: "Late or leave deduction NPR", value: (r) => r.lateDeductionNPR }, { label: "Advance NPR", value: (r) => r.advanceNPR },
+    { label: "PF or other NPR", value: (r) => r.pfDeductionNPR }, { label: "TDS NPR", value: (r) => r.tdsNPR },
     { label: "Gross NPR", value: (r) => r.grossNPR }, { label: "Net NPR", value: (r) => r.netNPR },
   ], []);
 
@@ -190,11 +195,11 @@ export default function Payroll() {
           </Tile>
           <Tile area="t2" icon={<Icons.File {...ico} />} title="Gross pay" note={head.label} loading={loading} className="fn-t">
             <Figure><Money npr={head.gross} compact={Math.abs(head.gross) >= 1e7} /></Figure>
-            <Sub>basic and bonus</Sub>
+            <Sub>basic, bonus, overtime and receivable</Sub>
           </Tile>
           <Tile area="t3" icon={<Icons.Alert {...ico} />} title="Taken off" note={head.label} loading={loading} className="fn-t">
             <Figure><Money npr={head.deductions} compact={Math.abs(head.deductions) >= 1e7} /></Figure>
-            <Sub>late cuts, PF and other</Sub>
+            <Sub>late or leave cuts, advance, PF and TDS</Sub>
           </Tile>
           <Tile area="t4" icon={<Icons.Employees {...ico} />} title="People paid" note={head.label} loading={loading} className="fn-t">
             <Figure>{head.people}</Figure>
@@ -211,8 +216,13 @@ export default function Payroll() {
                   <Icons.File size={14} sw={1.9} aria-hidden="true" /> Salary slip
                 </button>
                 {canEdit && (
-                  <button type="button" className="kb-btn kb-btn--primary" onClick={() => setCard({ id: null })} title="Shift + N">
+                  <button type="button" className="kb-pillbtn" onClick={() => setCard({ id: null })} title="Shift + N">
                     <Icons.Plus size={13} sw={2.2} aria-hidden="true" /> Add payroll
+                  </button>
+                )}
+                {canEdit && (
+                  <button type="button" className="kb-btn kb-btn--primary" onClick={() => setRunning(true)} title="Fill a whole month at once and print every slip">
+                    <Icons.Wallet size={13} sw={2} aria-hidden="true" /> Run payroll
                   </button>
                 )}
               </>
@@ -243,6 +253,9 @@ export default function Payroll() {
           key={card.id || "new"} record={open} employees={data.employees} canEdit={canEdit} profile={profile}
           reload={data.reload} onClose={() => setCard(null)}
         />
+      )}
+      {running && (
+        <PayrollRunCard employees={data.employees} payroll={data.payroll} canEdit={canEdit} profile={profile} reload={data.reload} onClose={() => setRunning(false)} />
       )}
       {slip !== null && <SalarySlipModal initialData={slip} employees={data.employees} onClose={() => setSlip(null)} />}
     </BentoPage>

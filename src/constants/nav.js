@@ -37,7 +37,7 @@ export const NAV_GROUPS = [
       { id: "tasks",      to: "/tasks",      label: "Tasks",      Icon: Icons.Tasks,      desc: "Team task board",         can: section("tasks") },
       { id: "attendance", to: "/attendance", label: "Attendance", Icon: Icons.Attendance, desc: "Clock-in and daily logs", can: section("attendance") },
       // A preview for everyone: it shows nobody's data, so like Roles & Duties it is open to anyone signed in.
-      { id: "leaderboard", to: "/leaderboard", label: "Leaderboard", Icon: Icons.Trophy, desc: "Coming soon", can: everyone },
+      { id: "leaderboard", to: "/leaderboard", label: "Leaderboard", Icon: Icons.Trophy, desc: "Hours worked this month", can: everyone },
     ],
   },
   {
@@ -105,8 +105,10 @@ export const NAV_GROUPS = [
 /**
  * Chat sits outside the dropdowns: a solid icon button of its own at the right
  * of the bar, so the conversation tool people open all day is one click away.
- * The page used to be called Messenger; it is still served at /messenger, which
- * is where links and push notifications point.
+ * It opens a window over the page you are on (components/chat/ChatProvider.jsx),
+ * the way a profile does, so the button is not a link. The page used to be called
+ * Messenger and is still answered at /messenger (`to`), which opens the same
+ * window: that is where old links and push notifications point.
  */
 export const CHAT = { id: "chat", to: "/messenger", label: "Chat", Icon: Icons.ChatFill, can: section("messenger") };
 

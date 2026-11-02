@@ -155,11 +155,14 @@ export const NOTE_MAX = 280;
 /**
  * Everyone on the roster for one day, in one shape: who, how the day stands, when they came and
  * went. `staff` is the directory (with `personId`), `records` and `clocks` are that day's rows.
+ * `overtime` is that day's approved overtime (lib/overtime.js `fetchOvertimeDays`): a row that has an
+ * approval carries it as `overtime` ({ from, until, reason, minutes (what counted), clockedOut }).
  * `now` is only used to say how long someone who has not clocked out has been in.
  */
-export function buildRoster({ staff, records, clocks, date, today = date, now = new Date(), holidays = [] }) {
+export function buildRoster({ staff, records, clocks, date, today = date, now = new Date(), holidays = [], overtime = [] }) {
   const recBy = new Map(records.map((r) => [r.person_id, r]));
   const clkBy = new Map(clocks.map((c) => [c.person_id, c]));
+  const otBy = new Map(overtime.map((o) => [o.personId, o]));
   return staff
     .filter((s) => s.personId)
     .map((s) => {
@@ -187,6 +190,7 @@ export function buildRoster({ staff, records, clocks, date, today = date, now = 
         distanceM: clk?.distanceToSiteM ?? null,
         viaGps: Boolean(inAt),
         note: rec?.note || "",
+        overtime: otBy.get(s.personId) || null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

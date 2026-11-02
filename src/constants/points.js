@@ -2,7 +2,7 @@
  * How points are shown, for when they are switched on.
  *
  * POINTS ARE PAUSED (2026-10-22): no screen draws them and nothing awards them to anyone (the Leaderboard
- * page is only a preview). Tasks used to pay by priority (20, 30, +10 on time); that was taken out because a
+ * page ranks hours worked, not points: lib/workHours.js). Tasks used to pay by priority (20, 30, +10 on time); that was taken out because a
  * priority is not a value and anyone could add small tasks to collect them. What will earn points has not
  * been decided yet (see DESIGN.md "Points"). The helpers below, `src/lib/points.js`, `hooks/usePoints.js`,
  * `components/PointsPanel.jsx` and the database functions of migration 0057 are what the real thing will use.

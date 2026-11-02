@@ -8,6 +8,7 @@ import { Icons } from "../ui";
 import Select from "../Select";
 import { WEEKDAYS } from "../../constants";
 import { effectiveWeek, hhmm, hoursOf } from "../../lib/employees";
+import { GRACE_MIN, NEW_RULES_FROM, localIso, rulesOn } from "../../lib/workRules";
 
 /** Which days count as working days. An unset list means every day counts (the attendance rules), so it reads as all seven on. */
 export function DaysPicker({ value, onChange, disabled, label }) {
@@ -102,10 +103,15 @@ export function WeekGlance({ form, name }) {
 /** What the attendance rules do for this form, in a sentence or two (shown under the week). */
 export function RuleNote({ form, name }) {
   const own = Boolean(hhmm(form.scheduleStart) && hhmm(form.scheduleEnd));
+  // from 1 December 2026 the memo's rules apply (a 10-minute grace, lateness recorded in minutes, no pay cut)
+  const memo = rulesOn(localIso(new Date())) === "new";
+  const since = new Date(`${NEW_RULES_FROM}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   if (own) {
     return (
       <p className="ec-note ec-wide">
-        Arriving after the start time is marked late. From <b>15 minutes</b> late it also flags a cut of a quarter of that day's pay.
+        {memo
+          ? <>Arriving up to <b>{GRACE_MIN} minutes</b> after the start time is on time. Later is marked late and the minutes are recorded. There is no flat pay cut for lateness.</>
+          : <>Arriving after the start time is marked late. From <b>15 minutes</b> late it also flags a cut of a quarter of that day's pay. From <b>{since}</b> that cut goes: up to <b>{GRACE_MIN} minutes</b> late is on time, and later is recorded in minutes with no cut.</>}
         {Array.isArray(form.scheduleWorkingDays) && form.scheduleWorkingDays.length ? " Arrivals on a day off are judged by the 10:00 rule." : ""}
       </p>
     );
@@ -115,7 +121,9 @@ export function RuleNote({ form, name }) {
     <p className="ec-note ec-wide">
       {built.source === "builtin"
         ? <>No hours are saved here, so the built-in <b>{built.time}</b> applies. Save hours here to replace them.</>
-        : <>No hours set. Anyone clocking in at <b>10:00</b> or later is marked late, with no pay cut.</>}
+        : memo
+          ? <>No hours set. The normal day, <b>10:00</b> to <b>18:00</b>, applies: arriving more than {GRACE_MIN} minutes after 10:00 is marked late, with no flat pay cut.</>
+          : <>No hours set. Anyone clocking in at <b>10:00</b> or later is marked late, with no pay cut.</>}
     </p>
   );
 }

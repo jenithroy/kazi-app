@@ -1,101 +1,89 @@
 /**
- * Leaderboard: a PREVIEW of the board that is coming, on the same frosted-glass frame as the other redone pages.
+ * Leaderboard: who has put in the most hours this month, on the same frosted-glass frame as the other redone pages.
  *
- * It does nothing and shows nobody. Points are on hold (2026-10-22: a task's priority is not its value, and tasks
- * were too easy to add and tick off), so what staff see is the shape of the board with the names left out: a
- * podium and a few rows drawn as grey placeholders, a glass card saying "Coming soon" over them, and an empty
- * "Your place" beside it. No names, no numbers and no rules are shown on purpose: nothing has been decided
- * about what earns points, and the extra pay that will follow the points has not been announced.
+ * It ranks everyone still Active by hours counted (lib/workHours.js): the time between clocking in and out that falls inside each
+ * person's OWN hours that day, plus overtime approved before they clocked in. Time beyond their hours, or beyond an approval, counts
+ * for nothing, so the board cannot be climbed by staying late unasked. Points are still on hold (2026-10-22: a task's priority is not
+ * its value, and tasks were too easy to add and tick off), and this board does not use them: it is hours, which the clock-in records.
  *
- * It reads no data, so there is nothing to load, fail or gate: the route is open to everyone signed in, the
- * same as Roles & Duties. The preview is `aria-hidden` and `inert` (it is a picture, not content), and the
- * words that matter ("Coming soon", "Nothing is being counted yet") are real text. When the real board is built
- * it replaces the preview in the `board` tile and the ring in the `you` tile; the helpers it will use are in
- * constants/points.js, lib/points.js, hooks/usePoints.js and components/PointsPanel.jsx.
+ *   board  the top three on a podium and the rest under it, best first, with a month to look at (this one, or an earlier one)
+ *   you    your place: where you stand, your hours, your overtime and the days you were counted
  *
- * One screen on a laptop; on a phone the page scrolls and the two tiles stack (MOBILE.md).
+ * The route is open to everyone signed in; the ranking is done by the database, which returns only what the board shows. A database
+ * that does not have it yet (migration 0064) says so instead of showing an empty board. One screen on a laptop; on a phone the page
+ * scrolls and the two tiles stack (MOBILE.md).
  */
-import { BentoGrid, BentoPage, Tile } from "../components/bento/Bento";
+import { useMemo, useState } from "react";
+import { BentoGrid, BentoPage, EmptyNote, Tile } from "../components/bento/Bento";
 import { Star } from "../components/bento/icons";
 import { Icons } from "../components/ui";
+import Board from "../components/leaderboard/Board";
+import useWorkHours from "../hooks/useWorkHours";
+import { useAuth } from "../context/AuthContext";
+import { fmtMinutes, isoFromDate, monthOf, monthTitle, shiftMonth } from "../lib/attendance";
 import "../components/leaderboard/leaderboard.css";
-
-/** A head and shoulders, standing in for someone's picture. */
-function Person() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="9" r="3.6" />
-      <path d="M5 20c.7-3.6 3.5-5.6 7-5.6s6.3 2 7 5.6" />
-    </svg>
-  );
-}
-
-/** Second, first and third, left to right: the winner is in the middle and stands tallest. */
-const PODIUM = [2, 1, 3];
-const ROWS = [4, 5, 6, 7, 8];
-
-/**
- * The picture. The rank numbers are drawn by the stylesheet from `data-n`, not written as text, so nothing in it
- * reads as content to a screen reader or a contrast checker.
- */
-function Sketch() {
-  return (
-    <div className="lb-preview" aria-hidden="true" inert="">
-      <div className="lb-podium">
-        {PODIUM.map((n) => (
-          <div key={n} className={`lb-step lb-step--${n}`}>
-            {n === 1 && <Star className="lb-crown" size={18} sw={1.8} />}
-            <span className="lb-av lb-av--lg"><Person /></span>
-            <span className="lb-bar lb-bar--name" />
-            <span className="lb-bar lb-bar--pts" />
-            <span className="lb-block" data-n={n} />
-          </div>
-        ))}
-      </div>
-      <ol className="lb-rows">
-        {ROWS.map((n) => (
-          <li key={n}>
-            <span className="lb-n" data-n={n} />
-            <span className="lb-av"><Person /></span>
-            <span className="lb-bar lb-bar--name" />
-            <span className="lb-bar lb-bar--pts" />
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
+import "../components/leaderboard/board.css";
 
 export default function Leaderboard() {
+  const { profile } = useAuth();
+  const me = profile?.personId || "";
+  const current = useMemo(() => monthOf(isoFromDate(new Date())), []);
+  const [month, setMonth] = useState(current);
+  const board = useWorkHours({ from: month.start, to: month.end });
+  const mine = board.rows.find((r) => r.personId === me) || null;
+  const loading = board.status === "loading";
+
+  let stage;
+  if (board.status === "unavailable") {
+    stage = <EmptyNote icon={<Icons.Trophy size={22} sw={1.5} />}>The leaderboard is not switched on in the database yet (it needs migration 0064).</EmptyNote>;
+  } else if (board.status === "error") {
+    stage = (
+      <div className="kb-error" role="alert">
+        <p>{board.error || "The leaderboard could not load."}</p>
+        <button type="button" className="kb-btn kb-btn--ghost" onClick={board.reload}>Try again</button>
+      </div>
+    );
+  } else if (board.rows.length === 0) {
+    stage = <EmptyNote icon={<Icons.Trophy size={22} sw={1.5} />}>Nobody has clocked in during {monthTitle(month)} yet.</EmptyNote>;
+  } else {
+    stage = <Board rows={board.rows} meId={me} />;
+  }
+
   return (
     <BentoPage className="lb-page">
       <header className="kb-head kb-head--stack">
         <div className="kb-head-l">
           <h1>Leaderboard</h1>
-          <p className="kb-head-sub"><span>A first look at what&apos;s coming</span></p>
+          <p className="kb-head-sub"><span>Hours worked inside each person's own hours, plus overtime approved before they clocked in</span></p>
+        </div>
+        <div className="kb-head-r">
+          <div className="kb-head-act">
+            <button type="button" className="kb-pillbtn" aria-label="Earlier month" onClick={() => setMonth(shiftMonth(month, -1))}>
+              <Icons.ChevronLeft size={14} sw={2} aria-hidden="true" />
+            </button>
+            <span className="lbr-month" aria-live="polite">{monthTitle(month)}</span>
+            <button type="button" className="kb-pillbtn" aria-label="Later month" disabled={month.start >= current.start} onClick={() => setMonth(shiftMonth(month, 1))}>
+              <Icons.ChevronRight size={14} sw={2} aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </header>
 
       <BentoGrid layout="leaderboard">
-        <Tile area="board" className="lb-board" icon={<Icons.Trophy size={14} sw={1.9} />} title="The team" note="Preview" align="top">
-          <div className="lb-stage">
-            <Sketch />
-            <div className="lb-veil">
-              <div className="lb-card">
-                <span className="lb-card-chip" aria-hidden="true"><Icons.Trophy size={20} sw={1.7} /></span>
-                <h3>Coming soon</h3>
-                <p>Nothing is being counted yet.</p>
-              </div>
-            </div>
-          </div>
+        <Tile area="board" className="lb-board lb-board--real" icon={<Icons.Trophy size={14} sw={1.9} />} title="The team" note={monthTitle(month)} align="top" loading={loading}>
+          {stage}
         </Tile>
 
-        <Tile area="you" className="lb-you" icon={<Star size={14} sw={1.9} />} title="Your place" note="Preview" align="center">
-          <div className="lb-ring" aria-hidden="true">
-            <svg viewBox="0 0 100 100"><circle className="lb-ring-track" cx="50" cy="50" r="43" /></svg>
-            <span className="lb-ring-mid" />
-          </div>
-          <p className="lb-cap">Nothing is being counted yet.</p>
+        <Tile area="you" className="lb-you" icon={<Star size={14} sw={1.9} />} title="Your place" note={monthTitle(month)} align="center" loading={loading}>
+          {mine ? (
+            <>
+              <div className="lbr-me"><span className="lbr-me-n">{mine.rank}</span><span className="lbr-me-of">of {board.rows.length}</span></div>
+              <p className="lb-cap"><b>{fmtMinutes(mine.minutes)}</b> counted{mine.overtime > 0 ? <>, {fmtMinutes(mine.overtime)} of it overtime</> : null}</p>
+              <p className="lb-cap">{mine.days} {mine.days === 1 ? "day" : "days"} counted</p>
+            </>
+          ) : (
+            <p className="lb-cap">{board.status === "ready" ? `None of your hours are counted in ${monthTitle(month)} yet.` : "—"}</p>
+          )}
         </Tile>
       </BentoGrid>
     </BentoPage>

@@ -1,5 +1,8 @@
 /* ══════════════════════════════════════════════════════════════════
-   LEADERBOARD — the preview page's own parts (everything is `.lb-*`)
+   LEADERBOARD — the page's frame and its first look (everything is `.lb-*`)
+
+   The real board is components/leaderboard/Board.jsx with board.css (`.lbr-*`). It still uses the grid and the podium's blocks below;
+   the rest (the blurred placeholder picture, the "Coming soon" card, the empty ring) is what the page was before it had data.
 
    The page is a bento frame (`.kb`, bento.css): a header, then two panes of glass:
 
