@@ -34,6 +34,7 @@ import "./components/customers/customers.css";
 import "./components/chat/chat.css";
 import "./components/marketing/marketing.css";
 import "./components/meta/meta.css";
+import "./components/reddit/reddit.css";
 import "./components/photo-cropper.css";
 import "./components/points.css";
 import "./components/profile-theme.css";

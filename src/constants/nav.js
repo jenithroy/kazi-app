@@ -86,6 +86,8 @@ export const NAV_GROUPS = [
         // Meta Ads is its own permission on top of the Marketing section (migration 0049).
         can: (profile) => sectionVisible(profile, "marketing") && marketingTabAllowed(profile, "meta_ads"),
       },
+      // No permission of its own: whoever has the Marketing section has it (the posts, the email list and the settings all follow Marketing's view and edit).
+      { id: "reddit-leads", to: "/marketing/reddit-leads", label: "Reddit Leads", Icon: Icons.Search, desc: "Posts from people needing a maker, and their emails", can: section("marketing") },
     ],
   },
   {
