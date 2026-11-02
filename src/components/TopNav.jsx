@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { buildNav, pickActive, CHAT } from "../constants/nav";
 import { CurrencyPicker } from "./CurrencyPicker";
+import { useChat } from "./chat/ChatProvider";
 import ProfileModal from "./ProfileModal";
 import { landingPath } from "./RequireSection";
 import { Avatar, Icons, cn, hueFromName } from "./ui";
@@ -12,7 +13,8 @@ import { useReveal } from "../hooks/useReveal";
 /**
  * The app's top bar: logo in the middle, the menu groups either side of it, the
  * profile avatar and currency at the far left, a Chat icon at the far right.
- * The avatar opens the profile card (ProfileModal) in the middle of the screen.
+ * The avatar opens the profile card (ProfileModal) in the middle of the screen,
+ * and the Chat icon opens the Chat window (components/chat/) over the page.
  *
  * Wide screens get the groups as dropdowns. Below 1200px (matching the
  * @media in styles.css) the groups fold into a drawer behind the menu button,
@@ -91,9 +93,10 @@ export default function TopNav({ showMenuButton = true }) {
   const home = landingPath(profile) || "/dashboard";
   const wide = useWide();
 
-  // Chat is an icon button of its own, not part of any dropdown.
-  const chat = profile && CHAT.can(profile) ? CHAT : null;
-  const chatOn = !!chat && (pathname === chat.to || pathname.startsWith(`${chat.to}/`));
+  // Chat is an icon button of its own, not part of any dropdown. It opens a window over the page, so it is a button, not a link;
+  // `open` is null for a position with no Chat.
+  const { open: openChat, warm: warmChat } = useChat();
+  const chat = profile && CHAT.can(profile) && openChat ? CHAT : null;
 
   // Half either side of the logo, however many groups this person has.
   const mid = Math.ceil(groups.length / 2);
@@ -230,7 +233,7 @@ export default function TopNav({ showMenuButton = true }) {
     else if (e.key === "ArrowLeft") { e.preventDefault(); stepTrigger(id, -1); }
   };
 
-  // The same sideways keys on the Chat button, which is a plain link.
+  // The same sideways keys on the avatar and Chat buttons, which have no menu of their own.
   const onLinkKey = (e, id) => {
     if (e.key === "ArrowRight") { e.preventDefault(); stepTrigger(id, 1); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); stepTrigger(id, -1); }
@@ -422,19 +425,20 @@ export default function TopNav({ showMenuButton = true }) {
           <div className="kn-tools">
             {!wide && <CurrencyPicker />}
             {chat && (
-              <Link
-                to={chat.to}
-                className={cn("kn-iconbtn", chatOn && "kn-iconbtn--on")}
+              <button
+                type="button"
+                className="kn-iconbtn"
                 data-kn-trigger={chat.id}
                 aria-label={chat.label}
                 title={chat.label}
-                aria-current={chatOn ? "page" : undefined}
-                onClick={close}
+                aria-haspopup="dialog"
+                onClick={() => { close(); openChat(); }}
                 onKeyDown={(e) => onLinkKey(e, chat.id)}
-                onPointerEnter={onLinkEnter}
+                onPointerEnter={(e) => { warmChat(); onLinkEnter(e); }}
+                onFocus={warmChat}
               >
                 <chat.Icon size={22} />
-              </Link>
+              </button>
             )}
           </div>
         </div>

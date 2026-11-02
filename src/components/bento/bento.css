@@ -37,37 +37,39 @@
    colour. (Setting scrollbar-width where ::-webkit-scrollbar is understood would switch
    the pill off and bring the arrows back, hence the @supports test, which is true
    only where those pieces do not exist.) A touch screen keeps its own overlay bar. */
-.kb {
+.kb, .kmodal--chat {
   --kb-sb: rgba(15,46,34,.22);
   --kb-sb-near: rgba(15,46,34,.38);
   --kb-sb-hi: rgba(15,46,34,.6);
 }
-:root[data-theme="dark"] .kb {
+:root[data-theme="dark"] .kb, :root[data-theme="dark"] .kmodal--chat {
   --kb-sb: rgba(255,255,255,.2);
   --kb-sb-near: rgba(255,255,255,.36);
   --kb-sb-hi: rgba(255,255,255,.58);
 }
 @media (pointer: fine) {
-  .kb ::-webkit-scrollbar { width: 12px; height: 12px; }
-  .kb ::-webkit-scrollbar-track,
-  .kb ::-webkit-scrollbar-corner { background: transparent; }
-  .kb ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-  .kb ::-webkit-scrollbar-thumb {
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar { width: 12px; height: 12px; }
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-track,
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-corner { background: transparent; }
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-thumb {
     border: 3px solid transparent; border-radius: 999px;
     background: var(--kb-sb); background-clip: content-box;
   }
-  .kb ::-webkit-scrollbar-thumb:vertical { min-height: 44px; }
-  .kb ::-webkit-scrollbar-thumb:horizontal { min-width: 44px; }
-  .kb :hover::-webkit-scrollbar-thumb { background: var(--kb-sb-near); background-clip: content-box; }
-  .kb ::-webkit-scrollbar-thumb:hover,
-  .kb ::-webkit-scrollbar-thumb:active { background: var(--kb-sb-hi); background-clip: content-box; }
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-thumb:vertical { min-height: 44px; }
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-thumb:horizontal { min-width: 44px; }
+  :is(.kb, .kmodal--chat) :hover::-webkit-scrollbar-thumb { background: var(--kb-sb-near); background-clip: content-box; }
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-thumb:hover,
+  :is(.kb, .kmodal--chat) ::-webkit-scrollbar-thumb:active { background: var(--kb-sb-hi); background-clip: content-box; }
 }
 @supports not selector(::-webkit-scrollbar) {
-  .kb * { scrollbar-width: thin; scrollbar-color: var(--kb-sb-near) transparent; }
+  :is(.kb, .kmodal--chat) * { scrollbar-width: thin; scrollbar-color: var(--kb-sb-near) transparent; }
 }
 
 /* ── Tokens ───────────────────────────────────────────────────── */
-.kb {
+/* (The Chat window is portalled to <body>, outside any `.kb` page, so it carries the same tokens: components/chat/chat.css.
+   It is not given the class itself, because `:root:has(.kb)` restyles the top bar and the body behind it.) */
+.kb, .kmodal--chat {
   --kb-ease: cubic-bezier(.22, .8, .24, 1);
   --kb-gap: 12px;
   --kb-r: 18px;
@@ -112,7 +114,7 @@
   color: var(--kb-ink);
 }
 
-:root[data-theme="dark"] .kb {
+:root[data-theme="dark"] .kb, :root[data-theme="dark"] .kmodal--chat {
   --kb-page: #0b100e;
   --kb-surface: #141b18;
   --kb-surface-hover: #19221e;

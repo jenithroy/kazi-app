@@ -102,7 +102,7 @@
   animation: ksel-in .14s cubic-bezier(.2, .8, .2, 1) both; transform-origin: top center;
 }
 .ksel-pop.is-up, .kdp-pop.is-up { animation-name: ksel-in-up; transform-origin: bottom center; }
-:root[data-theme="dark"]:has(.kb) :is(.ksel-pop, .kdp-pop) {
+:root[data-theme="dark"]:has(.kb, .kmodal--chat) :is(.ksel-pop, .kdp-pop) {
   --pop-bg: rgba(16, 23, 20, .88);
   --pop-solid: #141b18;
   --pop-edge: rgba(255, 255, 255, .13);

@@ -7,6 +7,7 @@ import useActivityLog from "../hooks/useActivityLog";
 import { useApplyTheme } from "../hooks/useTheme";
 import Spotlight from "./Spotlight";
 import { PersonProvider } from "./profile/PersonProvider";
+import { ChatHost, ChatProvider } from "./chat/ChatProvider";
 import { ShareProvider } from "./share/ShareProvider";
 import { TechPackProvider } from "./techpack/TechPackProvider";
 import { CustomerProvider } from "./customer-link/CustomerProvider";
@@ -60,19 +61,23 @@ function AppLayout({ children }) {
 
   return (
     <div className="kapp">
-      {/* The native app already has its bottom tab bar for everyday pages, so it
-          keeps the menu button hidden, as the old hamburger was. */}
-      <TopNav showMenuButton={!isNative} />
-      <main className={cn("kmain", isNative && "kmain--native")}>
-        <div className="kscroll">
-          {/* Any name on any page can open that person's profile (components/profile/): the provider draws no box, only the card. */}
-          {/* Any record's card can send it to Chat (components/share/): one dialog, opened from a card's Send button. */}
-          {/* Any tech pack can be opened from anywhere (components/techpack/): its printed sheet, or the editor. */}
-          {/* Any customer's name can open that customer's card (components/customer-link/); inside the tech pack provider, because the card opens tech packs. */}
-          <PersonProvider><ShareProvider><TechPackProvider><CustomerProvider>{children}</CustomerProvider></TechPackProvider></ShareProvider></PersonProvider>
-        </div>
-        {isNative && <BottomNav profile={profile} />}
-      </main>
+      {/* Chat is a window over whatever page this is (components/chat/): its state sits out here so the top bar's Chat button and any
+          card's Message button can open it, and the window itself (ChatHost) is drawn inside the person provider below. */}
+      <ChatProvider>
+        {/* The native app already has its bottom tab bar for everyday pages, so it
+            keeps the menu button hidden, as the old hamburger was. */}
+        <TopNav showMenuButton={!isNative} />
+        <main className={cn("kmain", isNative && "kmain--native")}>
+          <div className="kscroll">
+            {/* Any name on any page can open that person's profile (components/profile/): the provider draws no box, only the card. */}
+            {/* Any record's card can send it to Chat (components/share/): one dialog, opened from a card's Send button. */}
+            {/* Any tech pack can be opened from anywhere (components/techpack/): its printed sheet, or the editor. */}
+            {/* Any customer's name can open that customer's card (components/customer-link/); inside the tech pack provider, because the card opens tech packs. */}
+            <PersonProvider><ShareProvider><TechPackProvider><CustomerProvider>{children}<ChatHost /></CustomerProvider></TechPackProvider></ShareProvider></PersonProvider>
+          </div>
+          {isNative && <BottomNav profile={profile} />}
+        </main>
+      </ChatProvider>
 
       {/* Reads ?tour= off whatever page it lands on. Mounted here so no page
           has to know it exists beyond putting data-tour on one element. */}

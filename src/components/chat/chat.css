@@ -1,36 +1,68 @@
 /* ══════════════════════════════════════════════════════════════════
-   CHAT — the Team and Leads inboxes (everything is `.kchat-*`, and `.ch-*` for the page frame)
+   CHAT — the Team and Leads inboxes (everything is `.kchat-*`, and `.ch-*` for the two inbox tabs)
 
-   Two glass panes on one screen, nothing scrolls but the lists inside them: the conversations on the left, the open
-   conversation on the right (its messages scroll between a header and a message box that stay put). A phone shows one
-   pane at a time, with a Back button. The panes are `.kb-tile`s, so they take the page's glass, dark mode and fallbacks
-   (bento.css); the parts that open over the page (menus, the emoji picker, the lead's score, dialogs, the photo viewer)
-   are portalled to <body>, outside `.kb`, so they carry their own tokens (the dropdown's, controls.css).
+   Chat is a glass window over whatever page you are on (Modal size="chat", opened by components/chat/ChatProvider.jsx), the way a
+   profile card is. One sheet, two panes, and nothing scrolls but the lists inside them: the conversations on the left, the open
+   conversation on the right (its messages scroll between a header and a message box that stay put). A phone shows one pane at a
+   time, with a Back button. The panes keep the tile markup (`.kb-tile`) they were built as, but inside the window they are flat:
+   one sheet of glass, not tiles on a page.
+
+   The window is portalled to <body>, outside any `.kb` page, so it carries the page's `--kb-*` tokens itself (bento.css). It is not
+   given the `.kb` class to get them: `:root:has(.kb)` restyles the top bar and the body behind it. The parts that open over the
+   window (menus, the emoji picker, a lead's score, dialogs, the photo viewer) are portalled too, so they carry their own tokens
+   (the dropdown's, controls.css).
 ══════════════════════════════════════════════════════════════════ */
 
-/* ── The frame ──────────────────────────────────────────────────── */
+/* ── The window ─────────────────────────────────────────────────── */
 
-.kb-grid.kb-grid--chat, .kb-grid.kb-grid--chat-thread {
-  grid-template-columns: clamp(280px, 28%, 380px) minmax(0, 1fr);
+/* (one class more specific than styles.css's `.kmodal`, which loads after this sheet and would otherwise win the width) */
+.kmodal.kmodal--chat {
+  --kmodal-w: 1080px; --kchat-veil: rgba(15, 46, 34, .045);
+  height: min(760px, calc(100vh - 48px)); height: min(760px, calc(100dvh - 48px));
+}
+:root[data-theme="dark"] .kmodal.kmodal--chat { --kchat-veil: rgba(255, 255, 255, .035); }
+/* the body does not scroll: the panes inside it do */
+.kmodal--chat .kmodal-body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.kmodal-hd-extra { margin-left: auto; min-width: 0; }
+.kchat-win { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.kchat-win > .fn-banner { margin: 10px 14px 0; }
+
+.kchat-split {
+  flex: 1 1 0; min-height: 0; display: grid;
+  grid-template-columns: clamp(270px, 31%, 340px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "list thread";
 }
-/* two short tabs: pills at every width (the shared tabs turn into a dropdown under 1100px) */
+
+/* Flat panes. The Dashboard's tile is a pane of glass of its own (bento.css); here the window is the glass, so the tile's layers go
+   and the list keeps only a faint veil and a hairline, as the profile card's left pane does. */
+.kmodal--chat .kb-tile:not(.kb-tile--locked) { border: 0; border-radius: 0; background: transparent; box-shadow: none; transition: none; }
+.kmodal--chat .kb-tile:not(.kb-tile--locked)::before,
+.kmodal--chat .kb-tile:not(.kb-tile--locked)::after { display: none; }
+.kmodal--chat .kb-tile.kchat-list:not(.kb-tile--locked) { background: var(--kchat-veil); border-right: 1px solid var(--kb-line); }
+
+/* two short tabs, in the window's header: pills at every width (the shared tabs turn into a dropdown under 1100px) */
 .ch-tabs.dt-tabs { display: flex; flex-wrap: nowrap; }
 .dt-tab .kchat-badge { margin-left: 2px; }
 .ch-tabs .dt-tab[aria-selected="true"] .kchat-badge { background: var(--kb-on-accent); color: var(--kb-accent); }
 
+/* /messenger, the old address, when the window has been put away (pages/Messenger.jsx) */
+.kchat-shim { flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; }
+
 @media (max-width: 1023px) {
-  .kb-grid.kb-grid--chat, .kb-grid.kb-grid--chat-thread { grid-template-columns: clamp(250px, 34%, 320px) minmax(0, 1fr); }
+  .kchat-split { grid-template-columns: clamp(250px, 34%, 320px) minmax(0, 1fr); }
 }
-/* A phone: the page scrolls in #root there, so the chat takes the height of the window itself (the top bar is fixed and the page pads 16 above and 24 below)
-   and the message box sits at the bottom of it; one pane at a time. */
+/* A phone: the window is the usual bottom sheet, nearly the height of the screen so the message box sits at the bottom of it, and
+   one pane at a time. */
+@media (max-width: 640px) {
+  .kmodal.kmodal--chat { height: calc(100vh - 12px); height: calc(100dvh - max(12px, env(safe-area-inset-top, 0px))); }
+}
 @media (max-width: 768px) {
-  .kb.ch-page { flex: none; min-height: 0; height: calc(100dvh - var(--kn-h) - env(safe-area-inset-top, 0px) - 40px); }
-  .kb-grid.kb-grid--chat, .kb-grid.kb-grid--chat-thread { flex: 1 1 0; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .kb-grid.kb-grid--chat { grid-template-areas: "list"; }
-  .kb-grid.kb-grid--chat-thread { grid-template-areas: "thread"; }
-  .kb-grid--chat > .kchat-thread, .kb-grid--chat-thread > .kchat-list { display: none; }
+  .kchat-split { grid-template-columns: minmax(0, 1fr); grid-template-areas: "list"; }
+  .kchat-split--thread { grid-template-areas: "thread"; }
+  .kchat-split > .kchat-thread, .kchat-split--thread > .kchat-list { display: none; }
+  .kchat-split--thread > .kchat-thread { display: flex; }
+  .kmodal--chat .kb-tile.kchat-list:not(.kb-tile--locked) { background: transparent; border-right: 0; }     /* alone on the sheet: nothing to set it apart from */
 }
 
 /* ── The tile around each pane ──────────────────────────────────── */

@@ -1,7 +1,7 @@
 import { Suspense, useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { buildNav, CHAT } from "../constants/nav";
+import { buildNav } from "../constants/nav";
 import { preloadQuietly } from "../lib/lazyPages";
 import AppLayout from "./AppLayout";
 import ErrorBoundary from "./ErrorBoundary";
@@ -25,11 +25,11 @@ function ProtectedRoute() {
 
   // Once somebody is signed in, quietly fetch the pages their menu shows, so moving between pages never waits on the
   // network (lib/lazyPages.js). Keyed on the person, not the profile object, which is a new one after every refresh.
+  // (Chat is not among them: it is a window, whose code ChatProvider fetches itself.)
   const personId = profile?.personId;
   useEffect(() => {
     if (!authenticated) return undefined;
     const paths = buildNav(profile).flatMap((group) => group.items.map((item) => item.path));
-    if (CHAT.can(profile)) paths.push(CHAT.to);
     return preloadQuietly(paths);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, personId]);

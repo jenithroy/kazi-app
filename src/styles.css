@@ -197,11 +197,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .kn-burger:hover { background: var(--dark-2); color: #fff; }
 
-/* Chat: a solid icon on its own, no label */
+/* Chat: a solid icon on its own, no label. A button: it opens the Chat window over the page (components/chat/). */
 .kn-iconbtn {
   display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
-  width: 40px; height: 40px; border-radius: 10px;
-  color: var(--dark-on); text-decoration: none; transition: background .15s, color .15s;
+  width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; background: transparent;
+  color: var(--dark-on); text-decoration: none; cursor: pointer; transition: background .15s, color .15s;
 }
 .kn-iconbtn:hover { background: var(--dark-2); color: #fff; }
 .kn-iconbtn--on,

@@ -3,7 +3,7 @@
  *
  * It is the card your own profile is (Modal size="card": the same glass, the same two panes, the same phone sheet), without the
  * parts that are yours alone (the picture and phone you can change, the password, Sign out). Left: who they are, and a Message button that
- * opens (or starts) your conversation with them in Chat, for someone who may post there. Right: three tabs,
+ * opens (or starts) your conversation with them in the Chat window, for someone who may post there. Right: three tabs,
  *   Overview     where they are today, who they report to and their hours, how to reach them
  *   Attendance   a month at a time: days present, late, absent, on leave, and when they clocked in and out
  *   Pay          their pay and salary slips
@@ -13,7 +13,6 @@
  * It is opened by PersonProvider and never rendered by a page. Escape closes this card only; a card under it stays as it was.
  */
 import { useId, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import Modal from "../Modal";
 import { Avatar, Icons, hueFromName } from "../ui";
 import { useAuth } from "../../context/AuthContext";
@@ -24,6 +23,7 @@ import { isoFromDate } from "../../lib/attendance";
 import { dayLine, dayOf, seesOf } from "../../lib/personProfile";
 import { LOCATION, addedDay, daysLabel, fmtDate } from "../../lib/profileFormat";
 import { sectionCanEdit } from "../../utils/permissions";
+import { useChat } from "../chat/ChatProvider";
 import AttendancePanel from "./AttendancePanel";
 import PayPanel from "./PayPanel";
 import PersonLink from "./PersonLink";
@@ -132,10 +132,11 @@ export default function PersonCard({ personId, hintName, onClose, onBack, backNa
 
   const inactive = row && row.status !== "Active";
 
-  // "Message" goes to Chat, which opens the conversation you have with them or starts one (pages/Messenger.jsx, `?with=`). Offered only
-  // to someone who may post in Chat, and only for someone who is still here.
-  const navigate = useNavigate();
-  const canMessage = Boolean(row) && !inactive && sectionCanEdit(profile, "messenger");
+  // "Message" opens the Chat window on the conversation you have with them, or starts one (components/chat/ChatPopup.jsx), and puts
+  // this card away: the window is the next thing to look at. Offered only to someone who may post in Chat, and only for someone who
+  // is still here.
+  const { open: openChat } = useChat();
+  const canMessage = Boolean(row) && !inactive && Boolean(openChat) && sectionCanEdit(profile, "messenger");
 
   return (
     <Modal title="Profile" size="card" onClose={onClose}>
@@ -156,7 +157,7 @@ export default function PersonCard({ personId, hintName, onClose, onBack, backNa
                 <div className="kpp-act">
                   <button
                     type="button" className="primary-button" aria-label={name ? `Message ${name}` : "Message"}
-                    onClick={() => navigate(`/messenger?with=${encodeURIComponent(personId)}`)}
+                    onClick={() => { onClose(); openChat({ with: personId }); }}
                   >
                     <Icons.Message size={15} sw={1.9} aria-hidden="true" /> Message
                   </button>

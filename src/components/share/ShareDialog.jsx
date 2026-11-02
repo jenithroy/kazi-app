@@ -11,10 +11,10 @@
  * did not, with "Try again" for the ones that did not. Everybody in a conversation can open what is sent in it, whatever their role.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import Modal from "../Modal";
 import { Icons } from "../ui";
 import { PersonAvatar, ThreadAvatar } from "../chat/ChatBits";
+import { useChat } from "../chat/ChatProvider";
 import { loadAdapter } from "../../lib/share/records";
 import { MAX_TARGETS, friendly, loadTargets, sendToTargets } from "../../lib/share/send";
 import { sizeLabel } from "../../lib/share/helpers";
@@ -42,7 +42,7 @@ function Row({ on, onToggle, avatar, name, line }) {
 }
 
 export default function ShareDialog({ job, me, profile, onClose }) {
-  const navigate = useNavigate();
+  const { open: openChat } = useChat();
   const [adapter, setAdapter] = useState(null);
   const [file, setFile] = useState({ status: "loading" });          // loading | ready | error
   const [pool, setPool] = useState({ status: "loading" });          // loading | ready | error
@@ -120,11 +120,12 @@ export default function ShareDialog({ job, me, profile, onClose }) {
   const sent = results.filter((r) => r.ok);
   const failed = results.filter((r) => !r.ok);
 
-  function openChat() {
+  // "Open Chat": the window opens over the page this was sent from, on the conversation it went to (or the list, if it went to several).
+  function showChat() {
     onClose();
-    if (sent.length === 1 && sent[0].target.kind === "person") navigate(`/messenger?with=${encodeURIComponent(sent[0].target.id)}`);
-    else if (sent.length === 1) navigate(`/messenger?thread=${encodeURIComponent(sent[0].threadId)}`);
-    else navigate("/messenger");
+    if (sent.length === 1 && sent[0].target.kind === "person") openChat?.({ with: sent[0].target.id });
+    else if (sent.length === 1) openChat?.({ thread: sent[0].threadId });
+    else openChat?.();
   }
 
   function again() {
@@ -141,7 +142,7 @@ export default function ShareDialog({ job, me, profile, onClose }) {
   const footer = phase === "done" ? (
     <>
       {failed.length > 0 && <button type="button" className="ghost-button" onClick={again}>Try again for the rest</button>}
-      {sent.length > 0 && <button type="button" className="ghost-button" onClick={openChat}>Open Chat</button>}
+      {sent.length > 0 && openChat && <button type="button" className="ghost-button" onClick={showChat}>Open Chat</button>}
       <button type="button" ref={doneRef} className="primary-button" onClick={onClose}>Done</button>
     </>
   ) : (

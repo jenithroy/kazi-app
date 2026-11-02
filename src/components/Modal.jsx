@@ -31,6 +31,10 @@
  * (the profile card's Sign out tab). The panel clips what overflows it, so the
  * aside is a sibling, in a wrapper the width of the panel that it positions itself
  * against (and sits behind). Tab cycles through the aside as well as the panel.
+ *
+ * `headerExtra` is a control that lives in the header, between the title and the
+ * close button (Chat's Team / Leads tabs). `size="chat"` is the Chat window: a
+ * fixed-height frame whose body does not scroll, because the two panes inside it do.
  */
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -52,11 +56,12 @@ export default function Modal({
   onClose,
   onSubmit,
   footer,
-  size = "md",              // "sm" 480px · "md" 640px · "lg" 760px · "card" 620px · "drawer" 460px from the right
+  size = "md",              // "sm" 480px · "md" 640px · "lg" 760px · "card" 620px · "drawer" 460px from the right · "chat" 1080px, fixed height
   className,                // extra classes on the panel (a page's own variation of a size)
   dismissOnBackdrop = true,
   glass = false,
   aside,
+  headerExtra,
   children,
 }) {
   const panelRef = useRef(null);
@@ -137,6 +142,7 @@ export default function Modal({
           <h2 className="kmodal-title" id={titleId}>{title}</h2>
           {subtitle ? <p className="kmodal-sub">{subtitle}</p> : null}
         </div>
+        {headerExtra ? <div className="kmodal-hd-extra">{headerExtra}</div> : null}
         <button type="button" className="kmodal-x" onClick={onClose} aria-label="Close">
           <Icons.X size={18} />
         </button>
