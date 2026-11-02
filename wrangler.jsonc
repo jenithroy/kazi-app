@@ -32,7 +32,8 @@
     "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkYW95amFjcWNteHBncHdyZ3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNjk1MzQsImV4cCI6MjEwMzg0NTUzNH0.wYlH6-GA2nBGMH1cmHqkIYFqO994AZz-1CtU3baR6zA",
     "META_API_VERSION": "v25.0"
   },
+  // The first runs the Meta Ads sync; the second (at :10 and :40, worker/lib/redditLeads.js REDDIT_CRON) is the Reddit Leads check.
   "triggers": {
-    "crons": ["*/30 * * * *"]
+    "crons": ["*/30 * * * *", "10,40 * * * *"]
   }
 }

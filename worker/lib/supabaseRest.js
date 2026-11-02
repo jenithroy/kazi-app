@@ -74,22 +74,26 @@ export async function insert(env, table, rows) {
  * bank-webhook-worker's `Prefer: resolution=merge-duplicates`: on a
  * conflict, only the columns present in each row are overwritten — columns
  * left out are untouched on the existing row.
+ *
+ * `ignoreDuplicates` leaves a row that already exists exactly as it is (only new rows are added). `returning` hands back the rows that
+ * were really written (with `ignoreDuplicates`, only the new ones), so a caller can count them; without it nothing is returned.
  */
-export async function upsert(env, table, rows, { onConflict } = {}) {
-  if (!rows || rows.length === 0) return;
+export async function upsert(env, table, rows, { onConflict, ignoreDuplicates = false, returning = false } = {}) {
+  if (!rows || rows.length === 0) return returning ? [] : undefined;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/${table}`);
   if (onConflict) url.searchParams.set("on_conflict", onConflict);
   const res = await fetch(url, {
     method: "POST",
     headers: serviceHeaders(env, {
       "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=minimal",
+      Prefer: `resolution=${ignoreDuplicates ? "ignore" : "merge"}-duplicates,return=${returning ? "representation" : "minimal"}`,
     }),
     body: JSON.stringify(rows),
   });
   if (!res.ok) {
     throw new Error(`Supabase upsert into ${table} failed: ${res.status} ${await readErrorText(res)}`);
   }
+  return returning ? res.json() : undefined;
 }
 
 /**

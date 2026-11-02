@@ -7,6 +7,7 @@ import {
   handleLeadgenWebhookEvent,
   syncLeadGenAds,
 } from "./lib/metaLeads.js";
+import { REDDIT_CRON, handleFindEmails, handleRedditSync, runRedditSync } from "./lib/redditLeads.js";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -264,6 +265,23 @@ export default {
       }
     }
 
+    // Reddit Leads: "Check now", and reading one business's public contact pages (worker/lib/redditLeads.js)
+    if (request.method === "POST" && url.pathname === "/api/reddit-leads/sync") {
+      try {
+        return await handleRedditSync(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/reddit-leads/find-email") {
+      try {
+        return await handleFindEmails(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
     return env.ASSETS.fetch(request);
   },
 
@@ -272,6 +290,16 @@ export default {
   // ctx.waitUntil keeps the Worker alive until the sync finishes instead of
   // the isolate being torn down right after this handler returns.
   async scheduled(event, env, ctx) {
+    // The Reddit check has a cron slot of its own (wrangler.jsonc), so it is a separate run with a separate request budget: it can
+    // never use up the Meta Ads sync's.
+    if (event.cron === REDDIT_CRON) {
+      ctx.waitUntil(
+        runRedditSync(env).catch((err) => {
+          console.error("Reddit leads cron check failed:", err?.message || err);
+        })
+      );
+      return;
+    }
     ctx.waitUntil(
       runMetaAdsSync(env, { triggerType: "cron" }).catch((err) => {
         console.error("Meta Ads cron sync failed:", err?.message || err);
