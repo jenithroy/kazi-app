@@ -41,6 +41,7 @@ export const Messenger = page(() => import("../pages/Messenger"));
 export const Sales = page(() => import("../pages/Sales"));
 export const Marketing = page(() => import("../pages/Marketing"));
 export const MetaAds = page(() => import("../pages/MetaAds"));
+export const RedditLeads = page(() => import("../pages/RedditLeads"));
 export const BugReport = page(() => import("../pages/BugReport"));
 export const Changelog = page(() => import("../pages/Changelog"));
 
@@ -64,6 +65,7 @@ const BY_PATH = [
   [under("/employees"), Employees],
   [under("/customers"), Customers],
   [under("/marketing/meta-ads"), MetaAds],
+  [under("/marketing/reddit-leads"), RedditLeads],
   [under("/marketing"), Marketing],
   [under("/messenger"), Messenger],
   [under("/admin"), AdminPanel],
