@@ -6,11 +6,13 @@
  */
 import { generate } from "./engine.js";
 import { tatamiFillShape } from "./fill.js";
-import { satinIsland } from "./satin.js";
+import { satinIsland, lineIsland } from "./satin.js";
+import { curveRun } from "./path.js";
 import { coverageOf } from "./quality.js";
 import { CMD, patternStats } from "../pattern.js";
-import { unionShapes } from "../geometry/clip.js";
-import { islandsOf } from "../geometry/poly.js";
+import { unionShapes, intersectRings, offsetRings, prepareShape, intersectPrepared } from "../geometry/clip.js";
+import { islandsOf, nearPairs, ringArea } from "../geometry/poly.js";
+import { overlappingPairs } from "./overlap.js";
 
 let failed = 0;
 const check = (name, cond, extra = "") => {
@@ -193,6 +195,89 @@ check("odd shapes give finite numbers", !odds || odds.pattern.stitches.every((s)
   // A blob is not a stroke: it is filled, never fanned out as satin.
   const blob = generate({ objects: [{ id: "blob", rings: [circle(0, 0, 4.5, 48)], fill: { type: "auto", color: "#aa5500" } }] }, {});
   check("a 9 mm blob is filled, not satin", blob.info.every((i) => i.kind !== "satin"));
+}
+
+// 5d. Lines thinner than a satin column can be (a hairline, small lettering, the lines of line art) are sewn as ONE line of bean stitch
+// along their middle, as thin as the drawing: satin bunches up under a millimetre, and closes the holes of small letters.
+{
+  const sew = (rings) => generate({ objects: [{ id: "x", rings, fill: { type: "auto", color: "#202020" } }] }, {});
+  const on = (res) => res.pattern.stitches.filter((s) => s[2] === CMD.STITCH).map((s) => [s[0] / 10, s[1] / 10]);
+  const hair = sew([rect(-10, -0.25, 20, 0.5)]);
+  check("a 0.5 mm wide line is sewn as a line of stitches", hair.info.length === 1 && hair.info[0].kind === "line", JSON.stringify(hair.info.map((i) => `${i.kind} ${i.why}`)));
+  const hp = on(hair);
+  check("its stitches lie along the middle of the line and run its whole length", hp.length > 20 && hp.every((q) => Math.abs(q[1]) < 0.15) && Math.min(...hp.map((q) => q[0])) < -9.5 && Math.max(...hp.map((q) => q[0])) > 9.5);
+  check("a hairline takes far fewer stitches than a satin column of the same length", hair.pattern.stitches.length < 60, String(hair.pattern.stitches.length));
+
+  const ringLine = stroke([Array.from({ length: 73 }, (_, i) => [3 * Math.cos((i / 72) * 2 * Math.PI), 3 * Math.sin((i / 72) * 2 * Math.PI)])], 0.5);
+  const loop = sew(ringLine);
+  const radii = on(loop).map((q) => Math.hypot(q[0], q[1]));
+  check("a thin ring of radius 3 mm is sewn as a loop that stays round", loop.info.some((i) => i.kind === "line") && radii.every((r) => Math.abs(r - 3) < 0.2), `${Math.min(...radii).toFixed(2)} to ${Math.max(...radii).toFixed(2)}`);
+
+  check("a 2 mm wide stroke is still satin", sew([rect(-10, -1, 20, 2)]).info[0].kind === "satin");
+  const mixed = unionShapes([stroke([[[0, -8], [0, 8]]], 2), stroke([[[0, -8], [4, -6], [6, -2], [4, 2], [0, 4]]], 0.5)]);
+  check("a letter with a thick stem and a hairline is satin (it would lose its stem as a line)", sew(mixed).info.every((i) => i.kind !== "line"));
+  check("a blob is not a line", lineIsland([circle(0, 0, 3, 48)]) === null);
+
+  // The stitches of a curve follow it: short on a tight curve (a small circle stays round), as long as allowed on a straight line.
+  const unit = Array.from({ length: 120 }, (_, i) => [Math.cos((i / 120) * 2 * Math.PI), Math.sin((i / 120) * 2 * Math.PI)]);
+  const round = curveRun(unit, { len: 2, dev: 0.07, closed: true });
+  let chord = 0;
+  for (let i = 1; i < round.length; i++) chord = Math.max(chord, Math.hypot(round[i][0] - round[i - 1][0], round[i][1] - round[i - 1][1]));
+  check("a running stitch round a 1 mm circle has stitches under 0.8 mm and closes the loop", chord < 0.8 && Math.hypot(round[0][0] - round.at(-1)[0], round[0][1] - round.at(-1)[1]) < 1e-9, `longest ${chord.toFixed(2)}`);
+  check("on a straight 10 mm line the stitches are as long as allowed (2 mm)", curveRun(Array.from({ length: 51 }, (_, i) => [i * 0.2, 0]), { len: 2 }).length === 6);
+
+  // When a letter is refused satin the engine says which check it failed (a K whose bend fans the stitches out too far).
+  const K = stroke([[[-4, -10], [-4, 10]], [[-4, 1], [6, -10]], [[-4, 1], [6, 10]]], 3);
+  const kRes = sew(K);
+  check("a refused satin is explained by the check it failed", kRes.info.some((i) => /satin refused: .*mm apart on an edge/.test(i.why) || i.kind === "satin"), JSON.stringify(kRes.info.map((i) => i.why)));
+}
+
+// 5e. The fast ways of finding which shapes touch or overlap (a portrait has thousands of shapes: clipping every pair takes minutes) give
+// the same answers as the exact ones. Shapes of every kind, some with holes, from a fixed seed.
+{
+  let seed = 7;
+  const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const scene = [];
+  for (let i = 0; i < 40; i++) {
+    const x = rnd() * 80, y = rnd() * 80, w = 3 + rnd() * 25, h = 3 + rnd() * 25;
+    const kind = i % 4;
+    if (kind === 0) scene.push([rect(x, y, w, h)]);
+    else if (kind === 1) scene.push([circle(x + w / 2, y + h / 2, Math.min(w, h) / 2, 40)]);
+    else if (kind === 2) scene.push([rect(x, y, w, h), rect(x + w * 0.3, y + h * 0.3, w * 0.4, h * 0.4)]); // with a hole
+    else scene.push([circle(x + w / 2, y + h / 2, Math.min(w, h) / 2, 40), circle(x + w / 2, y + h / 2, Math.min(w, h) / 4, 40)]);
+  }
+  const area = (rings) => islandsOf(rings).reduce((a, is) => a + ringArea(is.outer) - is.holes.reduce((q, hh) => q + ringArea(hh), 0), 0);
+  const exact = (i, j) => area(intersectRings(scene[i], scene[j]));
+
+  const found = new Set(overlappingPairs(scene, 0.4).map(([i, j]) => `${i},${j}`));
+  let missed = 0, spurious = 0, compared = 0;
+  for (let i = 0; i < scene.length; i++) for (let j = i + 1; j < scene.length; j++) {
+    const a = exact(i, j), has = found.has(`${i},${j}`);
+    if (a > 0 || has) compared++;
+    if (a > 0.7 && !has) missed++; // clearly over each other, not found
+    if (a < 0.15 && has) spurious++; // clearly not, found
+  }
+  check("the grid finds every pair of shapes that overlap clearly (and none that clearly do not)", missed === 0 && spurious === 0 && compared > 20, `missed ${missed}, spurious ${spurious}, compared ${compared}`);
+
+  // "Near" means the OUTLINES come within the distance. A shape lying wholly inside another's filled area is not near by outline (in a
+  // traced picture a shape inside another sits in its hole, so it touches the hole's outline and is found), so nested pairs are left out.
+  const near = nearPairs(scene, 0.4);
+  let lost = 0, checked = 0;
+  for (let i = 0; i < scene.length; i++) for (let j = i + 1; j < scene.length; j++) {
+    const both = area(intersectRings(scene[i], scene[j]));
+    if (both > 0.99 * Math.min(area(scene[i]), area(scene[j]))) continue; // one inside the other
+    const closer = area(intersectRings(offsetRings(scene[i], 0.35), scene[j])) > 0; // within 0.35 mm of each other
+    if (closer) checked++;
+    if (closer && !(near[i].includes(j) && near[j].includes(i))) lost++;
+  }
+  check("every pair of shapes whose outlines come within 0.35 mm is listed as near, both ways round", lost === 0 && checked > 10, `${lost} lost of ${checked}`);
+
+  let worst = 0;
+  for (let i = 0; i < scene.length; i += 3) for (let j = 0; j < scene.length; j += 5) {
+    const a = area(intersectRings(scene[i], scene[j])), b = area(intersectPrepared(prepareShape(scene[i]), prepareShape(scene[j])));
+    worst = Math.max(worst, Math.abs(a - b));
+  }
+  check("cutting both shapes to their shared box first gives the same overlap area (to 0.01 mm²)", worst < 0.01, `worst difference ${worst.toFixed(4)}`);
 }
 
 // 6. Same input, same stitches.

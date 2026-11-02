@@ -15,10 +15,11 @@ import { CMD } from "../pattern.js";
 import { islandsOf, ringArea, ringPerimeter, bboxOf, transformRings, composeMatrix } from "../geometry/poly.js";
 import { intersectRings, offsetRings } from "../geometry/clip.js";
 import { tatamiFill, FILL_DEFAULTS } from "./fill.js";
-import { satinIsland, SATIN_DEFAULTS } from "./satin.js";
+import { satinIsland, lineIsland, SATIN_DEFAULTS } from "./satin.js";
 import { outlineRuns, OUTLINE_DEFAULTS } from "./outline.js";
 import { fillUnderlayRuns, autoFillUnderlay } from "./underlay.js";
 import { coverageOf } from "./quality.js";
+import { overlappingPairs } from "./overlap.js";
 import { createPlan, PLAN_DEFAULTS } from "./plan.js";
 import { FABRICS, DEFAULT_FABRIC } from "./presets.js";
 
@@ -30,7 +31,10 @@ export const ENGINE_DEFAULTS = {
   autoSatinWidth: 5, // for "auto": a stroke wider than this is filled (a satin stitch longer than about 5 mm sags, and wide curves fan out)
   autoSatinRatio: 3.5, // for "auto": the stroke must be this many times longer than it is wide, so a blob is never a fan of satin
   autoSatinSteady: 2.2, // for "auto": its widest part may be this many times its average width
-  satinGap: 1.3, // mm: the stitches of one edge of a satin column are never further apart than this (a bend fans them out, and cloth shows)
+  satinGap: 2, // mm: the stitches of one edge of a satin column are never further apart than this (a bend fans them out, and cloth shows). 1.3 sent the bold letters K, Z and I (1.3 to 1.5 at their bends, with every other check passed) to a ragged fill
+  lineWidth: 0.7, // for "auto": an island whose strokes are on average no wider than this (mm) is sewn as a line of bean stitch along its middle: a satin column narrower than about a millimetre bunches up, and fills in the holes of small letters
+  lineMaxWidth: 1.1, // ... and the widest tenth of it is no wider than this (mm): a letter with a thick stem and a hairline is satin
+  lineStitch: 2, // mm: the longest stitch of such a line (a curve gets shorter ones)
   minIsland: 0.6, // mm2: a smaller piece is dropped (it cannot be sewn)
   satinCoverage: 0.85, // a satin attempt must cover this much of its island (thread drawn 1.5 x the spacing wide) ...
   satinSpill: 0.15, // ... and put no more than this share of the island's area outside it
@@ -67,8 +71,13 @@ function overlaps(a, b) {
   const cut = intersectRings(a.rings, b.rings);
   let area = 0;
   for (const r of cut) area += ringArea(r);
-  return area > 0.4;
+  return area > OVERLAP_MM2;
 }
+
+/** From this many parts of objects on, the order is worked out without testing every pair for overlap (a traced photograph has thousands). */
+const MANY_ITEMS = 200;
+/** Two parts lie over each other when they overlap by more than this (mm²): a touch along an edge does not count. */
+const OVERLAP_MM2 = 0.4;
 
 /**
  * The order to sew in. An item is one part of one object (its fill, or its outline). The design's own order is kept, except
@@ -85,11 +94,20 @@ function scheduleOrder(items, optimize) {
     if (!cache.has(key)) cache.set(key, overlaps(i, j));
     return cache.get(key);
   };
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      if (items[i].objIndex === items[j].objIndex) before[j].push(i); // its own fill before its outline
-      else if (over(items[i], items[j])) before[j].push(i);
+  if (n < MANY_ITEMS) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (items[i].objIndex === items[j].objIndex) before[j].push(i); // its own fill before its outline
+        else if (over(items[i], items[j])) before[j].push(i);
+      }
     }
+  } else {
+    // a picture of thousands of shapes: the overlapping pairs are found on a grid, not by clipping every pair of shapes
+    const seen = new Set();
+    const add = (i, j) => { const k = i * n + j; if (!seen.has(k)) { seen.add(k); before[j].push(i); } };
+    for (const [i, j] of overlappingPairs(items.map((it) => it.rings), OVERLAP_MM2)) if (items[i].objIndex !== items[j].objIndex) add(i, j);
+    const byObject = new Map();
+    items.forEach((it, i) => { if (byObject.has(it.objIndex)) add(byObject.get(it.objIndex), i); else byObject.set(it.objIndex, i); }); // its own fill before its outline
   }
   const done = new Array(n).fill(false);
   const order = [];
@@ -265,6 +283,20 @@ function objectRuns(item, needle, S, warn, info) {
       const area = ringArea(is.outer) - is.holes.reduce((s, h) => s + ringArea(h), 0);
       if (area < S.minIsland) { warn.push({ kind: "tiny", objectId: obj.id, message: `A piece of "${obj.name || obj.id}" is too small to sew (${area.toFixed(2)} mm²) and was left out.` }); continue; }
 
+      // A hairline, small lettering or the lines of line art: one line of thread along the middle, as thin as the drawing.
+      if (fillType === "auto" && S.lineWidth > 0) {
+        const perim = shape.reduce((s, r) => s + ringPerimeter(r), 0);
+        if ((2 * area) / Math.max(1e-6, perim) <= S.lineWidth) {
+          const line = lineIsland(shape, { meanWidth: S.lineWidth, maxWidth: S.lineMaxWidth, len: S.lineStitch, start: at });
+          if (line) {
+            info.push({ objectId: obj.id, kind: "line", area, why: "", line: { lines: line.lines, meanWidth: line.meanWidth, maxWidth: line.maxWidth, length: line.length } });
+            line.paths.forEach((p, i) => runs.push({ pts: p, join: i > 0, connectMax: S.joinColumns, kind: "line", color: fc }));
+            at = line.paths[line.paths.length - 1].slice(-1)[0];
+            continue;
+          }
+        }
+      }
+
       let kind = fillType;
       let satin = null;
       let why = kind === "tatami" ? "chosen" : kind === "satin" ? "" : "wide area";
@@ -286,7 +318,14 @@ function objectRuns(item, needle, S, warn, info) {
             const excess = satin.topLength / Math.max(1e-6, area / ss.spacing);
             // a narrow column needs more thread than its area says (the stitch is the column's width plus the pull allowance)
             const allowed = S.satinExcess + 1.0 / Math.max(0.8, satin.meanWidth);
-            const good = cov.covered >= S.satinCoverage && cov.spill <= S.satinSpill && excess <= allowed && cov.dense <= S.satinDense && gap <= S.satinGap;
+            const refusals = [];
+            if (cov.covered < S.satinCoverage) refusals.push(`covers only ${Math.round(cov.covered * 100)}%`);
+            if (cov.spill > S.satinSpill) refusals.push(`${Math.round(cov.spill * 100)}% spills past the edge`);
+            if (excess > allowed) refusals.push(`uses ${excess.toFixed(2)}x the thread it needs (up to ${allowed.toFixed(2)})`);
+            if (cov.dense > S.satinDense) refusals.push(`${Math.round(cov.dense * 100)}% piled four threads deep`);
+            if (gap > S.satinGap) refusals.push(`needle holes ${gap.toFixed(1)} mm apart on an edge (up to ${S.satinGap})`);
+            const good = refusals.length === 0;
+            if (strokeLike && !good) why = `satin refused: ${refusals.join("; ")}`;
             if (kind === "auto" && !(strokeLike && good)) satin = null;
             else if (kind === "satin" && !good) {
               warn.push({ kind: "satin-gaps", objectId: obj.id, message: `Satin on "${obj.name || obj.id}" would leave gaps here (${Math.round(cov.covered * 100)}% covered); it was filled instead.` });

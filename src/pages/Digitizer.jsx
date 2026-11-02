@@ -114,6 +114,8 @@ export default function Digitizer() {
 
   const empty = !design.objects.length && !design.reference && !api.stitches;
   const s = api.summary;
+  // The machine file can be saved as soon as the stitches are made and match the design (not while they are being remade).
+  const ready = !!api.stitches && !api.stale && !api.generating && !!s?.stitches;
   const total = api.stitches ? api.stitches.flat.length / 3 : 0;
   // The slider moves one step per record (a jump or a cut is a step too), but people count stitches: show the stitch number.
   const stitchesBefore = useMemo(() => {
@@ -148,7 +150,12 @@ export default function Digitizer() {
           <button type="button" className="kb-pillbtn" onClick={() => designInput.current?.click()} title="Open a design saved from this page, or a machine file (DST, PES, EXP, JEF, VP3, XXX) to look at it or save it as another type">Open</button>
           <button type="button" className="kb-pillbtn" onClick={api.saveDesignFile} disabled={!design.objects.length} title="Save the design to edit later (Ctrl+S)">Save design</button>
           <button type="button" className="kb-pillbtn" onClick={api.newFile} disabled={empty}>New</button>
-          <button type="button" className="kb-btn kb-btn--primary" onClick={pickFile}>Choose picture</button>
+          {ready && (
+            <button type="button" className="kb-btn kb-btn--primary" onClick={() => api.exportFormats(["dst"])} disabled={api.exporting} title="Download the stitch file for the machine: DST, which Tajima, Barudan, ZSK, SWF and most industrial machines read. Other types (PES, EXP, JEF, VP3, XXX) are in the Stitches step.">
+              Download DST
+            </button>
+          )}
+          <button type="button" className={ready ? "kb-pillbtn" : "kb-btn kb-btn--primary"} onClick={pickFile}>Choose picture</button>
         </div>
       </header>
 

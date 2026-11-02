@@ -64,11 +64,45 @@ export function runAlong(line, { len = 2.5, closed = false, cornerDeg = 25 } = {
 }
 
 /**
- * A bean stitch: every stretch is sewn forward, back and forward again, a bold line that looks like a single heavy thread.
- * `len` is the length of one stretch.
+ * A running stitch that follows the curves of a polyline: a needle hole wherever the next stretch would be longer than `len`, or
+ * would cut across the line by more than `dev` mm. A straight line gets long stitches and a tight curve short ones, so a small
+ * circle stays round (stitches of a fixed length would make it a polygon). `line` should have its points close together (a
+ * few tenths of a millimetre), as the centre lines of the skeleton have. Closed lines end where they began.
  */
-export function beanAlong(line, { len = 2.0, closed = false } = {}) {
-  const pts = runAlong(line, { len, closed });
+export function curveRun(line, { len = 2.0, dev = 0.07, closed = false } = {}) {
+  const pts = dedupe(closed ? [...line, line[0]] : line);
+  const n = pts.length;
+  if (n < 3) return pts;
+  const out = [pts[0]];
+  let i = 0;
+  while (i < n - 1) {
+    let j = i + 1;
+    while (j < n - 1) {
+      const k = j + 1;
+      const cx = pts[k][0] - pts[i][0], cy = pts[k][1] - pts[i][1];
+      const cl = Math.hypot(cx, cy);
+      if (cl > len) break;
+      let worst = 0;
+      for (let m = i + 1; m < k; m++) {
+        const d = Math.abs((pts[m][0] - pts[i][0]) * cy - (pts[m][1] - pts[i][1]) * cx) / (cl || 1);
+        if (d > worst) worst = d;
+      }
+      if (worst > dev) break;
+      j = k;
+    }
+    out.push(pts[j]);
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * A bean stitch: every stretch is sewn forward, back and forward again, a bold line that looks like a single heavy thread.
+ * `len` is the length of one stretch. With `dev` the stretches follow the line's curves (see curveRun) instead of being cut at
+ * a fixed length.
+ */
+export function beanAlong(line, { len = 2.0, closed = false, dev = 0 } = {}) {
+  const pts = dev > 0 ? curveRun(line, { len, dev, closed }) : runAlong(line, { len, closed });
   if (pts.length < 2) return pts;
   const out = [pts[0]];
   for (let i = 1; i < pts.length; i++) out.push(pts[i], pts[i - 1], pts[i]);

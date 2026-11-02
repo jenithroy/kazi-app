@@ -48,6 +48,7 @@ import { findCrossing, pullBack } from "./repair.js";
 import { renderTrace } from "./render.js";
 import { detectKind, kuwahara } from "./photo.js";
 import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
+import { limitsFor } from "./detail.js";
 
 export { renderTrace };
 
@@ -75,7 +76,9 @@ export const DEFAULT_OPTIONS = Object.freeze({
   workMm: 0.25, // a photograph is traced on a grid this many millimetres a pixel (it has no finer detail to keep)
   smoothR: 3, // the Kuwahara radius (pixels) a photograph is flattened with
   thicken: false, // keep long thin strokes (lettering, hairlines) of the minor colours and widen them, instead of removing them
-  thickenMm: 0, // how wide such a stroke becomes (0 = the smallest sewable detail, at least 0.9 mm)
+  thickenMm: 0, // how wide such a stroke becomes (0 = lineMm)
+  detail: null, // the page's Detail slider (0 to 1), when it has one: once the kind of picture is known the size limits below are taken from it (a portrait gets more detail than a logo at the same setting, see detail.js). null = use the limits as given
+  lineMm: 0.5, // the width of a line of thread: a stroke thinner than this is made this wide, and the stitch engine sews anything this thin as one line of stitches along its middle
   strokeMm: 1.5, // a thin piece must be this long to count as a stroke
   bgSpread: 7, // a background of artwork or a photograph must be this even (delta-E spread around its colour)
 });
@@ -113,6 +116,8 @@ export function normalizeOptions(opts = {}) {
     smoothR: Math.round(num(opts.smoothR, DEFAULT_OPTIONS.smoothR, 0, 8)),
     thicken: !!opts.thicken,
     thickenMm: num(opts.thickenMm, DEFAULT_OPTIONS.thickenMm, 0, 5),
+    lineMm: num(opts.lineMm, DEFAULT_OPTIONS.lineMm, 0.2, 3),
+    detail: typeof opts.detail === "number" && Number.isFinite(opts.detail) ? Math.min(1, Math.max(0, opts.detail)) : null,
     strokeMm: num(opts.strokeMm, DEFAULT_OPTIONS.strokeMm, 0.2, 20),
     bgSpread: num(opts.bgSpread, DEFAULT_OPTIONS.bgSpread, 1, 40),
   };
@@ -125,6 +130,13 @@ function checkImage(image) {
   if (image.width < 1 || image.height < 1 || image.data.length < image.width * image.height * 4) {
     throw new TypeError("the picture data is smaller than width x height x 4");
   }
+}
+
+/** The options with the kind of picture settled: for a page's Detail slider the size limits depend on the kind (see detail.js). */
+function withKind(o0, kind) {
+  const o = { ...o0, kind };
+  if (o0.detail !== null) Object.assign(o, limitsFor(kind, o0.detail));
+  return o;
 }
 
 /** The kind of picture to trace as: the asked-for mode, or, for "auto", what the picture looks like (see photo.js). */
@@ -261,7 +273,7 @@ function analyse(image, o, maxSide) {
     // dark badge); in a photograph only the background's colours, or thin crumbs of every colour would be kept.
     const solo = new Uint8Array(256);
     for (let k = 0; k < K; k++) solo[k] = k === transIndex ? 0 : o.kind !== "photo" || early.indices.includes(k) ? 1 : 0;
-    const targetMm = o.thickenMm || Math.max(o.minFeatureMm, 0.9);
+    const targetMm = o.thickenMm || o.lineMm;
     // In a photograph or artwork the patches of colour are blobs: only long thin pieces (twigs, outlines, hairlines) are strokes.
     const photo = o.kind === "photo";
     const strokeMm = photo ? Math.max(o.strokeMm, 3) : o.strokeMm;
@@ -518,7 +530,7 @@ function publicPalette(a, srcPixels) {
 export function quantize(image, opts = {}) {
   checkImage(image);
   const o0 = normalizeOptions(opts);
-  const o = { ...o0, kind: resolveKind(image, o0).kind };
+  const o = withKind(o0, resolveKind(image, o0).kind);
   const side = Math.round(num(opts.previewSide, 480, 32, o.maxSide));
   const a = analyse(image, o, side);
   return {
@@ -632,7 +644,7 @@ export function traceImage(image, opts = {}) {
   checkImage(image);
   const o0 = normalizeOptions(opts);
   const { kind, info } = resolveKind(image, o0);
-  const o = { ...o0, kind };
+  const o = withKind(o0, kind);
   const a = analyse(image, o, workSide(image, o));
   const { w, h, labels, lab2, soft, K } = a;
   let t = now();

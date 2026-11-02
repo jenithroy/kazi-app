@@ -449,9 +449,11 @@ export function thickenKept(labels, soft, lab2, mask, w, h, r) {
       d[i] = v;
     }
   }
-  const rr = Math.max(1, Math.ceil(r - 0.5));
+  // A disc of radius r on the middle line paints a band 2 * floor(r) + 1 pixels wide, so the stroke ends up about 2 * r wide (rounding r
+  // up would add a pixel on each side: a line of thread, 0.5 mm, would come out 0.7 mm and be taken for something to sew as satin).
+  const rr = Math.max(1, Math.floor(r));
   const offs = [];
-  for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) if (dx * dx + dy * dy <= rr * rr + 0.5) offs.push([dx, dy]);
+  for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) if (dx * dx + dy * dy <= Math.max(1, r * r) + 0.25) offs.push([dx, dy]);
   let painted = 0;
   for (let i = 0; i < n; i++) {
     if (!mask[i]) continue;

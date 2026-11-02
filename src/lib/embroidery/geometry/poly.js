@@ -56,6 +56,52 @@ export function pointInRings(x, y, rings) {
   return inside;
 }
 
+/**
+ * Which shapes lie near which? `shapes` is a list of shapes (each a list of rings). Returns `near`, where near[i] is the list of
+ * the indexes of the other shapes whose outlines come within `dist` mm of shape i's (shapes a little further apart may be listed
+ * too, none that near is missed; the relation goes both ways). It looks along the outlines with a grid, not at every pair of shapes:
+ * a picture of thousands of shapes would take for ever to compare pair by pair.
+ */
+export function nearPairs(shapes, dist) {
+  const cell = Math.max(0.05, 2 * dist);
+  const step = Math.max(0.025, dist);
+  const keyOf = (cx, cy) => (cx + 1048576) * 2097152 + (cy + 1048576);
+  const grid = new Map(); // cell -> indexes of the shapes with an outline point in it
+  const mine = shapes.map((rings, k) => {
+    const cells = new Map(); // key -> [cx, cy], this shape's cells
+    for (const ring of rings) {
+      for (let i = 0, n = ring.length; i < n; i++) {
+        const p = ring[i], q = ring[(i + 1) % n];
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        const steps = Math.max(1, Math.ceil(len / step));
+        for (let t = 0; t <= steps; t++) {
+          const x = p[0] + ((q[0] - p[0]) * t) / steps, y = p[1] + ((q[1] - p[1]) * t) / steps;
+          const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+          const key = keyOf(cx, cy);
+          if (!cells.has(key)) cells.set(key, [cx, cy]);
+        }
+      }
+    }
+    for (const key of cells.keys()) {
+      const list = grid.get(key);
+      if (list) list.push(k); else grid.set(key, [k]);
+    }
+    return cells;
+  });
+  return mine.map((cells, k) => {
+    const found = new Set();
+    for (const [cx, cy] of cells.values()) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const list = grid.get(keyOf(cx + dx, cy + dy));
+          if (list) for (const j of list) if (j !== k) found.add(j);
+        }
+      }
+    }
+    return [...found].sort((a, b) => a - b);
+  });
+}
+
 /** Apply a 2D affine [a, b, c, d, e, f]: x' = a x + c y + e, y' = b x + d y + f (the canvas matrix order). */
 export function transformRings(rings, m) {
   const [a, b, c, d, e, f] = m;
@@ -95,7 +141,7 @@ export function invertMatrix(m) {
  */
 export function islandsOf(rings) {
   const live = rings.filter((r) => r.length >= 3 && ringArea(r) > 1e-9);
-  const info = live.map((ring) => ({ ring, area: ringArea(ring), depth: 0, parent: -1 }));
+  const info = live.map((ring) => ({ ring, area: ringArea(ring), box: bboxOf([ring]), depth: 0, parent: -1 }));
   // Largest first, so the first ring that contains a ring is the one around it.
   const order = info.map((_, i) => i).sort((a, b) => info[b].area - info[a].area);
   for (let oi = 0; oi < order.length; oi++) {
@@ -105,6 +151,9 @@ export function islandsOf(rings) {
     for (let oj = 0; oj < oi; oj++) {
       const j = order[oj];
       if (info[j].area <= info[i].area) continue;
+      // a ring whose box does not hold the point cannot hold it (a shape with hundreds of holes would otherwise walk every ring for every hole)
+      const b = info[j].box;
+      if (probe[0] < b[0] || probe[0] > b[2] || probe[1] < b[1] || probe[1] > b[3]) continue;
       if (pointInRing(probe[0], probe[1], info[j].ring)) best = j; // the later (smaller) container wins
     }
     info[i].parent = best;

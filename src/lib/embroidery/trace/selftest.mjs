@@ -7,7 +7,10 @@
  * Exit code 0 when every check passes, 1 otherwise.
  */
 import { traceImage, renderTrace, quantize, detectBackground } from "./index.js";
-import { contentBox, fillScale } from "../../digitizer/convert.js";
+import { detailLimits, limitsFor } from "./detail.js";
+import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, bleedUnder, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
+import { unionShapes, intersectRings, offsetRings } from "../geometry/clip.js";
+import { bboxOf, islandsOf, ringArea } from "../geometry/poly.js";
 
 // ---------------------------------------------------------------- tiny drawing kit (exact anti-aliasing)
 
@@ -399,17 +402,28 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
   // what the page asks for (convert.js traceOptions): 0.2 mm a pixel, details down to 0.8 mm
   const page = { mode: "logo", thicken: true, mmPerPx: 0.2, minFeatureMm: 0.8, minAreaMm2: 1.2, simplifyMm: 0.05 };
 
-  // two lines 0.6 mm wide (3 px) on white: thinner than a needle can follow
+  // two hairlines 0.4 mm wide on white (4 px at 0.1 mm a pixel): thinner than a line of thread. They are made as wide as one (about
+  // 0.6 mm), no wider (not a millimetre, as they once were): the stitch engine sews anything that thin as a single line of stitches.
   for (const [name, ink] of [["black", BLACK], ["red", RED]]) {
-    const img = makeImage(200, 200);
-    paint(img, [rect(40.3, 99.4, 120, 3)], ink);
-    paint(img, [rect(98.6, 40.2, 3, 120)], ink);
-    const res = traceImage(img, page);
+    const img = makeImage(400, 400);
+    paint(img, [rect(80, 198, 240, 4)], ink);
+    paint(img, [rect(198, 80, 4, 240)], ink);
+    const res = traceImage(img, { ...page, mmPerPx: 0.1 });
     const sew = res.palette.find((p) => !p.background && !p.enclosedBackground);
+    const area = res.shapes.reduce((s, q) => s + q.area, 0);
     check(`thin ${name} lines are kept as shapes`, res.shapes.length >= 1 && res.stats.widenedPixels > 0, `${res.shapes.length} shapes, ${res.stats.widenedPixels} px widened`);
-    check(`thin ${name} lines are widened (more area than the source ink: 720 px^2)`, res.shapes.reduce((s, q) => s + q.area, 0) > 720 * 1.25, `${res.shapes.reduce((s, q) => s + q.area, 0).toFixed(0)} px^2`);
+    check(`thin ${name} hairlines are widened to about a line of thread, not a millimetre (source ink 1904 px^2; a millimetre wide would be 4760)`, area > 1904 * 1.2 && area < 1904 * 1.9, `${area.toFixed(0)} px^2`);
     const far = sew ? Math.abs(sew.r - ink[0]) + Math.abs(sew.g - ink[1]) + Math.abs(sew.b - ink[2]) : 999;
     check(`thin ${name} lines keep their own colour, not a washed-out mix with the page`, far < 100, sew ? `${sew.hex} for [${ink}]` : "no colour");
+  }
+  // lines 0.6 mm wide (3 px) are already as wide as a line of thread: they are left as they are, not made a millimetre wide
+  {
+    const img = makeImage(200, 200);
+    paint(img, [rect(40.3, 99.4, 120, 3)], BLACK);
+    paint(img, [rect(98.6, 40.2, 3, 120)], BLACK);
+    const res = traceImage(img, page);
+    const area = res.shapes.reduce((s, q) => s + q.area, 0);
+    check("lines 0.6 mm wide are not made wider (source ink 720 px^2)", res.shapes.length >= 1 && area < 720 * 1.25, `${area.toFixed(0)} px^2`);
   }
 
   // thin white lettering inside a dark disc (a bar of white 3 px wide each): the letters are not filled in
@@ -448,6 +462,26 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
     check("and none of them is a sliver (smallest shape at least 3 px^2 ... 0.12 mm^2)", Math.min(...widened.shapes.map((q) => q.area)) >= 3, `${Math.min(...widened.shapes.map((q) => q.area)).toFixed(1)} px^2`);
   }
 
+  // the Detail slider: a portrait or a photograph is read half a step further up it than a logo (its small shapes are the eyes and wrinkles)
+  {
+    check("a logo at Balanced keeps the limits of Balanced", limitsFor("logo", 0.5).minAreaMm2 === detailLimits(0.5).minAreaMm2 && limitsFor("logo", 0.5).minFeatureMm === detailLimits(0.5).minFeatureMm);
+    check("a photograph or artwork at Balanced gets the limits of Detailed, and never more than that", limitsFor("photo", 0.5).minAreaMm2 === detailLimits(1).minAreaMm2 && limitsFor("art", 0.5).minFeatureMm === detailLimits(1).minFeatureMm && limitsFor("photo", 1).minAreaMm2 === detailLimits(1).minAreaMm2);
+    check("Simple stays simpler than Balanced for a photograph too", limitsFor("photo", 0).minAreaMm2 > limitsFor("photo", 0.5).minAreaMm2);
+    const photo = makeImage(420, 300);
+    let seed = 5;
+    const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    for (let y = 0; y < 300; y++) for (let x = 0; x < 420; x++) {
+      const o = (y * 420 + x) * 4, v = Math.sin(x * 0.07 + y * 0.05) * 60 + Math.sin(x * 0.19 - y * 0.11) * 35 + (rnd() - 0.5) * 12;
+      photo.data[o] = 128 + v; photo.data[o + 1] = 120 + v * 0.7; photo.data[o + 2] = 110 - v * 0.5;
+    }
+    const base = { mode: "photo", mmPerPx: 0.2 };
+    const bySlider = traceImage(photo, { ...base, detail: 0.5 }).shapes.length;
+    const detailed = traceImage(photo, { ...base, ...detailLimits(1) }).shapes.length;
+    const balanced = traceImage(photo, { ...base, ...detailLimits(0.5) }).shapes.length;
+    check("the tracer reads a photograph's slider setting half a step higher (the shapes of Detailed, not of Balanced)", bySlider === detailed && detailed > balanced, `slider ${bySlider}, Detailed ${detailed}, Balanced ${balanced}`);
+    check("a logo is not given more detail by the slider", traceImage(makeImage(120, 80), { mode: "logo", detail: 0.5 }).shapes.length === traceImage(makeImage(120, 80), { mode: "logo", ...detailLimits(0.5) }).shapes.length);
+  }
+
   // kinds of picture, found by looking
   {
     // ten flat colours (as many as a logo can have) with JPEG-like noise: still a logo, not "a photograph"
@@ -484,6 +518,88 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
     check("contentBox is the stitched part in hoop millimetres (not the page round it)", box && Math.abs(box.x0 - (-10 + 50.2 * 0.1)) < 0.2 && Math.abs(box.x1 - (-10 + 150.2 * 0.1)) < 0.2, JSON.stringify(box));
     const hidden = contentBox(res, { originX: 0, originY: 0, mmPerPx: 0.1, fabric: "#c82228" });
     check("a colour like the cloth is not part of it", hidden === null, JSON.stringify(hidden));
+  }
+
+  // A narrow shape of the cloth's colour is stitched only where it is ink: in a hole of a WIDE shape (white lettering on a badge). The white inside a
+  // letter (its counter: the hole of an o, a, e, B, D) sits in the hole of a narrow shape and is left as cloth, and so is a white outline round the
+  // whole design, which sits in no hole at all (hatching the counters of every letter in white thread was a real mistake).
+  {
+    const opts = { originX: 0, originY: 0, mmPerPx: 0.2, fabric: "#f4f1ea" };
+    const rings = makeImage(300, 120);
+    for (let i = 0; i < 4; i++) { paint(rings, [circle(45.2 + i * 70, 60.4, 16, 360)], NAVY); paint(rings, [circle(45.2 + i * 70, 60.4, 6, 180)], WHITE); } // four letter Os, 2 mm strokes, 2.4 mm counters
+    const o = objectsFromTrace(traceImage(rings, { ...page, mmPerPx: 0.2 }), opts);
+    const white = o.palette.filter((p) => p.sameAsCloth && !p.background);
+    check(`the white inside four narrow letter Os (strokes under ${CLOTH_FIELD_MM} mm) is left as cloth: no white objects, the white is not stitched`, white.length >= 1 && white.every((p) => p.skipped && !p.fineOnly) && o.objects.every((ob) => !o.palette[ob.pal].sameAsCloth), JSON.stringify(white.map((p) => ({ skipped: p.skipped, fineOnly: p.fineOnly }))));
+    check("and the four letters themselves are stitched", o.objects.length === 4, `${o.objects.length} objects`);
+
+    const halo = makeImage(300, 300);
+    paint(halo, [circle(150.2, 150.4, 120, 720)], WHITE); // a thin white outline round a navy disc, on a see-through page
+    paint(halo, [circle(150.2, 150.4, 114, 720)], NAVY);
+    for (let y = 0; y < 300; y++) for (let x = 0; x < 300; x++) if (Math.hypot(x + 0.5 - 150.2, y + 0.5 - 150.4) > 121) halo.data[(y * 300 + x) * 4 + 3] = 0;
+    const h = objectsFromTrace(traceImage(halo, { ...page, mmPerPx: 0.2 }), opts);
+    check("a thin white outline round the whole design (in no shape's hole) is the cloth: not stitched", h.palette.filter((p) => p.sameAsCloth && !p.background).every((p) => !p.fineOnly) && h.objects.every((ob) => !h.palette[ob.pal].sameAsCloth), JSON.stringify(h.palette.map((p) => [p.hex, p.sameAsCloth, p.skipped, p.fineOnly])));
+  }
+
+  // The overlap under later shapes, done the fast way, comes out the same as the slow way (every later shape in reach united, then cut).
+  {
+    // a mosaic of touching tiles (they share their corner points, as traced shapes do), some round, some with a hole
+    const tiles = [];
+    for (let gy = 0; gy < 6; gy++) for (let gx = 0; gx < 6; gx++) {
+      const x = gx * 4, y = gy * 4;
+      const t = [[x, y], [x + 4, y], [x + 4, y + 4], [x, y + 4]];
+      tiles.push((gx + gy) % 3 === 0 ? [t, [[x + 1.2, y + 1.2], [x + 1.2, y + 2.8], [x + 2.8, y + 2.8], [x + 2.8, y + 1.2]]] : [t]);
+    }
+    const slow = (list, bleed) => {
+      const boxes = list.map((r) => bboxOf(r));
+      return list.map((own, i) => {
+        const near = [];
+        for (let j = i + 1; j < list.length; j++) { const a = boxes[i], b = boxes[j]; if (b[0] > a[2] + bleed || b[2] < a[0] - bleed || b[1] > a[3] + bleed || b[3] < a[1] - bleed) continue; near.push(list[j]); }
+        if (!near.length) return own;
+        const extra = intersectRings(offsetRings(own, bleed), near.length === 1 ? near[0] : unionShapes(near));
+        return extra.length ? unionShapes([own, extra]) : own;
+      });
+    };
+    const area = (rings) => islandsOf(rings).reduce((a, is) => a + ringArea(is.outer) - is.holes.reduce((q, h) => q + ringArea(h), 0), 0);
+    const a = slow(tiles, 0.4), b = bleedUnder(tiles, 0.4);
+    let worst = 0;
+    for (let i = 0; i < tiles.length; i++) worst = Math.max(worst, Math.abs(area(a[i]) - area(b[i])));
+    const grew = b.filter((r, i) => area(r) > area(tiles[i]) + 0.5).length;
+    check("the fast overlap under later shapes has the same area as the slow one (every tile, to 0.01 mm²)", worst < 0.01 && grew > 20, `worst ${worst.toFixed(4)}, ${grew} tiles grew`);
+    const last = b[b.length - 1];
+    check("and the last shape, which has nothing sewn after it, is left as it is", area(last) === area(tiles[tiles.length - 1]));
+  }
+
+  // White inside a navy disc, on a pale cloth: the white is "like the cloth". A wide white area is left as bare cloth, but narrow white
+  // strokes (lettering, a thin ring) are stitched in white over the navy round them: a gap that narrow cannot be kept clean in a fill.
+  {
+    const img = makeImage(300, 300);
+    paint(img, [circle(150.2, 150.4, 130, 720)], NAVY);
+    for (let i = 0; i < 5; i++) paint(img, [rect(88 + i * 30, 100, 8, 60)], WHITE); // five bars, 1.6 mm wide and 12 mm tall
+    paint(img, [rect(100, 200, 100, 40)], WHITE); // a patch 20 mm wide and 8 mm tall
+    const res = traceImage(img, { ...page, mmPerPx: 0.2 });
+    const opts = { originX: -30, originY: -30, mmPerPx: 0.2, fabric: "#f4f1ea" };
+    const made = objectsFromTrace(res, opts);
+    const white = made.palette.filter((p) => p.sameAsCloth && !p.background);
+    const whiteObjects = (m, idx) => m.objects.filter((o) => idx.includes(o.pal)).length;
+    const idx = white.map((p) => p.index);
+    check("white like the cloth is a colour of its own, with only its fine parts stitched", white.length === 1 && white[0].fineOnly && !white[0].skipped, JSON.stringify(white));
+    check(`the five narrow bars (narrower than ${CLOTH_FINE_MM} mm) are stitched, the wide patch is left as cloth`, whiteObjects(made, idx) === 5, `${whiteObjects(made, idx)} white objects`);
+    check("the navy is stitched as before", made.objects.some((o) => made.palette[o.pal].hex === "#16255c" || !made.palette[o.pal].sameAsCloth));
+    const all = objectsFromTrace(res, { ...opts, include: new Set(idx) });
+    check("ticking the colour stitches all of it, the wide patch too", whiteObjects(all, idx) === 6 && !all.palette[idx[0]].fineOnly, `${whiteObjects(all, idx)}`);
+    const none = objectsFromTrace(res, { ...opts, skip: new Set(idx) });
+    check("unticking it leaves all of it out", whiteObjects(none, idx) === 0 && none.palette[idx[0]].skipped);
+    // changing the cloth colour changes which parts of the white are stitched: the design is updated for that colour only
+    {
+      const next = objectsFromTrace(res, { ...opts, fabric: "#16255c", before: made.palette });
+      const merged = mergeTraceObjects(made.objects, next.objects, { before: made.palette, after: next.palette, rank: next.rank });
+      check("on a change of cloth colour the shapes that now need stitching are added (white: fine parts only, then all of it)", whiteObjects({ objects: merged }, idx) === 6, `${whiteObjects({ objects: merged }, idx)} white objects`);
+      const back = objectsFromTrace(res, { ...opts, before: next.palette });
+      const again = mergeTraceObjects(merged, back.objects, { before: next.palette, after: back.palette, rank: back.rank });
+      check("and taken away again when the cloth goes back to pale", whiteObjects({ objects: again }, idx) === 5, `${whiteObjects({ objects: again }, idx)} white objects`);
+    }
+    const dark = objectsFromTrace(res, { ...opts, fabric: "#16255c" });
+    check("on a navy cloth the white is stitched whole and the navy is the cloth", whiteObjects(dark, idx) === 6 && dark.palette.some((p) => p.sameAsCloth && p.skipped && p.hex !== "#ffffff"));
   }
 }
 

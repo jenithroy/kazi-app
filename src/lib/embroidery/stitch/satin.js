@@ -10,7 +10,7 @@
 import { strokeCenterlines, findCorners } from "../geometry/skeleton.js";
 import { cumulativeLength, bboxOf, islandsOf, ringArea } from "../geometry/poly.js";
 import { offsetRings } from "../geometry/clip.js";
-import { satinAlong, runAlong, dedupe } from "./path.js";
+import { satinAlong, runAlong, beanAlong, dedupe } from "./path.js";
 
 export const SATIN_DEFAULTS = {
   spacing: 0.3, // mm between stitches along the column (the holes on one edge are twice this apart: any more and cloth shows between them)
@@ -21,7 +21,7 @@ export const SATIN_DEFAULTS = {
   underlayLen: 2.5, // stitch length of the underlay
   inset: 0.35, // how far the edge underlay sits inside the edge
   throughDeg: 150, // two strokes meeting at a junction run through as one when they are at least this far from folding back
-  minStroke: 0.6, // parts of a shape thinner than this (mm) are left out of the column layout (a widened hairline is about 0.8 to 1 mm)
+  minStroke: 0.4, // parts of a shape thinner than this (mm) are left out of the column layout (a hairline is made about 0.5 mm wide by the tracer, and is kept)
 };
 
 /** Distance along a ray from (px, py) to the nearest edge of the rings, or `maxD` if there is none that near. */
@@ -419,4 +419,65 @@ export function satinIsland(rings, o = {}) {
   let topLength = 0;
   for (const t of tops) for (let i = 1; i < t.length; i++) topLength += Math.hypot(t[i][0] - t[i - 1][0], t[i][1] - t[i - 1][1]);
   return { paths, tops, topLength, columns: columns.length, maxWidth: widest, meanWidth: widthN ? widthSum / widthN : 0, length: lengthSum, skeleton: sk };
+}
+
+/**
+ * A thin island (hairline calligraphy, small lettering, the lines of line art) as lines of bean stitch along its centre lines.
+ * A satin column cannot be narrower than about a millimetre (it bunches, and it closes up the holes of small letters), and a fill
+ * cannot leave a gap that small, but one line of thread can be as thin as 0.4 mm and follows the drawing exactly. The centre
+ * lines are the skeleton's: strokes that run straight through a junction are one line, free ends are run on to the tip.
+ *
+ * @param {number[][][]} rings  one island (outer ring and its holes)
+ * @param {object} o  meanWidth (mm, the strokes' average width may not be more; default 0.7), maxWidth (mm, the usual width of its widest 10%; default 1.1),
+ *   minLength (mm of centre line in all; default 1), len (longest stretch of one stitch, default 2), dev (how far a stitch may cut
+ *   across a curve, default 0.07), throughDeg, start: [x, y] where the needle is
+ * @returns {null | { paths: number[][][], lines: number, meanWidth: number, maxWidth: number, length: number }}
+ *   `paths` are the lines in sewing order; null when the island is not a thin stroke (a dot, a blob, anything wider)
+ */
+export function lineIsland(rings, o = {}) {
+  const opt = { meanWidth: 0.7, maxWidth: 1.1, minLength: 1, len: 2, dev: 0.07, throughDeg: SATIN_DEFAULTS.throughDeg, ...o };
+  const sk = strokeCenterlines(rings);
+  if (!sk.chains.length) return null;
+  // Where lines cross or letters touch there is a small blob wider than the strokes: judge the island by its usual width (the
+  // 90th percentile of the widths along its lines), not by its single widest point.
+  const halves = [];
+  for (const c of sk.chains) for (const v of c.half) halves.push(v);
+  halves.sort((a, b) => a - b);
+  const meanWidth = 2 * sk.meanHalf, maxWidth = 2 * sk.maxHalf;
+  const usualWidth = 2 * (halves[Math.min(halves.length - 1, Math.floor(halves.length * 0.9))] || 0);
+  if (meanWidth > opt.meanWidth || usualWidth > opt.maxWidth || sk.length < opt.minLength) return null;
+  const ray = makeRay(rings);
+  const merged = mergeThrough(sk.chains.map((c) => ({ ...c, pts: c.pts, half: c.half, dead: false })), opt.throughDeg);
+  const chains = merged.chains;
+  extendTips(chains, ray, merged.throughHalf);
+
+  // Always on to the nearest end of the nearest line, so the needle does not cross the island to reach the next one.
+  const todo = chains.map((c) => ({ pts: dedupe(c.pts), closed: c.closed })).filter((c) => c.pts.length >= 2);
+  if (!todo.length) return null;
+  let needle = opt.start || null;
+  if (!needle) { const box = bboxOf(rings); needle = [box[0], box[1]]; }
+  const paths = [];
+  while (todo.length) {
+    let best = null;
+    todo.forEach((c, i) => {
+      const n = c.pts.length;
+      // a loop may be begun at any of a dozen points; an open line at either end
+      const options = c.closed ? Array.from({ length: Math.min(n, 12) }, (_, k) => ({ flip: false, rot: Math.floor((k * n) / Math.min(n, 12)) })) : [{ flip: false, rot: 0 }, { flip: true, rot: 0 }];
+      for (const op of options) {
+        const first = op.flip ? c.pts[n - 1] : c.pts[op.rot];
+        const d = Math.hypot(first[0] - needle[0], first[1] - needle[1]);
+        if (!best || d < best.d) best = { d, i, ...op };
+      }
+    });
+    const [c] = todo.splice(best.i, 1);
+    let line = c.pts;
+    if (c.closed && best.rot) line = [...line.slice(best.rot), ...line.slice(0, best.rot)];
+    if (best.flip) line = line.slice().reverse();
+    const pts = beanAlong(line, { len: opt.len, dev: opt.dev, closed: c.closed });
+    if (pts.length < 2) continue;
+    paths.push(pts);
+    needle = pts[pts.length - 1];
+  }
+  if (!paths.length) return null;
+  return { paths, lines: paths.length, meanWidth, maxWidth, length: sk.length };
 }

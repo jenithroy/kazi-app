@@ -4,11 +4,38 @@
  */
 import { makeObject } from "./model.js";
 import { nearestThread, rgbToHex, threadName, toLab, hexToRgb } from "../embroidery/thread/chart.js";
-import { offsetRings, intersectRings, unionShapes } from "../embroidery/geometry/clip.js";
-import { bboxOf } from "../embroidery/geometry/poly.js";
+import { offsetRings, unionShapes, prepareShape, intersectPrepared } from "../embroidery/geometry/clip.js";
+import { ringPerimeter, nearPairs } from "../embroidery/geometry/poly.js";
+import { detailLimits } from "../embroidery/trace/detail.js";
+
+export { detailLimits };
 
 /** How near (CIELAB distance) a picture colour must be to the cloth to count as "the cloth" and not be stitched. */
 export const CLOTH_MATCH = 14;
+
+/**
+ * A shape in a colour like the cloth is left unstitched (the cloth shows through) when it is wide: a gap in a fill can be kept clean
+ * when it is about this wide, but not a narrow one (white lettering or a thin white ring inside a dark badge comes out ragged and
+ * broken, because the rows of the fill around it cannot stop that close). A narrower shape than this (mean width in millimetres) is
+ * stitched in its own colour, over the shape that surrounds it, but only where it is ink: see CLOTH_FIELD_MM.
+ */
+export const CLOTH_FINE_MM = 2.5;
+
+/**
+ * In a logo (and for the page's own colour in any picture), a narrow shape of the cloth's colour is ink (to be stitched) when it sits in a
+ * hole of a shape this wide or wider (mean width, mm): white lettering on a navy badge, a thin white ring. In a hole of a narrower shape
+ * it is the inside of a letter (its counter: the white in an a, e, B or D), which is a hole in the lettering, not a detail; and when it
+ * sits in no shape's hole (a white outline round the whole design) it is the page, so the cloth. Both stay cloth. In a portrait or a
+ * photograph a narrow patch of a tone near the cloth's is a detail of the picture (the folds of a dark coat on a dark cloth) and is stitched.
+ */
+export const CLOTH_FIELD_MM = 4;
+
+/** The mean width of a traced shape in millimetres (twice its area over its outline's length). */
+export function shapeWidthMm(shape, mmPerPx) {
+  let per = 0;
+  for (const c of shape.contours) per += ringPerimeter(c);
+  return per > 0 ? (2 * shape.area * mmPerPx) / per : 0;
+}
 
 /**
  * What the picture is turned into shapes with, unless the person changes it. Up to 12 colours is the number of needles a
@@ -17,12 +44,6 @@ export const CLOTH_MATCH = 14;
  * lines and lettering are kept and widened to something a needle can follow.
  */
 export const CONVERT_DEFAULTS = { colors: "auto", maxColors: 12, detail: 0.5, background: "auto", snap: false, kind: "auto" };
-
-/** The detail slider (0 simple ... 1 detailed) as the tracer's size limits. */
-export function detailLimits(detail) {
-  const d = Math.max(0, Math.min(1, detail));
-  return { minFeatureMm: 1.3 - 1.0 * d, minAreaMm2: 2.2 - 1.9 * d, simplifyMm: 0.08 - 0.05 * d };
-}
 
 /** The tracer's options for these settings; `mmPerPx` is the size of one pixel of the picture, in millimetres. */
 export function traceOptions(settings, mmPerPx) {
@@ -34,7 +55,8 @@ export function traceOptions(settings, mmPerPx) {
     background: s.background === "none" ? "none" : "auto",
     mode: s.kind === "logo" || s.kind === "art" || s.kind === "photo" ? s.kind : "auto",
     thicken: true,
-    ...detailLimits(s.detail),
+    ...detailLimits(s.detail), // what a logo gets; a portrait or a photograph gets more (the tracer knows the kind: it is given `detail` too)
+    detail: s.detail,
   };
 }
 
@@ -59,21 +81,24 @@ export function clothFromTrace(traced) {
  */
 export function bleedUnder(list, bleed, only = null) {
   if (!(bleed > 0)) return list;
-  const boxes = list.map((r) => bboxOf(r) || [0, 0, 0, 0]);
   const out = list.slice();
+  // A shape can only grow into a later shape that lies close to it. Those are found with a grid along the outlines, then clipped one
+  // by one against the grown shape: uniting every later shape in reach first (and so uniting a whole picture's worth of touching
+  // shapes for each of thousands of shapes) is what made a detailed portrait take minutes.
+  const near = nearPairs(list, bleed);
+  const ready = new Map();
+  const prepared = (j) => { let p = ready.get(j); if (!p) { p = prepareShape(list[j]); ready.set(j, p); } return p; };
   for (let i = 0; i < list.length - 1; i++) {
     if (only && !only[i]) continue; // a shape the caller will not use (it is already in the design as it was)
-    const bi = boxes[i];
-    const near = [];
-    for (let j = i + 1; j < list.length; j++) {
-      const bj = boxes[j];
-      if (bj[0] > bi[2] + bleed || bj[2] < bi[0] - bleed || bj[1] > bi[3] + bleed || bj[3] < bi[1] - bleed) continue;
-      near.push(list[j]);
+    const later = near[i].filter((j) => j > i);
+    if (!later.length) continue;
+    const grown = prepareShape(offsetRings(list[i], bleed));
+    const extras = [];
+    for (const j of later) {
+      const e = intersectPrepared(grown, prepared(j));
+      if (e.length) extras.push(e);
     }
-    if (!near.length) continue;
-    const later = near.length === 1 ? near[0] : unionShapes(near);
-    const extra = intersectRings(offsetRings(list[i], bleed), later);
-    if (extra.length) out[i] = unionShapes([list[i], extra]);
+    if (extras.length) out[i] = unionShapes([list[i], ...extras]);
   }
   return out;
 }
@@ -84,22 +109,66 @@ export function bleedUnder(list, bleed, only = null) {
  *   skip (Set of palette indexes the person turned off), include (Set of indexes turned ON although they match the cloth),
  *   fabric (the cloth's colour as hex: a picture colour close to it is the cloth showing through, so it is not stitched),
  *   snap (move each colour to the nearest thread of the chart)
- * @returns {{ objects: object[], palette: {index, hex, name, fraction, background, enclosed, skipped, sameAsCloth}[], rank: Map }}
+ * @returns {{ objects: object[], palette: {index, hex, name, fraction, background, enclosed, skipped, sameAsCloth, fineOnly}[], rank: Map }}
  *   `enclosed` marks the page colour that sits inside the design (white letters in a navy disc, the hole of an O): it is its own entry.
+ *   `fineOnly` marks a colour like the cloth of which only the fine shapes that are ink (narrower than CLOTH_FINE_MM and in a hole of a wide shape, see
+ *   CLOTH_FIELD_MM) are stitched: they are not `skipped`.
  *   Every object carries `pal`, the palette entry it was made for, and `rank` says where each entry comes in the sewing order.
  */
 export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new Set(), include = new Set(), fabric = null, snap = false, bleed = 0.4, before = null }) {
   const cloth = fabric ? toLab(...Object.values(hexToRgb(fabric))) : null;
+  // Which shapes have a hole that another shape sits in? Touching shapes share exactly the same boundary points, so a shape sits in the hole of
+  // any shape whose hole outline has one of its own outline's points. Built (and widths measured) only when a colour like the cloth has narrow shapes.
+  const indexOf = new Map(traced.shapes.map((sh, k) => [sh, k]));
+  const widths = new Map();
+  const widthOf = (k) => { if (!widths.has(k)) widths.set(k, shapeWidthMm(traced.shapes[k], mmPerPx)); return widths.get(k); };
+  let holeOwners = null;
+  const ownersOf = () => {
+    if (holeOwners) return holeOwners;
+    holeOwners = new Map();
+    traced.shapes.forEach((sh, k) => {
+      for (let c = 1; c < sh.contours.length; c++) {
+        for (const p of sh.contours[c]) {
+          const key = `${p[0]},${p[1]}`;
+          const list = holeOwners.get(key);
+          if (!list) holeOwners.set(key, [k]); else if (list[list.length - 1] !== k) list.push(k);
+        }
+      }
+    });
+    return holeOwners;
+  };
+  const fine = new Map();
+  const isLogo = traced.stats?.kind === "logo";
+  const isFine = (s) => {
+    if (!fine.has(s)) {
+      let ink = false;
+      if (widthOf(indexOf.get(s)) < CLOTH_FINE_MM) {
+        if (!isLogo && !traced.palette[s.color].enclosedBackground) ink = true; // a tone of a portrait or photograph that is near the cloth's
+        else {
+          const owners = ownersOf();
+          for (const p of s.contours[0]) {
+            const list = owners.get(`${p[0]},${p[1]}`);
+            if (list && list.some((k) => widthOf(k) >= CLOTH_FIELD_MM)) { ink = true; break; }
+          }
+        }
+      }
+      fine.set(s, ink);
+    }
+    return fine.get(s);
+  };
   const palette = traced.palette.map((p, index) => {
     const hex = snap ? nearestThread(p.r, p.g, p.b).hex : rgbToHex(p.r, p.g, p.b);
     const lab = toLab(p.r, p.g, p.b);
     const sameAsCloth = !p.background && !!cloth && Math.hypot(lab[0] - cloth[0], lab[1] - cloth[1], lab[2] - cloth[2]) <= CLOTH_MATCH;
-    const skipped = !!p.background || skip.has(index) || (sameAsCloth && !include.has(index));
-    return { index, hex, name: threadName(hex), fraction: p.fraction ?? 0, background: !!p.background, enclosed: !!p.enclosedBackground, skipped, sameAsCloth };
+    // a colour like the cloth is not stitched, except for its fine shapes (lettering, thin lines) unless the person asked for none of it
+    const clothOnly = sameAsCloth && !include.has(index);
+    const fineOnly = clothOnly && !p.background && !skip.has(index) && traced.shapes.some((s) => s.color === index && isFine(s));
+    const skipped = !!p.background || skip.has(index) || (clothOnly && !fineOnly);
+    return { index, hex, name: threadName(hex), fraction: p.fraction ?? 0, background: !!p.background, enclosed: !!p.enclosedBackground, skipped, sameAsCloth, fineOnly };
   });
   const rank = new Map((traced.order || traced.palette.map((_, i) => i)).map((c, i) => [c, i]));
   const shapes = traced.shapes
-    .filter((s) => !palette[s.color].skipped)
+    .filter((s) => !palette[s.color].skipped && (!palette[s.color].fineOnly || isFine(s)))
     .slice()
     .sort((a, b) => (rank.get(a.color) ?? 0) - (rank.get(b.color) ?? 0) || b.area - a.area);
   const counters = new Map();
@@ -109,7 +178,7 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
   let only = null;
   if (before && before.length === palette.length) {
     const changed = new Set();
-    palette.forEach((p, i) => { if (!!p.skipped !== !!before[i].skipped) changed.add(i); });
+    palette.forEach((p, i) => { if (!!p.skipped !== !!before[i].skipped || !!p.fineOnly !== !!before[i].fineOnly) changed.add(i); });
     only = shapes.map((s) => changed.has(s.color));
   }
   const ringsOf = bleedUnder(shapes.map((s) => s.contours.map((c) => c.map((p) => [originX + p[0] * mmPerPx, originY + p[1] * mmPerPx]))), bleed, only);
@@ -184,7 +253,8 @@ export function mergeTraceObjects(current, made, { fresh = false, before = null,
     return [...rest.slice(0, place), ...made, ...rest.slice(place)];
   }
   const changed = new Set();
-  after.forEach((p, i) => { if (!!p.skipped !== !!before[i].skipped) changed.add(i); });
+  // a colour is changed when it goes on or off, or when it goes from "only its fine parts" to all of it (the cloth colour was changed)
+  after.forEach((p, i) => { if (!!p.skipped !== !!before[i].skipped || !!p.fineOnly !== !!before[i].fineOnly) changed.add(i); });
   if (!changed.size) return current;
   let list = current.filter((o) => !(isPic(o) && changed.has(o.pal)));
   const rankOf = (i) => (i == null ? Infinity : rank.get(i) ?? Infinity);

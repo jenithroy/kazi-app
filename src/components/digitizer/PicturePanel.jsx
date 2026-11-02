@@ -24,7 +24,7 @@ const KIND_CHOICES = [
 ];
 const KIND_NAME = { logo: "a logo (flat colours)", art: "artwork (soft shading)", photo: "a photo (gradients)" };
 /** Lettering shorter than this (mm) cannot be sewn so that it reads: a satin letter needs a stroke of about a millimetre, and room round it. */
-const SMALL_LETTER_MM = 4;
+const SMALL_LETTER_MM = 3; // small lettering is sewn as single lines of stitches: 3.9 mm tall was legible in tests, 2.2 mm was not
 
 export default function PicturePanel({ api, pickFile }) {
   const { design, hasImage, settings, palette, converting, convertError, crop, dropped, traceInfo } = api;
@@ -80,7 +80,7 @@ export default function PicturePanel({ api, pickFile }) {
         <Row label="Colours" wide hint="Up to 12 is what a machine head can hold. Auto uses only as many as the picture needs.">
           <Segmented label="Number of colours" value={colorValue} onChange={(v) => api.changeSettings(v === "auto" ? { colors: "auto", maxColors: 12 } : { colors: v })} options={COLOR_CHOICES} size="wrap" />
         </Row>
-        <Row label="Detail" hint="Simple leaves out small specks and fine detail. Detailed keeps more, but fine details may not sew well.">
+        <Row label="Detail" hint="Simple leaves out small specks and fine detail. Detailed keeps more, but fine details may not sew well. A portrait or photo is read with extra detail (Balanced keeps the eyes and wrinkles), so it has many small shapes and takes longer to sew.">
           <Slider label="Level of detail" value={settings.detail} min={0} max={1} step={0.05} onChange={(v) => api.changeSettings({ detail: v })} format={(v) => (v < 0.34 ? "Simple" : v > 0.66 ? "Detailed" : "Balanced")} />
         </Row>
         <Row label="Cloth" hint="What colour is the garment? Colours in the picture that match it are not stitched: the cloth shows through.">
@@ -93,11 +93,11 @@ export default function PicturePanel({ api, pickFile }) {
         </div>
         <p className="dz-hint">Converting again replaces the shapes made from the picture, including any changes you made to them.</p>
         {convertError && <p className="dz-warn" role="alert">{convertError}</p>}
-        {api.design.objects.filter((o) => o.source === "image").length > 500 && (
+        {api.design.objects.filter((o) => o.source === "image").length > (traceInfo && traceInfo.kind !== "logo" ? 4000 : 500) && (
           <p className="dz-warn">This picture has a lot of small shapes. Fewer colours, or Simple detail, gives a cleaner design that sews faster.</p>
         )}
         {traceInfo && traceInfo.widenedMm2 >= 1 && !convertError && (
-          <p className="dz-note-inline">Thin lines and lettering were made about a millimetre wide, the thinnest a needle can follow. If letters run together, make the picture bigger.</p>
+          <p className="dz-note-inline">Very thin lines and lettering were made about half a millimetre wide, the thinnest a line of thread can be, and are sewn as one line of stitches. If letters run together, make the picture bigger.</p>
         )}
         {smallLetterMm > 0 && smallLetterMm < SMALL_LETTER_MM && !convertError && (
           <p className="dz-warn">
@@ -115,7 +115,7 @@ export default function PicturePanel({ api, pickFile }) {
             {palette.map((p) => (
               <li key={p.index} className={p.background ? "is-bg" : ""}>
                 <span className="dz-dot dz-dot--lg" style={{ background: p.hex }} />
-                <span className="dz-pal-n">{p.name}{p.background ? " · background" : p.enclosed ? " · inside the design" : ""}{p.sameAsCloth ? " · like the cloth" : ""}</span>
+                <span className="dz-pal-n">{p.name}{p.background ? " · background" : p.enclosed ? " · inside the design" : ""}{p.fineOnly ? " · fine parts only" : p.sameAsCloth ? " · like the cloth" : ""}</span>
                 <span className="dz-pal-p">{Math.round(p.fraction * 100)}%</span>
                 <Toggle checked={!p.skipped} disabled={p.background} onChange={() => api.toggleSkip(p.index)}>
                   <span className="dz-sr">Stitch {p.name}{p.enclosed ? " inside the design" : ""}</span>
@@ -128,7 +128,12 @@ export default function PicturePanel({ api, pickFile }) {
               {palette.filter((p) => p.sameAsCloth && p.skipped).map((p) => p.name).join(", ")} looks like the cloth, so it is not stitched. Tick it to stitch it, or change the cloth colour above to the real garment colour.
             </p>
           )}
-          <p className="dz-hint">Untick a colour to leave it out; tick one to stitch it. A colour like the cloth starts unticked.</p>
+          {palette.some((p) => p.fineOnly) && (
+            <p className="dz-note-inline">
+              {palette.filter((p) => p.fineOnly).map((p) => p.name).join(", ")} looks like the cloth, so only its fine lines and lettering are stitched; its larger areas show the cloth. Untick it to leave all of it out, or change the cloth colour above to the real garment colour.
+            </p>
+          )}
+          <p className="dz-hint">Untick a colour to leave it out; tick one to stitch it. A colour like the cloth starts with only its fine parts stitched.</p>
         </Group>
       )}
     </>
