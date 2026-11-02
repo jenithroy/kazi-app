@@ -6,6 +6,7 @@ import { fontFamily, tabularNums } from '@/theme';
 import { STATUS_LABELS, STATUS_RAMP } from '@/data/attendance/mock';
 import { formatHours } from '@/data/attendance/live-shared';
 import type { DayDetail } from '@/data/attendance/types';
+import { rulesOn } from '@/data/attendance/work-rules';
 
 /** Status chip + the late/cut badges the reference report shows beside it. */
 export function DayStatusRow({ detail }: { detail: DayDetail }) {
@@ -37,7 +38,7 @@ export function DayStatusRow({ detail }: { detail: DayDetail }) {
       {detail.status === 'late' && detail.lateMinutes > 0 ? (
         <View style={[styles.badge, { backgroundColor: ramp.late.chipBg }]}>
           <Text style={[styles.badgeLabel, tabularNums, { color: ramp.late.chipFg }]}>
-            {detail.lateMinutes}m late{detail.lateCutApplied ? '' : ' · grace'}
+            {detail.lateMinutes}m late{detail.lateCutApplied || rulesOn(detail.date) === 'new' ? '' : ' · grace'}
           </Text>
         </View>
       ) : null}

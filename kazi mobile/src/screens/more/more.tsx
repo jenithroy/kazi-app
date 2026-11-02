@@ -22,7 +22,7 @@ export function More() {
   const insets = useSafeAreaInsets();
   const { canView } = useAuth();
 
-  const modules = useMemo(() => MORE_MODULES.filter((m) => canView(m.id as SectionId)), [canView]);
+  const modules = useMemo(() => MORE_MODULES.filter((m) => m.open || canView(m.id as SectionId)), [canView]);
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>

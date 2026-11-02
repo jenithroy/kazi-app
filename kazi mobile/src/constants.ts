@@ -10,6 +10,11 @@ export interface ModuleEntry {
   icon: FeatherIconName;
   /** One-line description shown on the More hub card. */
   blurb: string;
+  /**
+   * Open to everyone signed in: not a `sections` row in Postgres, so there is nothing for `canView` to ask. The website's Roles &
+   * Duties page is the same (its route is ungated): a page telling people what to log is no use if only directors can open it.
+   */
+  open?: boolean;
 }
 
 // Every module that is not a permanent tab for everyone. Chat is deliberately
@@ -45,6 +50,7 @@ export const MORE_MODULES: ModuleEntry[] = [
   { id: 'marketing', label: 'Marketing', route: '/module/marketing', icon: 'send', blurb: 'Campaigns and leads' },
   { id: 'admin-panel', label: 'Admin Panel', route: '/admin-panel', icon: 'shield', blurb: 'Access and roles' },
   { id: 'usage', label: 'Usage & Activity', route: '/usage', icon: 'activity', blurb: 'Who is using the ERP' },
+  { id: 'roles', label: 'Roles & Duties', route: '/roles', icon: 'award', blurb: 'Who does what, and what it logs', open: true },
   { id: 'changelog', label: 'Changelog', route: '/changelog', icon: 'list', blurb: "What's new" },
   { id: 'bug-report', label: 'Bug Report', route: '/bug-report', icon: 'alert-triangle', blurb: 'Log an issue you hit' },
 ];

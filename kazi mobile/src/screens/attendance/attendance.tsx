@@ -23,8 +23,9 @@ import {
   useToggleClock,
 } from '@/data/attendance/hooks';
 import { MY_NAME, STATUS_LABELS } from '@/data/attendance/mock';
-import { dayLabelOf, formatHours } from '@/data/attendance/live-shared';
+import { dayLabelOf, formatHours, nepalToday } from '@/data/attendance/live-shared';
 import { currentMonthLabel, todayLabel } from '@/data/attendance/utils';
+import { rulesOfMonth } from '@/data/attendance/work-rules';
 import type { AttendanceStatus, AttendanceView, TeamFilter, TeamMember, TeamMonthStats } from '@/data/attendance/types';
 import { useMoneySignature } from '@/lib/money';
 
@@ -136,6 +137,7 @@ export function Attendance() {
     // Salaries are masked for anyone below `employees` tier 2, so their
     // colleagues' cut days arrive priced at 0 — say so rather than total them in.
     unpricedCutDays: team.reduce((sum, m) => sum + (m.month.cutNPR === 0 ? m.month.cutDays : 0), 0),
+    showCuts: rulesOfMonth(nepalToday().slice(0, 7)) === 'old',
   };
 
   // GPS geofenced clock-in (item 26) — take a fix, verify against WORK_SITE, then punch.

@@ -90,6 +90,7 @@ export default function AppLayout() {
       <Stack.Screen name="usage" />
       <Stack.Screen name="changelog" />
       <Stack.Screen name="bug-report" />
+      <Stack.Screen name="roles" />
       {/* The pushed copies of the six modules that are also tabs. */}
       <Stack.Screen name="module/production" />
       <Stack.Screen name="module/inventory" />

@@ -222,9 +222,6 @@ export async function toggleClock(input: ClockToggleInput): Promise<void> {
     return;
   }
 
-  // The reference grades an arrival against the employee's own rostered start,
-  // and against "10:00 or later" when they have no roster at all.
-  const late = gradeArrival(await actorEmployee(personId), now);
   const geo = input.coords ? evaluateGeofence(input.coords.lat, input.coords.lng, input.coords.accuracyM) : null;
   const gps = {
     lat: input.coords?.lat ?? null,
@@ -241,17 +238,24 @@ export async function toggleClock(input: ClockToggleInput): Promise<void> {
       workedHours: null,
       ...(input.bypassUsed ? { bypassUsed: true } : {}),
     });
-  } else {
-    await createDocument(CLOCK_INS, {
-      staffId: personId,
-      staffName: name,
-      role,
-      date: today,
-      ...gps,
-      clockedInAt: serverTimestamp(),
-      ...(input.bypassUsed ? { bypassUsed: true } : {}),
-    });
+    // Coming back is not a new arrival: the morning's grade stands, and only the day's hours go back to a full day while it runs (the
+    // website's "Clock back in" does the same). Grading it again would call someone who was in on time Late for returning from lunch.
+    await setDocument(ATTENDANCE, attId, { hours: 8 }, { merge: true });
+    return;
   }
+
+  // The reference grades an arrival against the employee's own rostered start (the rules, and what no roster means, are in
+  // `work-rules.ts`).
+  const late = gradeArrival(await actorEmployee(personId), now);
+  await createDocument(CLOCK_INS, {
+    staffId: personId,
+    staffName: name,
+    role,
+    date: today,
+    ...gps,
+    clockedInAt: serverTimestamp(),
+    ...(input.bypassUsed ? { bypassUsed: true } : {}),
+  });
 
   await setDocument(
     ATTENDANCE,

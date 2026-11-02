@@ -29,12 +29,14 @@ import {
   employeeById,
   isoFor,
   monthLabelOf,
+  nepalToday,
   punchDuration,
   readAttendanceMonth,
   readEmployees,
   readPunchMonth,
 } from './live-shared';
 import type { AttendanceStatus, DayDetail, MemberMonthReport, WorkSchedule } from './types';
+import { effectiveAtt, rulesOn } from './work-rules';
 
 export interface MemberMonthQuery {
   /** `people.id` — the key the person's rows are filed under. */
@@ -62,15 +64,18 @@ export async function fetchMemberMonth({ staffId, name, monthISO }: MemberMonthQ
   const tally: Record<AttendanceStatus, number> = { present: 0, late: 0, absent: 0, half: 0, leave: 0, off: 0 };
   let cuts = 0;
   let hoursWorked = 0;
+  const today = nepalToday();
 
   for (let day = 1; day <= daysInMonth(year, month1); day++) {
     const iso = isoFor(year, month1, day);
-    const att = records.get(iso);
     const punch = punches.get(iso);
+    // A past day with a clock-in and no clock-out reads as Absent, as on the website.
+    const att = effectiveAtt(records.get(iso), punch, iso, today);
     days.push(buildDayDetail(iso, schedule, att, punch));
     if (att) {
       tally[att.status] += 1;
-      if (att.status === 'late' && att.lateCutApplied) cuts += 1;
+      // The cut belongs to the old rule: a day the memo judges never carries one.
+      if (att.status === 'late' && att.lateCutApplied && rulesOn(iso) === 'old') cuts += 1;
     }
     hoursWorked += punchDuration(punch) ?? 0;
   }
@@ -103,7 +108,9 @@ export interface SaveDayStatusInput {
 /**
  * Set one staffer's status for one date. Keyed `{date}_{staffId}` exactly as the
  * web does, and — like the web — the late fields are cleared whenever the status
- * moves off Late, so a stale 25% cut can't survive a correction.
+ * moves off Late, so a stale 25% cut can't survive a correction. The cut only
+ * exists for days the old rule judged (before 1 December 2026); later days never
+ * carry one (`work-rules.ts`).
  */
 export async function saveDayStatus(input: SaveDayStatusInput): Promise<void> {
   if (!input.staffId) throw new Error('saveDayStatus: staffId is required — attendance rows are keyed by it');
@@ -121,7 +128,7 @@ export async function saveDayStatus(input: SaveDayStatusInput): Promise<void> {
       hours: STATUS_TO_HOURS[input.status],
       loggedBy: getActor()?.name ?? 'kazi-mobile',
       createdAt: serverTimestamp(),
-      lateCutApplied: isLate ? input.lateCutApplied : false,
+      lateCutApplied: isLate && rulesOn(input.date) === 'old' ? input.lateCutApplied : false,
       lateMinutes: isLate ? input.lateMinutes : 0,
     },
     { merge: true },

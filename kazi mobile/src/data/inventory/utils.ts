@@ -1,5 +1,14 @@
 import type { ItemCost, StockItem, StockLevel } from './types';
 
+/**
+ * A quantity or level typed into a stock form. Stock is counted in kg and metres, so "2.5" is two and a half: `parseInt` read it as
+ * 2, and stripping everything but the digits first read it as 25. Rounded to three places, the most `stock_movements.qty` keeps.
+ */
+export function toQty(text: string): number {
+  const n = parseFloat(text.replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : 0;
+}
+
 export function stockRatio(item: Pick<StockItem, 'qty' | 'threshold'>): number {
   // Most live rows carry no reorder level at all. Without a threshold there is
   // no bar to fill against, so show it full rather than dividing by zero.

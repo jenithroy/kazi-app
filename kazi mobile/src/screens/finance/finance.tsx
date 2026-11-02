@@ -65,6 +65,7 @@ import type { Expense, ExpenseCategoryId, JournalEntry, LedgerRowType, OrderCost
 
 import { PurchasesPane } from '@/screens/purchases/purchases-pane';
 import { money, useMoneySignature } from '@/lib/money';
+import { mockUndo } from '@/lib/supabase/undo';
 
 import { AccountLedgerView } from './account-ledger-view';
 import { AccountingKpis } from './accounting-kpis';
@@ -509,7 +510,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${name} · ${lakh(amount)} posted`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoExpenses.mutate(before) },
+      action: mockUndo(() => undoExpenses.mutate(before)),
     });
   };
 
@@ -527,13 +528,10 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${e.name} deleted`,
       tone: 'ok',
-      action: {
-        label: 'Undo',
-        onPress: () => {
-          undoExpenses.mutate(beforeExpenses);
-          undoVatBills.mutate(beforeBills);
-        },
-      },
+      action: mockUndo(() => {
+        undoExpenses.mutate(beforeExpenses);
+        undoVatBills.mutate(beforeBills);
+      }),
     });
   };
 
@@ -568,7 +566,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${bill.fileName} deleted`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoVatBills.mutate(before) },
+      action: mockUndo(() => undoVatBills.mutate(before)),
     });
   };
 
@@ -620,7 +618,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${payload.reference} ${editing ? 'updated' : 'posted'}`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoJournal.mutate(before) },
+      action: mockUndo(() => undoJournal.mutate(before)),
     });
   };
 
@@ -633,7 +631,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${ref} deleted`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoJournal.mutate(before) },
+      action: mockUndo(() => undoJournal.mutate(before)),
     });
   };
 
@@ -725,7 +723,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${tx.direction === 'Credit' ? '+' : '−'}रु ${amount.toLocaleString('en-IN')} logged`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoBankTx.mutate(before) },
+      action: mockUndo(() => undoBankTx.mutate(before)),
     });
   };
 
@@ -736,7 +734,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${tx.description} deleted`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoBankTx.mutate(before) },
+      action: mockUndo(() => undoBankTx.mutate(before)),
     });
   };
 
@@ -768,7 +766,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${ref} costs saved`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoOrderCosts.mutate(before) },
+      action: mockUndo(() => undoOrderCosts.mutate(before)),
     });
   };
 
@@ -781,7 +779,7 @@ export function Finance({ variant = 'finance' }: FinanceProps = {}) {
     toast.show({
       message: `${ref} costs cleared`,
       tone: 'ok',
-      action: { label: 'Undo', onPress: () => undoOrderCosts.mutate(before) },
+      action: mockUndo(() => undoOrderCosts.mutate(before)),
     });
   };
 

@@ -1,0 +1,211 @@
+/**
+ * What each role is expected to log: the words of the Roles & Duties screen, ported from the website's `src/lib/roles.js`
+ * (company policy, written once so it says one thing to everybody; keep the two in step).
+ *
+ * The roles themselves are NOT listed here. They live in the `positions` table and are edited in the Admin Panel, so the screen
+ * reads them from there. Entries below are keyed by position id, or by the role's name slugified the way the Admin Panel derives an
+ * id from a name, so a role written up under either spelling is found. A role with no entry shows its people and says its duties
+ * have not been written up yet, which is better than inventing some.
+ *
+ * Left out on purpose: the website's `tour` ("Show me" walk-through) on each duty. Those guided tours drive the website's own pages
+ * and have no counterpart here.
+ */
+import type { SectionId } from '@/auth/permissions';
+
+import type { Duty } from './types';
+
+/** Same derivation the Admin Panel uses when it turns a role name into an id. */
+export const roleKey = (s = ''): string =>
+  String(s)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+export const ROLE_DUTIES: Record<string, Duty[]> = {
+  // Directors own the business; they read what Kathmandu records rather than recording anything themselves. Still listed: an
+  // empty duty list is the point, not a reason to leave the role off.
+  director: [],
+
+  // A separate role from Operations Manager, and it logs nothing.
+  'operations-head': [],
+
+  'operations-manager': [
+    {
+      what: 'Open every order and keep the pipeline honest',
+      cadence: 'Per order, and as each stage changes',
+      section: 'production',
+      detail:
+        "Open the order the day it's confirmed and move its stage the day the stage actually moves. Every order should be findable and at the right point — the dates quoted to clients are read straight off this.",
+    },
+    {
+      what: 'Set materials and fabrics against the work',
+      cadence: 'As orders consume them',
+      section: 'inventory',
+      detail:
+        'Keep Stock Levels and Materials & Fabrics matching what the floor is actually using, so an order\'s costs and what\'s left on the shelf both stay true.',
+    },
+  ],
+
+  accountant: [
+    {
+      what: 'Enter expenses and attach the VAT bill',
+      cadence: 'Daily',
+      section: 'finance',
+      detail: "An expense with no bill against it can't be claimed, and chasing the paper back at year end is how the timing gets lost.",
+    },
+    {
+      what: 'Raise invoices and record payments as they land',
+      cadence: 'Per order, and same day the money arrives',
+      section: 'billing',
+      detail: 'Use Record Payment rather than editing a status by hand — otherwise the money is untraceable. Part payments are fine.',
+    },
+    {
+      what: "Post journal entries for anything that isn't a plain expense",
+      cadence: 'As they arise',
+      section: 'finance',
+      detail: 'Adjustments, transfers and corrections, with a description that still explains itself in six months.',
+    },
+    {
+      what: 'Run payroll and issue salary slips',
+      cadence: 'Monthly',
+      section: 'employees',
+      detail: "Payroll reads the month's attendance, so close attendance before running it.",
+    },
+  ],
+
+  'marketing-co-ordinator': [
+    {
+      what: "Put everyone's tasks on the board",
+      cadence: 'As work is assigned',
+      section: 'tasks',
+      detail:
+        "Not just marketing's — this role raises the cards for the whole team, with an owner and a category on each. Work that only exists in a chat thread is work nobody can find on the day it's needed.",
+    },
+    {
+      what: 'Plan posts on the marketing calendar',
+      cadence: 'Weekly',
+      section: 'marketing',
+      detail: 'Put each piece on the day it goes out, so anyone can see what\'s coming without asking.',
+    },
+  ],
+
+  'fashion-designer': [
+    {
+      what: 'Add and remove materials and fabrics',
+      cadence: "As they're sourced or dropped",
+      section: 'inventory',
+      detail:
+        'Inventory → Materials & Fabrics. Add each one once, with its composition and GSM, so orders reference it instead of restating it.',
+    },
+    {
+      what: 'Keep the status on materials and fabrics current',
+      cadence: 'Whenever it changes',
+      section: 'inventory',
+      detail: "A fabric still reading In Stock after it's run out sends someone to a shelf that's empty.",
+    },
+    {
+      what: "Add tech packs as they're drawn up",
+      cadence: 'When a style needs one',
+      section: 'inventory',
+      detail: 'Inventory → Tech Packs. The pack is what the floor cuts from, so it belongs here rather than in a folder on someone\'s laptop.',
+    },
+    {
+      what: 'Log samples',
+      cadence: 'Per sample made',
+      section: 'inventory',
+      detail:
+        "Inventory → Samples, with the stage, the fabric used, size, colour and cost. It's the record of what was tried before the bulk run.",
+    },
+  ],
+
+  'content-co-ordinator': [
+    {
+      what: 'Mark calendar entries done when the piece ships',
+      cadence: 'On publish',
+      section: 'marketing',
+      detail: 'A calendar showing the plan but not what actually went out is only half a record.',
+    },
+    {
+      what: 'Keep finished work attached to its task card',
+      cadence: 'As each piece lands',
+      section: 'tasks',
+      detail: 'So the person who commissioned it can find it without asking you where it went.',
+    },
+  ],
+};
+
+// Aliases, so a role is found whichever way its name is spelled or whichever id it happens to carry. The marketing role is written
+// both with and without the hyphen and sometimes paired with Client Service; looking up by one exact string would drop the duties
+// on the floor silently. Operations Head is deliberately NOT aliased to Operations Manager: they are two different roles, and
+// only the Manager logs anything.
+ROLE_DUTIES['marketing-coordinator'] = ROLE_DUTIES['marketing-co-ordinator'];
+ROLE_DUTIES['marketing-co-ordinator-client-service'] = ROLE_DUTIES['marketing-co-ordinator'];
+ROLE_DUTIES['marketing-coordinator-client-service'] = ROLE_DUTIES['marketing-co-ordinator'];
+ROLE_DUTIES['client-service'] = ROLE_DUTIES['marketing-co-ordinator'];
+ROLE_DUTIES['content-coordinator'] = ROLE_DUTIES['content-co-ordinator'];
+ROLE_DUTIES['content-editor'] = ROLE_DUTIES['content-co-ordinator'];
+
+/** Duties for a role, by id or by name. Undefined when none are written up. */
+export function dutiesFor(position: { id: string; label?: string } | null | undefined): Duty[] | undefined {
+  if (!position) return undefined;
+  return ROLE_DUTIES[position.id] ?? ROLE_DUTIES[roleKey(position.label)];
+}
+
+/**
+ * Asked of everyone in Kathmandu, whatever their role: said once rather than repeated under every heading. Directors are not
+ * included: they are in the UK and do not clock in against the Kathmandu geofence.
+ */
+export const SHARED_DUTIES: Duty[] = [
+  {
+    what: 'Clock in when you arrive and out when you leave',
+    cadence: 'Every working day',
+    section: 'attendance',
+    detail:
+      'GPS-checked against a 100m geofence and stamped by the server. Your hours come from the gap between the two, so a missing clock-out leaves the day for someone else to reconstruct.',
+  },
+  {
+    what: 'Keep your task cards in the right column',
+    cadence: 'As work changes',
+    section: 'tasks',
+    detail: "To Do, In Progress, Done, Blocked. Blocked is not an admission of failure — it's the column that gets you help.",
+  },
+  {
+    what: 'Report anything broken, confusing, or missing',
+    cadence: 'The moment you hit it',
+    section: 'bug_report',
+    detail: 'Bugs and feature requests both. Nothing is too small, and a screenshot usually makes it fixable the same day.',
+  },
+];
+
+/** How the roles sit together, read as three rungs. Company context for the screen, not data: nothing branches on it. */
+export const ORG_TIERS: { tier: string; desc: string }[] = [
+  { tier: 'Directors (UK)', desc: 'Own the business, set strategy, manage client relationships and finance from the UK.' },
+  { tier: 'Operations & Accounts (Nepal)', desc: 'Run day-to-day ops in Kathmandu — production, billing, payroll, inventory, QC.' },
+  { tier: 'Delivery team (Nepal)', desc: 'Production floor, marketing, content and operations support.' },
+];
+
+/**
+ * The page where a duty is done, by the website's section id: this app's section (for "may I open it?"), the route, and the name.
+ * Routes follow the More hub: a module that is also somebody's tab opens through its `/module/…` copy, so Back returns here.
+ */
+export const DUTY_LINKS: Record<string, { section: SectionId; route: string; label: string }> = {
+  dashboard: { section: 'dashboard', route: '/', label: 'Dashboard' },
+  attendance: { section: 'attendance', route: '/attendance', label: 'Attendance' },
+  tasks: { section: 'tasks', route: '/module/tasks', label: 'Tasks' },
+  production: { section: 'production', route: '/module/production', label: 'Production' },
+  inventory: { section: 'inventory', route: '/module/inventory', label: 'Inventory' },
+  library: { section: 'library', route: '/module/inventory', label: 'Product Library' },
+  sales: { section: 'sales', route: '/sales', label: 'Sales' },
+  billing: { section: 'billing', route: '/module/billing', label: 'Billing' },
+  finance: { section: 'finance', route: '/module/finance', label: 'Finance' },
+  purchases: { section: 'purchases', route: '/purchases', label: 'Purchases' },
+  budget: { section: 'budget-requirements', route: '/budget-requirements', label: 'Budget & Requirements' },
+  customers: { section: 'customers', route: '/customers', label: 'Customers' },
+  employees: { section: 'employees-hr', route: '/employees-hr', label: 'Employees & HR' },
+  marketing: { section: 'marketing', route: '/module/marketing', label: 'Marketing' },
+  messenger: { section: 'messenger', route: '/chat', label: 'Chat' },
+  admin: { section: 'admin-panel', route: '/admin-panel', label: 'Roles & Permissions' },
+  usage_analytics: { section: 'usage', route: '/usage', label: 'Usage & Activity' },
+  bug_report: { section: 'bug-report', route: '/bug-report', label: 'Bug Report' },
+};

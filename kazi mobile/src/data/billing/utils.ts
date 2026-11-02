@@ -1,7 +1,7 @@
 import { money as displayMoney, moneyLakh } from '@/lib/money';
 
 import { CLIENTS, RATES, SYM, VAT_RATE } from './mock';
-import type { Currency, DiscountMode, DocLine, Invoice, InvoiceStatus, InvoiceStatusFull } from './types';
+import type { Currency, DiscountMode, DocLine, Invoice, InvoiceStatus, InvoiceStatusFull, Payment } from './types';
 
 export function n0(n: number): string {
   return Math.round(n).toLocaleString('en-US');
@@ -94,13 +94,16 @@ export function total(v: Invoice): number {
   return taxable(v) + vat(v);
 }
 
+/** What one payment is worth to its invoice, in the invoice's own currency, at the rate it was recorded. */
+export function creditOf(v: Pick<Invoice, 'cur' | 'rate'>, p: Payment): number {
+  if (p.cur === v.cur) return p.amt;
+  if (p.cur === 'NPR') return p.amt / v.rate;
+  return (p.amt * p.rate) / v.rate;
+}
+
 /** Every payment converted into the invoice's own currency, at the rate it was recorded. */
 export function paid(v: Invoice): number {
-  return v.payments.reduce((n, p) => {
-    if (p.cur === v.cur) return n + p.amt;
-    if (p.cur === 'NPR') return n + p.amt / v.rate;
-    return n + (p.amt * p.rate) / v.rate;
-  }, 0);
+  return v.payments.reduce((n, p) => n + creditOf(v, p), 0);
 }
 
 export function balance(v: Invoice): number {

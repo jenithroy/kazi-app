@@ -45,6 +45,7 @@ import {
 } from './live-shared';
 
 import type { AttendanceStatus, ClockPunch, MemberMonth, TeamMember } from './types';
+import { effectiveAtt, rulesOn } from './work-rules';
 
 const TINTS: AvatarTint[] = ['mint', 'clay', 'draft', 'amber', 'dark'];
 
@@ -71,13 +72,18 @@ function timesFor(punch: DatedPunch | undefined, status: AttendanceStatus): stri
 }
 
 /** Month-to-date tallies for one person, from their own rows only. */
-function monthFor(employee: EmployeeRecord, rows: DatedAtt[], punches: DatedPunch[]): MemberMonth {
+function monthFor(employee: EmployeeRecord, rows: DatedAtt[], punches: DatedPunch[], today: string): MemberMonth {
   const tally = { present: 0, late: 0, absent: 0, half: 0, leave: 0 };
   let cutDays = 0;
-  for (const r of rows) {
-    if (r.status === 'off') continue;
+  const attOn = new Map(rows.map((r) => [r.date, r]));
+  const punchOn = new Map(punches.map((p) => [p.date, p]));
+  for (const date of new Set([...attOn.keys(), ...punchOn.keys()])) {
+    // A past day with a clock-in and no clock-out reads as Absent, as on the website.
+    const r = effectiveAtt(attOn.get(date), punchOn.get(date), date, today);
+    if (!r || r.status === 'off') continue;
     tally[r.status] += 1;
-    if (r.status === 'late' && r.lateCutApplied) cutDays += 1;
+    // The cut belongs to the old rule: a day the memo judges never carries one.
+    if (r.status === 'late' && r.lateCutApplied && rulesOn(date) === 'old') cutDays += 1;
   }
   // Real clocked time only — the `hours` column carries the *scheduled* 8h even
   // on days nobody worked, so summing it invents time (see `firestore-month.ts`).
@@ -120,7 +126,7 @@ function memberOf(
     status,
     times: timesFor(punch, status),
     hours: formatHours(workedToday ?? 0),
-    month: monthFor(employee, monthAtt, monthPunches),
+    month: monthFor(employee, monthAtt, monthPunches, today),
   };
 }
 

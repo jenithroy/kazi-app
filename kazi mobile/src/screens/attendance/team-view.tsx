@@ -86,18 +86,20 @@ export function TeamView({
               <Text style={[styles.monthValue, tabularNums, { color: theme.onHero.text }]}>{monthStats.teamHours}</Text>
               <Text style={[styles.monthCaption, { color: theme.onHero.textMuted }]}>Team hours</Text>
             </View>
-            <View style={styles.gap4}>
-              {monthStats.attendanceCuts > 0 || monthStats.unpricedCutDays === 0 ? (
-                <Text style={[styles.monthValue, tabularNums, { color: theme.onHero.dangerWashText }]}>{npr(monthStats.attendanceCuts)}</Text>
-              ) : (
-                <Text style={[styles.monthPending, { color: theme.onHero.dangerWashText }]}>Amount pending</Text>
-              )}
-              <Text style={[styles.monthCaption, { color: theme.onHero.textMuted }]}>
-                {monthStats.unpricedCutDays > 0
-                  ? `Attendance cuts · ${monthStats.unpricedCutDays} cut ${monthStats.unpricedCutDays === 1 ? 'day' : 'days'} not priced for you`
-                  : 'Attendance cuts'}
-              </Text>
-            </View>
+            {monthStats.showCuts === false ? null : (
+              <View style={styles.gap4}>
+                {monthStats.attendanceCuts > 0 || monthStats.unpricedCutDays === 0 ? (
+                  <Text style={[styles.monthValue, tabularNums, { color: theme.onHero.dangerWashText }]}>{npr(monthStats.attendanceCuts)}</Text>
+                ) : (
+                  <Text style={[styles.monthPending, { color: theme.onHero.dangerWashText }]}>Amount pending</Text>
+                )}
+                <Text style={[styles.monthCaption, { color: theme.onHero.textMuted }]}>
+                  {monthStats.unpricedCutDays > 0
+                    ? `Attendance cuts · ${monthStats.unpricedCutDays} cut ${monthStats.unpricedCutDays === 1 ? 'day' : 'days'} not priced for you`
+                    : 'Attendance cuts'}
+                </Text>
+              </View>
+            )}
           </View>
           <Pressable onPress={onExportPayroll} style={[styles.exportButton, { borderColor: theme.onHero.divider }]}>
             <Text style={[styles.exportLabel, { color: theme.onHero.text }]}>Export roll call (CSV)</Text>

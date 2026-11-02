@@ -20,6 +20,7 @@ import {
   shiftMonth,
 } from '@/data/attendance/live-shared';
 import type { AttendanceStatus, TeamMember } from '@/data/attendance/types';
+import { rulesOfMonth, rulesOn } from '@/data/attendance/work-rules';
 
 import { DayDetailBody } from './day-detail';
 
@@ -208,11 +209,14 @@ export function MemberSheet({ visible, member, canEdit, onClose, onExport }: Mem
                   <Text style={[styles.tallyLabel, { color: theme.textSecondary }]}>{STATUS_LABELS[s]}</Text>
                 </View>
               ))}
-              <View style={[styles.tally, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <View style={[styles.tallyDot, { backgroundColor: theme.dangerWashText }]} />
-                <Text style={[styles.tallyValue, tabularNums, { color: theme.textPrimary }]}>{report.cuts}</Text>
-                <Text style={[styles.tallyLabel, { color: theme.textSecondary }]}>25% cuts</Text>
-              </View>
+              {/* The cut is the old rule's; from December 2026 a month has none (`work-rules.ts`). */}
+              {rulesOfMonth(monthISO) === 'old' ? (
+                <View style={[styles.tally, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={[styles.tallyDot, { backgroundColor: theme.dangerWashText }]} />
+                  <Text style={[styles.tallyValue, tabularNums, { color: theme.textPrimary }]}>{report.cuts}</Text>
+                  <Text style={[styles.tallyLabel, { color: theme.textSecondary }]}>25% cuts</Text>
+                </View>
+              ) : null}
               <View style={[styles.tally, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <View style={[styles.tallyDot, { backgroundColor: theme.accent }]} />
                 <Text style={[styles.tallyValue, tabularNums, { color: theme.textPrimary }]}>
@@ -267,7 +271,7 @@ export function MemberSheet({ visible, member, canEdit, onClose, onExport }: Mem
                 })}
               </View>
 
-              {draftStatus === 'late' ? (
+              {draftStatus === 'late' && rulesOn(day.date) === 'old' ? (
                 <View style={[styles.cutRow, { backgroundColor: theme.dangerWash }]}>
                   <View style={styles.cutText}>
                     <Text style={[styles.cutLabel, { color: theme.dangerWashText }]}>25% salary cut</Text>

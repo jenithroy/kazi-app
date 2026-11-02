@@ -9,7 +9,7 @@
  * the app matches the same figure on the site:
  *   - a shift comes from `scheduleStart` / `scheduleEnd`, narrowed by
  *     `scheduleWorkingDays` and then by `scheduleDayOverrides[weekday]`
- *   - 15+ minutes past shift start → Late **with** a 25% salary cut for the day;
+ *   - before 1 December 2026, 15+ minutes past shift start → Late **with** a 25% salary cut for the day (see `work-rules.ts` for the memo's rules after it);
  *     1–14 minutes → Late on grace, no cut
  *   - the cut is `basicSalaryNPR / 30 × 0.25` per cut day
  *
@@ -24,6 +24,7 @@ import { isDirectorPosition } from '@/auth/permissions';
 import { arr, num, str, tsToISO } from '@/lib/data/normalise';
 
 import type { AttendanceStatus, DayDetail, WorkSchedule } from './types';
+import { judgeArrival } from './work-rules';
 
 export const ATTENDANCE = 'attendance';
 export const CLOCK_INS = 'clock_ins';
@@ -38,8 +39,7 @@ export const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-/** Reference rule: 15+ minutes past shift start forfeits 25% of the day's salary. */
-export const LATE_GRACE_MIN = 15;
+/** The old rule's cut: 25% of the day's salary (`work-rules.ts` says which days it applies to). */
 export const LATE_CUT_FRACTION = 0.25;
 /** The reference payroll divides the basic salary by a flat 30 to get a day rate. */
 export const PAYROLL_DAYS_PER_MONTH = 30;
@@ -271,6 +271,8 @@ export interface AttRow {
   lateCutApplied: boolean;
   role: string;
   staffName: string;
+  /** Who wrote the row: the clock-in stamps its own "GPS"; anything else is somebody's decision. */
+  loggedBy: string;
   /** Used only to break a tie when two identities hold the same day. */
   createdAt: string;
 }
@@ -330,6 +332,7 @@ export function toAttRow(x: Record<string, unknown>): AttRow {
     lateCutApplied: boolish(x.lateCutApplied),
     role: str(x.role).trim(),
     staffName: str(x.staffName).trim(),
+    loggedBy: str(x.loggedBy).trim(),
     createdAt: tsToISO(x.createdAt),
   };
 }
@@ -547,17 +550,12 @@ export function formatHours(totalHours: number): string {
 // ---------------------------------------------------------------------------
 // Late grading
 //
-// Ported from the reference `calculateAttendanceStatus` in `src/constants.js`,
-// including the branch mobile used to be missing: when the directory holds no
-// shift for someone (or the weekday is one of their offs), the reference grades
-// them on a flat "clocked in at 10:00 or later is Late" rule and applies **no**
-// salary cut. `data/attendance/schedule.ts` graded everyone against a hardcoded
-// 09:00 instead, because its lookup table is keyed by the *mock* roster's names
-// — no real staffer matched it. That marked people Late, and docked 25% of a
-// day's pay, for arriving on time on an 11:00 or 12:00 shift.
-
-/** The reference's "no roster on file" cut-off: in at 10:00 or later reads as Late. */
-const NO_SCHEDULE_LATE_HOUR = 10;
+// The reference `calculateAttendanceStatus` in `src/constants.js`, whose rules are
+// in `work-rules.ts` (two sets, by the day the arrival happened). What is here is
+// which shift to grade against: the one the directory holds for that weekday, and
+// none when the person has no roster on file or the weekday is one of their offs.
+// Grading everyone against a fixed 09:00 instead once marked people Late, and
+// docked 25% of a day's pay, for arriving on time on an 11:00 or 12:00 shift.
 
 export interface LateGrade {
   status: 'Present' | 'Late';
@@ -578,18 +576,9 @@ export function gradeArrival(employee: EmployeeRecord | null, at: Date): LateGra
   // are the Nepal wall clock, and a Nepal-local punch grades exactly as before.
   const nepal = new Date(at.getTime() + NEPAL_OFFSET_MS);
   const shift = employee?.hasSchedule ? shiftForDay(employee.schedule, DAY_NAMES[nepal.getUTCDay()]) : null;
-  if (!shift) {
-    return { status: nepal.getUTCHours() >= NO_SCHEDULE_LATE_HOUR ? 'Late' : 'Present', lateMinutes: 0, lateCutApplied: false };
-  }
-
-  const scheduled = new Date(nepal);
-  const [h, m] = shift.start.split(':').map((n) => parseInt(n, 10));
-  scheduled.setUTCHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
-
-  const diffMins = (nepal.getTime() - scheduled.getTime()) / 60_000;
-  if (diffMins >= LATE_GRACE_MIN) return { status: 'Late', lateMinutes: Math.round(diffMins), lateCutApplied: true };
-  if (diffMins > 0) return { status: 'Late', lateMinutes: Math.round(diffMins), lateCutApplied: false };
-  return { status: 'Present', lateMinutes: 0, lateCutApplied: false };
+  // Which rule judges it follows the day it happened (`work-rules.ts`): the old 15-minute quarter-day cut before 1 December 2026, the
+  // memo's 10-minute grace with no cut from then on.
+  return judgeArrival(shift, nepal);
 }
 
 /** Look a staffer up by `people.id` — the only join this module trusts. */

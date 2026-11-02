@@ -168,6 +168,7 @@ export function techPackDraft(pack: TechPack | null, all: TechPack[] = []): Tech
     backSketchUrl: pack.backSketchUrl,
     techPackUrl: pack.techPackUrl,
     images: [...pack.images],
+    sheetFormat: pack.sheetFormat,
   };
 }
 
@@ -196,6 +197,7 @@ export function techPackFromDraft(id: string, draft: TechPackDraft): TechPack {
     backSketchUrl: draft.backSketchUrl.trim(),
     techPackUrl: draft.techPackUrl.trim(),
     images: [...draft.images],
+    sheetFormat: draft.sheetFormat,
   };
 }
 

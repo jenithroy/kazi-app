@@ -67,6 +67,8 @@ const SPECS: Record<string, Spec> = {
     dateCol: 'quote_date',
   },
   counters: { table: 'counters' },
+  // One row per payment against an invoice (migration 0030); the invoice's `amount_paid` is a sum a trigger keeps, never written.
+  payments: { table: 'payments' },
   accounts: { table: 'accounts' },
   finance_expenses: { table: 'expenses', dateCol: 'expense_date' },
   finance_purchases: {

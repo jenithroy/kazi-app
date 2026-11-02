@@ -7,6 +7,9 @@
 import { getSupabase } from '@/lib/supabase';
 import { str } from '@/lib/data/normalise';
 import { createDocument, patchDocument, removeDocument } from '@/lib/supabase/write';
+import { isoDay } from '@/lib/date-display';
+import { fiscalYearForAD } from '@/lib/nepaliDate';
+import { postPurchaseStockIn } from '@/data/inventory/supabase-write';
 
 import type { PurchaseEntry } from './types';
 
@@ -46,8 +49,31 @@ function toLive(e: Partial<PurchaseEntry>): Record<string, unknown> {
   return out;
 }
 
+/**
+ * The next number for a fiscal year, drawn from the database (migration 0046) so two people raising a purchase at the same moment
+ * cannot be given the same one. Counting the entries already on the phone can't know what anyone else has just raised.
+ */
+async function nextPurchaseNumber(fiscalYear: string): Promise<string> {
+  const { data, error } = await getSupabase().rpc('next_purchase_number', { fiscal_year: fiscalYear });
+  if (error) throw new Error(`next_purchase_number: ${error.message}`);
+  return String(data);
+}
+
+/**
+ * Raising a purchase, in the website's order (`financeWrites.addPurchase`): the number comes from the purchase's own fiscal year,
+ * decided by its date, so a backdated purchase draws from the year it belongs to; then the row, with the year; then the stock-in for
+ * any line that names an inventory item, which needs the row's id. `entry.expenseId` is only the phone's guess for the list while the
+ * save is in flight.
+ */
 export async function addEntry(entry: PurchaseEntry): Promise<void> {
-  await createDocument(COLLECTION, toLive(entry));
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(entry.date) ? entry.date : isoDay(new Date());
+  const fiscalYear = fiscalYearForAD(day).label;
+  const expenseId = await nextPurchaseNumber(fiscalYear);
+  const id = await createDocument(COLLECTION, { ...toLive(entry), date: day, expenseId, fiscalYear });
+  // The purchase is saved; a stock-in that can't be posted must not tell the person it wasn't (the website logs it the same way).
+  await postPurchaseStockIn({ id, expenseId, date: day }, entry.items).catch((err) =>
+    console.error('purchases/addEntry: the stock-in could not be posted', err),
+  );
 }
 
 export async function updateEntry(id: string, updates: Partial<PurchaseEntry>): Promise<void> {
@@ -56,62 +82,69 @@ export async function updateEntry(id: string, updates: Partial<PurchaseEntry>): 
 }
 
 /**
- * A purchase is not one row: raising it also files VAT bills, stock movements
- * and journal entries against it, and deleting it alone leaves those counted in
- * stock and in the ledger against a record that has gone. This is the reference
- * app's own cascade (`utils/financeRows.js` → `deletePurchaseWithLinks`).
+ * A purchase is not one row: raising it also files VAT bills and stock movements against it, and deleting it alone leaves those
+ * counted in stock and in the ledger against a record that has gone. This is the website's own cascade (`utils/financeRows.js` →
+ * `deletePurchaseWithLinks`).
  *
- * The linked rows point at either key — older ones at the readable `EXP###`
- * ref, newer ones at the row's uuid — so both are tried. A linked-row failure
- * is logged and not rethrown, exactly as upstream: the purchase itself is
- * already gone and the caller must not be told the delete failed.
+ * They are found by the purchase's own id (migration 0046), not by its "EXP001" number: numbers restart every fiscal year, so the
+ * same one now names a purchase in each year and matching on it would take another year's VAT bill or stock-in with this one.
+ * What hangs off the purchase is read BEFORE it is deleted, because afterwards the database lets go of the links (`purchase_id` is
+ * ON DELETE SET NULL) and the lookup finds nothing. A linked-row failure is logged and not rethrown, as on the website: the purchase
+ * itself is already gone and the caller must not be told the delete failed.
+ *
+ * Journal entries are not touched. The website matches them on the same ambiguous number and notes that nothing files one against a
+ * purchase today; this app never does, and a delete that can reach another year's books is not worth that.
  */
 export async function deleteEntry(id: string): Promise<void> {
   const sb = getSupabase();
 
-  // Read the readable ref BEFORE the row goes, or there is nothing left to match on.
-  let expenseRef = '';
-  try {
-    const { data } = await sb.from('purchases').select('expense_ref').eq('id', id).maybeSingle();
-    expenseRef = str((data as { expense_ref?: unknown } | null)?.expense_ref).trim();
-  } catch (err) {
-    console.error('purchases/deleteEntry: could not read the expense ref', err);
-  }
+  const linked = async <T>(what: string, lookup: PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> => {
+    try {
+      const { data, error } = await lookup;
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    } catch (err) {
+      console.error(`purchases/deleteEntry: could not look up the linked ${what}`, err);
+      return [];
+    }
+  };
+  const vatBills = await linked<{ id: string; storage_path?: unknown }>(
+    'vat_bills',
+    sb.from('vat_bills').select('id, storage_path').eq('purchase_id', id),
+  );
+  const movements = await linked<{ id: string }>(
+    'stock_movements',
+    sb.from('stock_movements').select('id').eq('source', 'purchase').eq('purchase_id', id),
+  );
 
   await removeDocument(COLLECTION, id);
 
-  for (const key of [...new Set([expenseRef, id].filter(Boolean))]) {
-    try {
-      const { data, error } = await sb.from('vat_bills').select('id, storage_path').eq('expense_id', key);
-      if (error) throw new Error(error.message);
-      for (const row of (data ?? []) as { id: string; storage_path?: unknown }[]) {
-        const path = str(row.storage_path).trim();
-        if (path) {
-          const removed = await sb.storage.from(VAT_BILL_BUCKET).remove([path]);
-          if (removed.error) console.warn(`Could not delete ${VAT_BILL_BUCKET}/${path}:`, removed.error.message);
-        }
-        const dropped = await sb.from('vat_bills').delete().eq('id', row.id);
-        if (dropped.error) throw new Error(dropped.error.message);
+  // A delete the database refuses does not say so: row security filters the row away without an error. Then the purchase is still
+  // there, and so must everything that belongs to it be.
+  const still = await sb.from('purchases').select('id').eq('id', id).maybeSingle();
+  if (still.data) throw new Error('Not deleted. You may not have permission to delete this.');
+
+  try {
+    for (const row of vatBills) {
+      const path = str(row.storage_path).trim();
+      if (path) {
+        const removed = await sb.storage.from(VAT_BILL_BUCKET).remove([path]);
+        if (removed.error) console.warn(`Could not delete ${VAT_BILL_BUCKET}/${path}:`, removed.error.message);
       }
-    } catch (err) {
-      console.error('Failed to delete linked vat_bills:', err);
+      const dropped = await sb.from('vat_bills').delete().eq('id', row.id);
+      if (dropped.error) throw new Error(dropped.error.message);
     }
+  } catch (err) {
+    console.error('Failed to delete linked vat_bills:', err);
+  }
 
-    try {
-      const { error } = await sb.from('stock_movements').delete().eq('source', 'purchase').eq('source_id', key);
+  try {
+    if (movements.length) {
+      const { error } = await sb.from('stock_movements').delete().in('id', movements.map((m) => m.id));
       if (error) throw new Error(error.message);
-    } catch (err) {
-      console.error('Failed to delete linked stock_movements:', err);
     }
-
-    try {
-      // Journal entries link back through `reference` — there has never been an
-      // expense-id column on that table.
-      const { error } = await sb.from('journal_entries').delete().eq('reference', key);
-      if (error) throw new Error(error.message);
-    } catch (err) {
-      console.error('Failed to delete linked journal_entries:', err);
-    }
+  } catch (err) {
+    console.error('Failed to delete linked stock_movements:', err);
   }
 }
 

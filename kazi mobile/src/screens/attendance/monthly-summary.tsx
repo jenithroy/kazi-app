@@ -12,6 +12,10 @@ export interface MonthlySummaryProps {
 
 export function MonthlySummary({ summary, onRaiseCorrection }: MonthlySummaryProps) {
   const theme = useTheme();
+  // From December 2026 (`work-rules.ts`): lateness is counted in minutes and costs nothing, and every seven unapproved absences cost a
+  // day of salary. Before it, the old allowance of late marks and the quarter-day cut.
+  const memo = summary.rules === 'new';
+  const perDay = summary.absencesPerDay ?? 7;
 
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, boxShadow: theme.shadows.card }]}>
@@ -37,15 +41,19 @@ export function MonthlySummary({ summary, onRaiseCorrection }: MonthlySummaryPro
 
       <View style={styles.rowsWrap}>
         <View style={styles.row}>
-          <Text style={[styles.rowLabel, { color: theme.textPrimary }]}>Late marks</Text>
+          <Text style={[styles.rowLabel, { color: theme.textPrimary }]}>{memo ? 'Late' : 'Late marks'}</Text>
           <View style={styles.rowValueGroup}>
             <Text style={[styles.rowValue, tabularNums, { color: theme.textPrimary }]}>{summary.lateMarks}</Text>
-            <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>of {summary.lateAllowed} allowed</Text>
+            <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
+              {memo ? `${summary.lateMinutes ?? 0} min in all` : `of ${summary.lateAllowed} allowed`}
+            </Text>
           </View>
         </View>
         <View style={styles.row}>
-          <Text style={[styles.rowLabel, { color: theme.textPrimary }]}>Absent · unpaid</Text>
-          <Text style={[styles.rowValue, tabularNums, { color: theme.textPrimary }]}>{summary.absentDays} day{summary.absentDays === 1 ? '' : 's'}</Text>
+          <Text style={[styles.rowLabel, { color: theme.textPrimary }]}>{memo ? `Absences · ${perDay} cost a day` : 'Absent · unpaid'}</Text>
+          <Text style={[styles.rowValue, tabularNums, { color: theme.textPrimary }]}>
+            {memo ? `${summary.absentDays} of ${perDay}` : `${summary.absentDays} day${summary.absentDays === 1 ? '' : 's'}`}
+          </Text>
         </View>
         <View style={styles.row}>
           <Text style={[styles.rowLabel, { color: theme.textPrimary }]}>Paid leave taken</Text>
@@ -53,8 +61,8 @@ export function MonthlySummary({ summary, onRaiseCorrection }: MonthlySummaryPro
         </View>
       </View>
 
-      {/* Shown only when late cuts were actually applied. A cut with no basic
-          salary on file still shows — with the days, not a fabricated amount. */}
+      {/* Shown only when a cut was actually applied (late days flagged under the old rule, or a day of salary the absences have cost).
+          One with no basic salary on file still shows — with the days, not a fabricated amount. */}
       {summary.deductionDays > 0 ? (
         <View style={[styles.deductionCard, { backgroundColor: theme.dangerWash }]}>
           <View style={styles.gap3}>

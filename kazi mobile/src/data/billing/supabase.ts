@@ -106,10 +106,13 @@ function mapInvoiceDoc(id: string, d: DocData): Invoice | null {
 
   const lines = arr<unknown>(d.items).map(toInvoiceLine).filter((l) => l.desc || l.qty || l.rate);
 
+  // `amount_paid` is held in the invoice's own currency (migration 0030: the `_npr` in the name predates GBP invoices), so a pound
+  // invoice's £500 is 500 here, not 100,000 to be divided back down. This is the one row the payment history falls back to when the
+  // `payments` rows can't be read; `fetchInvoices` swaps in the real ones.
   const payments: Payment[] = amountPaid > 0
     ? [{
         cur,
-        amt: cur === 'NPR' ? amountPaid : Math.round((amountPaid / rate) * 100) / 100,
+        amt: amountPaid,
         rate,
         method: (str(d.paymentType).toLowerCase() as PaymentMethod) || 'bank',
         acct: null,
@@ -230,8 +233,60 @@ function mapChallanDoc(id: string, d: DocData): Challan | null {
   };
 }
 
+/** A payment's method as the website spells it (Bank, Cash, Cheque, Online, Other; older rows say CASH) → this app's three. */
+function mapPaymentMethod(raw: unknown): PaymentMethod {
+  const s = str(raw).trim().toLowerCase();
+  if (s === 'cash') return 'cash';
+  if (s === 'credit') return 'credit';
+  return 'bank';
+}
+
+interface PaymentRow {
+  invoiceId: string;
+  method: PaymentMethod;
+  acct: string | null;
+  ref: string;
+  date: string;
+  /** In the invoice's own currency. */
+  amount: number;
+}
+
+function mapPaymentDoc(_id: string, d: DocData): PaymentRow | null {
+  const invoiceId = str(d.invoiceId).trim();
+  const amount = num(d.amount);
+  if (!invoiceId || !(amount > 0)) return null;
+  return {
+    invoiceId,
+    method: mapPaymentMethod(d.method),
+    acct: str(d.bankName).trim() || null,
+    ref: str(d.reference).trim(),
+    date: str(d.paidOn).trim(),
+    amount,
+  };
+}
+
 export async function fetchInvoices(): Promise<Invoice[]> {
-  return readCollection('invoices', mapInvoiceDoc);
+  const invoices = await readCollection('invoices', mapInvoiceDoc);
+  // Each payment is its own row, with the date it arrived and how (migration 0030). Not being able to read them is not a reason to
+  // show no invoices: they keep the single row worked out from the paid total.
+  let rows: PaymentRow[] = [];
+  try {
+    rows = await readCollection('payments', mapPaymentDoc);
+  } catch (err) {
+    console.error('billing/fetchInvoices: payments could not be read, using each invoice’s paid total', err);
+  }
+  const byInvoice = new Map<string, PaymentRow[]>();
+  for (const r of rows) byInvoice.set(r.invoiceId, [...(byInvoice.get(r.invoiceId) ?? []), r]);
+  return invoices.map((inv) => {
+    const own = byInvoice.get(inv.id);
+    if (!own) return inv;
+    return {
+      ...inv,
+      payments: own
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((r) => ({ cur: inv.cur, amt: r.amount, rate: inv.rate, method: r.method, acct: r.acct, ref: r.ref, date: r.date })),
+    };
+  });
 }
 
 export async function fetchQuotations(): Promise<Quotation[]> {

@@ -36,6 +36,7 @@ import {
   isoFor,
   lateCutAmountNPR,
   nepalToday,
+  PAYROLL_DAYS_PER_MONTH,
   punchDuration,
   readAttendanceMonth,
   readEmployees,
@@ -47,6 +48,7 @@ import {
   type PunchRow,
 } from './live-shared';
 import type { AttendanceStatus, DayCell, DayDetail, MyMonth, MySummary, WeekHours, WorkSchedule } from './types';
+import { effectiveAtt, ABSENCES_PER_DAY_CUT, rulesOfMonth, rulesOn } from './work-rules';
 
 /**
  * Company policy allowances. Neither is stored anywhere in the live database —
@@ -79,6 +81,7 @@ function buildMonth({ schedule, basicSalaryNPR, records, punches }: BuildInput):
   let hoursWorked = 0;
   let overtime = 0;
   let cutDays = 0;
+  let lateMinutes = 0;
   let openPunchDays = 0;
   const tally: Record<AttendanceStatus, number> = { present: 0, late: 0, absent: 0, half: 0, leave: 0, off: 0 };
   /** Real + rostered hours per day-of-month, for the weekly bars. */
@@ -91,13 +94,15 @@ function buildMonth({ schedule, basicSalaryNPR, records, punches }: BuildInput):
     const isWorkingDay = target > 0;
     if (isWorkingDay) workingDays += 1;
 
-    const record = records.get(iso);
     const punch = punches.get(iso);
+    // A past day with a clock-in and no clock-out reads as Absent, as on the website: nothing says it was worked through.
+    const record = effectiveAtt(records.get(iso), punch, iso, today);
     // The actual time between clock-in and clock-out — nothing else counts.
     const actual = punchDuration(punch) ?? 0;
     // A punch that was never closed measures as 0h. That is missing data, not a
-    // day nobody worked, so the totals carry the count and say so.
-    if (punch && !punch.clockedOutAt) openPunchDays += 1;
+    // day nobody worked, so the totals carry the count and say so. Today's is
+    // not one: they may still be at work.
+    if (punch && !punch.clockedOutAt && iso < today) openPunchDays += 1;
 
     perDay[day] = { actual, target };
     hoursWorked += actual;
@@ -106,7 +111,9 @@ function buildMonth({ schedule, basicSalaryNPR, records, punches }: BuildInput):
 
     if (record) {
       tally[record.status] += 1;
-      if (record.status === 'late' && record.lateCutApplied) cutDays += 1;
+      // The cut belongs to the old rule: a day the memo judges never carries one.
+      if (record.status === 'late' && record.lateCutApplied && rulesOn(iso) === 'old') cutDays += 1;
+      if (record.status === 'late') lateMinutes += record.lateMinutes;
     }
 
     details[iso] = buildDayDetail(iso, schedule, record, punch);
@@ -150,7 +157,22 @@ function buildMonth({ schedule, basicSalaryNPR, records, punches }: BuildInput):
     start = end + 1;
   }
 
-  const deduction = lateCutAmountNPR(basicSalaryNPR, cutDays);
+  // A month follows the rules of the month it is for (`work-rules.ts`): the old quarter-day cut for each late day flagged with one, or
+  // from December 2026 a day of salary for every seven unapproved absences and nothing for lateness.
+  const rules = rulesOfMonth(today.slice(0, 7));
+  const absenceDays = Math.floor(tally.absent / ABSENCES_PER_DAY_CUT);
+  const pricedDays = rules === 'new' ? absenceDays : cutDays;
+  const deduction =
+    rules === 'new'
+      ? Math.round((absenceDays * basicSalaryNPR) / PAYROLL_DAYS_PER_MONTH)
+      : lateCutAmountNPR(basicSalaryNPR, cutDays);
+  const deductionNote = !pricedDays
+    ? ''
+    : rules === 'new'
+      ? `${tally.absent} unapproved absences · every ${ABSENCES_PER_DAY_CUT} cost a day of salary${basicSalaryNPR ? '' : ' · no basic salary on file to price it'}`
+      : basicSalaryNPR
+        ? `${cutDays} late ${cutDays === 1 ? 'day' : 'days'} · 25% of a day's salary each`
+        : `${cutDays} late ${cutDays === 1 ? 'day' : 'days'} · no basic salary on file to price the cut`;
   const summary: MySummary = {
     hoursWorked: formatHours(hoursWorked),
     openPunchDays,
@@ -161,12 +183,11 @@ function buildMonth({ schedule, basicSalaryNPR, records, punches }: BuildInput):
     leaveTaken: tally.leave,
     leaveAllowed: PAID_LEAVE_ALLOWED,
     deduction,
-    deductionDays: cutDays,
-    deductionNote: cutDays
-      ? basicSalaryNPR
-        ? `${cutDays} late ${cutDays === 1 ? 'day' : 'days'} · 25% of a day's salary each`
-        : `${cutDays} late ${cutDays === 1 ? 'day' : 'days'} · no basic salary on file to price the cut`
-      : '',
+    deductionDays: pricedDays,
+    deductionNote,
+    rules,
+    lateMinutes,
+    absencesPerDay: ABSENCES_PER_DAY_CUT,
   };
 
   const todayShift = shiftForDay(schedule, dayNameOf(today));

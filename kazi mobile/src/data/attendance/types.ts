@@ -169,9 +169,15 @@ export interface MySummary {
   leaveAllowed: number;
   /** NPR forfeited to late cuts. 0 when there are no cuts *or* no salary on file. */
   deduction: number;
-  /** Days marked Late with the 25% cut applied — the card shows whenever this is > 0. */
+  /** Days marked Late with the 25% cut applied (old rules), or days of salary the absences cost (from December 2026): the card shows whenever this is > 0. */
   deductionDays: number;
   deductionNote: string;
+  /** Which rules the month is under (`work-rules.ts`). Absent means the old ones. */
+  rules?: 'old' | 'new';
+  /** New rules: minutes late across the month. Lateness is recorded in minutes and costs nothing. */
+  lateMinutes?: number;
+  /** New rules: unapproved absences that cost one day of salary. */
+  absencesPerDay?: number;
 }
 
 export interface RollCallTotals {
@@ -193,6 +199,8 @@ export interface TeamMonthStats {
    * not that there were no cuts.
    */
   unpricedCutDays: number;
+  /** False for a month the memo's rules judge, which has no cuts (`work-rules.ts`). Absent means show them. */
+  showCuts?: boolean;
 }
 
 /** One calendar week's logged hours vs its target — the "Mine" weekly bar chart. */

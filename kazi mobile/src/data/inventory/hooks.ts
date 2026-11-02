@@ -11,8 +11,8 @@ import type {
   Process,
   ProcessDraft,
   StockItem,
-  StockMoveKind,
   StockMovement,
+  StockMovementInput,
   TechPack,
   TechPackDraft,
 } from './types';
@@ -98,8 +98,7 @@ export function useUpdateStockItem() {
 export function usePostStockMovement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { itemId: string; kind: StockMoveKind; qty: number; reason: string; ref: string }) =>
-      api.postStockMovement(input),
+    mutationFn: (input: StockMovementInput) => api.postStockMovement(input),
     onSuccess: (_data, { itemId, kind, qty }) => {
       const item = queryClient.getQueryData<StockItem[]>(inventoryKeys.stock())?.find((s) => s.id === itemId);
       notify({

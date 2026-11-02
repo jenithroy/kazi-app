@@ -221,6 +221,7 @@ function mapPatternDoc(id: string, d: DocData): TechPack | null {
     backSketchUrl: str(d.backSketchUrl).trim(),
     techPackUrl: str(d.tech_pack_url).trim(),
     images: strList(d.tech_pack_images),
+    sheetFormat: num(d.sheetFormat) >= 2 ? 2 : 1,
   };
 }
 

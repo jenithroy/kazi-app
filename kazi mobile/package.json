@@ -59,6 +59,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "inspect:firestore": "node scripts/inspect-firestore.mjs",
+    "check:work-rules": "node scripts/check-work-rules.mjs",
     "lint": "expo lint"
   },
   "private": true

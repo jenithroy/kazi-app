@@ -85,10 +85,10 @@ export function AddSheet({ visible, isFabric, step, draft, uploads, uploading, o
               />
               <View style={styles.row2}>
                 <View style={styles.flex1}>
-                  <TextField label="Opening qty" value={draft.qty} onChangeText={(v) => onChange({ qty: v })} placeholder="0" keyboardType="numeric" />
+                  <TextField label="Opening qty" value={draft.qty} onChangeText={(v) => onChange({ qty: v })} placeholder="0" keyboardType="decimal-pad" />
                 </View>
                 <View style={styles.flex1}>
-                  <TextField label="Reorder at" value={draft.threshold} onChangeText={(v) => onChange({ threshold: v })} placeholder="0" keyboardType="numeric" />
+                  <TextField label="Reorder at" value={draft.threshold} onChangeText={(v) => onChange({ threshold: v })} placeholder="0" keyboardType="decimal-pad" />
                 </View>
               </View>
               <View style={styles.optionGroup}>

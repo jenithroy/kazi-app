@@ -97,7 +97,7 @@ export function Production() {
   // re-renders the screen when the currency preference or the rate changes.
   useMoneySignature();
   const toast = useToast();
-  const { can } = useAuth();
+  const { can, profile } = useAuth();
   const canEdit = can('order-management');
   const { showBack, bottomInset } = useModulePresentation('order-management');
 
@@ -202,7 +202,7 @@ export function Production() {
         id: `o${Date.now()}`,
         ref,
         embellishments: [],
-        stageHistory: [{ stage: draft.stage, at: new Date().toISOString() }],
+        stageHistory: [{ stage: draft.stage, at: new Date().toISOString(), by: profile?.name || 'Unknown' }],
         notes: [],
       };
       // Stays on the list: the optimistic row carries a placeholder id, and the
@@ -262,7 +262,8 @@ export function Production() {
   const addOrderNote = (order: Order, body: string) => {
     addNote.mutate({
       id: order.id,
-      note: { id: `n${Date.now()}`, body, at: new Date().toISOString(), who: 'You' },
+      // The author is stored with the note and shown to everyone, so it has to be the name, not "You".
+      note: { id: `n${Date.now()}`, body, at: new Date().toISOString(), who: profile?.name || 'Unknown' },
     });
   };
 

@@ -19,12 +19,13 @@
 
 import { collection, doc, getDoc, getDocs, query, where , getDb } from '@/lib/supabase/collections';
 
-import { num } from '@/lib/data/normalise';
+import { num, str } from '@/lib/data/normalise';
 import { createDocument, patchDocument, removeDocument } from '@/lib/supabase/write';
 import { getActor } from '@/data/notifications/actor';
+import { isoDay } from '@/lib/date-display';
 
 import { colorList } from './library';
-import type { FabricDraft, ProcessDraft, StockItem, StockMoveKind, StockMovement, TechPackDraft } from './types';
+import type { FabricDraft, ProcessDraft, StockItem, StockMovement, StockMovementInput, TechPackDraft } from './types';
 
 const INVENTORY = 'inventory';
 const MOVEMENTS = 'stock_movements';
@@ -95,16 +96,24 @@ async function runningQty(itemDocId: string): Promise<number> {
   return opening + net;
 }
 
-async function logMovement(itemId: string, qty: number, direction: 'in' | 'out', note: string, source = 'manual') {
+async function logMovement(
+  itemId: string,
+  qty: number,
+  direction: 'in' | 'out',
+  note: string,
+  { source = 'manual', unitCostNPR = 0 }: { source?: string; unitCostNPR?: number } = {},
+) {
+  const moved = Math.abs(qty);
   return createDocument(MOVEMENTS, {
     itemId,
-    date: new Date().toISOString().slice(0, 10),
-    qty: Math.abs(qty),
+    // The day where the phone is, as the website dates it: the UTC day is yesterday for the first hours of a Nepal morning.
+    date: isoDay(new Date()),
+    qty: moved,
     direction,
     source,
     sourceId: null,
     note,
-    amountNPR: 0,
+    amountNPR: Math.round(moved * unitCostNPR * 100) / 100,
     createdBy: getActor()?.name ?? 'kazi-mobile',
   });
 }
@@ -118,23 +127,21 @@ async function logMovement(itemId: string, qty: number, direction: 'in' | 'out',
  */
 const posted = new Set<string>();
 
-export async function postStockMovement(input: {
-  itemId: string;
-  kind: StockMoveKind;
-  qty: number;
-  reason: string;
-  ref: string;
-}): Promise<void> {
+export async function postStockMovement(input: StockMovementInput): Promise<void> {
+  // The reference the person typed is part of the note; the ledger has no column of its own for it.
+  const noted = (fallback: string) => [input.reason || fallback, input.ref].filter(Boolean).join(' · ');
+  const priced = { unitCostNPR: input.unitCostNPR };
   if (input.kind === 'in') {
-    posted.add(await logMovement(input.itemId, input.qty, 'in', input.reason || 'Stock in'));
+    posted.add(await logMovement(input.itemId, input.qty, 'in', noted('Stock in'), priced));
   } else if (input.kind === 'out') {
-    posted.add(await logMovement(input.itemId, input.qty, 'out', input.reason || 'Stock out'));
+    posted.add(await logMovement(input.itemId, input.qty, 'out', noted('Stock out'), priced));
   } else {
     // absolute count → post the compensating movement to reach it
     const current = await runningQty(input.itemId);
-    const delta = input.qty - current;
+    // Three places is what the ledger keeps; without the rounding a count that matches leaves a 1e-16 movement behind.
+    const delta = Math.round((input.qty - current) * 1000) / 1000;
     if (delta !== 0) {
-      posted.add(await logMovement(input.itemId, delta, delta > 0 ? 'in' : 'out', input.reason || 'Count adjustment'));
+      posted.add(await logMovement(input.itemId, delta, delta > 0 ? 'in' : 'out', noted('Count adjustment'), priced));
     }
   }
 }
@@ -153,17 +160,34 @@ export async function restoreInventory(previousMovements: StockMovement[] = []):
   }
 }
 
-export async function adjustStockByName(name: string, delta: number): Promise<void> {
-  const snap = await getDocs(query(collection(getDb(), INVENTORY), where('item', '==', name.trim())));
-  const target = snap.docs[0];
-  if (!target) return;
-  await logMovement(
-    target.id,
-    delta,
-    delta >= 0 ? 'in' : 'out',
-    delta >= 0 ? 'Auto stock-in · purchase' : 'Auto stock-out',
-    'purchase',
-  );
+/**
+ * A purchase's stock-in, the way the website files it: an `in` movement for each line whose particulars name an inventory item
+ * (exactly, ignoring case), dated the purchase's day and valued at the line's amount. Each carries the purchase's id, which is what
+ * deleting the purchase finds it by (migration 0046), so it has to be filed after the purchase exists. Lines that name no item are
+ * skipped: most purchases are rent and fees, not stock.
+ */
+export async function postPurchaseStockIn(
+  purchase: { id: string; expenseId: string; date: string },
+  lines: { particulars: string; quantity: number; amount: number }[],
+): Promise<void> {
+  const items = (await getDocs(collection(getDb(), INVENTORY))).docs;
+  const byName = new Map(items.map((d) => [str(d.data().item).trim().toLowerCase(), d.id] as const).filter(([name]) => name));
+  for (const line of lines) {
+    const itemId = byName.get(line.particulars.trim().toLowerCase());
+    if (!itemId || !(line.quantity > 0)) continue;
+    await createDocument(MOVEMENTS, {
+      itemId,
+      date: purchase.date,
+      qty: line.quantity,
+      direction: 'in',
+      source: 'purchase',
+      sourceId: purchase.expenseId,
+      purchaseId: purchase.id,
+      note: `Purchase ${purchase.expenseId}`,
+      amountNPR: line.amount || 0,
+      createdBy: getActor()?.name ?? 'kazi-mobile',
+    });
+  }
 }
 
 // ------------------------------------------------------------------ library
@@ -271,8 +295,9 @@ function techPackRow(draft: TechPackDraft): Record<string, unknown> {
     washCare: textOrNull(draft.washCare),
     remarks: textOrNull(draft.remarks),
     notes: textOrNull(draft.notes),
-    // Both jsonb, and both NOT NULL — an emptied grid is [], never null.
-    measurements: draft.measurements.filter((m) => m.label.trim()),
+    // Both jsonb, and both NOT NULL — an emptied grid is [], never null. A technical sheet's measurements carry per-size values and
+    // the lines drawn on its picture, which this grid has no room for, so they are left exactly as the website saved them.
+    ...(draft.sheetFormat === 2 ? {} : { measurements: draft.measurements.filter((m) => m.label.trim()) }),
     fabricRows: draft.fabrics.filter((f) => f.fabricName.trim() || f.description.trim()),
     frontSketchUrl: textOrNull(draft.frontSketchUrl),
     backSketchUrl: textOrNull(draft.backSketchUrl),

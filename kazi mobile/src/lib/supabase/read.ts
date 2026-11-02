@@ -40,6 +40,7 @@ const VIEW_BY_COLLECTION: Record<string, string> = {
   mobile_notifications: 'fs_mobile_notifications',
   order_assignments: 'fs_order_assignments',
   order_costs: 'fs_order_costs',
+  payments: 'fs_payments',
   samples: 'fs_samples',
   stock_movements: 'fs_stock_movements',
   user_points: 'fs_user_points',

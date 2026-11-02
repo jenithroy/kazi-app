@@ -82,6 +82,9 @@ export function TechPackEditor({
 }: TechPackEditorProps) {
   const theme = useTheme();
   const blocked = draft.name.trim() === '' ? 'A garment description is needed' : undefined;
+  // A pack made on the website's technical sheet keeps its measurements per size, which this grid cannot hold; they are shown, not saved.
+  const sheet = draft.sheetFormat === 2;
+  const gridEditable = editable && !sheet;
 
   const patchMeasurement = (index: number, patch: Partial<TechPackMeasurement>) =>
     onChange({ measurements: draft.measurements.map((m, i) => (i === index ? { ...m, ...patch } : m)) });
@@ -213,7 +216,7 @@ export function TechPackEditor({
         <EditorSection
           label="Measurements (inch)"
           action={
-            editable ? (
+            gridEditable ? (
               <GhostAction
                 label="Add point"
                 icon="plus"
@@ -222,6 +225,11 @@ export function TechPackEditor({
             ) : undefined
           }
         >
+          {sheet ? (
+            <Text style={[styles.empty, { color: theme.textSecondary }]}>
+              Made on the website’s technical sheet, where each point is set out per size. Change the measurements there; these are for reading.
+            </Text>
+          ) : null}
           {draft.measurements.length === 0 ? (
             <Text style={[styles.empty, { color: theme.textSecondary }]}>No measurement points yet.</Text>
           ) : (
@@ -233,7 +241,7 @@ export function TechPackEditor({
                     value={row.label}
                     onChange={(label) => patchMeasurement(index, { label })}
                     placeholder="e.g. Full length"
-                    editable={editable}
+                    editable={gridEditable}
                   />
                 </View>
                 <View style={styles.grow1}>
@@ -242,10 +250,10 @@ export function TechPackEditor({
                     onChange={(inch) => patchMeasurement(index, { inch })}
                     placeholder="Inch"
                     keyboardType="decimal-pad"
-                    editable={editable}
+                    editable={gridEditable}
                   />
                 </View>
-                {editable ? (
+                {gridEditable ? (
                   <Pressable
                     onPress={() => onChange({ measurements: draft.measurements.filter((_, i) => i !== index) })}
                     hitSlop={8}

@@ -35,7 +35,7 @@ import {
 } from '@/data/inventory/hooks';
 import { fabricDraft, processDraft, techPackDraft } from '@/data/inventory/library';
 import { AttachmentError, pickLibraryImage, type LibraryPickSource } from '@/data/inventory/media';
-import { costFor, costTotal, stockLevel } from '@/data/inventory/utils';
+import { costFor, costTotal, stockLevel, toQty } from '@/data/inventory/utils';
 import type {
   Fabric,
   FabricDraft,
@@ -476,8 +476,8 @@ export function Inventory() {
       return;
     }
     const name = draft.name.trim() || 'Untitled item';
-    const qty = parseInt(draft.qty, 10) || 0;
-    const threshold = parseInt(draft.threshold, 10) || 0;
+    const qty = toQty(draft.qty);
+    const threshold = toQty(draft.threshold);
     // Everything the sheet does not ask for stays empty, and the writer turns
     // that into a null column rather than inventing a supplier or a category.
     const newItem: StockItem = {
@@ -517,7 +517,7 @@ export function Inventory() {
 
   const handlePostMovement = () => {
     if (!selectedItem) return;
-    const qty = parseInt(moveDraft.qty.replace(/[^0-9]/g, ''), 10) || 0;
+    const qty = toQty(moveDraft.qty);
     if (qty <= 0 && !(moveDraft.kind === 'adjust' && moveDraft.qty.trim() !== '')) {
       toast.show({ message: 'Enter a quantity', tone: 'bad' });
       return;
@@ -533,6 +533,7 @@ export function Inventory() {
         qty,
         reason: moveDraft.reason.trim(),
         ref: moveDraft.ref.trim(),
+        unitCostNPR: item.unitCostNPR,
       },
       {
         onSuccess: () =>
@@ -562,12 +563,12 @@ export function Inventory() {
   const handleSaveDetails = () => {
     if (!selectedItem) return;
     const item = selectedItem;
-    const threshold = parseInt(detailsDraft.threshold.replace(/[^0-9]/g, ''), 10);
     updateStockItem.mutate(
       {
         id: item.id,
         updates: {
-          threshold: Number.isFinite(threshold) ? threshold : item.threshold,
+          // A cleared field leaves the level as it was.
+          threshold: detailsDraft.threshold.trim() ? toQty(detailsDraft.threshold) : item.threshold,
           location: detailsDraft.location.trim() || item.location,
           cost: detailsDraft.cost.trim() || item.cost,
           supplier: detailsDraft.supplier.trim() || item.supplier,

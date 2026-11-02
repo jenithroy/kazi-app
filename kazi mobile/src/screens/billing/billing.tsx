@@ -55,7 +55,10 @@ import type {
 } from '@/data/billing/types';
 import { allocateDocNumber } from '@/data/billing/doc-numbers';
 import { appliesVAT, balance, clientNameOf, money, n0, npr, nprOf, paid, statusFull, total, vat } from '@/data/billing/utils';
+import { isoDay } from '@/lib/date-display';
 import { useMoneySignature } from '@/lib/money';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { mockUndo } from '@/lib/supabase/undo';
 
 import { ChallansSheet } from './challans-sheet';
 import { DocList } from './doc-list';
@@ -253,7 +256,7 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
               toast.show({
                 message: `${label} updated`,
                 tone: 'ok',
-                action: { label: 'Undo', onPress: () => restoreChallans.mutate(before) },
+                action: mockUndo(() => restoreChallans.mutate(before)),
               }),
             onError: () => toast.show({ message: `${label} wasn’t saved — nothing was written`, tone: 'bad' }),
           },
@@ -280,7 +283,7 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
               toast.show({
                 message: `${label} updated`,
                 tone: 'ok',
-                action: { label: 'Undo', onPress: () => restoreQuotations.mutate(before) },
+                action: mockUndo(() => restoreQuotations.mutate(before)),
               }),
             onError: () => toast.show({ message: `${label} wasn’t saved — nothing was written`, tone: 'bad' }),
           },
@@ -322,7 +325,7 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
       };
       addChallan.mutate(challan, {
         onSuccess: () =>
-          toast.show({ message: `${number} created`, tone: 'ok', action: { label: 'Undo', onPress: () => restoreChallans.mutate(before) } }),
+          toast.show({ message: `${number} created`, tone: 'ok', action: mockUndo(() => restoreChallans.mutate(before)) }),
         onError: () => toast.show({ message: `${number} wasn’t created — nothing was written`, tone: 'bad' }),
       });
       setDocSheet(null);
@@ -341,7 +344,7 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
       };
       addQuotation.mutate(quotation, {
         onSuccess: () =>
-          toast.show({ message: `${number} created`, tone: 'ok', action: { label: 'Undo', onPress: () => restoreQuotations.mutate(before) } }),
+          toast.show({ message: `${number} created`, tone: 'ok', action: mockUndo(() => restoreQuotations.mutate(before)) }),
         onError: () => toast.show({ message: `${number} wasn’t created — nothing was written`, tone: 'bad' }),
       });
       setDocSheet(null);
@@ -446,7 +449,7 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
   };
 
   const flash = (message: string, before?: Invoice[]) => {
-    toast.show({ message, tone: 'ok', action: before ? { label: 'Undo', onPress: () => restoreInvoices.mutate(before) } : undefined });
+    toast.show({ message, tone: 'ok', action: before ? mockUndo(() => restoreInvoices.mutate(before)) : undefined });
   };
 
   const handleRaise = async (challan: OpenChallan) => {
@@ -529,8 +532,9 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
     }
     const prefix = payDraft.method === 'cash' ? 'CRV-01' : payDraft.method === 'bank' ? 'BRV-02' : 'CN-00';
     const totalExtra = invoices.reduce((n, v) => n + v.payments.filter((p) => p.ref.startsWith(prefix.slice(0, 3))).length, 0);
-    const ref = payDraft.ref.trim() || `${prefix}${32 + totalExtra}`;
-    const payment: Payment = { cur: payDraft.cur, amt, rate, method: payDraft.method, acct: payDraft.method === 'bank' ? payDraft.acct : null, ref, date: '23 Aug' };
+    // A receipt number made up here would be filed against the payment for everyone; with a database behind it only what was typed is.
+    const ref = payDraft.ref.trim() || (isSupabaseConfigured ? '' : `${prefix}${32 + totalExtra}`);
+    const payment: Payment = { cur: payDraft.cur, amt, rate, method: payDraft.method, acct: payDraft.method === 'bank' ? payDraft.acct : null, ref, date: isoDay(new Date()) };
 
     const before = invoices;
     addPayment.mutate({ invoiceId: selected.id, payment });
@@ -538,7 +542,7 @@ export function Billing({ focus, autoEdit }: BillingProps = {}) {
     setPayDraft(null);
 
     const after = total(selected) - (paid(selected) + creditFx);
-    flash(`${ref} · ${money(payDraft.cur, amt)} recorded${after < 0.5 ? ' · invoice collected in full' : ''}`, before);
+    flash(`${ref ? `${ref} · ` : ''}${money(payDraft.cur, amt)} recorded${after < 0.5 ? ' · invoice collected in full' : ''}`, before);
   };
 
   // ---- Invoice create / edit / cancel (item 14) ----

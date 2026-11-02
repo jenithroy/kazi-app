@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
+import { inventoryKeys } from '@/data/inventory/keys';
 import { notify } from '@/data/notifications/notify';
 
 import { purchasesKeys } from './keys';
@@ -14,6 +15,12 @@ export function useEntries() {
 
 interface EntryContext {
   previous?: PurchaseEntry[];
+}
+
+/** Raising a purchase files stock movements against it and deleting one takes them out, so on-hand has to be read again. */
+function invalidateStock(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: inventoryKeys.stock() });
+  queryClient.invalidateQueries({ queryKey: inventoryKeys.movements() });
 }
 
 export function useAddEntry() {
@@ -31,6 +38,7 @@ export function useAddEntry() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: purchasesKeys.list() });
+      invalidateStock(queryClient);
     },
     onSuccess: (_data, entry) => {
       notify({
@@ -85,6 +93,7 @@ export function useDeleteEntry() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: purchasesKeys.list() });
+      invalidateStock(queryClient);
     },
   });
 }

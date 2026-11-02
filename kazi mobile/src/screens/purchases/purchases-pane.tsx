@@ -8,6 +8,8 @@ import { Icon } from '@/components/ui/icon';
 import { useTheme } from '@/theme/theme-provider';
 import { fontFamily } from '@/theme';
 import { useAdjustStock, useStock } from '@/data/inventory/hooks';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { mockUndo } from '@/lib/supabase/undo';
 import { useAddEntry, useDeleteEntry, useEntries, useRestoreEntries, useUpdateEntry } from '@/data/purchases/hooks';
 import { buildEntry, draftFromEntry, emptyDraft } from '@/data/purchases/utils';
 import type { PurchaseDraft, PurchaseEntry, PurchaseFilter } from '@/data/purchases/types';
@@ -144,13 +146,17 @@ export function PurchasesPane({
     setSheetOpen(true);
   };
 
+  /**
+   * The "Stocked in" toast, and in the mock the stock itself. With a database behind it the writer has already filed each movement
+   * against the purchase, linked by its id so that deleting the purchase takes the stock back out (`purchases/supabase-write`).
+   */
   const runStockIn = (entry: PurchaseEntry) => {
     if (!stock) return;
     const matched: string[] = [];
     entry.items.forEach((line) => {
       const hit = stock.find((s) => s.name.toLowerCase() === line.particulars.trim().toLowerCase());
-      if (hit) {
-        adjustStock.mutate({ name: hit.name, delta: line.quantity });
+      if (hit && line.quantity > 0) {
+        if (!isSupabaseConfigured) adjustStock.mutate({ name: hit.name, delta: line.quantity });
         matched.push(hit.name);
       }
     });
@@ -165,20 +171,23 @@ export function PurchasesPane({
       toast.show({ message: 'Add a party and at least one line item', tone: 'bad' });
       return;
     }
+    // A new purchase is numbered by the database, from its own fiscal year; the number on the phone is only a guess until the list
+    // reloads, so the toast doesn't quote it.
+    const name = editing || !isSupabaseConfigured ? entry.expenseId : 'Purchase';
     const callbacks = {
-      onSuccess: () =>
+      onSuccess: () => {
         toast.show({
-          message: `${entry.expenseId} · ${entry.party} ${editing ? 'updated' : 'recorded'}`,
+          message: `${name} · ${entry.party} ${editing ? 'updated' : 'recorded'}`,
           tone: 'ok' as const,
-          action: { label: 'Undo', onPress: () => restoreEntries.mutate(before) },
-        }),
-      onError: () =>
-        toast.show({ message: `${entry.expenseId} wasn’t saved — nothing was written`, tone: 'bad' as const }),
+          action: mockUndo(() => restoreEntries.mutate(before)),
+        });
+        if (!editing) runStockIn(entry);
+      },
+      onError: () => toast.show({ message: `${name} wasn’t saved — nothing was written`, tone: 'bad' as const }),
     };
     if (editing) updateEntry.mutate({ id: entry.id, updates: entry }, callbacks);
     else addEntry.mutate(entry, callbacks);
     setSheetOpen(false);
-    if (!editing) runStockIn(entry);
   };
 
   const removeEntry = (entry: PurchaseEntry) => {
@@ -188,7 +197,7 @@ export function PurchasesPane({
         toast.show({
           message: `${entry.expenseId} deleted`,
           tone: 'ok',
-          action: { label: 'Undo', onPress: () => restoreEntries.mutate(before) },
+          action: mockUndo(() => restoreEntries.mutate(before)),
         }),
       onError: () => toast.show({ message: `${entry.expenseId} wasn’t deleted`, tone: 'bad' }),
     });

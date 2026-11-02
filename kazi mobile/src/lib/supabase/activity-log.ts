@@ -72,6 +72,9 @@ const ROUTE_SECTIONS: [prefix: string, section: string][] = [
   ['/budget-requirements', 'budget'],
   ['/employees-hr', 'employees'],
   ['/customers', 'customers'],
+  // Roles & Duties took over the old Directors page, and the website logs it as `directors`: `activity_events.section_id` is a
+  // foreign key into `sections`, so the path moved and the row it points at did not.
+  ['/roles', 'directors'],
   ['/marketing', 'marketing'],
   ['/module/marketing', 'marketing'],
   ['/chat', 'messenger'],
@@ -118,6 +121,7 @@ const WRITE_TARGETS: Record<string, [section: string, target: string]> = {
   stage_config: ['production', 'Stage setup'],
   invoices: ['billing', 'Invoice'],
   quotations: ['billing', 'Quotation'],
+  payments: ['billing', 'Payment'],
   challans: ['billing', 'Challan'],
   attendance: ['attendance', 'Attendance record'],
   clock_ins: ['attendance', 'Clock-in'],

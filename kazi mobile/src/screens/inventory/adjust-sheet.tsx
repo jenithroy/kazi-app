@@ -5,6 +5,7 @@ import { TextField } from '@/components/ui/text-field';
 import { useTheme } from '@/theme/theme-provider';
 import { fontFamily, radii, tabularNums } from '@/theme';
 import type { StockItem, StockMovementDraft, StockMoveKind } from '@/data/inventory/types';
+import { toQty } from '@/data/inventory/utils';
 
 export interface AdjustSheetProps {
   visible: boolean;
@@ -21,11 +22,9 @@ const KINDS: { id: StockMoveKind; label: string; hint: string }[] = [
   { id: 'adjust', label: 'Adjust to', hint: 'Set the on-hand count after a cycle count' },
 ];
 
-const toNum = (s: string) => parseInt(s.replace(/[^0-9]/g, ''), 10) || 0;
-
 export function AdjustSheet({ visible, item, draft, onClose, onChange, onSubmit }: AdjustSheetProps) {
   const theme = useTheme();
-  const qty = toNum(draft.qty);
+  const qty = toQty(draft.qty);
   const current = item?.qty ?? 0;
   const projected =
     draft.kind === 'in' ? current + qty : draft.kind === 'out' ? Math.max(0, current - qty) : qty;
@@ -70,7 +69,7 @@ export function AdjustSheet({ visible, item, draft, onClose, onChange, onSubmit 
             value={draft.qty}
             onChangeText={(v) => onChange({ qty: v })}
             placeholder="0"
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
             placeholderTextColor={theme.textSecondary}
             style={[styles.amountInput, { color: theme.textPrimary }]}
           />

@@ -3,20 +3,34 @@
  * collections.
  *
  * The mobile `Invoice` carries a lot of derived/mobile-only state; only the
- * fields that exist on the live doc are written. A payment is folded into the
- * scalar `amountPaid` (the live shape has no payments array), which needs a
- * read-modify-write.
+ * fields that exist on the live doc are written. A payment is its own row in
+ * `payments`, which a trigger sums into the invoice's `amountPaid` (migration
+ * 0030); that column is never written from here.
  */
 
 import { doc, getDoc , getDb } from '@/lib/supabase/collections';
 
-import { num } from '@/lib/data/normalise';
+import { GBP_RATE } from '@/lib/currency';
+import { isoDay } from '@/lib/date-display';
+import { num, str } from '@/lib/data/normalise';
 import { createDocument, patchDocument } from '@/lib/supabase/write';
 import { getActor } from '@/data/notifications/actor';
 
 import { resequenceDocNumbers } from './doc-numbers';
-import type { Challan, ChallanStatus, DiscountMode, DocLine, DocType, Invoice, Payment, Quotation, QuotationStatus } from './types';
-import { calcTotals } from './utils';
+import type {
+  Challan,
+  ChallanStatus,
+  Currency,
+  DiscountMode,
+  DocLine,
+  DocType,
+  Invoice,
+  Payment,
+  PaymentMethod,
+  Quotation,
+  QuotationStatus,
+} from './types';
+import { calcTotals, creditOf } from './utils';
 
 const INVOICES = 'invoices';
 const QUOTATIONS = 'quotations';
@@ -67,13 +81,6 @@ function emitTotals(
   out.totalNPR = t.total;
 }
 
-function paidNPR(payments: Payment[] | undefined): number {
-  return (payments ?? []).reduce(
-    (sum, p) => sum + (p.cur === 'NPR' ? p.amt : Math.round(p.amt * p.rate)),
-    0,
-  );
-}
-
 function invoiceToLive(inv: Partial<Invoice>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (inv.ref !== undefined) out.invoiceNumber = inv.ref;
@@ -112,7 +119,6 @@ function invoiceToLive(inv: Partial<Invoice>): Record<string, unknown> {
   if (inv.relatedChallan !== undefined) out.relatedChallan = inv.relatedChallan;
   if (inv.relatedQuotation !== undefined) out.relatedQuotation = inv.relatedQuotation;
   if (inv.lines !== undefined) out.items = invoiceLines(inv);
-  if (inv.payments !== undefined) out.amountPaid = paidNPR(inv.payments);
   return out;
 }
 
@@ -129,13 +135,52 @@ export async function updateInvoice(id: string, updates: Partial<Invoice>): Prom
   if (Object.keys(fields).length > 0) await patchDocument(INVOICES, id, fields);
 }
 
+/** The methods the website's payment form offers; the phone's "credit" is a credit note, which that list files under Other. */
+const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Cash', bank: 'Bank', credit: 'Other' };
+
+/**
+ * Recording a payment, as the website does (`billingWrites.recordPayment`). The payment is its own row, held in the invoice's own
+ * currency and dated the day it arrived; the trigger sums the rows into `amount_paid`, so that column is not written here, and a
+ * figure written to it by hand would be undone by the next payment anyone records. Status stays the app's to set: Paid once nothing
+ * is left, Partial before.
+ */
 export async function addPayment(invoiceId: string, payment: Payment): Promise<void> {
-  const add = payment.cur === 'NPR' ? payment.amt : Math.round(payment.amt * payment.rate);
-  // Read-modify-write: a failed or empty read must abort, never fall back to 0 —
-  // that would rewrite `amountPaid` as this payment alone and erase the history.
   const snap = await getDoc(doc(getDb(), INVOICES, invoiceId));
-  if (!snap.exists()) throw new Error(`addPayment ${invoiceId}: invoice not found — refusing to overwrite amountPaid`);
-  await patchDocument(INVOICES, invoiceId, { amountPaid: num(snap.data().amountPaid) + add });
+  if (!snap.exists()) throw new Error(`addPayment ${invoiceId}: invoice not found`);
+  const inv = snap.data();
+
+  const currency = str(inv.currency).trim().toUpperCase() || 'NPR';
+  // The phone only knows the pound's rate; guessing another currency's would book the wrong amount against the invoice.
+  if (currency !== 'NPR' && currency !== 'GBP') throw new Error(`This invoice is in ${currency}: record its payments on the website.`);
+  const own = { cur: currency as Currency, rate: currency === 'NPR' ? 1 : GBP_RATE };
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const left = round2(num(inv.totalNPR) - num(inv.amountPaid));
+  if (left <= 0.005) throw new Error('This invoice has nothing left to pay.');
+  let amount = round2(creditOf(own, payment));
+  // Never more than is owed; a payment that clears the balance books exactly what is left, so rounding can't strand a sliver of credit.
+  if (amount >= left - 0.005) amount = left;
+  if (!(amount > 0)) throw new Error('Enter an amount to record.');
+
+  await createDocument('payments', {
+    invoiceId,
+    customerId: str(inv.customerId).trim() || null,
+    paidOn: /^\d{4}-\d{2}-\d{2}$/.test(payment.date) ? payment.date : isoDay(new Date()),
+    amount,
+    method: METHOD_LABEL[payment.method],
+    bankName: payment.method === 'bank' ? payment.acct || str(inv.bankName).trim() || null : null,
+    reference: payment.ref.trim() || null,
+    recordedBy: getActor()?.name ?? 'kazi-mobile',
+    region: str(inv.region).trim() || null,
+  });
+
+  // The money is recorded. A status that can't be set must not report the payment as failed, or it gets entered twice; the phone works
+  // the status out from the payments anyway, and the website's next save of the invoice puts it right.
+  try {
+    await patchDocument(INVOICES, invoiceId, { status: left - amount <= 0.005 ? 'Paid' : 'Partial' });
+  } catch (err) {
+    console.error('billing/addPayment: the payment is recorded, but the invoice status could not be updated', err);
+  }
 }
 
 /** Snapshot restore (undo) — not reversed in Postgres this pass. */

@@ -29,6 +29,7 @@ import {
 import { CAP, REVIEW_STATUS, STATUS, seedRequirements } from '@/data/budget-requirements/mock';
 import { gbp, money, short } from '@/data/budget-requirements/utils';
 import { useMoneySignature } from '@/lib/money';
+import { mockUndo } from '@/lib/supabase/undo';
 import type {
   BudgetRequest,
   BudgetRequestDraft,
@@ -135,7 +136,7 @@ export function BudgetRequirements() {
   const pendingByTab: Record<BudgetTab, number> = { requests: pendingRequests.length, requirements: pendingReqs.length };
 
   const flash = (message: string, undo: () => void) => {
-    toast.show({ message, tone: 'ok', action: { label: 'Undo', onPress: undo } });
+    toast.show({ message, tone: 'ok', action: mockUndo(undo) });
   };
 
   const openDetail = (id: string) => {

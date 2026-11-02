@@ -131,6 +131,11 @@ export interface TechPack {
   backSketchUrl: string;
   techPackUrl: string;
   images: string[];
+  /**
+   * 2 = made on the website's technical sheet (migration 0063), whose measurements are set out per size, with lines drawn on the
+   * picture. This app's grid holds one value a point, so it must not write them back. Absent or 1 = an older pack.
+   */
+  sheetFormat?: 1 | 2;
 }
 
 /**
@@ -178,6 +183,17 @@ export interface StockMovementDraft {
   qty: string;
   reason: string;
   ref: string;
+}
+
+/** What posting a movement takes. */
+export interface StockMovementInput {
+  itemId: string;
+  kind: StockMoveKind;
+  qty: number;
+  reason: string;
+  ref: string;
+  /** The item's unit cost: a hand-entered movement has no purchase or sale to value it by, so it is priced at this (the website does the same). */
+  unitCostNPR?: number;
 }
 
 /**
@@ -254,4 +270,6 @@ export interface TechPackDraft {
   backSketchUrl: string;
   techPackUrl: string;
   images: string[];
+  /** Carried from the pack being edited, so the editor and the writer know to leave a technical sheet's measurements alone. */
+  sheetFormat?: 1 | 2;
 }

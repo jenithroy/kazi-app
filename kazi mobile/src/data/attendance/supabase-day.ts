@@ -22,12 +22,14 @@ import {
   attendanceByPerson,
   employeeById,
   hhmm,
+  nepalToday,
   punchDuration,
   punchesByPerson,
   readAttendanceRange,
   readEmployees,
   readPunchRange,
 } from './live-shared';
+import { effectiveAtt } from './work-rules';
 import type { DayRosterEntry } from './types';
 
 /**
@@ -45,6 +47,7 @@ export async function fetchDayRoster(dateISO: string): Promise<DayRosterEntry[]>
 
   const roll = attendanceByPerson(attRows);
   const punches = punchesByPerson(punchRows);
+  const today = nepalToday();
 
   // The whole active roster, as the roll call builds it — not only the people
   // who left a row that day, or "3 of 3 clocked in" counts itself.
@@ -53,7 +56,8 @@ export async function fetchDayRoster(dateISO: string): Promise<DayRosterEntry[]>
   const entries: DayRosterEntry[] = [];
   for (const personId of new Set([...rosterIds, ...punches.keys(), ...roll.keys()])) {
     const p = punches.get(personId);
-    const r = roll.get(personId);
+    // A past day with a clock-in and no clock-out reads as Absent, as on the website.
+    const r = effectiveAtt(roll.get(personId), p, dateISO, today);
     // The directory is the name of record; the rows' own `staffName` is only a
     // fallback for a person who has since been removed from it.
     const employee = employeeById(employees, personId);

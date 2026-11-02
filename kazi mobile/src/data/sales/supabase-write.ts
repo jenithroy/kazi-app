@@ -13,9 +13,10 @@ import { arrayUnion } from '@/lib/supabase/collections';
 
 import { createDocument, patchDocument, removeDocument } from '@/lib/supabase/write';
 import { getActor } from '@/data/notifications/actor';
+import { isoDay } from '@/lib/date-display';
 
 import { stageById } from './mock';
-import type { Embellishment, Order, OrderNote, OrderStatus, StageId } from './types';
+import type { Embellishment, Order, OrderNote, OrderStatus, StageHistoryEntry, StageId } from './types';
 
 const COLLECTION = 'orders';
 
@@ -26,8 +27,12 @@ const STATUS_TO_LIVE: Record<OrderStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+// The calendar day where the phone is, as the website's `todayDate()` is; the UTC day is the day before for the first hours of a Nepal morning.
+const today = () => isoDay(new Date());
 const actor = () => getActor()?.name ?? 'kazi-mobile';
+
+/** "" is not a date: `order_date` / `delivery_date` are `date` columns, so a blank one has to go out as null (the website does the same). */
+const dateOrNull = (d: string): string | null => d.trim() || null;
 
 function toLive(o: Partial<Order>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -39,8 +44,8 @@ function toLive(o: Partial<Order>): Record<string, unknown> {
   if (o.pricePerPc !== undefined) out.pricePerPcNPR = o.pricePerPc;
   if (o.stage !== undefined) out.stage = stageById(o.stage).label;
   if (o.status !== undefined) out.status = STATUS_TO_LIVE[o.status];
-  if (o.orderDate !== undefined) out.date = o.orderDate;
-  if (o.deliveryDate !== undefined) out.deliveryDate = o.deliveryDate;
+  if (o.orderDate !== undefined) out.date = dateOrNull(o.orderDate);
+  if (o.deliveryDate !== undefined) out.deliveryDate = dateOrNull(o.deliveryDate);
   if (o.fabricType !== undefined) out.fabricType = o.fabricType;
   if (o.colorway !== undefined) out.colorway = o.colorway;
   if (o.fabricGramsUsed !== undefined) out.fabricGramsUsed = o.fabricGramsUsed;
@@ -52,12 +57,22 @@ function toLive(o: Partial<Order>): Record<string, unknown> {
   return out;
 }
 
+/**
+ * A history entry the way the website writes and reads it: the stage's own name ("Order Received", "↩ Reverted to Cutting" — what
+ * `order_stage_history.stage` holds), the day, and who moved it. The phone's entries carry the stage id, which the website's
+ * timeline cannot place.
+ */
+function historyToLive(h: StageHistoryEntry): Record<string, unknown> {
+  const label = stageById(h.stage).label;
+  return { stage: h.reverted ? `↩ Reverted to ${label}` : label, at: h.at, date: isoDay(h.at), by: h.by ?? actor() };
+}
+
 export async function addOrder(order: Order): Promise<void> {
   await createDocument(COLLECTION, {
     ...toLive(order),
     notes: '',
     notesList: order.notes ?? [],
-    stageHistory: order.stageHistory ?? [],
+    stageHistory: (order.stageHistory ?? []).map(historyToLive),
     createdBy: actor(),
   });
 }

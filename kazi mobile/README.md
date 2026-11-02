@@ -71,15 +71,8 @@ npx tsc --noEmit
 
 ## Current Progress
 
-- Phases 0-5: completed
-- Phase 6: Accounting and Employees and HR completed
-- Phase 6 pending: Attendance and Directors
-- Phase 7 pending: Admin Panel, Messenger, Changelog
+This app is a port of the website and is **not at parity** with it: it is a snapshot from mid-October 2026, in places older, and some
+of its writes do not match what the shared database now expects. Three pages are missing (Leaderboard, Embroidery Digitizer, Meta Ads),
+and the memo's attendance rules start on **2026-12-01**, which needs a new build in everyone's hands (there is no over-the-air update).
 
-For detailed build status and conventions, see [BUILD_PLAN.md](BUILD_PLAN.md).
-
-## Notes
-
-- The app currently uses typed mock data behind React Query hooks.
-- Backend wiring (planned Firebase integration) is not connected yet.
-- Follow versioned Expo docs for SDK 57: https://docs.expo.dev/versions/v57.0.0/
+What is done, what is not and in what order: [BUILD_PLAN.md](BUILD_PLAN.md).

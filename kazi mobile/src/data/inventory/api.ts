@@ -19,7 +19,7 @@ import { liveWrite } from '@/lib/supabase/write';
 import * as live from './supabase';
 import * as writeLive from './supabase-write';
 import * as mock from './mock-api';
-import type { FabricDraft, ProcessDraft, StockItem, StockMoveKind, StockMovement, TechPackDraft } from './types';
+import type { FabricDraft, ProcessDraft, StockItem, StockMovement, StockMovementInput, TechPackDraft } from './types';
 
 export const fetchStock = isSupabaseConfigured
   ? liveRead('inventory/stock', live.fetchStock)
@@ -50,8 +50,7 @@ export const updateStockItem = liveWrite('inventory/updateStockItem', writeLive.
 
 export const postStockMovement = liveWrite(
   'inventory/postStockMovement',
-  (input: { itemId: string; kind: StockMoveKind; qty: number; reason: string; ref: string }) =>
-    writeLive.postStockMovement(input),
+  (input: StockMovementInput) => writeLive.postStockMovement(input),
   mock.postStockMovement,
 );
 
@@ -61,11 +60,11 @@ export const restoreInventory = liveWrite(
   mock.restoreInventory,
 );
 
-export const adjustStockByName = liveWrite(
-  'inventory/adjustStockByName',
-  (name: string, delta: number) => writeLive.adjustStockByName(name, delta),
-  mock.adjustStockByName,
-);
+/**
+ * Mock only. With a database behind it a purchase files its own stock-in, linked to the purchase (`postPurchaseStockIn`, called by
+ * `purchases/supabase-write`); a movement posted here by name would carry no link, and deleting the purchase would leave it counted.
+ */
+export const adjustStockByName = mock.adjustStockByName;
 
 export const saveFabric = liveWrite(
   'inventory/saveFabric',
