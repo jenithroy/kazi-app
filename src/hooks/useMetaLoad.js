@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export default function useMetaLoad(loader, key = "", subject = "") {
+export default function useMetaLoad(loader, key = "", subject = "", label = "Meta Ads") {
   const [state, setState] = useState({ data: null, about: subject, status: "loading", error: "", stale: false, refreshing: false });
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
@@ -35,7 +35,7 @@ export default function useMetaLoad(loader, key = "", subject = "") {
       if (mine !== seq.current) return;
       setState({ data, about, status: "ready", error: "", stale: false, refreshing: false });
     } catch (err) {
-      console.error("Meta Ads: could not load:", err);
+      console.error(`${label}: could not load:`, err);
       if (mine !== seq.current) return;
       const message = err?.message || "Couldn't load this.";
       setState((s) => (s.status === "ready" && s.about === about
