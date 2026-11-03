@@ -146,11 +146,43 @@ export function reassign(labels, flag, soft, lab2, rgb, w, h, palLab, K) {
  * With `keep`, a small piece of an accent colour that is long (a stroke of lettering, a hairline) is not flagged but
  * recorded in keep.mask, to be made wide enough later (see thickenKept).
  */
-export function flagSpecks(labels, w, h, minArea, flag, keep = null) {
+export function flagSpecks(labels, w, h, minArea, flag, keep = null, cx = null) {
   const cc = connectedComponents(labels, w, h);
   const small = new Uint8Array(cc.count);
   let any = 0;
-  for (let c = 0; c < cc.count; c++) if (cc.area[c] < minArea) { small[c] = 1; any++; }
+  if (!cx) {
+    for (let c = 0; c < cc.count; c++) if (cc.area[c] < minArea) { small[c] = 1; any++; }
+  } else {
+    // How much a piece shows decides how small it may be: one that stands out from the colours round it (a bright petal on dark leaves) is
+    // kept down to what a needle can sew, one that hardly shows (a patch of sky a shade darker) has to be bigger than the usual limit.
+    const reach = minArea * cx.areaMax;
+    const sumC = new Float64Array(cc.count);
+    const nC = new Float64Array(cc.count);
+    const n0 = w * h;
+    const K = cx.K;
+    for (let i = 0; i < n0; i++) {
+      const x = i % w;
+      const a = cc.comp[i];
+      if (x < w - 1 && labels[i + 1] !== labels[i]) {
+        const b = cc.comp[i + 1];
+        const d = cx.C[labels[i] * K + labels[i + 1]];
+        if (cc.area[a] < reach) { sumC[a] += d; nC[a]++; }
+        if (cc.area[b] < reach) { sumC[b] += d; nC[b]++; }
+      }
+      if (i + w < n0 && labels[i + w] !== labels[i]) {
+        const b = cc.comp[i + w];
+        const d = cx.C[labels[i] * K + labels[i + w]];
+        if (cc.area[a] < reach) { sumC[a] += d; nC[a]++; }
+        if (cc.area[b] < reach) { sumC[b] += d; nC[b]++; }
+      }
+    }
+    for (let c = 0; c < cc.count; c++) {
+      if (cc.area[c] >= reach) continue;
+      const contrast = nC[c] ? sumC[c] / nC[c] : 0;
+      const limit = contrast > 0 ? Math.max(cx.floorPx, Math.min(reach, minArea * Math.pow(cx.ref / contrast, 1.25))) : reach;
+      if (cc.area[c] < limit) { small[c] = 1; any++; }
+    }
+  }
   if (!any) return 0;
   if (keep) {
     const n0 = w * h;
@@ -189,6 +221,40 @@ export function flagSpecks(labels, w, h, minArea, flag, keep = null) {
 }
 
 /**
+ * Is this thin piece (pixels `list[0..cnt)` of colour `v`) a feature worth keeping? It must have ONE colour round it (the same on both sides: a
+ * line inside a region, not the soft rim between two regions), that colour must differ from its own by `cx.keepContrast` (delta-E) or more, and it must
+ * be either a long thin line or, when the contrast is very strong, a small round dot of at least a needle's size.
+ */
+function strongPiece(labels, w, h, list, cnt, v, cx) {
+  if (cnt < cx.floorPx) return 0;
+  const host = new Int32Array(32);
+  let pairs = 0;
+  let x0 = w, x1 = -1, y0 = h, y1 = -1;
+  for (let k = 0; k < cnt; k++) {
+    const i = list[k];
+    const x = i % w;
+    const y = (i - x) / w;
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+    if (x > 0 && labels[i - 1] !== v) { host[labels[i - 1] & 31]++; pairs++; }
+    if (x < w - 1 && labels[i + 1] !== v) { host[labels[i + 1] & 31]++; pairs++; }
+    if (y > 0 && labels[i - w] !== v) { host[labels[i - w] & 31]++; pairs++; }
+    if (y < h - 1 && labels[i + w] !== v) { host[labels[i + w] & 31]++; pairs++; }
+  }
+  if (!pairs) return 0;
+  let best = 0;
+  for (let k = 1; k < 32; k++) if (host[k] > host[best]) best = k;
+  if (host[best] < 0.7 * pairs || best >= cx.K) return 0;
+  const contrast = cx.C[v * cx.K + best];
+  if (contrast < cx.keepContrast) return 0;
+  const ext = Math.max(x1 - x0 + 1, y1 - y0 + 1);
+  if ((ext * ext) / cnt >= 2.5 && ext >= cx.lineExtent) return 1; // a line
+  return contrast >= cx.dotContrast && ext >= cx.dotExtent ? 2 : 0; // a dot
+}
+
+/**
  * Find the parts of every colour that are narrower than `2 * r` pixels ("slivers"), keeping tips and corners of wide
  * parts. A pixel is wide enough when some disc of radius r lies inside its colour and covers it (a morphological
  * opening by a disc). What is left over forms small pieces: a piece that is a corner or a tip of a wide part (small
@@ -196,7 +262,7 @@ export function flagSpecks(labels, w, h, minArea, flag, keep = null) {
  * The picture edge is not an edge: parts reaching it are measured as if they went on.
  * Returns the number of pixels flagged.
  */
-export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5, keep = null) {
+export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5, keep = null, cx = null) {
   if (r < 0.75) return 0;
   const R = 2 * Math.ceil(r) + 2;
   const pw = w + 2 * R;
@@ -332,6 +398,15 @@ export function flagSlivers(labels, w, h, r, flag, tipRatio = 1.5, keep = null) 
           continue;
         }
       }
+      // A thin piece that stands out strongly from the one colour on both its sides (a vein in a leaf, a twig against the sky, a lash, the gap
+      // between two leaves, a bright dot) is a feature of the picture, not noise: it is kept as a stroke and widened to something a needle can sew.
+      const feature = keep && cx ? strongPiece(labels, w, h, list, cnt, v, cx) : 0;
+      if (feature) {
+        // 2: a line of the picture (widened to a line's width), 3: a dot, or a gap that cloth shows through (widened more: a gap closes up when the threads round it are sewn)
+        const cls = feature === 2 || (keep.bgSet && keep.bgSet[v]) ? 3 : 2;
+        for (let k = 0; k < cnt; k++) { keep.mask[list[k]] = cls; keep.lab[list[k]] = v; }
+        continue;
+      }
       for (let k = 0; k < cnt; k++) flag[list[k]] = 1;
       flagged += cnt;
     }
@@ -356,14 +431,22 @@ export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = nu
   // `strokes.solo` (optional) names the colours whose thin pieces are kept too when the piece is a whole letter inside the picture
   // `strokes.minAspect` (optional): a kept piece must be this many times longer than it is wide (extent^2 / area): a photograph's
   // patches of colour are blobs, a stroke is long and thin
-  const keep = strokes ? { accent: strokes.accent, solo: strokes.solo || null, minExtent: strokes.minExtent, minAspect: strokes.minAspect || 0, mask: new Uint8Array(n), lab: new Uint8Array(n) } : null;
+  const keep = strokes ? { accent: strokes.accent, bgSet: strokes.bgSet || null, solo: strokes.solo || null, minExtent: strokes.minExtent, minAspect: strokes.minAspect || 0, mask: new Uint8Array(n), lab: new Uint8Array(n) } : null;
+  // `strokes.contrast` (optional) switches on the contrast-aware rules: how far apart two palette colours look decides which small pieces stay
+  let cx = null;
+  if (strokes && strokes.contrast && ctx.palLab) {
+    const K = ctx.K;
+    const C = new Float32Array(K * K);
+    for (let a = 0; a < K; a++) for (let b = 0; b < K; b++) C[a * K + b] = Math.hypot(ctx.palLab[a * 3] - ctx.palLab[b * 3], ctx.palLab[a * 3 + 1] - ctx.palLab[b * 3 + 1], ctx.palLab[a * 3 + 2] - ctx.palLab[b * 3 + 2]);
+    cx = { C, K, ...strokes.contrast };
+  }
   // specks first, then slivers; removing slivers can leave crumbs, so go round again until a round finds nothing
   for (let round = 0; round < 4; round++) {
     flag.fill(0);
-    const sp = flagSpecks(labels, w, h, minArea, flag, keep);
+    const sp = flagSpecks(labels, w, h, minArea, flag, keep, cx);
     if (sp) { give(); specks += sp; }
     flag.fill(0);
-    const sl = flagSlivers(labels, w, h, minFeature / 2, flag, 1.5, keep);
+    const sl = flagSlivers(labels, w, h, minFeature / 2, flag, 1.5, keep, cx);
     if (sl) { give(); slivers += sl; }
     if (!sp && !sl) break;
     if (!sl) break; // only specks went: nothing new can have been made
@@ -371,17 +454,29 @@ export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = nu
   let widened = 0;
   let strokeCount = 0;
   let strokeMedian = 0;
+  // thin lines found straight from the picture (see photo.js thinLines) are drawn in the colour they were found in, and kept as features
+  if (keep && strokes.lines) {
+    for (let i = 0; i < n; i++) {
+      const l = strokes.lines[i];
+      if (!l) continue;
+      labels[i] = l - 1;
+      ctx.soft[i] = PAINTED;
+      ctx.lab2[i] = 255;
+      keep.mask[i] = 2;
+      keep.lab[i] = l - 1;
+    }
+  }
   if (keep) {
     // a kept pixel that a later round gave to another colour is no longer part of a stroke
     for (let i = 0; i < n; i++) if (keep.mask[i] && labels[i] !== keep.lab[i]) keep.mask[i] = 0;
     // how long (px, the longer side of its box) each kept stroke is: the size of the smallest lettering the picture holds
     const aux = new Uint8Array(n);
-    for (let i = 0; i < n; i++) aux[i] = keep.mask[i] ? labels[i] : OUT;
+    for (let i = 0; i < n; i++) aux[i] = keep.mask[i] === 1 ? labels[i] : OUT; // strokes of lettering and hairlines only: the page warns about small lettering from these
     const cc = connectedComponents(aux, w, h);
     const box = new Int32Array(cc.count * 4);
     for (let c = 0; c < cc.count; c++) { box[c * 4] = 1 << 30; box[c * 4 + 1] = -1; box[c * 4 + 2] = 1 << 30; box[c * 4 + 3] = -1; }
     for (let i = 0; i < n; i++) {
-      if (!keep.mask[i]) continue;
+      if (keep.mask[i] !== 1) continue;
       const c = cc.comp[i];
       const x = i % w;
       const y = (i - x) / w;
@@ -395,7 +490,13 @@ export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = nu
     lens.sort((a, b) => a - b);
     strokeCount = lens.length;
     strokeMedian = lens.length ? lens[lens.length >> 1] : 0;
-    widened = thickenKept(labels, ctx.soft, ctx.lab2, keep.mask, w, h, (strokes.targetPx || minFeature) / 2);
+    const target = strokes.targetPx || minFeature;
+    if (cx) {
+      // two kinds of kept piece: strokes (lettering, hairlines of the minor colours) are widened to `targetPx`, the thin features found by their contrast
+      // (veins, twigs, gaps) to a little less, so a picture full of fine lines is not turned into a solid
+      const only = (v) => { const m = new Uint8Array(n); for (let i = 0; i < n; i++) if (keep.mask[i] === v) m[i] = 1; return m; };
+      widened = thickenKept(labels, ctx.soft, ctx.lab2, only(1), w, h, target / 2) + thickenKept(labels, ctx.soft, ctx.lab2, only(2), w, h, Math.min(target, cx.strongPx || target) / 2) + thickenKept(labels, ctx.soft, ctx.lab2, only(3), w, h, Math.min(target, cx.gapPx || cx.strongPx || target) / 2);
+    } else widened = thickenKept(labels, ctx.soft, ctx.lab2, keep.mask, w, h, target / 2);
     if (widened) {
       // painting leaves a one- or two-pixel sliver here and there where a stroke grew up against another colour: take those away
       flag.fill(0);

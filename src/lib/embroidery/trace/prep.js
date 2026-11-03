@@ -81,12 +81,45 @@ export function boxDownscale(src, sw, sh, dw, dh) {
 }
 
 /**
- * Take an RGBA picture (maybe shrunk to `maxSide` on its long side) and return the working copy:
+ * Smooth enlargement of an RGBA picture to `dw` x `dh` (bilinear, premultiplied so a see-through edge does not tint its neighbours; no overshoot, so a
+ * flat logo gets no halo). A very small picture (a 64 pixel icon) is traced on this, so its outlines are smooth curves and not one-pixel steps.
+ */
+export function bilinearUpscale(src, sw, sh, dw, dh) {
+  const out = new Uint8ClampedArray(dw * dh * 4);
+  const fx = sw / dw;
+  const fy = sh / dh;
+  for (let y = 0; y < dh; y++) {
+    const sy = Math.max(0, Math.min(sh - 1, (y + 0.5) * fy - 0.5));
+    const y0 = Math.floor(sy);
+    const y1 = Math.min(sh - 1, y0 + 1);
+    const ty = sy - y0;
+    for (let x = 0; x < dw; x++) {
+      const sx = Math.max(0, Math.min(sw - 1, (x + 0.5) * fx - 0.5));
+      const x0 = Math.floor(sx);
+      const x1 = Math.min(sw - 1, x0 + 1);
+      const tx = sx - x0;
+      const p = [(y0 * sw + x0) * 4, (y0 * sw + x1) * 4, (y1 * sw + x0) * 4, (y1 * sw + x1) * 4];
+      const wt = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
+      let a = 0, r = 0, g = 0, b = 0;
+      for (let k = 0; k < 4; k++) {
+        const wa = wt[k] * src[p[k] + 3];
+        a += wa; r += wa * src[p[k]]; g += wa * src[p[k] + 1]; b += wa * src[p[k] + 2];
+      }
+      const o = (y * dw + x) * 4;
+      if (a > 0) { out[o] = r / a; out[o + 1] = g / a; out[o + 2] = b / a; }
+      out[o + 3] = a;
+    }
+  }
+  return out;
+}
+
+/**
+ * Take an RGBA picture (maybe shrunk to `maxSide` on its long side, or enlarged to `minSide` when it is smaller than that) and return the working copy:
  *  - `rgb`: 3 bytes per pixel. When the picture has real transparency, see-through pixels take the colour of the nearest
  *    solid pixel and half-see-through ones are blended over that neighbour (never over black or white).
  *  - `cov`: alpha bytes when the picture has real transparency, else null.
  */
-export function prepare(image, maxSide) {
+export function prepare(image, maxSide, minSide = 0) {
   const srcW = image.width;
   const srcH = image.height;
   let w = srcW;
@@ -98,6 +131,13 @@ export function prepare(image, maxSide) {
     w = Math.max(1, Math.round(srcW * k));
     h = Math.max(1, Math.round(srcH * k));
     rgba = boxDownscale(image.data, srcW, srcH, w, h);
+  } else if (minSide > longSide) {
+    const k = Math.min(minSide, maxSide) / longSide;
+    if (k > 1.01) {
+      w = Math.max(1, Math.round(srcW * k));
+      h = Math.max(1, Math.round(srcH * k));
+      rgba = bilinearUpscale(image.data, srcW, srcH, w, h);
+    }
   }
   const n = w * h;
   const rgb = new Uint8ClampedArray(n * 3);

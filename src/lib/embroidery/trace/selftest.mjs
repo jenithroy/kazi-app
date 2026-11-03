@@ -8,7 +8,9 @@
  */
 import { traceImage, renderTrace, quantize, detectBackground } from "./index.js";
 import { detailLimits, limitsFor } from "./detail.js";
-import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, bleedUnder, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
+import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
+import { serializeDesign, parseDesign, engineDesign, newDesign, breakApart, hitObject, objectBox } from "../../digitizer/model.js";
+import { generate } from "../stitch/engine.js";
 import { unionShapes, intersectRings, offsetRings } from "../geometry/clip.js";
 import { bboxOf, islandsOf, ringArea } from "../geometry/poly.js";
 
@@ -597,10 +599,107 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
       const back = objectsFromTrace(res, { ...opts, before: next.palette });
       const again = mergeTraceObjects(merged, back.objects, { before: next.palette, after: back.palette, rank: back.rank });
       check("and taken away again when the cloth goes back to pale", whiteObjects({ objects: again }, idx) === 5, `${whiteObjects({ objects: again }, idx)} white objects`);
+      // The page asks the worker (digitizer/engineCore.js) for the shapes of the colours that CHANGED. The white went from "fine parts only" to all of it, which is a change although
+      // it was never switched off: the worker has to send its shapes too (looking only at on and off, it sent none and the white was gone from the design after a cloth change).
+      check("the white is among the colours the change of cloth changed", idx.every((i) => changedColours(next.palette, made.palette).has(i)));
+      const core = await import("../../digitizer/engineCore.js");
+      core.run("trace", { image: img, options: { ...page, mmPerPx: 0.2 }, keep: 1 });
+      const sent = core.run("shapes", { token: 1, originX: -30, originY: -30, mmPerPx: 0.2, skip: [], include: [], fabric: "#16255c", snap: false, before: made.palette, fresh: false }).result;
+      const whiteSent = sent.packed.meta.filter((o) => idx.includes(o.pal)).length;
+      check("and the worker sends the shapes of the white (all six) when asked for them", whiteSent === 6, `${whiteSent} white shapes sent`);
     }
     const dark = objectsFromTrace(res, { ...opts, fabric: "#16255c" });
     check("on a navy cloth the white is stitched whole and the navy is the cloth", whiteObjects(dark, idx) === 6 && dark.palette.some((p) => p.sameAsCloth && p.skipped && p.hex !== "#ffffff"));
   }
+}
+
+log("8b. fine lines and dots on top (photographs and artwork), and what the converter makes of them");
+{
+  // drawn in code: a smooth blue gradient with a faint dark twig across it (2 px at 0.25 mm a pixel = 0.5 mm wide)
+  const disc = (img, cx, cy, r, c) => {
+    for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++) for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
+      const a = Math.max(0, Math.min(1, r + 0.5 - Math.hypot(x + 0.5 - cx, y + 0.5 - cy)));
+      if (a <= 0 || x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+      const o = (y * img.width + x) * 4;
+      for (let k = 0; k < 3; k++) img.data[o + k] = img.data[o + k] * (1 - a) + c[k] * a;
+    }
+  };
+  const stroke = (img, a, b, w, c) => { const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2); for (let i = 0; i <= n; i++) disc(img, a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n, w / 2, c); };
+  const W = 400, H = 300;
+  const twig = [[40, 230], [120, 190], [200, 150], [300, 120], [360, 60]];
+  const drawn = () => {
+    const img = makeImage(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 4, v = 90 + (y / H) * 110 + Math.sin(x * 0.02) * 8; img.data[o] = v * 0.45; img.data[o + 1] = v * 0.7; img.data[o + 2] = v; }
+    for (let i = 1; i < twig.length; i++) stroke(img, twig[i - 1], twig[i], 2, (() => { const v = 90 + (twig[i][1] / H) * 110; return [v * 0.45 * 0.78, v * 0.7 * 0.78, v * 0.78]; })());
+    return img;
+  };
+  const distToTwig = (p) => { let best = Infinity; for (let i = 1; i < twig.length; i++) { const a = twig[i - 1], b = twig[i], dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy))); best = Math.min(best, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)); } return best; };
+  const img = drawn();
+  const opt = { mode: "art", mmPerPx: 0.25, colors: 6, maxColors: 6, details: true, fineDetail: 0.75 };
+  const off = traceImage(img, { ...opt, details: false });
+  check("without the option there are no details in the answer", !("details" in off));
+  const art = traceImage(img, opt);
+  const d = art.details;
+  check("artwork: the faint twig the colour layer lost is found as one line, 55 to 80 mm long", !!d && d.lines.length === 1 && d.lines[0].lengthMm > 55 && d.lines[0].lengthMm < 80, d && JSON.stringify(d.lines.map((l) => l.lengthMm)));
+  check("... lying on the twig (within 0.5 mm all along, in the picture's pixels)", !!d && d.lines.length === 1 && d.lines[0].pts.every((p) => distToTwig(p) < 2), d && d.lines[0] && Math.max(...d.lines[0].pts.map(distToTwig)).toFixed(2) + " px");
+  check("... one thread wide (about 0.5 mm), darker than what is round it, and it says which colour of the colour layer lies under it", !!d && d.lines.length === 1 && d.lines[0].widthMm > 0.25 && d.lines[0].widthMm < 0.9 && Number.isInteger(d.lines[0].under), d && JSON.stringify([d.lines[0].widthMm, d.lines[0].under]));
+  check("the same input gives the same details", JSON.stringify(traceImage(img, opt).details.lines) === JSON.stringify(d.lines));
+  const logoRes = traceImage(img, { ...opt, mode: "logo" });
+  check("a logo has none (the answer says null) and its shapes are the same as without the option", logoRes.details === null && JSON.stringify(logoRes.shapes) === JSON.stringify(traceImage(img, { ...opt, mode: "logo", details: false }).shapes));
+  const photo = traceImage(img, { ...opt, mode: "photo" });
+  check("a photograph: the colour layer already carries that twig as a thin shape, so it is found but NOT added a second time", !!photo.details && photo.details.lines.length === 0 && photo.details.stats.droppedLines >= 1, photo.details && JSON.stringify(photo.details.stats.found) + " dropped " + photo.details.stats.droppedLines);
+
+  // the converter: colours, threads, order, amount (a made-up answer: three threads in the colour layer, details of several colours)
+  const sq = (x, y, s) => [[x, y], [x + s, y], [x + s, y + s], [x, y + s]];
+  const pal = (r, g, b, fraction) => ({ r, g, b, fraction, background: false });
+  const fake = (extra = {}) => ({
+    width: 400, height: 300,
+    palette: [pal(20, 40, 110, 0.5), pal(200, 30, 40, 0.3), pal(60, 150, 70, 0.2)],
+    shapes: [{ id: 0, color: 0, contours: [sq(0, 0, 200)], area: 40000, bbox: [0, 0, 200, 200] }, { id: 1, color: 1, contours: [sq(200, 0, 200)], area: 40000, bbox: [200, 0, 400, 200] }, { id: 2, color: 2, contours: [sq(0, 200, 400).map((p) => [p[0], p[1] * 0.5 + 100])], area: 20000, bbox: [0, 200, 400, 300] }],
+    order: [0, 1, 2],
+    stats: { kind: "photo" },
+    details: { lines: [], spots: [], stats: { found: { lines: 0, spots: 0 } } },
+    ...extra,
+  });
+  const line = (x, y, len, rgb, under, strength = 30) => ({ pts: [[x, y], [x + len / 2, y + 4], [x + len, y]], lengthMm: len * 0.1, widthMm: 0.45, rgb, strength, dark: true, under });
+  const spot = (x, y, rgb, under) => ({ ring: [[x, y], [x + 12, y], [x + 12, y + 12], [x, y + 12]], areaMm2: 1.44, rgb, strength: 40, dark: true, centre: [x + 6, y + 6], under });
+  const run = (details, o = {}) => objectsFromTrace(fake({ details: { stats: { found: { lines: details.lines.length, spots: details.spots.length } }, ...details } }), { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea", ...o });
+  const OBJ = (r) => r.objects.filter((o) => o.layer === "detail");
+
+  const mixed = run({
+    lines: [line(20, 20, 300, [18, 36, 104], 1), line(30, 60, 300, [24, 44, 112], 1), line(40, 100, 300, [66, 156, 76], 0), line(50, 140, 300, [56, 146, 66], 0), line(60, 180, 300, [28, 50, 118], 1)],
+    spots: [spot(100, 100, [10, 10, 20], 0)],
+  });
+  const lines = OBJ(mixed).filter((o) => o.open), dots = OBJ(mixed).filter((o) => !o.open);
+  check("details: every colour is a thread the colour layer already has (no new needle), at most three threads for the lines", lines.length >= 1 && lines.length <= 3 && OBJ(mixed).every((o) => mixed.objects.some((b) => !b.layer && b.fill.color === o.fill.color)) && mixed.details.newColours === 0, JSON.stringify(lines.map((o) => o.fill.color)));
+  check("details: lines are open objects with no fill and a bean stroke 0.45 mm; dots are small fills; all follow the picture and belong to no colour", lines.every((o) => o.open && o.fill.type === "none" && o.stroke.type === "bean" && o.stroke.width === 0.45 && o.source === "image" && o.pal === undefined) && dots.every((o) => !o.open && o.fill.type === "auto" && o.source === "image" && o.pal === undefined));
+  check("details: sewn after every shape of the colour layer, the dots before the lines", mixed.objects.findIndex((o) => o.layer === "detail") === mixed.objects.filter((o) => !o.layer).length && OBJ(mixed).findIndex((o) => o.open) >= dots.length);
+  check("details: a detail whose thread is the colour under it is left out (it would not show)", (() => { const r = run({ lines: [line(20, 20, 300, [20, 40, 110], 0), line(30, 60, 300, [200, 30, 40], 0)], spots: [] }); return r.details && r.details.left.invisible >= 1 && OBJ(r).every((o) => o.fill.color !== "#142870"); })());
+  const orange = run({ lines: [line(20, 20, 300, [230, 140, 20], 0), line(30, 60, 300, [232, 138, 22], 0)], spots: [] });
+  const near = (hex, r, g, b) => { const n = parseInt(hex.slice(1), 16); return Math.abs((n >> 16) - r) < 8 && Math.abs(((n >> 8) & 255) - g) < 8 && Math.abs((n & 255) - b) < 8; };
+  check("details: a colour no thread is near becomes ONE new colour when the machine has needles to spare ...", orange.details.newColours === 1 && OBJ(orange).length === 1 && near(OBJ(orange)[0].fill.color, 231, 139, 21), JSON.stringify(OBJ(orange).map((o) => o.fill.color)));
+  const full = run({ lines: [line(20, 20, 300, [230, 140, 20], 0), line(30, 60, 300, [232, 138, 22], 0)], spots: [] }, { maxColors: 3 });
+  check("... and none when the machine is full (the detail is sewn in the nearest thread or left out)", full.details === null || full.details.newColours === 0);
+  const thick = run({ lines: [line(20, 20, 300, [18, 36, 104], 1)], spots: [] }, { detailThick: true });
+  check("details: thicker lines are a narrow satin column (0.7 mm)", OBJ(thick).some((o) => o.open && o.stroke.type === "satin" && o.stroke.width === 0.7));
+  const many = run({ lines: Array.from({ length: 400 }, (_, i) => line(5, 4 + (i % 100) * 2, 380, [18, 36, 104], 1, 20 + (i % 7))), spots: [] });
+  const cost = (r) => r.details ? r.details.stitchesEst : 0;
+  // (the same details in a colour layer of 403 shapes, so the cap on pieces is 81 and the stitch budget is what holds them back: the area is the same 6,250 mm²)
+  const crowdShapes = [...fake().shapes, ...Array.from({ length: 400 }, (_, i) => ({ id: 10 + i, color: 0, contours: [sq(190 + (i % 10), Math.floor(i / 10) * 2, 1)], area: 1, bbox: [0, 0, 1, 1] }))];
+  const crowd = objectsFromTrace(fake({ shapes: crowdShapes, details: { stats: { found: { lines: 400, spots: 0 } }, lines: Array.from({ length: 400 }, (_, i) => line(5, 4 + (i % 100) * 2, 380, [18, 36, 104], 1, 20 + (i % 7))), spots: [] } }), { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea" });
+  check("details: their stitches stay under 30 % of the colour layer's (about 2 stitches a mm²)", cost(crowd) > 0 && cost(crowd) <= 0.3 * 2 * 6250 + 1 && crowd.details.lines > 12 && crowd.details.lines <= 81, `${cost(crowd)} stitches, ${crowd.details.lines} lines`);
+  // saved and opened again: the fine lines keep their openness and their place at the end, and sew the same
+  const design = newDesign({ objects: mixed.objects });
+  const again = parseDesign(serializeDesign(design));
+  const g1 = generate(engineDesign(design), {}), g2 = generate(engineDesign(again), {});
+  check("a saved design with fine lines opens again as it was (open lines, detail layer) and sews the same", again.objects.filter((o) => o.open).length === lines.length && again.objects.every((o, i) => o.layer === mixed.objects[i].layer) && Math.abs(g1.pattern.stitches.length - g2.pattern.stitches.length) <= 3 && g1.pattern.threads.length === g2.pattern.threads.length, `${g1.pattern.stitches.length} vs ${g2.pattern.stitches.length}`);
+  const lineObj = lines[0];
+  const mid = lineObj.rings[0][1], onLine = [lineObj.transform.x + mid[0], lineObj.transform.y + mid[1]];
+  check("a fine line can be picked with the pointer on it, from half the usual reach (it must not steal clicks meant for the shape under it)", hitObject({ objects: [lineObj] }, onLine[0], onLine[1], 0.6) === lineObj.id && hitObject({ objects: [lineObj] }, onLine[0] + 0.5, onLine[1] + 0.5, 0.6) === null && hitObject({ objects: [lineObj] }, onLine[0] + 30, onLine[1] + 30, 0.6) === null);
+  check("Break apart makes one object per line", breakApart(lineObj).length === lineObj.rings.length && breakApart(lineObj).every((o) => o.open && o.rings.length === 1 && o.layer === "detail"));
+  check("details: the separate pieces (each may cost a thread cut) stay under a fifth of the colour layer's shapes, and at least 12 are allowed", many.details.lines + many.details.dots === 12 && many.details.left.budget >= 388, JSON.stringify([many.details.lines, many.details.dots, many.details.left]));
+  const alone = run({ lines: [], spots: [] });
+  check("no details found: the same objects as before and no summary", alone.objects.every((o) => !o.layer) && alone.details === null);
 }
 
 if (process.argv.includes("--perf")) {

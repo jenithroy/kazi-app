@@ -124,6 +124,127 @@ function boxBlur3(rgb, w, h) {
 }
 
 /**
+ * Put back what the Kuwahara filter took away. It paints every pixel with the average of the calmest square round it, which erases a line a pixel or
+ * two wide (a lash, a hair, a twig, a whisker): such a pixel is far from the smoothed picture. Where the original and the smoothed picture differ by more than
+ * `tau` (luminance, 0 to 255) the original pixel is kept. The label cleaning then decides which of these pixels are lines worth keeping.
+ */
+export function restoreThin(orig, smooth, w, h, tau, maxShare = 0.035) {
+  const out = new Uint8ClampedArray(smooth);
+  const n = w * h;
+  const diff = new Uint8Array(n);
+  const hist = new Float64Array(256);
+  for (let i = 0; i < n; i++) {
+    const p = i * 3;
+    const signed = 0.299 * (orig[p] - smooth[p]) + 0.587 * (orig[p + 1] - smooth[p + 1]) + 0.114 * (orig[p + 2] - smooth[p + 2]);
+    // a dark line on anything (lash, hair, twig) counts; a light line only on a dark ground (a whisker on black fur): the glints on skin are noise
+    const luma = 0.299 * smooth[p] + 0.587 * smooth[p + 1] + 0.114 * smooth[p + 2];
+    const d = signed < 0 || luma < 110 ? Math.min(255, Math.round(Math.abs(signed))) : 0;
+    diff[i] = d;
+    hist[d]++;
+  }
+  // a picture that is all lines and texture (a twig network, bark, fur) would be given back whole: only the strongest few per cent are restored
+  let cut = Math.round(tau);
+  let above = 0;
+  for (let v = 255; v > cut; v--) above += hist[v];
+  while (cut < 255 && above > maxShare * n) { cut++; above -= hist[cut]; }
+  for (let i = 0; i < n; i++) {
+    if (diff[i] > cut) { const p = i * 3; out[p] = orig[p]; out[p + 1] = orig[p + 1]; out[p + 2] = orig[p + 2]; }
+  }
+  return out;
+}
+
+/**
+ * Thin lines in a picture (a lash, a hair, a whisker, a twig, a crease) found straight from the luminance, not from the colour patches: a dark line is
+ * what a closing of the luminance (the smallest square of `2 * r + 1` pixels that is wider than the line, dilated and eroded) fills in, a light line is
+ * what an opening takes away. A pixel counts when it differs from that by more than `tau` (0 to 255); light lines only count on a dark ground (a whisker on
+ * black fur: the glints on skin are noise). Pieces of 8-connected pixels are kept when they are long and thin (`minExtent` pixels, `minAspect` =
+ * extent squared over pixel count) and the whole is held to the strongest `maxShare` of the picture.
+ * Returns { dark, bright } as Uint8Array(w * h) of 0 / 1 plus `pieces`: [{ pixels: Int32Array, bright: boolean, count, extent }].
+ */
+export function thinLines(rgb, w, h, r, tau, minExtent, minAspect = 2.2, maxShare = 0.05, skip = null) {
+  const n = w * h;
+  const L = new Float32Array(n);
+  for (let i = 0; i < n; i++) L[i] = 0.299 * rgb[i * 3] + 0.587 * rgb[i * 3 + 1] + 0.114 * rgb[i * 3 + 2];
+  const pass = (src, isMax) => {
+    const t = new Float32Array(n);
+    const o = new Float32Array(n);
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        let v = isMax ? -1e9 : 1e9;
+        const a = x - r < 0 ? 0 : x - r, b = x + r >= w ? w - 1 : x + r;
+        for (let k = a; k <= b; k++) { const q = src[row + k]; if (isMax ? q > v : q < v) v = q; }
+        t[row + x] = v;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      const a = y - r < 0 ? 0 : y - r, b = y + r >= h ? h - 1 : y + r;
+      for (let x = 0; x < w; x++) {
+        let v = isMax ? -1e9 : 1e9;
+        for (let k = a; k <= b; k++) { const q = t[k * w + x]; if (isMax ? q > v : q < v) v = q; }
+        o[y * w + x] = v;
+      }
+    }
+    return o;
+  };
+  const closing = pass(pass(L, true), false);
+  const opening = pass(pass(L, false), true);
+  const dk = new Float32Array(n), br = new Float32Array(n);
+  const hist = new Float64Array(256);
+  for (let i = 0; i < n; i++) {
+    dk[i] = closing[i] - L[i];
+    br[i] = opening[i] < 110 ? L[i] - opening[i] : 0;
+    if (skip && skip[i]) { dk[i] = 0; br[i] = 0; } // (the see-through part of a picture has only copied colours: no lines there)
+    const v = Math.min(255, Math.round(Math.max(dk[i], br[i])));
+    hist[v]++;
+  }
+  // only the strongest few per cent of a picture that is all lines and texture (bark, fur)
+  let cut = Math.round(tau);
+  let above = 0;
+  for (let v = 255; v > cut; v--) above += hist[v];
+  while (cut < 255 && above > maxShare * n) { cut++; above -= hist[cut]; }
+  const mask = new Uint8Array(n); // 1 dark line pixel, 2 light line pixel
+  for (let i = 0; i < n; i++) mask[i] = dk[i] > cut ? 1 : br[i] > cut ? 2 : 0;
+  // 8-connected pieces of one kind
+  const parent = new Int32Array(n + 1);
+  const comp = new Int32Array(n);
+  let next = 1;
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) { if (a < b) parent[b] = a; else parent[a] = b; } };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const m = mask[i];
+      if (!m) continue;
+      let c = 0;
+      const tryN = (j) => { if (mask[j] === m && comp[j]) { if (!c) c = comp[j]; else join(c, comp[j]); } };
+      if (x > 0) tryN(i - 1);
+      if (y > 0) { tryN(i - w); if (x > 0) tryN(i - w - 1); if (x < w - 1) tryN(i - w + 1); }
+      if (!c) { parent[next] = next; c = next++; }
+      comp[i] = c;
+    }
+  }
+  const info = new Map();
+  for (let i = 0; i < n; i++) {
+    if (!comp[i]) continue;
+    const c = find(comp[i]);
+    let e = info.get(c);
+    const x = i % w, y = (i - x) / w;
+    if (!e) { e = { x0: x, x1: x, y0: y, y1: y, count: 0, bright: mask[i] === 2, first: [] }; info.set(c, e); }
+    e.count++;
+    if (x < e.x0) e.x0 = x; if (x > e.x1) e.x1 = x; if (y < e.y0) e.y0 = y; if (y > e.y1) e.y1 = y;
+    e.first.push(i);
+  }
+  const pieces = [];
+  for (const e of info.values()) {
+    const ext = Math.max(e.x1 - e.x0 + 1, e.y1 - e.y0 + 1);
+    if (ext < minExtent || (ext * ext) / e.count < minAspect) continue;
+    pieces.push({ pixels: Int32Array.from(e.first), bright: e.bright, count: e.count, extent: ext });
+  }
+  return { pieces, cut };
+}
+
+/**
  * Kuwahara filter: the picture painted in flat patches that keep their edges. Around each pixel are four overlapping
  * squares (r + 1 pixels a side) that all contain it; the pixel takes the average colour of the square whose brightness
  * varies least, so it never averages across an edge. Uses sums over squares (integral images), so the cost does not grow

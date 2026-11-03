@@ -1,7 +1,7 @@
 /**
  * Picture to clean vector regions (the "tracer" of the embroidery engine).
  *
- *   traceImage(image, opts)  -> { width, height, palette, shapes, order, stats }
+ *   traceImage(image, opts)  -> { width, height, palette, shapes, order, stats }   (and `details` when opts.details: the fine lines and dots, see fine.js)
  *   renderTrace(result, scale)  paint a result back to RGBA pixels (how tests compare it with the source)
  *   quantize(image, opts)    -> { palette, labels, width, height, ... } fast colour preview on a small grid
  *   detectBackground(image | quantizeResult, opts)
@@ -46,9 +46,10 @@ import { buildChains, chainRawPoints, traceLoops } from "./contours.js";
 import { processChains } from "./simplify.js";
 import { findCrossing, pullBack } from "./repair.js";
 import { renderTrace } from "./render.js";
-import { detectKind, kuwahara } from "./photo.js";
+import { detectKind, kuwahara, restoreThin, thinLines } from "./photo.js";
 import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
 import { limitsFor } from "./detail.js";
+import { findFineDetails } from "./fine.js";
 
 export { renderTrace };
 
@@ -73,14 +74,27 @@ export const DEFAULT_OPTIONS = Object.freeze({
   // soft shading), "photo" (smoothed into paint-like patches first), or "auto" (look at the picture and choose)
   mode: "logo",
   mergeDE: 0, // colours closer than this (delta-E) are one colour; 0 = the kind's own (logo 11, art 8, photo 6)
-  workMm: 0.25, // a photograph is traced on a grid this many millimetres a pixel (it has no finer detail to keep)
-  smoothR: 3, // the Kuwahara radius (pixels) a photograph is flattened with
+  workMm: 0.15, // a photograph is traced on a grid this many millimetres a pixel (a coarser one lost twigs, lashes and small petals; a finer one only added noise)
+  smoothR: 2, // the Kuwahara radius (pixels) a photograph is flattened with
   thicken: false, // keep long thin strokes (lettering, hairlines) of the minor colours and widen them, instead of removing them
-  thickenMm: 0, // how wide such a stroke becomes (0 = lineMm)
+  thickenMm: 0, // how wide such a stroke becomes (0 = a line of thread, or a little wider for a simpler design: see targetMm in analyse)
   detail: null, // the page's Detail slider (0 to 1), when it has one: once the kind of picture is known the size limits below are taken from it (a portrait gets more detail than a logo at the same setting, see detail.js). null = use the limits as given
-  lineMm: 0.5, // the width of a line of thread: a stroke thinner than this is made this wide, and the stitch engine sews anything this thin as one line of stitches along its middle
   strokeMm: 1.5, // a thin piece must be this long to count as a stroke
   bgSpread: 7, // a background of artwork or a photograph must be this even (delta-E spread around its colour)
+  maxShapes: 2500, // about how many pieces a picture may come to (0 = no limit): above it the size limits are raised until it does (0 would take minutes at 250 mm)
+  keepThin: 18, // photographs: where the flattening changed a pixel by more than this (luminance 0 to 255) the picture's own pixel is kept (lashes, whiskers, hairs, twigs), at most the strongest 3.5 % of the picture; 0 = off
+  lines: true, // artwork and photographs: thin lines (lashes, hairs, whiskers, twigs, creases) are found from the luminance and kept as lines
+  lineTau: 40, // how much darker (or lighter) than its surroundings a line must be (luminance, 0 to 255)
+  lineMm: 1.2, // how long a line must be (mm)
+  hatched: 0.5, // "auto" kind: a picture of a few colours that has strong local contrast at this share of its pixels (on a 0.15 mm grid) is an engraving or a woodcut, made of tone: it is sewn as a photograph; 0 = never
+  hatchedMaxMm: 120, // ... when the design is no wider than this (a bigger one can follow the lines)
+  strongMm: 0, // a thin feature found by its contrast (a vein, a twig, a lash) is widened to this (mm); 0 = by the size of the design: 0.5 at 60 mm and less, 0.3 from 100 mm (a bean line is wider than the thread anyway, and a bigger design has bigger lines, which a wide painting overdraws) ...
+  gapMm: 0.7, // ... a gap or a dot to this (never wider than the strokes' own width, see thickenMm)
+  lineShare: 0.03, // all lines together are held to the strongest of this share of the picture (a picture that is all texture keeps only its strongest lines)
+  contrast: true, // how much a small piece stands out decides whether it stays: a petal on dark leaves is kept small, a patch of sky a shade off is not
+  fineParams: null, // (for tuning) overrides of the fine-detail finder's numbers, see detailParams in details.js
+  fineDetail: 0.75, // the Detail slider (0 to 1) as the fine-detail finder sees it (details.js): how many and how faint the lines and dots it keeps
+  details: false, // photographs and artwork: also find the fine lines (veins, twigs, lids, lashes) and small dots from the picture itself, to be sewn on top of the colours (details.js, fine.js); the colour layer is not changed
 });
 
 const num = (v, d, lo, hi) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -116,10 +130,23 @@ export function normalizeOptions(opts = {}) {
     smoothR: Math.round(num(opts.smoothR, DEFAULT_OPTIONS.smoothR, 0, 8)),
     thicken: !!opts.thicken,
     thickenMm: num(opts.thickenMm, DEFAULT_OPTIONS.thickenMm, 0, 5),
-    lineMm: num(opts.lineMm, DEFAULT_OPTIONS.lineMm, 0.2, 3),
     detail: typeof opts.detail === "number" && Number.isFinite(opts.detail) ? Math.min(1, Math.max(0, opts.detail)) : null,
     strokeMm: num(opts.strokeMm, DEFAULT_OPTIONS.strokeMm, 0.2, 20),
     bgSpread: num(opts.bgSpread, DEFAULT_OPTIONS.bgSpread, 1, 40),
+    contrast: opts.contrast === undefined ? DEFAULT_OPTIONS.contrast : !!opts.contrast,
+    details: opts.details === undefined ? DEFAULT_OPTIONS.details : !!opts.details,
+    fineDetail: num(opts.fineDetail, DEFAULT_OPTIONS.fineDetail, 0, 1),
+    fineParams: opts.fineParams && typeof opts.fineParams === "object" ? opts.fineParams : null,
+    lines: opts.lines === undefined ? DEFAULT_OPTIONS.lines : !!opts.lines,
+    lineTau: num(opts.lineTau, DEFAULT_OPTIONS.lineTau, 5, 255),
+    lineMm: num(opts.lineMm, DEFAULT_OPTIONS.lineMm, 0.2, 20),
+    hatched: num(opts.hatched, DEFAULT_OPTIONS.hatched, 0, 1),
+    hatchedMaxMm: num(opts.hatchedMaxMm, DEFAULT_OPTIONS.hatchedMaxMm, 10, 2000),
+    strongMm: num(opts.strongMm, DEFAULT_OPTIONS.strongMm, 0, 3),
+    gapMm: num(opts.gapMm, DEFAULT_OPTIONS.gapMm, 0.2, 3),
+    lineShare: num(opts.lineShare, DEFAULT_OPTIONS.lineShare, 0.001, 1),
+    keepThin: num(opts.keepThin, DEFAULT_OPTIONS.keepThin, 0, 255),
+    maxShapes: Math.round(num(opts.maxShapes, DEFAULT_OPTIONS.maxShapes, 0, 1e6)),
   };
 }
 
@@ -144,7 +171,27 @@ function resolveKind(image, o) {
   if (o.mode !== "auto") return { kind: o.mode, info: null };
   const wk = prepare(image, 256);
   const info = detectKind(wk.rgb, wk.w, wk.h);
-  return { kind: info.kind, info };
+  let kind = info.kind;
+  // An engraving, a woodcut: black ink on paper, so a few flat colours describe it, but its lines lie closer than a thread can follow and the picture is made of the tone
+  // they add up to. Seen on a grid of 0.15 mm (what a photograph is traced on), a design that size has strong local contrast almost everywhere: it is sewn as a photograph.
+  const longMm = Math.max(image.width, image.height) * o.mmPerPx;
+  if (kind !== "photo" && o.hatched > 0 && longMm <= o.hatchedMaxMm && Math.max(image.width, image.height) >= 500) {
+    const g = prepare(image, Math.max(64, Math.round(longMm / 0.15)));
+    const L = new Float32Array(g.w * g.h);
+    for (let i = 0; i < g.w * g.h; i++) L[i] = 0.299 * g.rgb[i * 3] + 0.587 * g.rgb[i * 3 + 1] + 0.114 * g.rgb[i * 3 + 2];
+    let hit = 0, n = 0;
+    for (let y = 1; y < g.h - 1; y++) {
+      for (let x = 1; x < g.w - 1; x++) {
+        n++; // (the see-through part of a picture counts as plain: a small logo on a clear page is no engraving)
+        if (g.hasAlpha && g.cov[y * g.w + x] < 128) continue;
+        let lo = 1e9, hi = -1e9;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const v = L[(y + dy) * g.w + x + dx]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        if (hi - lo > 60) hit++;
+      }
+    }
+    if (n > 0 && hit / n >= o.hatched) kind = "photo";
+  }
+  return { kind, info };
 }
 
 /** How many pixels on the long side the working copy has. */
@@ -163,7 +210,9 @@ function workSide(image, o) {
 function analyse(image, o, maxSide) {
   const stages = {};
   let t = now();
-  const wk = prepare(image, maxSide);
+  // a picture whose pixels are bigger than 0.4 mm once stitched (a 64 pixel icon in a 100 mm patch) is enlarged smoothly first, to about 0.2 mm a pixel
+  const longPx = Math.max(image.width, image.height);
+  const wk = prepare(image, maxSide, o.mmPerPx > 0.4 ? Math.min(longPx * 8, (longPx * o.mmPerPx) / 0.2) : 0);
   const { w, h, hasAlpha, cov } = wk;
   const N = w * h;
   stages.prepare = now() - t;
@@ -171,7 +220,8 @@ function analyse(image, o, maxSide) {
   const dn = denoise(wk.rgb, w, h);
   const kind = o.kind || "logo";
   // a photograph is first painted in flat patches that keep their edges, so its colours can be found and its regions are calm
-  const rgbD = kind === "photo" && o.smoothR >= 1 ? kuwahara(dn.rgb, w, h, o.smoothR) : dn.rgb;
+  let rgbD = kind === "photo" && o.smoothR >= 1 ? kuwahara(dn.rgb, w, h, o.smoothR) : dn.rgb;
+  if (kind === "photo" && o.smoothR >= 1 && o.keepThin > 0) rgbD = restoreThin(dn.rgb, rgbD, w, h, o.keepThin);
   stages.denoise = now() - t;
   t = now();
   const scale = Math.sqrt(wk.sx * wk.sy);
@@ -273,13 +323,75 @@ function analyse(image, o, maxSide) {
     // dark badge); in a photograph only the background's colours, or thin crumbs of every colour would be kept.
     const solo = new Uint8Array(256);
     for (let k = 0; k < K; k++) solo[k] = k === transIndex ? 0 : o.kind !== "photo" || early.indices.includes(k) ? 1 : 0;
-    const targetMm = o.thickenMm || o.lineMm;
+    // How wide a thin stroke is made: a needle sews about half a millimetre as a line, and anything wider (0.9 mm was the rule once) fills the counters of small lettering and
+    // makes a hairline of an engraving a heavy bar. The Detail slider widens it again for a simpler design (0.8 mm at the simplest, 0.6 at Balanced, 0.5 at the default,
+    // 0.45 at the finest); a stroke already this wide is left as it is.
+    const targetMm = o.thickenMm || Math.max(0.45, Math.min(0.9, 0.5 + 0.4 * (o.minFeatureMm - 0.55)));
     // In a photograph or artwork the patches of colour are blobs: only long thin pieces (twigs, outlines, hairlines) are strokes.
     const photo = o.kind === "photo";
     const strokeMm = photo ? Math.max(o.strokeMm, 3) : o.strokeMm;
-    strokes = { accent, solo, minExtent: Math.max(3, (strokeMm / o.mmPerPx) / scale), minAspect: photo ? 5 : o.kind === "art" ? 2.5 : 0, targetPx: targetMm / o.mmPerPx / scale };
+    const pxMm = 1 / (o.mmPerPx * scale); // work pixels in a millimetre
+    const designMm = Math.max(image.width, image.height) * o.mmPerPx; // how wide the design is
+    const strongMm = o.strongMm || Math.max(0.3, Math.min(0.5, 0.5 - (0.2 * (designMm - 60)) / 40));
+    // thin lines of artwork and photographs, found from the luminance of the unflattened picture and given the label of the palette colour they are drawn in
+    let lines = null;
+    if (o.lines && kind !== "logo") {
+      const rr = Math.max(2, Math.min(8, Math.ceil(0.42 * pxMm + 0.3)));
+      // (the bigger the design, the more of a picture's texture reaches the size of a line: its share of lines falls with the size, to 0.4 of it at 250 mm)
+      const share = o.lineShare * Math.min(1, Math.pow(100 / Math.max(1, designMm), 0.75));
+      const tl = thinLines(dn.rgb, w, h, rr, o.lineTau, Math.max(3, o.lineMm * pxMm), 2.2, share, skip);
+      if (tl.pieces.length) {
+        lines = new Uint8Array(N);
+        const lab = new Float64Array(3);
+        for (const pc of tl.pieces) {
+          // the darkest (or lightest) half of its pixels give its colour
+          const ps = Array.from(pc.pixels).map((i) => ({ i, l: 0.299 * dn.rgb[i * 3] + 0.587 * dn.rgb[i * 3 + 1] + 0.114 * dn.rgb[i * 3 + 2] })).sort((a, b) => (pc.bright ? b.l - a.l : a.l - b.l));
+          const half = ps.slice(0, Math.max(1, ps.length >> 1));
+          let sr = 0, sg = 0, sb = 0;
+          for (const p of half) { sr += dn.rgb[p.i * 3]; sg += dn.rgb[p.i * 3 + 1]; sb += dn.rgb[p.i * 3 + 2]; }
+          rgbFloatToLab(sr / half.length, sg / half.length, sb / half.length, lab, 0);
+          // a palette colour it can be drawn in: near its own colour, and not lighter (a dark line) or darker (a light one) than the line itself
+          let best = -1, bd = 28 * 28;
+          for (let k = 0; k < K; k++) {
+            if (k === transIndex || early.indices.includes(k)) continue;
+            if (pc.bright ? palLab[k * 3] < lab[0] - 10 : palLab[k * 3] > lab[0] + 10) continue;
+            if ((lab[1] - palLab[k * 3 + 1]) ** 2 + (lab[2] - palLab[k * 3 + 2]) ** 2 > 16 * 16) continue; // and of the same hue ...
+            if (Math.hypot(palLab[k * 3 + 1], palLab[k * 3 + 2]) > Math.hypot(lab[1], lab[2]) + 6) continue; // ... and no more colourful: a grey whisker is not drawn in pink
+            const d = (lab[0] - palLab[k * 3]) ** 2 + (lab[1] - palLab[k * 3 + 1]) ** 2 + (lab[2] - palLab[k * 3 + 2]) ** 2;
+            if (d < bd) { bd = d; best = k; }
+          }
+          if (best < 0) continue;
+          for (const p of pc.pixels) lines[p] = best + 1;
+        }
+      }
+    }
+    const bgSet = new Uint8Array(256);
+    for (const k of early.indices) bgSet[k] = 1;
+    strokes = {
+      lines, bgSet,
+      accent, solo, minExtent: Math.max(3, (strokeMm / o.mmPerPx) / scale), minAspect: photo ? 5 : o.kind === "art" ? 2.5 : 0, targetPx: targetMm / o.mmPerPx / scale,
+      // delta-E at which a piece counts as standing out (ref), the most the usual size limit grows for a piece that hardly shows (areaMax), what a thin piece
+      // must differ from its surroundings by to be kept (keepContrast; dotContrast for a small round one), and the smallest a needle can sew
+      contrast: o.contrast ? { ref: 24, areaMax: 3, keepContrast: 26, dotContrast: 40, strongPx: strongMm * pxMm, gapPx: o.gapMm * pxMm, floorPx: Math.max(6, 0.3 * pxMm * pxMm), lineExtent: Math.max(3, (photo ? 2 : 1.2) * pxMm), dotExtent: Math.max(2, 0.55 * pxMm) } : null,
+    };
   }
-  const cleaned = cleanLabels(labels, w, h, { rgb: rgbD, palLab, K, soft, lab2 }, minAreaPx, minFeaturePx, strokes);
+  const cleanCtx = { rgb: rgbD, palLab, K, soft, lab2 };
+  const cleaned = cleanLabels(labels, w, h, cleanCtx, minAreaPx, minFeaturePx, strokes);
+  // A picture that is still thousands of pieces (feathers, foliage, bark, a fine engraving at full detail) is more than a machine can sew sensibly and
+  // more than the stitch engine can work out in a minute: the size limits are raised in steps until it comes to about `maxShapes` pieces (the smallest, least
+  // striking ones go first).
+  if (o.maxShapes > 0) {
+    // (a big design can take more pieces: `maxShapes` up to 100 mm across, up to 2.4 times as many from 240 mm: the extra ones are the small leaves, petals and lashes of a big picture)
+    const budget = o.maxShapes * Math.min(2.4, Math.max(1, (Math.max(image.width, image.height) * o.mmPerPx) / 100));
+    for (let round = 0, k = 1; round < 4; round++) {
+      const count = connectedComponents(labels, w, h).count;
+      if (count <= budget) break;
+      k *= Math.min(2.2, 1.25 * Math.sqrt(count / budget));
+      const more = cleanLabels(labels, w, h, cleanCtx, minAreaPx * k, minFeaturePx * Math.min(1.6, Math.sqrt(k)), strokes);
+      cleaned.specks += more.specks;
+      cleaned.slivers += more.slivers;
+    }
+  }
   stages.clean = now() - t;
   t = now();
 
@@ -782,14 +894,22 @@ export function traceImage(image, opts = {}) {
   for (let k = 0; k < K; k++) if (areaByColor[k] > 0) order.push(k);
   order.sort((p, q) => areaByColor[q] - areaByColor[p] || p - q);
 
+  // fine lines and dots found on the picture itself, to be sewn on top of these shapes (logos have none)
+  const tFine = now();
+  const details = o.details && kind !== "logo" ? findFineDetails(image, o, kind, a, shapes) : null;
+  const fineMs = now() - tFine;
+
   return {
     width: W0,
     height: H0,
     palette,
     shapes,
     order,
+    look: opts.look || null, // how the shapes are to be sewn (rows' angles, edge lines): carried along for the digitizer's converter, not used here
+    ...(o.details ? { details } : {}),
     stats: {
       ms: now() - tStart,
+      fineMs,
       colors: palette.filter((p) => !p.background).length,
       shapes: shapes.length,
       vertices,

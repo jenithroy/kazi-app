@@ -7,7 +7,7 @@ import { CMD } from "../embroidery/pattern.js";
 /** A rough sewing speed of one head, stitches a minute, and the time a colour change and a trim take, in minutes. */
 export const MACHINE = { spm: 700, colorChange: 0.5, trim: 0.06, jump: 0.015 };
 
-export function summarize(flat, threads) {
+export function summarize(flat, threads, { standIn = false } = {}) {
   const n = flat.length / 3;
   const blocks = [];
   let cur = { index: 0, stitches: 0, jumps: 0, trims: 0, lengthMm: 0 };
@@ -36,8 +36,10 @@ export function summarize(flat, threads) {
   if (cur.stitches || !blocks.length) blocks.push(cur);
   const has = stitches > 0;
   const minutes = has ? stitches / MACHINE.spm + changes * MACHINE.colorChange + trims * MACHINE.trim + jumps * MACHINE.jump : 0;
+  const needles = new Set(blocks.map((b, i) => (threads[i] ? `${threads[i].r},${threads[i].g},${threads[i].b}` : `#${i}`))).size;
   return {
     stitches,
+    colours: standIn ? blocks.length : needles, // different colours (needles); blocks.length counts every change of thread, and a colour sewn again later is a block again
     jumps,
     trims,
     colorChanges: changes,

@@ -101,7 +101,7 @@ export function productionSheetHtml(design, summary, previewUrl, { fabricLabel =
         <dt>Hoop</dt><dd>${design.hoop.w} × ${design.hoop.h} mm</dd>
         <dt>Fabric</dt><dd>${esc(fabricLabel || design.fabric)}</dd>
         <dt>Stitches</dt><dd>${summary.stitches.toLocaleString("en-GB")}</dd>
-        <dt>Colours</dt><dd>${summary.blocks.length} (${summary.colorChanges} change${summary.colorChanges === 1 ? "" : "s"})</dd>
+        <dt>Colours</dt><dd>${summary.colours ?? summary.blocks.length} (${summary.colorChanges} change${summary.colorChanges === 1 ? "" : "s"})</dd>
         <dt>Trims</dt><dd>${summary.trims}</dd>
         <dt>Thread</dt><dd>about ${summary.threadMetres.toFixed(1)} m (top thread)</dd>
         <dt>Time</dt><dd>${esc(formatMinutes(summary.minutes))} on one head</dd>

@@ -10,10 +10,14 @@
  *
  *   { id, name, kind: "shape" | "text" | "rect" | "ellipse", visible, locked,
  *     rings, transform,
+ *     open?:  true when the rings are OPEN lines (two points or more, no fill), sewn along their stroke: the fine lines of a picture
+ *     layer?: "detail" for the fine lines and dots found on a picture: they are sewn after every object that comes before them,
  *     fill:   { type: "auto" | "tatami" | "satin" | "none", color: "#rrggbb", angle, spacing, stitchLen, pullComp, underlay },
  *     stroke: { type: "none" | "run" | "bean" | "satin", color, width, len, position },
  *     text?:  { value, font, size, bold, italic, spacing, lineHeight, align },
- *     source?: "image" }
+ *     source?: "image" | "hand" }   "image": made from the picture by the converter; "hand": traced over the picture by a person
+ *
+ * "image" and "hand" shapes move and scale WITH the picture. Only "image" shapes are replaced when the picture is converted again.
  *
  * Objects are never changed in place: every edit returns new objects, so undo is just keeping the old design.
  */
@@ -72,7 +76,26 @@ export function makeObject({ name = "Shape", kind = "shape", rings, fill, stroke
   };
 }
 
+/** Is this shape tied to the picture (made from it, or traced over it by hand)? Such shapes follow the picture when it moves or is resized. */
+export const followsPicture = (obj) => obj.source === "image" || obj.source === "hand";
+
 export const objectMatrix = (obj) => composeMatrix(obj.transform);
+
+/** How far a point is from the nearest of some OPEN lines (no closing edge from the last point back to the first). */
+function distanceToLines(x, y, lines) {
+  let best = Infinity;
+  for (const line of lines) {
+    for (let i = 0; i + 1 < line.length; i++) {
+      const p = line[i], q = line[i + 1];
+      const dx = q[0] - p[0], dy = q[1] - p[1];
+      const l2 = dx * dx + dy * dy;
+      const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - p[0]) * dx + (y - p[1]) * dy) / l2));
+      const d = Math.hypot(x - (p[0] + t * dx), y - (p[1] + t * dy));
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
 
 /** The object's rings in the hoop's frame. */
 export function worldRings(obj) {
@@ -130,9 +153,11 @@ export function hitObject(design, x, y, tolMm = 0) {
     const inv = invertMatrix(objectMatrix(o));
     if (!inv) continue;
     const lx = inv[0] * x + inv[2] * y + inv[4], ly = inv[1] * x + inv[3] * y + inv[5];
-    if (o.fill.type !== "none" && pointInRings(lx, ly, o.rings)) return o.id;
+    if (o.fill.type !== "none" && !o.open && pointInRings(lx, ly, o.rings)) return o.id;
     const scale = Math.max(Math.abs(o.transform.sx), Math.abs(o.transform.sy)) || 1;
-    if (tolMm > 0 && distanceToRings(lx, ly, o.rings) * scale <= tolMm) return o.id;
+    // (a fine line is thinner than any pointer, but it must not take the clicks meant for the shape under it: it is picked from half as far)
+    const reach = o.open ? tolMm * 0.5 : tolMm;
+    if (reach > 0 && (o.open ? distanceToLines(lx, ly, o.rings) : distanceToRings(lx, ly, o.rings)) * scale <= reach) return o.id;
   }
   return null;
 }
@@ -261,6 +286,14 @@ export function setObjectCentre(obj, x, y) {
 
 /** One object per island of a shape (letters of a word, the parts of a logo), each keeping the parent's look and place. */
 export function breakApart(obj) {
+  if (obj.open) {
+    // an object of open lines: one object per line
+    if (obj.rings.length < 2) return [obj];
+    return worldRings(obj).map((line, i) => {
+      const { rings, cx, cy } = centreRings([line]);
+      return { ...obj, id: newId(), name: `${obj.name} ${i + 1}`, rings, transform: { x: cx, y: cy, sx: 1, sy: 1, rot: 0 } };
+    });
+  }
   const world = worldRings(obj);
   const islands = islandsOf(world).filter((is) => ringArea(is.outer) > 0.05);
   if (islands.length < 2) return [obj];
@@ -280,14 +313,15 @@ export function breakApart(obj) {
 
 /** Remove the holes of a shape (so a shape lying on top of it is sewn over a solid base). */
 export function fillHoles(obj) {
+  if (obj.open) return obj;
   const kept = [];
   for (const is of islandsOf(obj.rings)) kept.push(is.outer);
   return { ...obj, rings: kept };
 }
 
-/** Copy objects (new ids), nudged by (dx, dy) mm. */
+/** Copy objects (new ids), nudged by (dx, dy) mm. A copy is shown and free to move, whatever its original was. */
 export function cloneObjects(objs, dx = 4, dy = 4) {
-  return objs.map((o) => moveObject({ ...o, id: newId(), name: `${o.name} copy` }, dx, dy));
+  return objs.map((o) => moveObject({ ...o, id: newId(), name: `${o.name} copy`, visible: true, locked: false }, dx, dy));
 }
 
 /* ── saving ───────────────────────────────────────────────────────────── */
@@ -328,12 +362,12 @@ export function parseDesign(text) {
   });
 }
 
-/** Rings made only of points with two numbers in them, and at least three of those. */
-function cleanRings(rings) {
+/** Rings made only of points with two numbers in them, and at least three of those (two for an open line). */
+function cleanRings(rings, open = false) {
   if (!Array.isArray(rings)) return [];
   return rings
     .map((r) => (Array.isArray(r) ? r.filter((p) => Array.isArray(p) && isNum(p[0]) && isNum(p[1])).map((p) => [p[0], p[1]]) : []))
-    .filter((r) => r.length >= 3);
+    .filter((r) => r.length >= (open ? 2 : 3));
 }
 
 function makeObjectDefaults(o, i = 0) {
@@ -342,10 +376,14 @@ function makeObjectDefaults(o, i = 0) {
     visible: true, locked: false, kind: "shape", ...o,
     id: typeof o.id === "string" && o.id ? o.id : newId(),
     name: typeof o.name === "string" ? o.name : `Shape ${i + 1}`,
-    rings: cleanRings(o.rings),
+    rings: cleanRings(o.rings, o.open === true),
+    open: o.open === true ? true : undefined,
+    layer: o.layer === "detail" ? "detail" : undefined,
     transform: { x: numOr(t.x, 0), y: numOr(t.y, 0), sx: numOr(t.sx, 1) || 1, sy: numOr(t.sy, 1) || 1, rot: numOr(t.rot, 0) },
     fill: { ...DEFAULT_FILL, ...plain(o.fill) },
     stroke: { ...DEFAULT_STROKE, ...plain(o.stroke) },
+    // A file does not keep the picture, so a shape traced over it has nothing to follow any more.
+    source: o.source === "image" ? "image" : undefined,
   };
 }
 
@@ -356,7 +394,7 @@ export function engineDesign(design) {
     settings: { ...(design.settings || {}), fabric: design.fabric },
     objects: design.objects
       .filter((o) => o.visible)
-      .map((o) => ({ id: o.id, name: o.name, visible: true, rings: o.rings, transform: o.transform, fill: o.fill, stroke: o.stroke })),
+      .map((o) => ({ id: o.id, name: o.name, kind: o.kind, visible: true, rings: o.rings, transform: o.transform, fill: o.fill, stroke: o.stroke, open: o.open, layer: o.layer, source: o.source })), // (kind: the engine sews typed lettering with its own satin limit; open and layer: the fine lines of a picture; source: only shapes made from a picture get the wider thin-line limit)
   };
 }
 
