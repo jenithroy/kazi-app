@@ -14,6 +14,18 @@ function startNear(ring, from) {
   return [...ring.slice(best), ...ring.slice(0, best)];
 }
 
+/** A ring with no two neighbouring points closer than `gap` (the first point stays; a ring that would be left with fewer than three points is returned as it was). */
+function thinRing(ring, gap) {
+  const out = [ring[0]];
+  for (let i = 1; i < ring.length; i++) {
+    const p = ring[i], q = out[out.length - 1];
+    if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= gap) out.push(p);
+  }
+  // the last point must not sit on top of the first (the loop closes by itself)
+  while (out.length > 3 && Math.hypot(out[out.length - 1][0] - out[0][0], out[out.length - 1][1] - out[0][1]) < gap) out.pop();
+  return out.length >= 3 ? out : ring;
+}
+
 export const OUTLINE_DEFAULTS = {
   type: "run", // "run" | "bean" | "satin"
   width: 1.5, // satin width, mm
@@ -33,11 +45,18 @@ export function outlineRuns(rings, s = {}) {
   const o = { ...OUTLINE_DEFAULTS, ...s };
   const runs = [];
   let at = o.start || null;
+  // A running or bean line may sit a little inside the edge (`inset`, mm: half a thread puts the line's outer side on the edge itself).
+  const inset = o.type !== "satin" && Number.isFinite(o.inset) ? Math.min(2, Math.max(0, o.inset)) : 0;
   for (const { outer, holes } of islandsOf(rings)) {
     let shape = [outer, ...holes];
     if (o.type === "satin") {
       if (o.position === "inside") shape = offsetRings(shape, -o.width / 2, { join: "miter" });
       else if (o.position === "outside") shape = offsetRings(shape, o.width / 2, { join: "miter" });
+    } else if (inset > 0) {
+      const moved = offsetRings(shape, -inset, { join: "miter" });
+      // (a piece thinner than the inset keeps its own edge). The offset of a sharp tip leaves a crowd of points a hair apart: a needle hole for each would pile
+      // thread up in one spot, so the line keeps points no closer than 0.35 mm (a line of 0.4 mm thread cannot show a corner finer than that anyway).
+      if (moved.length) shape = moved.map((r) => thinRing(r, 0.35));
     }
     for (const ring0 of shape) {
       if (ring0.length < 3 || ringArea(ring0) < 0.2) continue;

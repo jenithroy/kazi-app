@@ -195,6 +195,20 @@ check("odd shapes give finite numbers", !odds || odds.pattern.stitches.every((s)
   // A blob is not a stroke: it is filled, never fanned out as satin.
   const blob = generate({ objects: [{ id: "blob", rings: [circle(0, 0, 4.5, 48)], fill: { type: "auto", color: "#aa5500" } }] }, {});
   check("a 9 mm blob is filled, not satin", blob.info.every((i) => i.kind !== "satin"));
+
+  // A thin stroke that grows out of a bigger piece of the same colour (the smile that touches a nose) is sewn as a line after the piece, not lost in the fill.
+  const nose = unionShapes([[circle(0, 0, 3, 40)], [rect(2.5, -0.225, 12, 0.45)]]);
+  const reachX = (res) => Math.max(...res.pattern.stitches.filter(([, , c]) => c === CMD.STITCH).map(([x]) => x / 10));
+  const noseWith = (opts) => generate({ objects: [{ id: "nose", rings: nose, fill: { type: "auto", color: "#111111" } }] }, opts);
+  const armed = noseWith({});
+  check("a hairline that grows out of a blob is sewn as a line", armed.info.some((i) => i.kind === "line") && armed.info.some((i) => i.kind === "tatami") && reachX(armed) > 14, `reach ${reachX(armed).toFixed(1)} mm`);
+  check("(the plain fill left the hairline out)", reachX(noseWith({ thinArms: 0 })) < 6);
+
+  // A wide curve fans out: cloth shows between the stitches on its outer edge. "Auto" fills it; satin asked for by hand is still satin.
+  const band = (R, w, deg, n = 90) => { const o = [], inn = []; for (let i = 0; i < n; i++) { const a = (i / (n - 1)) * ((deg * Math.PI) / 180); o.push([(R + w / 2) * Math.cos(a), (R + w / 2) * Math.sin(a)]); inn.push([(R - w / 2) * Math.cos(a), (R - w / 2) * Math.sin(a)]); } return [o.concat(inn.reverse())]; };
+  const fanKinds = (type) => generate({ objects: [{ id: "fan", rings: band(6, 4, 200), fill: { type, color: "#222222" } }] }, {}).info.map((i) => i.kind);
+  check("a wide curve that would fan out is filled by Auto", fanKinds("auto").every((k) => k !== "satin"), fanKinds("auto").join(","));
+  check("... and is satin when satin is asked for by hand", fanKinds("satin").includes("satin"), fanKinds("satin").join(","));
 }
 
 // 5d. Lines thinner than a satin column can be (a hairline, small lettering, the lines of line art) are sewn as ONE line of bean stitch
@@ -215,7 +229,13 @@ check("odd shapes give finite numbers", !odds || odds.pattern.stitches.every((s)
 
   check("a 2 mm wide stroke is still satin", sew([rect(-10, -1, 20, 2)]).info[0].kind === "satin");
   const mixed = unionShapes([stroke([[[0, -8], [0, 8]]], 2), stroke([[[0, -8], [4, -6], [6, -2], [4, 2], [0, 4]]], 0.5)]);
-  check("a letter with a thick stem and a hairline is satin (it would lose its stem as a line)", sew(mixed).info.every((i) => i.kind !== "line"));
+  // Typed lettering is held to a wider satin edge than a shape found in a picture (textSatinGap 2 against autoSatinGap 0.8: see ENGINE_DEFAULTS).
+  const lettering = generate({ objects: [{ id: "x", kind: "text", rings: mixed, fill: { type: "auto", color: "#202020" } }] }, {});
+  check("a typed letter with a thick stem and a hairline is satin (it would lose its stem as a line)", lettering.info.every((i) => i.kind !== "line"), JSON.stringify(lettering.info.map((i) => i.kind)));
+  // The same shape found in a picture: the stem is a piece of its own width (filled, or satin) and the hairline a line after it, never the whole letter a line.
+  const found = sew(mixed);
+  const stemLeft = Math.min(...on(found).filter((q) => Math.abs(q[1]) < 6).map((q) => q[0]));
+  check("in a picture the stem of such a letter keeps its width and its hairline is sewn as a line", found.info.some((i) => i.kind === "tatami" || i.kind === "satin") && found.info.some((i) => i.kind === "line") && stemLeft < -0.8, `${found.info.map((i) => i.kind)}, stem edge ${stemLeft.toFixed(2)}`);
   check("a blob is not a line", lineIsland([circle(0, 0, 3, 48)]) === null);
 
   // The stitches of a curve follow it: short on a tight curve (a small circle stays round), as long as allowed on a straight line.
@@ -278,6 +298,50 @@ check("odd shapes give finite numbers", !odds || odds.pattern.stitches.every((s)
     worst = Math.max(worst, Math.abs(a - b));
   }
   check("cutting both shapes to their shared box first gives the same overlap area (to 0.01 mm²)", worst < 0.01, `worst difference ${worst.toFixed(4)}`);
+}
+
+// 5b. Open lines: the fine lines of a picture (an object with open: true and a bean, run or satin stroke), sewn on top, last.
+{
+  const base = (id, x, color) => ({ id, name: id, rings: [circle(x, 0, 10)], fill: { type: "tatami", color } });
+  const fine = (id, rings, color, stroke = {}) => ({ id, name: id, open: true, layer: "detail", rings, fill: { type: "none", color }, stroke: { type: "bean", color, width: 0.45, len: 2, ...stroke } });
+  const wave = (x0, y0) => Array.from({ length: 12 }, (_, i) => [x0 + i * 1.2, y0 + Math.sin(i * 0.7) * 1.1]);
+  const longest = (p) => { let w = 0; p.stitches.forEach((s, i, arr) => { if (s[2] === CMD.STITCH && i && arr[i - 1][2] === CMD.STITCH) w = Math.max(w, Math.hypot(s[0] - arr[i - 1][0], s[1] - arr[i - 1][1]) / 10); }); return w; };
+  const count = (p, c) => p.stitches.filter((s) => s[2] === c).length;
+  const jumpMm = (p) => { let t = 0, px = 0, py = 0; for (const [x, y, c] of p.stitches) { if (c === CMD.JUMP) t += Math.hypot(x - px, y - py) / 10; px = x; py = y; } return t; };
+
+  // the lines are sewn after the colours that come before them, even when saving a colour change would put them earlier (blue disc, red disc, blue lines)
+  const d1 = { objects: [base("a", -30, "#1f6eb4"), base("b", 30, "#c0392b"), fine("lines", [wave(-34, -4), wave(-34, 0), wave(24, 3)], "#1f6eb4")] };
+  const r1 = generate(d1, {});
+  const th = r1.pattern.threads;
+  check("open lines: sewn last (blue, red, blue), not hoisted to the blue disc", th.length === 3 && th[0].b === 0xb4 && th[1].r === 0xc0 && th[2].b === 0xb4, JSON.stringify(th));
+  const alone = generate({ objects: [d1.objects[2]] }, {});
+  check("open lines: finite whole numbers, no stitch over 4 mm (the lines on their own)", r1.pattern.stitches.every((s) => s.every(Number.isFinite) && Number.isInteger(s[0]) && Number.isInteger(s[1])) && longest(alone.pattern) < 4, String(longest(alone.pattern)));
+  check("open lines: the info says they are fine lines", r1.info.some((i) => i.objectId === "lines" && i.kind === "line" && i.lines === 3), JSON.stringify(r1.info.filter((i) => i.objectId === "lines")));
+
+  // a shape drawn after them (it lies on them) is sewn after them: the design's own order holds
+  const d2 = { objects: [fine("l", [wave(-6, 0)], "#000000"), { id: "cover", rings: [circle(0, 0, 8)], fill: { type: "tatami", color: "#ffffff" } }] };
+  const r2 = generate(d2, {});
+  check("open lines: a shape that lies on them and comes after them is sewn after them", r2.pattern.threads.length === 2 && r2.pattern.threads[0].r === 0 && r2.pattern.threads[1].r === 255, JSON.stringify(r2.pattern.threads));
+
+  // a line of two points is a line; far apart lines are cut between, close ones are only jumped
+  const two = generate({ objects: [fine("two", [[[0, 0], [5, 0]]], "#000000")] }, {});
+  check("open lines: a line of two points is sewn", count(two.pattern, CMD.STITCH) >= 4, String(count(two.pattern, CMD.STITCH)));
+  const far = generate({ objects: [fine("far", [[[0, 0], [6, 0]], [[0, 12], [6, 12]]], "#000000")] }, {});
+  const near = generate({ objects: [fine("near", [[[0, 0], [6, 0]], [[0, 1.5], [6, 1.5]]], "#000000")] }, {});
+  check("open lines: lines 12 mm apart are cut between, 1.5 mm apart only jumped", count(far.pattern, CMD.TRIM) >= 1 && count(near.pattern, CMD.TRIM) === 0, `${count(far.pattern, CMD.TRIM)} / ${count(near.pattern, CMD.TRIM)}`);
+
+  // the order of lines: nearest end first (0, 10, 20), not as listed (0, 20, 10)
+  const scrambled = generate({ objects: [fine("s", [[[0, 0], [4, 0]], [[20, 0], [24, 0]], [[10, 0], [14, 0]]], "#000000")] }, {});
+  check("open lines: sewn in the order that leaves the shortest hops", jumpMm(scrambled.pattern) < 14.5, String(jumpMm(scrambled.pattern)));
+
+  // a thicker line is a narrow satin column, as wide as asked
+  const sat = generate({ objects: [fine("sat", [[[0, 0], [10, 0]]], "#000000", { type: "satin", width: 0.7 })] }, {});
+  const ys = sat.pattern.stitches.filter((s) => s[2] === CMD.STITCH).map((s) => Math.abs(s[1]) / 10);
+  check("open lines: a thicker line is a satin column no wider than asked (0.7 mm and a little pull)", ys.length > 10 && Math.max(...ys) <= 0.55, String(Math.max(...ys)));
+
+  // damaged input does not crash or make NaN; an open object with no stroke is left alone
+  const bad = generate({ objects: [fine("nan", [[[0, 0], [NaN, 3]], [[0, 5], [4, 5]]], "#000000"), { id: "nostroke", open: true, rings: [[[0, 0], [3, 3]]], fill: { type: "none", color: "#000000" } }, fine("empty", [], "#000000"), fine("one", [[[1, 1]]], "#000000")] }, {});
+  check("open lines: damaged ones are left out with a warning, no NaN", bad.pattern.stitches.every((s) => s.every(Number.isFinite)) && bad.warnings.some((w) => w.kind === "far"), JSON.stringify(bad.warnings));
 }
 
 // 6. Same input, same stitches.

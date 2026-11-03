@@ -49,10 +49,25 @@ export function pointInRing(x, y, ring) {
   return inside;
 }
 
+/** The box of a ring [x0, y0, x1, y1], worked out once and kept on the ring itself (rings are never changed in place). */
+function ringBox(ring) {
+  let bb = ring._bb;
+  if (!bb) {
+    bb = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of ring) { if (p[0] < bb[0]) bb[0] = p[0]; if (p[0] > bb[2]) bb[2] = p[0]; if (p[1] < bb[1]) bb[1] = p[1]; if (p[1] > bb[3]) bb[3] = p[1]; }
+    if (Object.isExtensible(ring)) Object.defineProperty(ring, "_bb", { value: bb, enumerable: false }); // (a frozen ring is just measured again next time)
+  }
+  return bb;
+}
+
 /** Inside the shape (even-odd over all rings)? */
 export function pointInRings(x, y, rings) {
   let inside = false;
-  for (const ring of rings) if (pointInRing(x, y, ring)) inside = !inside;
+  for (const ring of rings) {
+    const bb = ringBox(ring);
+    if (x < bb[0] || x > bb[2] || y < bb[1] || y > bb[3]) continue; // outside a ring's box means outside the ring
+    if (pointInRing(x, y, ring)) inside = !inside;
+  }
   return inside;
 }
 
@@ -288,7 +303,10 @@ export function segmentsCross(p1, p2, p3, p4) {
 
 /** Does the straight line a-b stay inside the shape (crosses no ring, and its middle is inside)? */
 export function segmentInside(a, b, rings) {
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
   for (const ring of rings) {
+    const bb = ringBox(ring);
+    if (bb[0] > x1 || bb[2] < x0 || bb[1] > y1 || bb[3] < y0) continue; // a ring whose box the segment does not reach cannot cross it
     for (let i = 0, n = ring.length; i < n; i++) {
       if (segmentsCross(a, b, ring[i], ring[(i + 1) % n])) return false;
     }

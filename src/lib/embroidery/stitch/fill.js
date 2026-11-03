@@ -22,13 +22,84 @@ export const FILL_DEFAULTS = {
   stagger: 4, // how many different shifts the rows cycle through (0 = a steady scatter instead)
   pullComp: 0.2, // total mm added to each row (half at each end): stitches pull the cloth together along their length
   inset: 0, // mm to pull the fill in from the edge before stitching (when a border will cover the edge)
-  grow: 0.1, // mm the top stitches reach past the shape's edge on every side (overlap with a neighbour, thread pull); used by the engine
+  grow: 0, // mm the top stitches reach past the shape's edge on every side; used by the engine (a thread is already 0.4 mm wide, and the traced shapes bleed under each other)
   minRow: 0.3, // row pieces shorter than this are dropped
   minPiece: 0.9, // never leave a first/last stitch shorter than this (the needle hole is dropped instead)
   travelMax: 2.5, // a direct join between row pieces longer than this is not made
   travelRun: 14, // a run along the outline to reach the next piece is made when it is no longer than this (mm), else a jump
   runStep: 2.2, // stitch length of that run
 };
+
+/**
+ * walkRing (geometry/poly.js) for one big ring, made fast: the ring's edges are put in a grid once, so the nearest point of the ring asks only the
+ * cells round a point and not every edge. Gives the same answer as walkRing whenever both ends are within `reach` mm of the ring, and null when
+ * one is further (the caller does not want that way). For a field cut by hundreds of holes the plain walk looked at tens of thousands of edges per join.
+ */
+function ringWalker(ring, reach) {
+  const n = ring.length;
+  const cum = [0];
+  for (let i = 0; i < n; i++) cum.push(cum[i] + Math.hypot(ring[(i + 1) % n][0] - ring[i][0], ring[(i + 1) % n][1] - ring[i][1]));
+  const total = cum[n];
+  let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+  for (const p of ring) { if (p[0] < gx0) gx0 = p[0]; if (p[0] > gx1) gx1 = p[0]; if (p[1] < gy0) gy0 = p[1]; if (p[1] > gy1) gy1 = p[1]; }
+  const cell = reach + 0.1;
+  const nx = Math.floor((gx1 - gx0) / cell) + 1, ny = Math.floor((gy1 - gy0) / cell) + 1;
+  const cellOf = (v, lo, m) => Math.max(0, Math.min(m - 1, Math.floor((v - lo) / cell)));
+  const count = new Int32Array(nx * ny + 1);
+  const span = (i) => { const p = ring[i], q = ring[(i + 1) % n]; return [cellOf(Math.min(p[0], q[0]), gx0, nx), cellOf(Math.max(p[0], q[0]), gx0, nx), cellOf(Math.min(p[1], q[1]), gy0, ny), cellOf(Math.max(p[1], q[1]), gy0, ny)]; };
+  for (let i = 0; i < n; i++) { const [a, b, c, d] = span(i); for (let y = c; y <= d; y++) for (let x = a; x <= b; x++) count[y * nx + x + 1]++; }
+  for (let i = 1; i < count.length; i++) count[i] += count[i - 1];
+  const fillAt = count.slice();
+  const list = new Int32Array(count[nx * ny]);
+  for (let i = 0; i < n; i++) { const [a, b, c, d] = span(i); for (let y = c; y <= d; y++) for (let x = a; x <= b; x++) list[fillAt[y * nx + x]++] = i; }
+  const nearest = (x, y) => {
+    if (x < gx0 - reach || x > gx1 + reach || y < gy0 - reach || y > gy1 + reach) return null;
+    const cx = cellOf(x, gx0, nx), cy = cellOf(y, gy0, ny);
+    let best = null;
+    for (let yy = Math.max(0, cy - 1); yy <= Math.min(ny - 1, cy + 1); yy++) {
+      for (let xx = Math.max(0, cx - 1); xx <= Math.min(nx - 1, cx + 1); xx++) {
+        const at = yy * nx + xx;
+        for (let k = count[at]; k < count[at + 1]; k++) {
+          const i = list[k];
+          const p = ring[i], q = ring[(i + 1) % n];
+          const dx = q[0] - p[0], dy = q[1] - p[1];
+          const l = Math.hypot(dx, dy), l2 = l * l;
+          const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - p[0]) * dx + (y - p[1]) * dy) / l2));
+          const px = p[0] + t * dx, py = p[1] + t * dy;
+          const d = Math.hypot(x - px, y - py);
+          if (!best || d < best.d || (d === best.d && i < best.i)) best = { d, s: cum[i] + t * l, i, x: px, y: py };
+        }
+      }
+    }
+    return best && best.d <= reach ? best : null;
+  };
+  return (a, b) => {
+    const na = nearest(a[0], a[1]);
+    if (!na) return null;
+    const nb = nearest(b[0], b[1]);
+    if (!nb) return null;
+    const fwd = (nb.s - na.s + total) % total;
+    const back = total - fwd;
+    const pts = [[na.x, na.y]];
+    if (fwd <= back) {
+      for (let step = 1; step <= n; step++) {
+        const k = (na.i + step) % n;
+        const pos = k > na.i ? cum[k] : cum[k] + total;
+        if (pos >= na.s + fwd - 1e-9) break;
+        pts.push([ring[k][0], ring[k][1]]);
+      }
+    } else {
+      for (let step = 0; step < n; step++) {
+        const k = (na.i - step + n) % n;
+        const pos = k <= na.i ? cum[k] : cum[k] - total;
+        if (na.s - pos >= back - 1e-9) break;
+        pts.push([ring[k][0], ring[k][1]]);
+      }
+    }
+    pts.push([nb.x, nb.y]);
+    return { points: pts, length: Math.min(fwd, back), da: na.d, db: nb.d };
+  };
+}
 
 /** A steady scatter for rows when no regular shift is wanted: the same input always gives the same shift. */
 function scatter(k) {
@@ -44,7 +115,8 @@ function scatter(k) {
 export function tatamiFill(rings, o = {}) {
   const opt = { ...FILL_DEFAULTS, ...o };
   let work = rings;
-  if (opt.inset > 0) work = offsetRings(rings, -opt.inset, { join: "miter" });
+  if (opt.inset > 0 && !opt.lite) work = offsetRings(rings, -opt.inset, { join: "miter" });
+  if (!work.length) work = rings; // a piece thinner than the inset is sewn as it is, not left out
   if (!work.length) return { paths: [], rows: 0 };
 
   // Rotate so the rows are horizontal.
@@ -110,8 +182,11 @@ export function tatamiFill(rings, o = {}) {
 
   // Row ends were lengthened by the pull compensation, so a direct join is judged against the shape a touch grown;
   // a run along the outline uses the outline pulled a touch in.
-  const joinRings = (ext > 0 ? offsetRings(work, ext + 0.05, { join: "miter" }) : work).map((r) => r.map(fwd));
-  const edgeRings = offsetRings(work, -0.25, { join: "miter" }).map((r) => r.map(fwd));
+  // (both are only worked out when a join needs them: most small shapes never do, and each is a polygon offset)
+  let joinMemo = null, edgeMemo = null;
+  // (`lite`, for a field cut by hundreds of holes, uses the shape itself for both: each offset of such a shape took seconds)
+  const joinRingsOf = () => joinMemo || (joinMemo = (ext > 0 && !opt.lite ? offsetRings(work, ext + 0.05, { join: "miter" }) : work).map((r) => r.map(fwd)));
+  const edgeRingsOf = () => edgeMemo || (edgeMemo = (opt.lite ? work : offsetRings(work, -0.25, { join: "miter" })).map((r) => r.map(fwd)));
 
   const overlaps = (s1, s2) => Math.min(s1.b, s2.b) - Math.max(s1.a, s2.a) > opt.minRow;
   const endsOf = (sg) => [[sg.a, sg.y], [sg.b, sg.y]];
@@ -139,10 +214,24 @@ export function tatamiFill(rings, o = {}) {
   };
 
   /** Points to run along the outline from `from` to `to`, or null when there is no short enough way. */
+  let edgeBoxes = null, edgeWalkers = null;
   const route = (from, to) => {
     let best = null;
-    for (const ring of edgeRings) {
-      const w = walkRing(ring, from, to);
+    const edgeRings = edgeRingsOf();
+    if (!edgeBoxes) edgeBoxes = edgeRings.map((r) => bboxOf([r]));
+    for (let ri = 0; ri < edgeRings.length; ri++) {
+      // a ring whose box is further than 1.2 mm from either end cannot be the way (a shape with hundreds of holes was walked ring by ring)
+      const bx = edgeBoxes[ri];
+      if (!bx || from[0] < bx[0] - 1.2 || from[0] > bx[2] + 1.2 || from[1] < bx[1] - 1.2 || from[1] > bx[3] + 1.2 || to[0] < bx[0] - 1.2 || to[0] > bx[2] + 1.2 || to[1] < bx[1] - 1.2 || to[1] > bx[3] + 1.2) continue;
+      const ring = edgeRings[ri];
+      let w;
+      if (ring.length >= 200) {
+        // a big ring (the outline of a field, a ring of hundreds of points): the fast walk, which also says no at once when an end is far from it
+        if (!edgeWalkers) edgeWalkers = new Array(edgeRings.length).fill(null);
+        const walk = edgeWalkers[ri] || (edgeWalkers[ri] = ringWalker(ring, 1.2));
+        w = walk(from, to);
+        if (!w) continue;
+      } else w = walkRing(ring, from, to);
       if (w.da > 1.2 || w.db > 1.2) continue;
       const cost = w.length + w.da + w.db;
       if (!best || cost < best.cost) best = { cost, w };
@@ -150,7 +239,11 @@ export function tatamiFill(rings, o = {}) {
     if (!best || best.w.length > opt.travelRun) return null;
     // Needle holes `runStep` apart along the way (a run round a tiny curve has hundreds of closely spaced vertices: only the
     // sharp corners are kept as holes of their own).
-    return runAlong(best.w.points, { len: opt.runStep, closed: false, cornerDeg: 35 });
+    // (The walk's first and last point are the points of the ring nearest the two ends, about a quarter of a millimetre away. The holes are made along the whole
+    // way, ends included, and the ends then taken off again: no hole goes within half a millimetre of another, so the quarter millimetre hop onto the ring, which a
+    // thread only piles up in, is not made unless the ring has a real corner there.)
+    const holes = runAlong([from, ...best.w.points, to], { len: opt.runStep, closed: false, cornerDeg: 35 });
+    return holes.slice(1, -1);
   };
 
   // Begin at the end of the first or last row that is nearest the needle, then sweep the other way.
@@ -193,7 +286,7 @@ export function tatamiFill(rings, o = {}) {
     // Join to it: a short stitch, a run along the outline, or a jump (a new path).
     const target = endsOf(next.seg)[next.side];
     const gap = Math.sqrt(d2(cur, target));
-    if (gap <= opt.travelMax && (gap < 0.5 || segmentInside(cur, target, joinRings))) {
+    if (gap <= opt.travelMax && (gap < 0.5 || segmentInside(cur, target, joinRingsOf()))) {
       // direct
     } else {
       const via = route(cur, target);

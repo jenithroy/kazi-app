@@ -12,7 +12,53 @@ export const PLAN_DEFAULTS = {
   lockLen: 0.5, // mm, how far a tie stitch reaches
   minStitch: 0.2, // consecutive points closer than this are merged (tie stitches excepted)
   returnHome: false, // jump back to the hoop centre before the end
+  startLead: 0.4, // mm: a thread starts with a jump to a point this far along the run and a stitch back onto its first point (a jump followed by a stitch of no length is a zero-length record in the file)
+  shortMm: 0.3, // a stitch shorter than this inside a run is merged into its neighbour (0 = never) ...
+  shortTol: 0.05, // ... when the path moves by no more than this (mm); corners, run ends and tie stitches stay
+  shortMax: 7, // mm: ... and the merged stitch is no longer than this
+  travelMax: 25, // mm: a move to the next run that lies under layers sewn later (the engine says so) is stitched when it is no longer than this, not jumped (and not cut)
+  travelStep: 2.5, // mm: the stitch length of such a move
 };
+
+/** The distance of point b from the segment a-c. */
+function distToSegment(b, a, c) {
+  const vx = c[0] - a[0], vy = c[1] - a[1];
+  const l2 = vx * vx + vy * vy;
+  if (l2 === 0) return Math.hypot(b[0] - a[0], b[1] - a[1]);
+  let t = ((b[0] - a[0]) * vx + (b[1] - a[1]) * vy) / l2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(b[0] - (a[0] + t * vx), b[1] - (a[1] + t * vy));
+}
+
+/**
+ * Take the needle holes out of a stretch of sewing that only make a stitch shorter than `minLen` (all in pattern units): a hole is dropped when the stitch before it
+ * or the one after it is that short and the path between its neighbours passes within `tol` of it (the run is straight there), so the sewn line does not move.
+ * Corners, tie stitches and the first and last stitch of a run (`keep`) stay, and so does everything that is not a stitch. `list` is the pattern's [x, y, cmd],
+ * `keep[i]` says whether list[i] must stay. Returns the new list.
+ */
+function dropShortStitches(list, keep, minLen, tol, maxLen) {
+  const result = [];
+  const n = list.length;
+  let i = 0;
+  while (i < n) {
+    if (list[i][2] !== CMD.STITCH) { result.push(list[i]); i++; continue; }
+    let e = i;
+    while (e + 1 < n && list[e + 1][2] === CMD.STITCH) e++;
+    // the stitches i..e are one stretch of sewing
+    result.push(list[i]);
+    let a = list[i];
+    for (let k = i + 1; k < e; k++) {
+      const b = list[k], c = list[k + 1];
+      if (!keep[k] && (Math.hypot(b[0] - a[0], b[1] - a[1]) < minLen || Math.hypot(c[0] - b[0], c[1] - b[1]) < minLen)
+        && Math.hypot(c[0] - a[0], c[1] - a[1]) <= maxLen && distToSegment(b, a, c) <= tol) continue; // this hole is not needed
+      result.push(b);
+      a = b;
+    }
+    if (e > i) result.push(list[e]);
+    i = e + 1;
+  }
+  return result;
+}
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
@@ -26,15 +72,37 @@ export function createPlan(options = {}) {
   let started = false; // is a thread running (a stitch has been sewn since the last cut or colour change)?
   const blocks = []; // { color, from, to } index ranges in `out`
 
-  const push = (p, cmd) => { out.push([p[0], p[1], cmd]); };
+  // (a 4th number of 1 marks a stitch that must stay: a tie stitch, the needle drop that starts a thread, the first and last stitch of a run)
+  const push = (p, cmd, keep = false) => { out.push(keep ? [p[0], p[1], cmd, 1] : [p[0], p[1], cmd]); };
 
-  const stitchTo = (p, lock = false) => {
+  /** The first point of a run that is at least `far` mm from its start (else the furthest): the way the run goes, as the tie stitches see it. */
+  const wayPoint = (p, pts, far) => {
+    if (!pts) return null;
+    let q = null, d = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const di = dist(p, pts[i]);
+      if (di > d) { d = di; q = pts[i]; }
+      if (di >= far) break;
+    }
+    return d < 1e-6 ? null : q;
+  };
+
+  /** Where a jump to the start of a run lands: a little way along the run, so the first stitch (back onto the start) has a length. */
+  const leadPoint = (p, way) => {
+    if (!way) return p;
+    const d = dist(p, way);
+    if (d < 1e-6) return p;
+    const k = Math.min(opt.startLead, d);
+    return [p[0] + ((way[0] - p[0]) / d) * k, p[1] + ((way[1] - p[1]) / d) * k];
+  };
+
+  const stitchTo = (p, lock = false, keep = lock) => {
     if (cur && !lock && dist(cur, p) < opt.minStitch) return;
     if (cur) {
       const d = dist(cur, p);
       if (d > 1e-9) prevDir = [(p[0] - cur[0]) / d, (p[1] - cur[1]) / d];
     }
-    push(p, CMD.STITCH);
+    push(p, CMD.STITCH, keep);
     cur = p;
   };
 
@@ -50,22 +118,25 @@ export function createPlan(options = {}) {
   /** A needle drop at the start of a new thread, then a short back-and-forth along the way the run goes. */
   const tieIn = (p, next) => {
     cur = p;
-    push(p, CMD.STITCH);
+    push(p, CMD.STITCH, true);
     started = true;
     prevDir = null;
     if (!opt.lock || !next) return;
     const d = dist(p, next);
     if (d < 1e-6) return;
     const u = [(next[0] - p[0]) / d, (next[1] - p[1]) / d];
+    if (d < 2 * opt.shortMm) { prevDir = u; return; } // a run shorter than 0.6 mm is no more than its own stitches: tie stitches of a tenth of a millimetre would only pile thread up
     const q = [p[0] + u[0] * Math.min(opt.lockLen, d * 0.5), p[1] + u[1] * Math.min(opt.lockLen, d * 0.5)];
     stitchTo(q, true); stitchTo(p, true);
     prevDir = u;
   };
 
-  const startAt = (p, next) => {
-    push(p, CMD.JUMP);
+  const startAt = (p, next, pts) => {
+    // the tie stitches and the first stitch go along the run towards a point at least 0.6 mm away, so none of them is shorter than 0.3 mm
+    const way = wayPoint(p, pts, 2 * opt.shortMm) || next;
+    push(leadPoint(p, way), CMD.JUMP);
     cur = p;
-    tieIn(p, next);
+    tieIn(p, way);
   };
 
   return {
@@ -88,34 +159,42 @@ export function createPlan(options = {}) {
      * Sew a run of points. `join` lets it carry on from the needle with a plain stitch when the gap is no longer than
      * `connectMax`; otherwise the thread is tied off, cut if the move is long, and a jump leads to the run's start.
      */
-    run(pts, { join = false, connectMax = 3 } = {}) {
+    run(pts, { join = false, connectMax = 3, travel = false } = {}) {
       if (!pts || pts.length < 2) return;
       const p0 = pts[0];
       if (!cur || !started) {
-        startAt(p0, pts[1]);
+        startAt(p0, pts[1], pts);
       } else {
         const gap = dist(cur, p0);
         if (gap < 0.15) {
           // already there
         } else if (join && gap <= connectMax) {
-          stitchTo(p0);
+          stitchTo(p0, false, true);
+        } else if (travel && gap <= opt.travelMax) {
+          // The way to this run lies under what is sewn after it, so the needle goes there stitching: no jump, and no thread cut.
+          const a = cur;
+          const n = Math.max(1, Math.ceil(gap / opt.travelStep));
+          for (let i = 1; i <= n; i++) stitchTo([a[0] + ((p0[0] - a[0]) * i) / n, a[1] + ((p0[1] - a[1]) * i) / n], false, true);
         } else if (gap <= opt.trimOver) {
           // A short move: the thread is not cut, the frame just jumps and the needle comes down.
-          push(p0, CMD.JUMP);
+          push(leadPoint(p0, wayPoint(p0, pts, 2 * opt.shortMm)), CMD.JUMP);
           cur = p0;
-          push(p0, CMD.STITCH);
+          push(p0, CMD.STITCH, true);
           prevDir = null;
         } else {
           tieOff();
           push(cur, CMD.TRIM);
-          startAt(p0, pts[1]);
+          startAt(p0, pts[1], pts);
         }
       }
-      for (let i = 1; i < pts.length; i++) stitchTo(pts[i]);
+      for (let i = 1; i < pts.length; i++) stitchTo(pts[i], false, i === pts.length - 1);
     },
 
     /** Where the needle is now ([x, y]) or null. */
     needle() { return cur; },
+
+    /** Is a thread running (so a move to the next run could be stitched instead of cut)? */
+    threaded() { return !!(cur && started); },
 
     /** Close the design: tie off, optionally jump home, END. Returns the pattern in 0.1 mm units. */
     finish(name = "design") {
@@ -127,14 +206,18 @@ export function createPlan(options = {}) {
       if (blocks.length) blocks[blocks.length - 1].to = out.length;
       for (let i = 0; i < blocks.length - 1; i++) blocks[i].to = blocks[i + 1].from;
       // To integer units from absolute positions; drop a stitch that lands on the same unit as the one before it.
-      const stitches = [];
+      let stitches = [];
+      const keep = [];
       let px = null, py = null, pc = -1;
-      for (const [x, y, c] of out) {
+      for (const [x, y, c, k] of out) {
         const ix = Math.round(x * UNITS_PER_MM), iy = Math.round(y * UNITS_PER_MM);
-        if (c === CMD.STITCH && pc === CMD.STITCH && ix === px && iy === py) continue;
+        if (c === CMD.STITCH && pc === CMD.STITCH && ix === px && iy === py) { if (k) keep[keep.length - 1] = true; continue; }
         stitches.push([ix, iy, c]);
+        keep.push(!!k);
         px = ix; py = iy; pc = c;
       }
+      // Stitches of 0.1 or 0.2 mm (and the ones the rounding makes) are needle holes that only pile thread up: take out the ones a straight run does not need.
+      if (opt.shortMm > 0) stitches = dropShortStitches(stitches, keep, opt.shortMm * UNITS_PER_MM, opt.shortTol * UNITS_PER_MM, opt.shortMax * UNITS_PER_MM);
       return createPattern({ name, threads, stitches });
     },
 

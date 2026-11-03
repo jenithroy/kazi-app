@@ -37,9 +37,10 @@ export function fillUnderlayRuns(island, o = {}) {
   const len = o.len ?? 2.5;
   const runs = [];
   let at = o.start || null;
-  const inner = offsetRings(island, -inset, { join: "miter" });
+  // `lite` (a field cut by hundreds of holes): no edge run and no offsets, only the loose tatami laid across, on the shape itself
+  const inner = o.lite ? island : offsetRings(island, -inset, { join: "miter" });
   if (!inner.length) return [];
-  if (type.includes("edge")) {
+  if (type.includes("edge") && !o.lite) {
     for (const { outer, holes } of islandsOf(inner)) {
       for (const ring of [outer, ...holes]) {
         if (ringArea(ring) < 0.5) continue;
@@ -50,8 +51,8 @@ export function fillUnderlayRuns(island, o = {}) {
     }
   }
   if (type.includes("tatami")) {
-    const res = tatamiFill(offsetRings(island, -(inset + 0.2), { join: "miter" }), {
-      angle: (o.angle ?? 45) + 90, spacing: 1.7, stitchLen: 3.8, pullComp: 0, stagger: 3, minPiece: 1.4, travelMax: 4, travelRun: 8, start: at,
+    const res = tatamiFill(o.lite ? island : offsetRings(island, -(inset + 0.2), { join: "miter" }), {
+      angle: (o.angle ?? 45) + 90, spacing: 1.7, stitchLen: 3.8, pullComp: 0, stagger: 3, minPiece: 1.4, travelMax: 4, travelRun: 8, start: at, lite: !!o.lite,
     });
     for (const p of res.paths) runs.push(p);
   }

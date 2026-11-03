@@ -29,16 +29,74 @@ function makeRay(rings) {
   const edges = [];
   for (const r of rings) for (let i = 0, n = r.length; i < n; i++) { const p = r[i], q = r[(i + 1) % n]; edges.push(p[0], p[1], q[0], q[1]); }
   const E = Float64Array.from(edges);
+  const m = E.length / 4;
+  const hit = (k, px, py, dx, dy, best) => {
+    const ax = E[k], ay = E[k + 1], ex = E[k + 2] - ax, ey = E[k + 3] - ay;
+    const den = dx * ey - dy * ex;
+    if (Math.abs(den) < 1e-12) return best;
+    const t = ((ax - px) * ey - (ay - py) * ex) / den;
+    if (t <= 1e-6 || t >= best) return best;
+    const u = ((ax - px) * dy - (ay - py) * dx) / den;
+    return u >= 0 && u <= 1 ? t : best;
+  };
+  if (m < 64) {
+    return (px, py, dx, dy, maxD) => {
+      let best = maxD;
+      for (let k = 0; k < E.length; k += 4) best = hit(k, px, py, dx, dy, best);
+      return best;
+    };
+  }
+  // A shape of thousands of edges (an engraving's leaf, a lettered badge) was tested edge by edge for every stitch of its column: put the
+  // edges in a grid and let a ray look only at the cells it passes through, nearest first. The answer is the same.
+  let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+  for (let k = 0; k < E.length; k += 4) {
+    gx0 = Math.min(gx0, E[k], E[k + 2]); gx1 = Math.max(gx1, E[k], E[k + 2]);
+    gy0 = Math.min(gy0, E[k + 1], E[k + 3]); gy1 = Math.max(gy1, E[k + 1], E[k + 3]);
+  }
+  const cell = Math.max(0.25, Math.sqrt(Math.max(1e-9, (gx1 - gx0) * (gy1 - gy0)) / m) * 2);
+  const nx = Math.max(1, Math.floor((gx1 - gx0) / cell) + 1), ny = Math.max(1, Math.floor((gy1 - gy0) / cell) + 1);
+  const cellOf = (v, lo, n) => Math.max(0, Math.min(n - 1, Math.floor((v - lo) / cell)));
+  const count = new Int32Array(nx * ny + 1);
+  const span = (k) => [cellOf(Math.min(E[k], E[k + 2]), gx0, nx), cellOf(Math.max(E[k], E[k + 2]), gx0, nx), cellOf(Math.min(E[k + 1], E[k + 3]), gy0, ny), cellOf(Math.max(E[k + 1], E[k + 3]), gy0, ny)];
+  for (let k = 0; k < E.length; k += 4) { const [a, b, c, d] = span(k); for (let y = c; y <= d; y++) for (let x = a; x <= b; x++) count[y * nx + x + 1]++; }
+  for (let i = 1; i < count.length; i++) count[i] += count[i - 1];
+  const fillAt = count.slice();
+  const list = new Int32Array(count[nx * ny]);
+  for (let k = 0; k < E.length; k += 4) { const [a, b, c, d] = span(k); for (let y = c; y <= d; y++) for (let x = a; x <= b; x++) list[fillAt[y * nx + x]++] = k; }
+  const seen = new Int32Array(m);
+  let stamp = 0;
   return (px, py, dx, dy, maxD) => {
     let best = maxD;
-    for (let k = 0; k < E.length; k += 4) {
-      const ax = E[k], ay = E[k + 1], ex = E[k + 2] - ax, ey = E[k + 3] - ay;
-      const den = dx * ey - dy * ex;
-      if (Math.abs(den) < 1e-12) continue;
-      const t = ((ax - px) * ey - (ay - py) * ex) / den;
-      if (t <= 1e-6 || t >= best) continue;
-      const u = ((ax - px) * dy - (ay - py) * dx) / den;
-      if (u >= 0 && u <= 1) best = t;
+    // enter the grid's box (the ray may start outside it)
+    let t0 = 0;
+    if (px < gx0 || px > gx1 || py < gy0 || py > gy1) {
+      let lo = 0, hi = Infinity;
+      for (const [p, d, a, b] of [[px, dx, gx0, gx1], [py, dy, gy0, gy1]]) {
+        if (Math.abs(d) < 1e-12) { if (p < a || p > b) return best; continue; }
+        let s = (a - p) / d, e = (b - p) / d;
+        if (s > e) { const q = s; s = e; e = q; }
+        lo = Math.max(lo, s); hi = Math.min(hi, e);
+      }
+      if (lo > hi || lo >= best) return best;
+      t0 = Math.max(0, lo);
+    }
+    let cx = cellOf(px + t0 * dx, gx0, nx), cy = cellOf(py + t0 * dy, gy0, ny);
+    const sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+    const tdx = Math.abs(dx) < 1e-12 ? Infinity : cell / Math.abs(dx), tdy = Math.abs(dy) < 1e-12 ? Infinity : cell / Math.abs(dy);
+    let tmx = tdx === Infinity ? Infinity : ((dx > 0 ? gx0 + (cx + 1) * cell : gx0 + cx * cell) - px) / dx;
+    let tmy = tdy === Infinity ? Infinity : ((dy > 0 ? gy0 + (cy + 1) * cell : gy0 + cy * cell) - py) / dy;
+    stamp++;
+    for (;;) {
+      const at = cy * nx + cx;
+      for (let i = count[at]; i < count[at + 1]; i++) {
+        const k = list[i];
+        if (seen[k / 4] === stamp) continue;
+        seen[k / 4] = stamp;
+        best = hit(k, px, py, dx, dy, best);
+      }
+      let next;
+      if (tmx < tmy) { next = tmx; cx += sx; tmx += tdx; } else { next = tmy; cy += sy; tmy += tdy; }
+      if (next >= best || cx < 0 || cx >= nx || cy < 0 || cy >= ny || next === Infinity) break;
     }
     return best;
   };
@@ -63,6 +121,7 @@ function incidence(chains) {
 /** The direction pointing away from the node along a chain end (a unit vector), taken `reach` mm along the chain. */
 function outward(c, end, reach) {
   const pts = end === 0 ? c.pts : c.pts.slice().reverse();
+  if (pts.length < 2) return [1, 0]; // a chain of one point has no direction (a hairline lettering at full detail made one and stopped the whole job)
   let acc = 0, k = 1;
   while (k < pts.length - 1 && acc < reach) { acc += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); k++; }
   const dx = pts[k][0] - pts[0][0], dy = pts[k][1] - pts[0][1];
@@ -436,7 +495,7 @@ export function satinIsland(rings, o = {}) {
  */
 export function lineIsland(rings, o = {}) {
   const opt = { meanWidth: 0.7, maxWidth: 1.1, minLength: 1, len: 2, dev: 0.07, throughDeg: SATIN_DEFAULTS.throughDeg, ...o };
-  const sk = strokeCenterlines(rings);
+  const sk = strokeCenterlines(rings, o.res ? { res: o.res } : {});
   if (!sk.chains.length) return null;
   // Where lines cross or letters touch there is a small blob wider than the strokes: judge the island by its usual width (the
   // 90th percentile of the widths along its lines), not by its single widest point.

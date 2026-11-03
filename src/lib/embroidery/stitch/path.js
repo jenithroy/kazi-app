@@ -30,12 +30,14 @@ export function dedupe(pts, tol = 1e-6) {
 }
 
 /**
- * A running stitch along a polyline: needle holes `len` mm apart, and always one at every corner sharper than `cornerDeg`
- * (so a square stays square). Closed lines end where they began.
+ * A running stitch along a polyline: needle holes `len` mm apart, and one at every corner sharper than `cornerDeg`
+ * (so a square stays square), except that no hole is made closer than `minGap` mm to the one before it (the many tiny corners of a traced curve
+ * would otherwise be a stitch a tenth of a millimetre long each, and a thread piles up in a hole like that). Closed lines end where they began.
  */
-export function runAlong(line, { len = 2.5, closed = false, cornerDeg = 25 } = {}) {
+export function runAlong(line, { len = 2.5, closed = false, cornerDeg = 25, minGap = 0.5 } = {}) {
   const pts = dedupe(closed ? [...line, line[0]] : line);
   if (pts.length < 2) return pts;
+  const gap = Math.min(minGap, len * 0.6);
   const out = [pts[0]];
   const keep = Math.cos((cornerDeg * Math.PI) / 180);
   let carry = 0; // distance already used up since the last needle hole
@@ -54,12 +56,19 @@ export function runAlong(line, { len = 2.5, closed = false, cornerDeg = 25 } = {
       const ux = (b[0] - a[0]) / d, uy = (b[1] - a[1]) / d;
       const dd = Math.hypot(c[0] - b[0], c[1] - b[1]) || 1;
       const vx = (c[0] - b[0]) / dd, vy = (c[1] - b[1]) / dd;
-      if (ux * vx + uy * vy < keep) { out.push(b); carry = 0; }
+      if (ux * vx + uy * vy < keep) {
+        const t = out[out.length - 1];
+        if (Math.hypot(b[0] - t[0], b[1] - t[1]) >= gap) { out.push(b); carry = 0; }
+      }
     }
   }
   const last = pts[pts.length - 1];
   const tail = out[out.length - 1];
-  if (Math.hypot(last[0] - tail[0], last[1] - tail[1]) > 1e-6) out.push(last);
+  const rest = Math.hypot(last[0] - tail[0], last[1] - tail[1]);
+  if (rest > 1e-6) {
+    if (out.length > 1 && rest < gap) out[out.length - 1] = last; // the last hole is moved to the end instead of a stitch of a hair after it
+    else out.push(last);
+  }
   return out;
 }
 
