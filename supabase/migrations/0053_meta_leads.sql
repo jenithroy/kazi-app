@@ -32,7 +32,7 @@ create table if not exists meta_leads (
   city             text,
   raw_data         jsonb not null default '{}'::jsonb,
   status           text not null default 'new' check (status in ('new', 'contacted', 'qualified', 'converted', 'archived')),
-  customer_id      text references customers(id) on delete set null,
+  customer_id      uuid references customers(id) on delete set null, -- uuid like customers.id (text here could not be applied: incompatible foreign key)
   notes            text,
   lead_created_at  timestamptz not null default now(),
   created_at       timestamptz not null default now(),
@@ -75,6 +75,10 @@ alter view fs_meta_leads set (security_invoker = on);
 
 -- Row level security
 alter table meta_leads enable row level security;
+
+-- Same restrictive issuer check as every other meta_* table (0050): a lead is a prospect's name, phone and email.
+create policy "require_known_issuer" on meta_leads
+  as restrictive for all to authenticated using (app_issuer_ok());
 
 create policy "meta_leads_read" on meta_leads
   as permissive for select to authenticated
