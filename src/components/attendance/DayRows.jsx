@@ -1,4 +1,5 @@
 import { dayShort, fmtClock, fmtMinutes, noteText, stateOf, workedMinutes } from "../../lib/attendance";
+import { rulesOn } from "../../lib/workRules";
 import { tsDate } from "../../utils/date";
 import { cn } from "../ui";
 import StatusTag from "./StatusTag";
@@ -26,7 +27,7 @@ export function DayRow({ day, today, onPick, active }) {
         {state === "closed"
           ? <StatusTag state="closed">{off?.kind === "holiday" ? "Holiday" : "Day off"}</StatusTag>
           : future ? <span className="at-dim">—</span> : <StatusTag state={state} />}
-        {record?.status === "Late" && record.lateCutApplied === true && <span className="kb-tag kb-tag--bad">25% cut</span>}
+        {record?.status === "Late" && record.lateCutApplied === true && rulesOn(iso) === "old" && <span className="kb-tag kb-tag--bad">25% cut</span>}
       </span>
       <span className="at-day-in">{inT}</span>
       <span className="at-day-t kb-w-360">{inT ? `${inT} – ${outT || "…"}` : ""}</span>

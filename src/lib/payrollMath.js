@@ -1,18 +1,30 @@
 /**
- * Payroll maths, free of React and the database. One person's pay for one month is built the way the monthly salary sheet builds it:
+ * Payroll maths, free of React and the database. One person's pay for one month is built the way the accountant's salary-slip
+ * sheets build it (checked against them line by line, see the checks at the end of this comment):
  *
+ *   day's pay   basic / 30, for every month whatever its length
+ *   hour's pay  a day's pay over THAT PERSON'S OWN shift hours (25,000 over a 7.5 hour shift is 111.11 an hour, over 8 hours 104.17)
  *   gross       basic + allowances (a bonus of any kind goes here) + approved overtime + receivable due
  *   taken off   the attendance deduction (and any manual adjustment to it), advance, PF or other, and TDS
- *   TDS         one rule for everyone: a percentage (1% unless a person's is set otherwise, 0 for an exemption) of what they earn after
- *               the attendance deduction, so of gross less that deduction. An advance repaid is not income, so it does not lower it.
+ *   TDS         a percentage (1% unless a person's is set otherwise, 0 for an exemption) of the basic salary and any bonus: the
+ *               "Income Tax (1%)" on every slip is that, whatever else is added or taken off. Not of overtime, receivable due, or what
+ *               the attendance took off.
  *   net         gross less everything taken off, never below nothing
  *
  * "Receivable due" is money the company owes the employee (the sheet adds it to the pay); an employee paying money back is the
  * Advance, which is taken off.
  *
- * The attendance deduction follows the rules of the month (lib/workRules.js): before them the old quarter-day cuts, after them
- * one day of salary for every ABSENCES_PER_DAY_CUT unapproved absences. Amounts are kept to the paisa; screens and the slip round
- * to the rupee when they show them.
+ * The attendance deduction follows the rules of the month (lib/workRules.js). Before them: a quarter of a day's pay for each late
+ * day flagged with the old cut ("Late Time" on the slips: every such line in the October slips is a whole number of quarter days).
+ * From them: one day of salary for every ABSENCES_PER_DAY_CUT unapproved absences. In both: each LEAVE DAY typed costs a day's pay
+ * ("Leave Day" on the slips). Leave days are typed, not read from the attendance: the attendance rows of October could not
+ * reproduce the slips' leave lines (they are too thin), and the accountant's own register is where they come from.
+ * Counts can be typed over what the attendance gave (`manual.cuts`, `manual.absences`), as the slips' lines are typed.
+ *
+ * Amounts are kept to the paisa; screens and the slip round to the rupee when they show them.
+ *
+ * Checked against the October slips: 20,000 basic, "Leave Day 4,000" = 6 days; 10,000 basic, "Leave Day 2,331" = 7 days at 333;
+ * 25,000 basic, "Late Time 1,872" = 9 quarter-day cuts (2.25 days); "Income Tax (1%)" = 1% of basic on all fourteen.
  */
 import { ABSENCES_PER_DAY_CUT, OT_RATE, PAY_DIVISOR, STANDARD_DAY_HOURS } from "./workRules";
 
@@ -24,11 +36,15 @@ export const round2 = (n) => {
   return (Math.sign(x) * Math.round((Math.abs(x) + 1e-9) * 100)) / 100;
 };
 
+/** A typed count (text from a box) when there is one, else the fallback. A blank box means "use what the attendance says". */
+const typedOr = (typed, fallback) => (typed === "" || typed == null || !Number.isFinite(Number(typed)) ? num(fallback) : Math.max(0, Number(typed)));
+
 export const dayRate = (basic) => num(basic) / PAY_DIVISOR;
-export const hourRate = (basic) => dayRate(basic) / STANDARD_DAY_HOURS;
+/** An hour's pay: a day's pay over the person's own shift hours (8 when none is known), as the sheets price an hour. */
+export const hourRate = (basic, shiftHours = STANDARD_DAY_HOURS) => dayRate(basic) / (num(shiftHours) > 0 ? num(shiftHours) : STANDARD_DAY_HOURS);
 
 /** What a month's attendance gave for one person when nothing has been read yet. */
-export const NO_FACTS = Object.freeze({ records: 0, lateDays: 0, cuts: 0, absences: 0, missedClockOuts: 0, overtimeMinutes: 0 });
+export const NO_FACTS = Object.freeze({ records: 0, lateDays: 0, cuts: 0, absences: 0, missedClockOuts: 0, leaveRecorded: 0, overtimeMinutes: 0, overtimeShifts: 0 });
 
 /**
  * The old rule: how many days were late and how many of those flagged a quarter-day cut, from one person's attendance rows for the
@@ -40,20 +56,25 @@ export function lateCounts(rows) {
 }
 
 /**
- * What the month's attendance takes off the basic, under the rules of that month. `facts` carries `cuts` (old rules) and
- * `absences` (new rules). Resolves to { amount, days }: the deduction, and the days of salary it stands for.
+ * What the month takes off the basic for attendance, under the rules of that month ("old", "new", or "mixed": the month that holds
+ * the switch day, whose `cuts` are those of the days before it and whose `absences` are those of the days from it, lib/workRules.js).
+ * `counts` is { cuts, absences, leaveDays }; the old rule reads cuts, the new one absences, a mixed month both, and leave days always.
+ * Resolves to { amount, days, parts }: the deduction, the days of salary it stands for, and what each part came to (`cuts`, `absences`,
+ * `late` the two together, `leave`).
  */
-export function attendanceDeduction(rules, facts, basic) {
-  if (rules === "new") {
-    const days = Math.floor(num(facts?.absences) / ABSENCES_PER_DAY_CUT);
-    return { amount: round2(days * dayRate(basic)), days };
-  }
-  const cuts = num(facts?.cuts);
-  return { amount: Math.round(dayRate(basic) * 0.25 * cuts), days: cuts / 4 };
+export function attendanceDeduction(rules, counts, basic) {
+  const day = dayRate(basic);
+  const leaveDays = num(counts?.leaveDays);
+  const leave = round2(leaveDays * day);
+  const cutCount = rules === "new" ? 0 : num(counts?.cuts);
+  const absentDays = rules === "old" ? 0 : Math.floor(num(counts?.absences) / ABSENCES_PER_DAY_CUT);
+  const cuts = Math.round(day * 0.25 * cutCount);          // whole rupees, as the old rule always was
+  const absences = round2(absentDays * day);
+  return { amount: round2(cuts + absences + leave), days: cutCount / 4 + absentDays + leaveDays, parts: { cuts, absences, late: round2(cuts + absences), leave } };
 }
 
-/** Approved overtime pays the hour's pay (basic over 30 days over 8 hours) times OT_RATE. */
-export const overtimePay = (minutes, basic) => round2((num(minutes) / 60) * hourRate(basic) * OT_RATE);
+/** Approved overtime pays the hour's pay times OT_RATE. `shifts` is the overtime in lengths of the person's own shift (minutes over their shift's minutes, day by day). */
+export const overtimePay = (shifts, basic) => round2(num(shifts) * dayRate(basic) * OT_RATE);
 
 /**
  * A bonus for one person, of any kind: `value` per cent of their basic (basis "percent", the default) or the same `value` in rupees
@@ -78,7 +99,7 @@ export function computePayroll(f) {
   const pf = num(f.pfDeductionNPR);
 
   const gross = round2(basic + bonus + overtime + receivable);
-  const taxable = Math.max(0, round2(gross - late));
+  const taxable = round2(basic + bonus);              // the slips' "Income Tax (1%)": the basic salary and any bonus, whatever is added or taken off
   const rate = f.tdsRatePct === null || f.tdsRatePct === undefined || f.tdsRatePct === "" ? null : num(f.tdsRatePct);
   const tds = rate === null ? 0 : round2((taxable * rate) / 100);
   const totalDeductions = round2(late + advance + pf + tds);
@@ -94,12 +115,15 @@ export function computePayroll(f) {
 
 /**
  * One person's line of a month: what the attendance gives, plus what somebody typed (`manual`: bonus, receivable, advance, other,
- * adjustment, tdsRate). The card and the monthly run both build their numbers here, so they cannot disagree.
+ * adjustment, tdsRate, and the counts the slips have typed lines for: leaveDays, and cuts or absences to use instead of the
+ * attendance's). The card and the monthly run both build their numbers here, so they cannot disagree.
+ * `counts` in the answer is what was used, so it can be kept with the record.
  */
 export function payLine({ basic, rules, facts, manual = {} }) {
   const f = facts || NO_FACTS;
-  const att = attendanceDeduction(rules, f, basic);
-  const overtimeNPR = overtimePay(f.overtimeMinutes, basic);
+  const counts = { cuts: typedOr(manual.cuts, f.cuts), absences: typedOr(manual.absences, f.absences), leaveDays: typedOr(manual.leaveDays, 0) };
+  const att = attendanceDeduction(rules, counts, basic);
+  const overtimeNPR = overtimePay(f.overtimeShifts, basic);
   const calc = computePayroll({
     basicNPR: basic,
     bonusNPR: manual.bonus,
@@ -111,7 +135,7 @@ export function payLine({ basic, rules, facts, manual = {} }) {
     pfDeductionNPR: manual.other,
     tdsRatePct: manual.tdsRate,
   });
-  return { ...calc, att, rules, overtimeMinutes: num(f.overtimeMinutes) };
+  return { ...calc, att, counts, rules, overtimeMinutes: num(f.overtimeMinutes) };
 }
 
 /** The sums a monthly run shows at its foot. */

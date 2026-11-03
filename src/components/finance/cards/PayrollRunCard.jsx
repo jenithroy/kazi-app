@@ -26,7 +26,7 @@ import { runTotals } from "../../../lib/payrollMath";
 import { bonusFor, runPeople, runRows, runSkipped, seedManual, slipFor } from "../../../lib/payrollRun";
 import { savePayrollRun } from "../../../lib/payrollWrites";
 import { openPrintWindow, slipDocument } from "../../../lib/salarySlip";
-import { ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, DASHAIN_PCT, rulesOfMonth } from "../../../lib/workRules";
+import { ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, DASHAIN_PCT, NEW_RULES_LABEL, rulesOfMonth } from "../../../lib/workRules";
 import "../payroll-run.css";
 
 const MONTH_OPTIONS = MONTHS.map((m) => ({ value: m, label: m }));
@@ -36,11 +36,11 @@ const BASIS_OPTIONS = [{ value: "percent", label: "% of basic" }, { value: "amou
 const eachRow = (manual, fn) => Object.fromEntries(Object.entries(manual).map(([id, v]) => [id, fn(v, id)]));
 const label = (name) => name.trim().slice(0, BONUS_REASON_MAX);
 
-/** One typed cell: a small number field that says whose and what it is. */
-function Cell({ value, onChange, label, disabled, unit }) {
+/** One typed cell: a small number field that says whose and what it is. `placeholder` is what a blank box means (the attendance's own count). */
+function Cell({ value, onChange, label, disabled, unit, placeholder = "0", count = false }) {
   return (
     <span className="pyr-cell">
-      <input type="number" inputMode="decimal" min="0" step="any" className={unit ? "pyr-in pyr-in--rate" : "pyr-in"} value={value} placeholder="0" disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.value)} />
+      <input type="number" inputMode="decimal" min="0" step="any" className={unit ? "pyr-in pyr-in--rate" : count ? "pyr-in pyr-in--count" : "pyr-in"} value={value} placeholder={placeholder} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.value)} />
       {unit ? <em>{unit}</em> : null}
     </span>
   );
@@ -51,14 +51,18 @@ function Cell({ value, onChange, label, disabled, unit }) {
  * `rows` are lib/payrollRun.js runRows; `onCell(personId, key, value)` is a typed cell changing.
  */
 export function RunTable({ rows, totals, rules, money, canEdit, onCell }) {
+  const showCuts = rules !== "new";            // the old rule's column: a quarter day for each flagged late day (old months, and the days before the switch)
+  const showAbs = rules !== "old";             // the new rule's column: unapproved absences (new months, and the days from the switch)
   return (
     <div className="pyr-scroll">
-      <table className="pyr-table" aria-label="Pay for each person this month">
+      <table className={`pyr-table${rules === "mixed" ? " pyr-table--mixed" : ""}`} aria-label="Pay for each person this month">
         <thead>
           <tr>
             <th scope="col">Staff</th>
             <th scope="col" className="pyr-n">Basic</th>
-            <th scope="col" className="pyr-n">{rules === "new" ? "Absences" : "Late cuts"}</th>
+            {showCuts && <th scope="col" className="pyr-n">Late cuts</th>}
+            {showAbs && <th scope="col" className="pyr-n">Absences</th>}
+            <th scope="col" className="pyr-n">Leave days</th>
             <th scope="col" className="pyr-n">Overtime</th>
             <th scope="col" className="pyr-n">Bonus</th>
             <th scope="col" className="pyr-n">Receivable due</th>
@@ -78,10 +82,26 @@ export function RunTable({ rows, totals, rules, money, canEdit, onCell }) {
                   <span>{e.role || ""}{rec ? " · saved" : ""}</span>
                 </th>
                 <td className="pyr-n">{money(line.basic)}</td>
-                <td className="pyr-n" title={rules === "new" ? `${ABSENCES_PER_DAY_CUT} unapproved absences cost a day of salary` : "A quarter of a day's pay for each late day flagged with the old cut"}>
-                  <span>{rules === "new" ? `${f.absences} absent` : `${f.cuts} cut${f.cuts === 1 ? "" : "s"}`}</span>
-                  <small className={line.late > 0 ? "pyr-bad" : undefined}>{line.late > 0 ? `− ${money(line.late)}` : "—"}</small>
-                  {rules === "new" && f.missedClockOuts > 0 ? <small className="pyr-warn">{f.missedClockOuts} no clock-out</small> : null}
+                {showCuts && (
+                  <td className="pyr-n" title={`A quarter of a day's pay for each late day flagged with the old cut${rules === "mixed" ? " (the days before the change)" : ""}. The grey number is what the attendance says; type another to use that instead.`}>
+                    <Cell count value={manual.cuts ?? ""} placeholder={String(f.cuts)} label={`Late cuts for ${e.name}`} disabled={!canEdit} onChange={(v) => onCell(e.id, "cuts", v)} />
+                    <small className={line.att.parts.cuts > 0 ? "pyr-bad" : undefined}>{line.att.parts.cuts > 0 ? `− ${money(line.att.parts.cuts)}` : "—"}</small>
+                    {line.adjustment ? <small className="pyr-warn">{line.adjustment > 0 ? "+" : "−"} {money(Math.abs(line.adjustment))} adjusted</small> : null}
+                  </td>
+                )}
+                {showAbs && (
+                  <td className="pyr-n" title={`${ABSENCES_PER_DAY_CUT} unapproved absences cost a day of salary${rules === "mixed" ? " (the days from the change)" : ""}. The grey number is what the attendance says; type another to use that instead.`}>
+                    <Cell count value={manual.absences ?? ""} placeholder={String(f.absences)} label={`Unapproved absences for ${e.name}`} disabled={!canEdit} onChange={(v) => onCell(e.id, "absences", v)} />
+                    <small className={line.att.parts.absences > 0 ? "pyr-bad" : undefined}>{line.att.parts.absences > 0 ? `− ${money(line.att.parts.absences)}` : "—"}</small>
+                    {!showCuts && line.adjustment ? <small className="pyr-warn">{line.adjustment > 0 ? "+" : "−"} {money(Math.abs(line.adjustment))} adjusted</small> : null}
+                    {f.missedClockOuts > 0 ? <small className="pyr-warn">{f.missedClockOuts} no clock-out</small> : null}
+                  </td>
+                )}
+                <td className="pyr-n" title="Days away, typed as on the slip: each costs a day's pay (basic ÷ 30). Half a day is 0.5.">
+                  <Cell count value={manual.leaveDays ?? ""} label={`Leave days for ${e.name}`} disabled={!canEdit} onChange={(v) => onCell(e.id, "leaveDays", v)} />
+                  <small className={line.att.parts.leave > 0 ? "pyr-bad" : undefined}>
+                    {line.att.parts.leave > 0 ? `− ${money(line.att.parts.leave)}` : f.leaveRecorded > 0 ? `${f.leaveRecorded} marked on Attendance` : "—"}
+                  </small>
                 </td>
                 <td className="pyr-n">
                   <span>{f.overtimeMinutes > 0 ? fmtMinutes(f.overtimeMinutes) : "—"}</span>
@@ -105,7 +125,9 @@ export function RunTable({ rows, totals, rules, money, canEdit, onCell }) {
           <tr>
             <th scope="row">{totals.people} {totals.people === 1 ? "person" : "people"}</th>
             <td className="pyr-n">{money(totals.basic)}</td>
-            <td className="pyr-n">{totals.attendance > 0 ? `− ${money(totals.attendance)}` : "—"}</td>
+            <td className="pyr-n" title="Late cuts, absences and leave days, together">{totals.attendance > 0 ? `− ${money(totals.attendance)}` : "—"}</td>
+            {showCuts && showAbs && <td className="pyr-n" />}
+            <td className="pyr-n" />
             <td className="pyr-n">{totals.overtime > 0 ? money(totals.overtime) : "—"}</td>
             <td className="pyr-n">{totals.bonus > 0 ? money(totals.bonus) : "—"}</td>
             <td className="pyr-n">{totals.receivable > 0 ? money(totals.receivable) : "—"}</td>
@@ -184,7 +206,7 @@ export default function PayrollRunCard({ employees, payroll, canEdit, profile, r
     [ready, people, payroll, facts.byPerson, manual, month, year],
   );
   const totals = useMemo(() => runTotals(rows.map((r) => r.line)), [rows]);
-  const missedClockOuts = rules === "new" ? rows.reduce((s, r) => s + r.f.missedClockOuts, 0) : 0;
+  const missedClockOuts = rules !== "old" ? rows.reduce((s, r) => s + r.f.missedClockOuts, 0) : 0;
 
   // a bonus typed into a line is for the same thing as the panel says, unless that line already says what its own is for
   const setCell = (id, key, value) => setManual((m) => ({
@@ -280,9 +302,11 @@ export default function PayrollRunCard({ employees, payroll, canEdit, profile, r
 
       <p className="pyr-rule">
         {rules === "new"
-          ? `From December 2026: ${ABSENCES_PER_DAY_CUT} unapproved absences cost a day of salary (basic ÷ 30). No cut for lateness.`
-          : "Before December 2026: a quarter of a day's pay for each late day flagged with the old cut."}
-        {" "}TDS is taken on what they earn after that deduction.
+          ? `From ${NEW_RULES_LABEL}: ${ABSENCES_PER_DAY_CUT} unapproved absences cost a day of salary (basic ÷ 30). No cut for lateness.`
+          : rules === "mixed"
+            ? `This month holds the change on ${NEW_RULES_LABEL}. Late days before it cost a quarter of a day's pay each (the old cut); from it, ${ABSENCES_PER_DAY_CUT} unapproved absences cost a day of salary (basic ÷ 30) and lateness costs nothing. Each day is judged by the rule of its own day.`
+            : `Before ${NEW_RULES_LABEL}: a quarter of a day's pay for each late day flagged with the old cut.`}
+        {" "}Leave days are typed, as on the slip: each costs a day's pay (basic ÷ 30). If your own record of late days or absences differs from the attendance's, type your count over it. TDS is taken on the basic salary and any bonus.
       </p>
 
       {facts.status === "error" && <p className="pyr-note pyr-note--bad" role="alert"><Chip tone="bad">Problem</Chip> {facts.error} Nothing below can be trusted until it loads.</p>}

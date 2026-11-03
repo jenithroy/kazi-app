@@ -4,9 +4,10 @@
  * off (the attendance deduction, advance, PF or other, and TDS), the net.
  *
  * The maths is lib/payrollMath.js's, the same as the monthly run's, so a record made in either is one a card can open and save
- * unchanged. What the attendance gives depends on the month (lib/workRules.js): before December 2026 a quarter day for each late
- * day flagged with the old cut; from then, one day of salary for every 7 unapproved absences. Approved overtime (only time inside
- * an approval made before the person clocked in) is paid from the same attendance.
+ * unchanged. What the attendance gives depends on the day (lib/workRules.js): before the switch day a quarter day for each late
+ * day flagged with the old cut; from it, one day of salary for every 7 unapproved absences; a month that holds the switch day has
+ * both, each for its own days. Approved overtime (only time inside an approval made before the person clocked in) is paid from the
+ * same attendance.
  *
  * A record only stored its final deduction, so opening one worked the figure out afresh from the attendance and the next save would
  * have quietly replaced what had been entered. Here the difference between the stored deduction and the attendance's is shown as the
@@ -23,7 +24,7 @@ import { MONTHS } from "../../../lib/finance";
 import { fmtMinutes } from "../../../lib/attendance";
 import { bonusAmount, payLine } from "../../../lib/payrollMath";
 import { emptyPayroll, removePayroll, savePayroll } from "../../../lib/payrollWrites";
-import { rulesOfMonth, ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, DASHAIN_PCT } from "../../../lib/workRules";
+import { rulesOfMonth, ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, DASHAIN_PCT, NEW_RULES_LABEL } from "../../../lib/workRules";
 import { enterAdvance, focusFirst, thenAdvance } from "../flow";
 import "../payroll-run.css";
 
@@ -37,6 +38,7 @@ function fromRecord(r) {
     basicNPR: r.basicNPR || "", bonusNPR: r.bonusNPR || "", bonusReason: r.bonusReason || "", pfDeductionNPR: r.pfDeductionNPR || "",
     receivableDueNPR: blank(r.receivableDueNPR), advanceNPR: blank(r.advanceNPR),
     tdsRatePct: r.tdsRatePct == null ? "" : String(Number(r.tdsRatePct)),       // a record from before TDS was kept has no rate
+    leaveDays: blank(r.leaveDays),
     lateAdjustmentNPR: 0, note: r.note || "",
   };
 }
@@ -52,13 +54,14 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
   const personId = form.personId || employees.find((e) => e.name === form.staffName)?.id || "";
   const att = usePayrollFacts({ personId, month: form.month, year: form.year });
   const rules = rulesOfMonth(Number(form.year) || 0, MONTHS.indexOf(form.month));
+  const deductionName = rules === "new" ? "Absence deduction" : rules === "mixed" ? "Late and absence deduction" : "Late deduction";
   const facts = att.facts;
 
   useEffect(() => { focusFirst(root.current?.closest("form")); }, []);
 
   const manual = {
     bonus: form.bonusNPR, receivable: form.receivableDueNPR, advance: form.advanceNPR, other: form.pfDeductionNPR,
-    adjustment: form.lateAdjustmentNPR, tdsRate: form.tdsRatePct,
+    leaveDays: form.leaveDays, adjustment: form.lateAdjustmentNPR, tdsRate: form.tdsRatePct,
   };
   const line = payLine({ basic: form.basicNPR, rules, facts, manual });
 
@@ -135,20 +138,28 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
       <Field label="PF or other deduction" htmlFor={`${uid}-pf`} className="fn-s2">
         <NumberInput id={`${uid}-pf`} unit="NPR" value={form.pfDeductionNPR} placeholder="0" disabled={off} onChange={(e) => num(e, "pfDeductionNPR")} />
       </Field>
-      <Field label="TDS rate" htmlFor={`${uid}-tds`} className="fn-s2" hint={form.tdsRatePct === "" ? "No TDS on this record." : "Of the pay after the attendance deduction. 0 is an exemption."}>
+      <Field label="TDS rate" htmlFor={`${uid}-tds`} className="fn-s2" hint={form.tdsRatePct === "" ? "No TDS on this record." : "Of the basic salary and any bonus, as on the slips. 0 is an exemption."}>
         <NumberInput id={`${uid}-tds`} unit="%" value={form.tdsRatePct} placeholder="none" max="100" disabled={off} onChange={(e) => num(e, "tdsRatePct")} />
+      </Field>
+      <Field label="Leave days" htmlFor={`${uid}-leave`} className="fn-s2" hint="Typed, as on the slip: each costs a day's pay (basic ÷ 30). Half a day is 0.5.">
+        <NumberInput id={`${uid}-leave`} value={form.leaveDays} placeholder="0" max="31" step="any" disabled={off} onChange={(e) => num(e, "leaveDays")} />
       </Field>
       <Field label="Note" htmlFor={`${uid}-note`} className="fn-s2">
         <input id={`${uid}-note`} type="text" value={form.note} placeholder="Optional" disabled={off} onChange={(e) => set({ note: e.target.value })} />
       </Field>
 
-      <div className="ec-f ec-wide fn-late" role="group" aria-label={rules === "new" ? "Absence deduction" : "Late deduction"}>
-        <span className="ec-lbl">{rules === "new" ? "Absence deduction" : "Late deduction"} <small>worked out from the attendance</small></span>
+      <div className="ec-f ec-wide fn-late" role="group" aria-label={deductionName}>
+        <span className="ec-lbl">{deductionName} <small>worked out from the attendance</small></span>
         <div className="fn-late-grid">
-          {rules === "new" ? (
+          {rules === "mixed" ? (
+            <>
+              <div><span>Quarter-day cuts (before {NEW_RULES_LABEL})</span><b className={facts.cuts > 0 ? "is-bad" : undefined}>{att.loading ? "…" : facts.cuts}</b></div>
+              <div><span>Unapproved absences (from then)</span><b className={facts.absences >= ABSENCES_PER_DAY_CUT ? "is-bad" : undefined}>{att.loading ? "…" : facts.absences}</b></div>
+            </>
+          ) : rules === "new" ? (
             <>
               <div><span>Unapproved absences</span><b>{att.loading ? "…" : facts.absences}</b></div>
-              <div><span>Days cut ({ABSENCES_PER_DAY_CUT} absences = 1 day)</span><b className={line.att.days > 0 ? "is-bad" : undefined}>{att.loading ? "…" : line.att.days}</b></div>
+              <div><span>Days cut ({ABSENCES_PER_DAY_CUT} absences = 1 day)</span><b className={facts.absences >= ABSENCES_PER_DAY_CUT ? "is-bad" : undefined}>{att.loading ? "…" : Math.floor(facts.absences / ABSENCES_PER_DAY_CUT)}</b></div>
             </>
           ) : (
             <>
@@ -156,7 +167,7 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
               <div><span>Quarter-day cuts</span><b className={facts.cuts > 0 ? "is-bad" : undefined}>{att.loading ? "…" : facts.cuts}</b></div>
             </>
           )}
-          <div><span>From attendance</span><b className={line.att.amount > 0 ? "is-bad" : undefined}>{att.loading ? "…" : `− ${money(line.att.amount)}`}</b></div>
+          <div><span>From attendance{line.att.parts.leave > 0 ? " and leave" : ""}</span><b className={line.att.amount > 0 ? "is-bad" : undefined}>{att.loading ? "…" : `− ${money(line.att.amount)}`}</b></div>
           <label className="fn-late-adj">
             <span>Adjustment (+ more, − less)</span>
             <NumberInput aria-label="Adjustment to the deduction" value={form.lateAdjustmentNPR} placeholder="0" disabled={off || waiting} onChange={(e) => num(e, "lateAdjustmentNPR")} step="any" min={undefined} />
@@ -180,7 +191,7 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
     </div>
   );
 
-  const missed = rules === "new" ? facts.missedClockOuts : 0;
+  const missed = rules !== "old" ? facts.missedClockOuts : 0;
   const side = (
     <div className="fn-flow">
       <div className="ec-block ec-wide">
@@ -193,7 +204,8 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
         ["Overtime", money(line.overtime)],
         ["Receivable due", money(line.receivable)],
         ["Gross pay", money(line.gross)],
-        [rules === "new" ? "Absence deduction" : `Late deduction${facts.cuts ? ` (${facts.cuts} × ¼ day)` : ""}`, waiting ? "…" : `− ${money(line.late)}`, line.late > 0 ? "bad" : undefined],
+        [rules === "new" ? "Absence deduction" : rules === "mixed" ? "Late and absence deduction" : `Late deduction${facts.cuts ? ` (${facts.cuts} × ¼ day)` : ""}`, waiting ? "…" : `− ${money(Math.max(0, line.late - line.att.parts.leave))}`, line.late - line.att.parts.leave > 0 ? "bad" : undefined],
+        ...(line.att.parts.leave > 0 ? [[`Leave days (${line.counts.leaveDays})`, `− ${money(line.att.parts.leave)}`, "bad"]] : []),
         ["Advance repaid", `− ${money(line.advance)}`, line.advance > 0 ? "bad" : undefined],
         ["PF or other", `− ${money(line.pf)}`, line.pf > 0 ? "bad" : undefined],
         [line.tdsRatePct == null ? "TDS" : `TDS (${line.tdsRatePct}%)`, line.tdsRatePct == null ? "none" : `− ${money(line.tds)}`, line.tds > 0 ? "bad" : undefined],

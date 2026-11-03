@@ -4,7 +4,8 @@
  *
  * A person is a row when they are not inactive and have a basic salary on their profile. A record made earlier for the same month is
  * the row's starting point, so running a month again does not lose what was typed the first time; the deduction is always worked out
- * afresh from the attendance, and the difference from what was stored is kept as the row's adjustment, as the payroll card does.
+ * afresh from the attendance (or the counts typed over it, which a saved record keeps), and the difference from what was stored is kept
+ * as the row's adjustment, as the payroll card does.
  *
  * TDS: a row's rate starts at the rate that person was last taxed at (so an exemption is typed once, not every month), else 1%.
  * A blank rate on a run row means 0, never "the old default", so the slip prints exactly what the row says.
@@ -35,13 +36,28 @@ export function lastRate(payroll, e) {
   return had.length ? String(Number(had[0].tdsRatePct)) : String(DEFAULT_TDS_PCT);
 }
 
-/** What each person's typed fields start with, by person id: { bonus, bonusReason (what it was for), receivable, advance, other, tdsRate, adjustment }. */
+/**
+ * What each person's typed fields start with, by person id: { bonus, bonusReason (what it was for), receivable, advance, other, tdsRate,
+ * cuts, absences, leaveDays, adjustment }. `cuts` and `absences` are blank (use what the attendance says) unless a saved record used a
+ * different count, which stays typed; `leaveDays` is what the record kept (leave days are typed, never read from the attendance).
+ */
 export function seedManual({ people, payroll, byPerson, month, year }) {
   const rules = rulesOfMonth(Number(year), MONTHS.indexOf(month));
   const out = {};
   for (const e of people) {
     const rec = recordOf(payroll, e, month, year);
-    const auto = attendanceDeduction(rules, byPerson.get(e.id) || NO_FACTS, e.basicSalaryNPR).amount;
+    const f = byPerson.get(e.id) || NO_FACTS;
+    const kept = (stored, fromAttendance) => (rec && stored != null && Number(stored) !== Number(fromAttendance) ? String(Number(stored)) : "");
+    const typed = {
+      cuts: rules !== "new" ? kept(rec?.lateCutsCount, f.cuts) : "",              // the old rule's count: old months and the days before the switch
+      absences: rules !== "old" ? kept(rec?.unapprovedAbsences, f.absences) : "",   // the new rule's count: new months and the days from the switch
+      leaveDays: text(rec?.leaveDays),
+    };
+    const auto = attendanceDeduction(rules, {
+      cuts: typed.cuts === "" ? f.cuts : Number(typed.cuts),
+      absences: typed.absences === "" ? f.absences : Number(typed.absences),
+      leaveDays: Number(typed.leaveDays) || 0,
+    }, e.basicSalaryNPR).amount;
     out[e.id] = {
       bonus: text(rec?.bonusNPR),
       bonusReason: rec?.bonusReason || "",
@@ -49,6 +65,7 @@ export function seedManual({ people, payroll, byPerson, month, year }) {
       advance: text(rec?.advanceNPR),
       other: text(rec?.pfDeductionNPR),
       tdsRate: rec && rec.tdsRatePct != null ? String(Number(rec.tdsRatePct)) : lastRate(payroll, e),
+      ...typed,
       adjustment: rec ? text(round2(Number(rec.lateDeductionNPR || 0) - auto)) : "",
     };
   }

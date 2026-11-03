@@ -43,7 +43,7 @@ export default function StatsTile({ kind, summary, label, loading, showCuts = tr
             <b>{r.n}</b>
           </li>
         ))}
-        {/* the 25% cut ended on 2026-11-30: a month the new rules cover has none to count (unless an old record turns one up) */}
+        {/* the 25% cut ended the day before the switch day (lib/workRules.js): a month the new rules cover has none to count, and a month that holds the switch has only the days before it */}
         {(showCuts || cuts > 0) && (
           <li>
             <span className="kb-dot" style={{ background: "transparent", boxShadow: `inset 0 0 0 2px ${BAD}` }} />

@@ -103,7 +103,7 @@ export function WeekGlance({ form, name }) {
 /** What the attendance rules do for this form, in a sentence or two (shown under the week). */
 export function RuleNote({ form, name }) {
   const own = Boolean(hhmm(form.scheduleStart) && hhmm(form.scheduleEnd));
-  // from 1 December 2026 the memo's rules apply (a 10-minute grace, lateness recorded in minutes, no pay cut)
+  // from the switch day (NEW_RULES_FROM) the memo's rules apply (a 10-minute grace, lateness recorded in minutes, no pay cut)
   const memo = rulesOn(localIso(new Date())) === "new";
   const since = new Date(`${NEW_RULES_FROM}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   if (own) {

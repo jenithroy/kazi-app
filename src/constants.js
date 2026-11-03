@@ -121,7 +121,7 @@ export function parseLocalDate(dateStr) {
 
 /**
  * How a clock-in is judged against the person's own hours: { status, lateMinutes, lateCutApplied }. The rules themselves (the old
- * 15-minute quarter-day cut before 2026-12-01, the memo's 10-minute grace with no cut from then on) are in lib/workRules.js.
+ * 15-minute quarter-day cut before the switch day, the memo's 10-minute grace with no cut from then on; NEW_RULES_FROM) are in lib/workRules.js.
  */
 export function calculateAttendanceStatus(employeeName, clockInDate) {
   return judgeArrival(getEmployeeScheduleForDate(employeeName, clockInDate), clockInDate);

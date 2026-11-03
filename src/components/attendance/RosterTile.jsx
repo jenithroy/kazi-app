@@ -20,8 +20,8 @@ const CHIPS = [
 ];
 
 /**
- * The five status buttons of a row in edit mode, then the 25% cut (for a late day the old rule judged: from 1 December 2026 there is
- * no cut) and the note.
+ * The five status buttons of a row in edit mode, then the 25% cut (for a late day the old rule judged: from the switch day in
+ * lib/workRules.js there is no cut) and the note.
  * Pressing a status saves at once (and offers Undo). While that row is saving the buttons are
  * `aria-disabled` rather than `disabled`, so the one that was pressed keeps the keyboard focus (a
  * disabled button drops it). A note needs a day somebody has recorded, so it waits for a status.

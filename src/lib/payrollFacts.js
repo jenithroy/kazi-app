@@ -2,10 +2,12 @@
  * What a month's attendance says about each person, for payroll: how many days were late and how many of those flagged the old
  * quarter-day cut, how many absences were counted, how many clock-ins have no clock-out, and the overtime minutes that counted.
  *
- * Absences are counted by `personMonth`, the Attendance page's own sum, so the number payroll uses is the number the page shows for
- * that person and month (a clock-in with no clock-out counts as absent there, and so here: `missedClockOuts` says how many of the
- * absences are that, so they can be fixed on the Attendance page first). The old rule's late days and cuts are read from the rows as
- * stored. Overtime is the database's: only time inside an approval made before the person clocked in (lib/overtime.js).
+ * Absences are read from `personMonth`'s own days, so the number payroll uses is the number the Attendance page shows for that person
+ * (a clock-in with no clock-out counts as absent there, and so here: `missedClockOuts` says how many of the absences are that, so
+ * they can be fixed on the Attendance page first). THE DAY decides which rule a count belongs to (lib/workRules.js): the old rule's
+ * cuts are the flagged late days BEFORE the switch (a flag a stale client wrote later is ignored), and the new rule's absences are
+ * those FROM it (an earlier absence never counts toward the 7), so a month that holds the switch day (November 2026) has both and no
+ * penalty is retroactive. Overtime is the database's: only time inside an approval made before the person clocked in (lib/overtime.js).
  *
  * `overtimeReady` is false when the overtime part of the database (migration 0064) is not there yet; overtime then reads as nothing.
  */
@@ -14,6 +16,7 @@ import { MONTHS } from "./finance";
 import { isoFromDate, isoOf, monthOf, personMonth } from "./attendance";
 import { fetchOvertimeDays, overtimeNotSetUp } from "./overtime";
 import { lateCounts } from "./payrollMath";
+import { STANDARD_DAY_HOURS, rulesOn } from "./workRules";
 
 const group = (rows, key) => {
   const by = new Map();
@@ -29,14 +32,17 @@ const group = (rows, key) => {
 /** One person's facts for the month `mo` ({ y, m, days, start, end }) from their own rows. */
 export function factsOf({ records, clocks, overtime, mo, today }) {
   const pm = personMonth({ records, clocks, month: mo, today });
-  const late = lateCounts(records);
+  const fromSwitch = (d) => rulesOn(d.iso) === "new";
   return {
     records: records.length,
-    lateDays: late.lateDays,
-    cuts: late.cuts,
-    absences: pm.absent,
-    missedClockOuts: pm.days.filter((d) => d.record?.missedClockOut).length,
+    lateDays: lateCounts(records).lateDays,
+    cuts: lateCounts(records.filter((r) => rulesOn(String(r.date)) === "old")).cuts,
+    absences: pm.days.filter((d) => fromSwitch(d) && d.record?.status === "Absent").length,
+    missedClockOuts: pm.days.filter((d) => fromSwitch(d) && d.record?.missedClockOut).length,
+    leaveRecorded: pm.leave,                                   // days somebody marked Leave: shown to whoever types the leave days, never deducted by itself
     overtimeMinutes: overtime.reduce((sum, o) => sum + o.minutes, 0),
+    // overtime in lengths of the person's own shift (minutes over that day's shift minutes), which is how the sheets price an hour
+    overtimeShifts: overtime.reduce((sum, o) => sum + o.minutes / (o.shiftMinutes > 0 ? o.shiftMinutes : STANDARD_DAY_HOURS * 60), 0),
   };
 }
 

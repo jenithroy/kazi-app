@@ -12,7 +12,13 @@
 .pyr-link:hover { text-decoration-thickness: 2px; }
 
 /* ── Run payroll: a wide card, a month bar, and a table that scrolls sideways on a narrow screen ───────────────────────── */
-.kmodal--card.pyr-run { --kmodal-w: 1240px; }
+.kmodal--card.pyr-run { --kmodal-w: 1320px; }              /* wide enough for the table of a month that holds the switch day (both attendance columns) */
+/* a portalled dialog inherits a fixed dark text colour, which is unreadable on dark glass: take the app's ink (light in dark, dark in light) */
+.kmodal--card.pyr-run .kmodal-body { color: var(--ink); }
+/* the amounts that matter (what comes off, what to check) in the same four colours as the other cards, in both themes */
+.kmodal--card.pyr-run { --ec-bad: #a8442c; --ec-warn: #7d5512; }
+:root[data-theme="dark"] .kmodal--card.pyr-run { --ec-bad: #f4ae98; --ec-warn: #e6bd70; }
+:root[data-theme="dark"] .kmodal--card.pyr-run .pyr-link { color: #7dd3a8; }
 
 /* the dialog body has no padding of its own (a card brings its own), so the run's content carries it */
 .pyr-body { padding: 4px 24px 14px; }
@@ -36,7 +42,8 @@
 .pyr-note { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 13px; line-height: 1.45; }
 
 .pyr-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--kb-line, rgba(127, 127, 127, .25)); }
-.pyr-table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pyr-table--mixed { min-width: 1260px; }                  /* a month that holds the switch day has both the late-cut and the absence columns */
+.pyr-table { width: 100%; min-width: 1170px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 .pyr-table th, .pyr-table td { display: table-cell; padding: 7px 10px; border-bottom: 1px solid var(--kb-line, rgba(127, 127, 127, .18)); vertical-align: middle; text-align: left; }      /* display: a global rule makes th a flex box, which would not stretch to the row */
 .pyr-table thead th { font-size: 11px; font-weight: 600; letter-spacing: .02em; white-space: nowrap; color: var(--ink-3, #6b7280); }
 .pyr-table .pyr-n { text-align: right; white-space: nowrap; }
@@ -51,6 +58,7 @@
 .pyr-cell { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .pyr-cell em { display: inline; font-style: normal; font-size: 12px; color: var(--ink-3, #6b7280); }
 .pyr-cell .pyr-in--rate { width: 60px; }
+.pyr-cell .pyr-in--count { width: 68px; }                /* a count of days or cuts, not money */
 .pyr-in {
   width: 92px; height: 32px; padding: 0 8px; box-sizing: border-box; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: inherit;
   border-radius: 8px; border: 1px solid var(--kb-line, rgba(127, 127, 127, .35)); background: transparent;

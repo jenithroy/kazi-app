@@ -12,6 +12,7 @@
 import { getEmployeeScheduleForDate, parseLocalDate } from "../constants";
 import { tsDate } from "../utils/date";
 import { holidayOn } from "./holidayDays";
+import { rulesOn } from "./workRules";
 
 export { holidayOn, holidaySpan, holidayDays } from "./holidayDays";
 
@@ -184,7 +185,7 @@ export function buildRoster({ staff, records, clocks, date, today = date, now = 
         record: stored,                              // what is stored, for saving over it
         missedClockOut: Boolean(rec?.missedClockOut),
         lateMinutes: Number(rec?.lateMinutes) || 0,
-        lateCut: rec?.lateCutApplied === true,
+        lateCut: rec?.lateCutApplied === true && rulesOn(date) === "old",   // the day decides: a flag a stale client wrote on a day from the switch on is not a cut
         inAt, outAt, worked, sofar,
         shift: shiftFor(s.name, date),
         distanceM: clk?.distanceToSiteM ?? null,
@@ -229,7 +230,7 @@ export function personMonth({ records, clocks, month, today, holidays = [], regi
     const record = effectiveRecord(recBy.get(iso), clock, iso, today);
     const off = dayOff(iso, holidays, region);
     if (off?.kind === "saturday" && !record && !clock) continue;
-    if (record) tally(out, record.status, record.lateCutApplied);
+    if (record) tally(out, record.status, record.lateCutApplied && rulesOn(iso) === "old");   // a cut exists only on a day the old rule judged
     out.minutes += workedMinutes(clock) ?? 0;
     out.days.push({ iso, record, clock, off });
   }

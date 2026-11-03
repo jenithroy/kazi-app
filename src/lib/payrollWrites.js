@@ -15,11 +15,11 @@ export const emptyPayroll = (now = new Date()) => ({
   month: now.toLocaleString("en-US", { month: "long" }),
   year: now.getFullYear(),
   basicNPR: "", bonusNPR: "", bonusReason: "", pfDeductionNPR: "", receivableDueNPR: "", advanceNPR: "", tdsRatePct: String(DEFAULT_TDS_PCT),
-  lateAdjustmentNPR: 0, note: "",
+  leaveDays: "", lateAdjustmentNPR: 0, note: "",
 });
 
-/** The columns migration 0064 adds. */
-const NEW_LINES = ["receivableDueNPR", "advanceNPR", "tdsNPR", "tdsRatePct", "unapprovedAbsences", "overtimeMinutes", "bonusReason"];
+/** The columns migrations 0064 and 0066 add. */
+const NEW_LINES = ["receivableDueNPR", "advanceNPR", "tdsNPR", "tdsRatePct", "unapprovedAbsences", "overtimeMinutes", "bonusReason", "leaveDays"];
 
 /** Whether a new line holds anything: a rate when there is one, a label when there is text, else any amount but nothing. */
 const filledLine = (k, v) => (k === "tdsRatePct" ? v != null : k === "bonusReason" ? Boolean(v) : Number(v) !== 0);
@@ -37,7 +37,8 @@ export function payrollData({ form, line, facts, personId, profile }) {
     month: form.month, year: Number(form.year),
     basicNPR: line.basic,
     lateDays: Number(facts?.lateDays || 0),
-    lateCutsCount: Number(facts?.cuts || 0),
+    lateCutsCount: line.rules === "new" ? 0 : line.counts.cuts,                  // the counts USED (the accountant may have typed others over the attendance's)
+    leaveDays: line.counts.leaveDays,
     lateDeductionNPR: line.late,
     pfDeductionNPR: line.pf,
     bonusNPR: line.bonus,
@@ -47,7 +48,7 @@ export function payrollData({ form, line, facts, personId, profile }) {
     advanceNPR: line.advance,
     tdsNPR: line.tds,
     tdsRatePct: line.tdsRatePct,
-    unapprovedAbsences: line.rules === "new" ? Number(facts?.absences || 0) : 0,
+    unapprovedAbsences: line.rules === "old" ? 0 : line.counts.absences,
     overtimeMinutes: Number(line.overtimeMinutes || 0),
     grossNPR: line.gross,
     totalDeductionsNPR: line.totalDeductions,
@@ -66,7 +67,7 @@ async function write(id, data) {
     if (!columnMissing(err)) throw err;
     // The database has not had migration 0064 yet.
     if (NEW_LINES.some((k) => filledLine(k, data[k]))) {
-      throw new Error("Not saved. Payroll now keeps overtime, receivable due, advance, TDS and what a bonus was for, which needs migration 0064 on the database.");
+      throw new Error("Not saved. Payroll now keeps overtime, receivable due, advance, TDS, leave days and what a bonus was for, which needs migrations 0064 and 0066 on the database.");
     }
     const old = Object.fromEntries(Object.entries(data).filter(([k]) => !NEW_LINES.includes(k)));
     return id ? updateChecked("finance_payroll", id, old) : insertRow("finance_payroll", old);
