@@ -1,6 +1,6 @@
 /**
  * The strip above the canvas: the tools, the three steps (picture, design, stitches) and the zoom. Tool keys are the usual
- * ones (V select, H hand, R rectangle, O ellipse, T text) and are handled by the page.
+ * ones (V select, H hand, R rectangle, O ellipse, T text, P trace by hand) and are handled by the page.
  */
 import { Icons } from "../ui";
 import { Segmented } from "./Controls";
@@ -15,6 +15,7 @@ export const TOOL_ICONS = {
   rect: I(<rect x="4" y="6" width="16" height="12" rx="1.5" />),
   ellipse: I(<ellipse cx="12" cy="12" rx="8" ry="6" />),
   text: I(<><path d="M5 6V4.5h14V6" /><path d="M12 4.5V19" /><path d="M9 19h6" /></>),
+  trace: I(<><path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><path d="M2 2l7.586 7.586" /><circle cx="11" cy="11" r="2" /></>),
 };
 
 const TOOLS = [
@@ -23,6 +24,7 @@ const TOOLS = [
   { id: "rect", label: "Rectangle", key: "R" },
   { id: "ellipse", label: "Ellipse", key: "O" },
   { id: "text", label: "Text", key: "T" },
+  { id: "trace", label: "Trace by hand", key: "P" },
 ];
 
 export default function Toolbar({ api, onZoom, onFit, zoomPct }) {

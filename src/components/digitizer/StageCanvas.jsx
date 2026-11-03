@@ -24,6 +24,8 @@ export default function StageCanvas({ api, stageRef }) {
     showJumps: api.prefs.showJumps,
     showProblems: api.prefs.showProblems,
     showShapes: false,
+    trace: api.trace,
+    traceCurve: !!api.prefs.traceCurve,
     fabricColor: api.design.fabricColor,
     theme: document.documentElement.dataset.theme || "light",
     hooks: api.stageHooks,
@@ -40,7 +42,7 @@ export default function StageCanvas({ api, stageRef }) {
 
   return (
     <>
-      <canvas ref={canvas} className="dz-canvas" tabIndex={0} aria-label="Design canvas. Drag shapes to move them; scroll to zoom; hold Space and drag to pan." />
+      <canvas ref={canvas} className="dz-canvas" tabIndex={0} aria-label="Design canvas. Drag shapes to move them; scroll to zoom; hold Space and drag to pan; right-click a shape or the picture for more." />
       <div ref={cursor} className="dz-cursor" aria-hidden="true" />
     </>
   );

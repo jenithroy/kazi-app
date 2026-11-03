@@ -8,25 +8,52 @@ import { createHistory } from "../../lib/digitizer/history";
 import { createEngine } from "../../lib/digitizer/engineClient";
 import {
   newDesign, makeObject, boxOfObjects, objectBox, objectCorners, moveObject, setObjectSize, setObjectCentre, withTransform, scaleObjectAbout, flipObject,
-  breakApart, fillHoles, cloneObjects, engineDesign, serializeDesign, parseDesign, DEFAULT_FILL, DEFAULT_CLOTH, newId, centreRings,
+  breakApart, fillHoles, cloneObjects, engineDesign, serializeDesign, parseDesign, DEFAULT_FILL, DEFAULT_CLOTH, newId, centreRings, followsPicture,
 } from "../../lib/digitizer/model";
+import { traceRing, tracePolyline, crossesItself, nextTraceName, sampleRingColour } from "../../lib/digitizer/trace";
 import { loadPicture, extractImage, downloadBlob, fileSafe } from "../../lib/digitizer/image";
-import { objectsFromTrace, mergeTraceObjects, CONVERT_DEFAULTS, traceOptions, clothFromTrace, contentBox, fillScale } from "../../lib/digitizer/convert";
+import { mergeTraceObjects, CONVERT_DEFAULTS, traceOptions, clothFromTrace, contentBox, fillScale } from "../../lib/digitizer/convert";
 import { drawText, textRings, DEFAULT_TEXT } from "../../lib/digitizer/text";
 import { summarize } from "../../lib/digitizer/stats";
 import { buildFile, buildPreview, productionSheetHtml, printSheet, loadFormats, centreStitches } from "../../lib/digitizer/exporter";
 import { flatten } from "../../lib/digitizer/flat";
 import { checkStitches, checkMessages } from "../../lib/embroidery/stitch/checks";
 import { FABRICS } from "../../lib/embroidery/stitch/presets";
-import { threadName } from "../../lib/embroidery/thread/chart";
+import { threadName, nearestThread, hexToRgb } from "../../lib/embroidery/thread/chart";
 
 const AUTOSAVE_KEY = "kazi.digitizer.autosave";
 const SETTINGS_KEY = "kazi.digitizer.settings";
+/** How many of the pictures opened in one visit are kept for undo (a big picture is tens of megabytes). */
+const KEEP_PICTURES = 4;
+/** How long the cloth colour must rest before the picture's colours are looked at again for it (a drag through the colour chart passes many). */
+const FABRIC_REST_MS = 120;
 
 export { CONVERT_DEFAULTS };
 
+/** The shapes that follow the picture (made from it, or traced over it), moved and scaled as the picture goes from `old` to `next`. One rule wherever the picture is placed. */
+const placeShapes = (objects, old, next) => {
+  const s = next.mmPerPx / old.mmPerPx;
+  if (s === 1 && next.x === old.x && next.y === old.y) return objects;
+  return objects.map((o) => (followsPicture(o) ? moveObject(scaleObjectAbout(o, s, s, old.x, old.y), next.x - old.x, next.y - old.y) : o));
+};
+
+/** Where the traced copy of the picture lies in the hoop now: its top-left corner and the millimetres one of its pixels covers. The picture may have been moved, resized or cropped since it was converted. */
+const placementOf = (ref, lt) => ({ x: ref.x + (lt.crop.x - ref.crop.x) * ref.mmPerPx, y: ref.y + (lt.crop.y - ref.crop.y) * ref.mmPerPx, mmPerPx: ref.mmPerPx / lt.scale });
+
 /** Is this still the picture placement a conversion began with (size, place, crop)? */
 const sameReference = (a, b) => !!a && !!b && a.mmPerPx === b.mmPerPx && a.x === b.x && a.y === b.y && a.crop.x === b.crop.x && a.crop.y === b.crop.y && a.crop.w === b.crop.w && a.crop.h === b.crop.h;
+
+/**
+ * What the picture's shapes in a design were made for: the tracer's answer (`token`), the colour list they match (`palette`), the colours
+ * switched off and on (`skip`, `include`) and the cloth (`fabric`). It goes with the design through every change (a Symbol key is copied by
+ * `{ ...design }`, and is neither saved nor sent to the stitch engine), so undo and redo can put the colour list back as it was, and can see
+ * that the cloth was changed after the shapes were made.
+ */
+const MADE_FOR = Symbol.for("kazi.digitizer.shapesMadeFor");
+const madeFor = (d) => (d ? d[MADE_FOR] : undefined);
+const stampMadeFor = (d, made) => { const next = { ...d }; next[MADE_FOR] = made; return next; };
+/** The colour list's flags and the colours switched, as one string to compare. */
+const colourKey = (palette, skip, include) => `${palette.map((p) => (p.skipped ? "S" : "-") + (p.sameAsCloth ? "C" : "-")).join("")}|${[...skip].sort((a, b) => a - b)}|${[...include].sort((a, b) => a - b)}`;
 
 const read = (key, fallback) => {
   try { const v = JSON.parse(localStorage.getItem(key) || "null"); return v ?? fallback; } catch { return fallback; }
@@ -41,14 +68,23 @@ export function useDigitizer() {
   const dragging = hist.current.dragging;
 
   const [selection, setSelectionState] = useState([]);
-  const [tool, setTool] = useState("select");
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const [tool, setTool] = useState("select"); // select | hand | rect | ellipse | text | trace
   const [mode, setMode] = useState("design"); // picture | design | stitches
   const [crop, setCrop] = useState(false);
   const [view, setView] = useState({ k: 4, ox: 0, oy: 0 });
   const [prefs, setPrefsState] = useState(() => ({ showGrid: true, showJumps: false, ...read(SETTINGS_KEY, {}) }));
   const [notice, setNotice] = useState(null);
+  const [menu, setMenu] = useState(null); // { x, y, kind: "picture" | "object", ids? } while the right-click menu is open (x, y: window pixels)
+  const [trace, setTrace] = useState(null); // { pts: [[x, y, smooth], ...] } while a shape is being traced by hand
+  const traceRef = useRef(null);
+  const setTraceNow = useCallback((next) => { traceRef.current = next; setTrace(next); }, []);
 
-  const refImage = useRef(null); // { canvas, name }
+  const refImage = useRef(null); // { canvas, name }: the picture on the table
+  // Every picture opened in this visit, by the id the design's reference carries (`reference.pic`), so that undo and redo bring
+  // back the picture that went with a step and not only the place it sat.
+  const pictures = useRef(new Map());
   const [hasImage, setHasImage] = useState(false);
   const [settings, setSettings] = useState(CONVERT_DEFAULTS);
   const [palette, setPalette] = useState([]);
@@ -56,26 +92,50 @@ export function useDigitizer() {
   const [include, setInclude] = useState(() => new Set()); // colours that match the cloth but the person wants stitched
   const [dropped, setDropped] = useState(0); // mm2 of the picture too fine to sew, left out by the last conversion
   const [converting, setConverting] = useState(false);
+  const convertingRef = useRef(false);
+  const busy = useCallback((on) => { convertingRef.current = on; setConverting(on); }, []);
   const [convertError, setConvertError] = useState(null);
+  // What is known of the last conversion: { token, scale, crop, recipe }. The tracer's answer itself stays in the engine's worker
+  // under `token` (it is tens of thousands of points); `recipe` is how to make it again if the worker has lost it.
   const lastTrace = useRef(null);
   const [traceInfo, setTraceInfo] = useState(null); // what the last conversion found out about the picture: { kind, widenedMm2 }
-  const convertToken = useRef(0);
-  const paletteRef = useRef([]); // what `palette` holds now, for code that must compare it with the next one
+  const convertToken = useRef(0); // changes with every conversion, and when the picture is gone or another: work begun before is dropped
+  const tokens = useRef(new Set()); // the tokens of the tracer's answers the worker may be keeping for this visit's pictures
+  const clothPick = useRef(null); // the design the newest cloth pick made: shapes made for that pick belong in the same undo step
+  const shapesBusy = useRef(0); // requests for shapes (a colour switched, the cloth changed) that the worker is still making
+  const paletteRef = useRef([]); // the palette the shapes now in the design were made for, for code that must compare it with the next one
   const showPalette = useCallback((pal) => { paletteRef.current = pal; setPalette(pal); }, []);
+  const chosenRef = useRef({ skip: new Set(), include: new Set() }); // `skip` and `include` as the design has them now
+  const wantRef = useRef({ skip: new Set(), include: new Set() }); // the same as the person has just changed them: the shapes follow a moment later
+  const chooseColours = useCallback((skipSet, includeSet) => {
+    chosenRef.current = wantRef.current = { skip: skipSet, include: includeSet };
+    setSkip(skipSet);
+    setInclude(includeSet);
+  }, []);
+  const shapesSeq = useRef(0); // the newest request for shapes: the answer to an older one is dropped
+  const fabricTimer = useRef(0);
+  const syncShapesRef = useRef(null);
+  /** Make the shapes agree with the cloth once it has rested on a colour for a moment (a drag through the colour chart passes many). */
+  const syncSoon = useCallback(() => {
+    clearTimeout(fabricTimer.current);
+    fabricTimer.current = setTimeout(() => syncShapesRef.current(), FABRIC_REST_MS);
+  }, []);
   const convertTimer = useRef(0);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   // Drop whatever picture work is still on its way (a new, opened or restored design must not get an old picture's shapes).
   const cancelConversion = useCallback(() => {
     clearTimeout(convertTimer.current);
+    clearTimeout(fabricTimer.current);
     convertToken.current++;
     lastTrace.current = null;
     setTraceInfo(null);
     showPalette([]);
-    setSkip(new Set());
-    setInclude(new Set());
-    setConverting(false);
+    chooseColours(new Set(), new Set());
+    busy(false);
     setConvertError(null);
-  }, [showPalette]);
-  useEffect(() => () => clearTimeout(convertTimer.current), []);
+  }, [showPalette, chooseColours, busy]);
+  useEffect(() => () => { clearTimeout(convertTimer.current); clearTimeout(fabricTimer.current); }, []);
 
   const [stitches, setStitches] = useState(null); // { flat, threads, warnings, ms, for: design, imported? }
   const importedRef = useRef(false); // the stitches came from a machine file the person opened, not from the design's shapes
@@ -88,6 +148,12 @@ export function useDigitizer() {
   const engine = useRef(null);
   if (!engine.current) engine.current = createEngine();
   useEffect(() => () => engine.current?.dispose(), []);
+  /** Let the worker forget tracer answers nobody can ask for any more. */
+  const releaseTokens = useCallback((list) => {
+    if (!list.length) return;
+    for (const t of list) tokens.current.delete(t);
+    engine.current.release(list);
+  }, []);
 
   const notify = useCallback((text, kind = "info") => setNotice({ text, kind, id: Date.now() }), []);
   useEffect(() => {
@@ -122,8 +188,76 @@ export function useDigitizer() {
   }, []);
   useEffect(() => () => clearTimeout(coalesceTimer.current), []);
 
-  const undo = useCallback(() => { flush(); if (hist.current.undo()) { sanitize(); force(); } }, [flush, sanitize]);
-  const redo = useCallback(() => { flush(); if (hist.current.redo()) { sanitize(); force(); } }, [flush, sanitize]);
+  // After undo or redo: show the picture that belongs to the design now on screen (none when it has none).
+  const syncPicture = useCallback(() => {
+    const ref = hist.current.present.reference;
+    const want = (ref && ref.pic && pictures.current.get(ref.pic)) || null;
+    if (want) { pictures.current.delete(ref.pic); pictures.current.set(ref.pic, want); } // in use: the last to be let go
+    if (refImage.current === want) return;
+    refImage.current = want;
+    setHasImage(!!want);
+    cancelConversion(); // the colours and shapes the last conversion kept belong to the other picture
+    // A picture put back by undo gets the colour list it had when it was taken away (if its shapes are there too).
+    const kept = want && want.kept;
+    if (kept && hist.current.present.objects.some((o) => o.source === "image")) {
+      lastTrace.current = kept.trace;
+      showPalette(kept.palette);
+      chooseColours(kept.skip, kept.include);
+      setTraceInfo(kept.info);
+      setDropped(kept.dropped);
+    }
+    if (ref && ref.pic && !want) notify("The picture that went with that step is no longer kept (only the last few are). Choose it again to use it.");
+  }, [cancelConversion, showPalette, chooseColours, notify]);
+
+  /**
+   * After undo or redo: shapes still being made were for the design as it was, so they are dropped; the colour list and the colours
+   * switched off follow the shapes the design now on screen has; and shapes made for another cloth than this design's are made again.
+   */
+  const syncColours = useCallback(() => {
+    clearTimeout(fabricTimer.current);
+    if (!convertingRef.current) shapesSeq.current++; // (a conversion on its way still lands, as it would without the undo)
+    const d = hist.current.present;
+    if (!d.reference) return;
+    const made = madeFor(d);
+    // Back past the conversion (or the picture) and forward again: the picture still knows its last reading, and gives it back when these are its shapes.
+    const kept = refImage.current && refImage.current.kept;
+    if (made && kept && kept.trace && kept.trace.token === made.token && !(lastTrace.current && lastTrace.current.token === made.token)) {
+      lastTrace.current = kept.trace;
+      setTraceInfo(kept.info);
+      setDropped(kept.dropped);
+    }
+    const lt = lastTrace.current;
+    if (!lt) return;
+    if (made && made.token === lt.token) {
+      const now = chosenRef.current;
+      if (colourKey(paletteRef.current, now.skip, now.include) !== made.key) { showPalette(made.palette); chooseColours(made.skip, made.include); }
+      else if (wantRef.current !== now) { wantRef.current = now; setPalette(paletteRef.current); } // a colour switched a moment ago, not in the design yet
+      if (made.fabric !== d.fabricColor) syncSoon();
+    } else if (paletteRef.current.length) {
+      showPalette([]); // the shapes there now are not from the last reading of the picture (or there are none): there is no colour list for them
+      chooseColours(new Set(), new Set());
+    }
+  }, [showPalette, chooseColours, syncSoon]);
+
+  /** A colour was switched a moment ago and its shapes are still being made: it is not a step of the history yet. */
+  const switchPending = useCallback(() => shapesBusy.current > 0 && wantRef.current !== chosenRef.current, []);
+
+  const undo = useCallback(() => {
+    flush();
+    if (switchPending()) {
+      // Ctrl+Z takes that switch back, as it would once the shapes were made: the answer is dropped and the box is ticked as it was.
+      shapesSeq.current++;
+      wantRef.current = chosenRef.current;
+      setPalette(paletteRef.current);
+      return;
+    }
+    if (hist.current.undo()) { sanitize(); syncPicture(); syncColours(); force(); }
+  }, [flush, switchPending, sanitize, syncPicture, syncColours]);
+  const redo = useCallback(() => {
+    flush();
+    if (switchPending()) return; // the switch will be a step of its own, and a step clears what could be redone
+    if (hist.current.redo()) { sanitize(); syncPicture(); syncColours(); force(); }
+  }, [flush, switchPending, sanitize, syncPicture, syncColours]);
 
   // New, Open and Restore do not throw away work that is not saved without asking first.
   const savedRef = useRef(hist.current.present); // the design as it was when last saved, opened or started
@@ -194,12 +328,14 @@ export function useDigitizer() {
     commit((d) => {
       const list = d.objects.slice();
       const idx = ids.map((id) => list.findIndex((o) => o.id === id)).filter((i) => i >= 0).sort((a, b) => (delta > 0 ? b - a : a - b));
+      let moved = false;
       for (const i of idx) {
         const j = i + delta;
         if (j < 0 || j >= list.length || ids.includes(list[j].id)) continue;
         [list[i], list[j]] = [list[j], list[i]];
+        moved = true;
       }
-      return { ...d, objects: list };
+      return moved ? { ...d, objects: list } : d; // already first (or last): nothing changes, so it is no step of the history
     });
   }, [commit]);
 
@@ -287,12 +423,17 @@ export function useDigitizer() {
   const setDesign = useCallback((patch, how = "commit") => (how === "coalesce" ? coalesced : commit)((d) => ({ ...d, ...patch })), [coalesced, commit]);
   const setHoop = useCallback((w, h) => commit((d) => (d.hoop.w === w && d.hoop.h === h ? d : { ...d, hoop: { w, h } })), [commit]);
 
+  // A new, opened or restored design starts with no picture and no unfinished trace: its history is gone, so are the pictures kept for undo.
+  const dropPictures = useCallback(() => {
+    refImage.current = null; pictures.current.clear(); setHasImage(false); setTraceNow(null);
+    releaseTokens([...tokens.current]); // the history those pictures' answers belonged to is gone, and with it the way back to them
+  }, [setTraceNow, releaseTokens]);
+
   const newFileNow = useCallback(() => {
     flush();
     cancelConversion();
     hist.current.reset(newDesign());
-    refImage.current = null;
-    setHasImage(false);
+    dropPictures();
     setSelectionState([]);
     importedRef.current = false;
     setStitches(null);
@@ -300,7 +441,7 @@ export function useDigitizer() {
     setCrop(false);
     markSaved();
     force();
-  }, [flush, cancelConversion, markSaved]);
+  }, [flush, cancelConversion, markSaved, dropPictures]);
   const newFile = useCallback(() => ask("start a new design", newFileNow), [ask, newFileNow]);
 
   /* ── shapes and text ──────────────────────────────────────────────── */
@@ -366,40 +507,188 @@ export function useDigitizer() {
     editText.timer = setTimeout(() => retext(id), 250);
   }, [mapObjects, retext]);
 
+  /* ── tracing by hand ──────────────────────────────────────────────── */
+
+  const traceAdd = useCallback((pt) => setTraceNow({ pts: [...(traceRef.current?.pts || []), pt] }), [setTraceNow]);
+  const traceBack = useCallback(() => {
+    const pts = traceRef.current?.pts || [];
+    setTraceNow(pts.length > 1 ? { pts: pts.slice(0, -1) } : null);
+  }, [setTraceNow]);
+  const traceCancel = useCallback(() => setTraceNow(null), [setTraceNow]);
+
+  /** Close the shape being traced and make it a shape of the design, in the colour the picture has under it. */
+  const traceFinish = useCallback(() => {
+    const pts = traceRef.current?.pts || [];
+    const ring = traceRing(pts);
+    if (!ring) {
+      // A line that crosses itself into equal halves (a figure of eight) has nothing inside it, however big it is.
+      const crossed = pts.length >= 3 && crossesItself(tracePolyline(pts, true));
+      notify(pts.length < 3 ? "Put at least three points round the shape first." : crossed ? "That outline crosses over itself, so it has no inside. Click round the edge without crossing over." : "That shape is too small to stitch. Zoom in, or make the picture bigger.");
+      return false;
+    }
+    const d = hist.current.present;
+    const seen = d.reference && refImage.current ? sampleRingColour(refImage.current.canvas, d.reference, ring) : null;
+    const rgb = seen ? hexToRgb(seen) : null;
+    const color = rgb ? (settings.snap ? nearestThread(rgb.r, rgb.g, rgb.b).hex : seen) : lastColor.current;
+    addObjects([makeObject({ name: nextTraceName(d.objects), kind: "shape", rings: [ring], fill: { color }, source: d.reference ? "hand" : undefined })]);
+    setTraceNow(null);
+    return true;
+  }, [notify, addObjects, settings.snap, setTraceNow]);
+
+  // Leaving the tool, or the Design step, throws away a shape that was not finished.
+  useEffect(() => { if (tool !== "trace" || mode !== "design") setTraceNow(null); }, [tool, mode, setTraceNow]);
+
+  /** From the Picture step: draw the shapes yourself over the picture. */
+  const startTracing = useCallback(() => { setCrop(false); setMode("design"); setTool("trace"); }, []);
+
+  /* ── the right-click menu ─────────────────────────────────────────── */
+
+  const openMenu = useCallback((info) => {
+    if (info.kind === "object") {
+      const cur = selectionRef.current;
+      const ids = cur.includes(info.id) ? cur : [info.id];
+      if (ids !== cur) setSelectionState(ids);
+      setMenu({ x: info.x, y: info.y, kind: "object", ids });
+    } else setMenu({ x: info.x, y: info.y, kind: "picture" });
+  }, []);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  // The menu is about the design as it was when it opened: a change, or another step or tool, closes it.
+  useEffect(() => { setMenu(null); }, [design, mode, tool]);
+
   /* ── the picture and its conversion ───────────────────────────────── */
 
   /**
-   * The shapes of the last trace for these colour choices. Returns the palette to show and `change(design)`, which puts the
-   * shapes into a design: all of them for a fresh conversion, otherwise only the colours that were turned on or off (so the
-   * person's edits to the other shapes, and the order everything is sewn in, are left alone).
+   * The worker has lost the tracer's answer for the picture (it was restarted after a crash, or made room for newer ones): trace the
+   * picture again the way it was traced. The tracer gives the same answer for the same picture and options. True when it is back.
    */
-  const traceUpdate = useCallback((skipSet, includeSet, snap, fabric, fresh) => {
-    const lt = lastTrace.current;
+  const remaking = useRef(null); // { token, promise } while that answer is being made again
+  const remakeTrace = useCallback((lt, epoch) => {
+    if (epoch !== convertToken.current) return Promise.resolve(false); // the picture went away, or another came, while the worker's answer was on its way
+    if (remaking.current && remaking.current.token === lt.token) return remaking.current.promise;
+    const img = refImage.current;
+    if (!img || img !== lt.holder || !lt.recipe) return Promise.reject(new Error("The colours of this picture cannot be changed any more. Press Convert again."));
+    const wasBusy = convertingRef.current;
+    if (!wasBusy) busy(true); // the bar says the picture is being read again
+    const promise = (async () => {
+      try {
+        const again = extractImage(img.canvas, lt.recipe.crop, 1600);
+        await engine.current.trace(again.image, lt.recipe.options, "remake", lt.token);
+        return epoch === convertToken.current;
+      } finally {
+        remaking.current = null;
+        if (!wasBusy && epoch === convertToken.current) busy(false);
+      }
+    })();
+    remaking.current = { token: lt.token, promise };
+    return promise;
+  }, [busy]);
+
+  /**
+   * The shapes of a trace for these colour choices, made in the worker (it holds the tracer's answer; the page holds only where it came
+   * from, `lt`: the last conversion's unless another is given). Resolves to the palette to show and `change(design)`, which puts the
+   * shapes into a design: all of them for a fresh conversion, otherwise only the colours that were turned on or off (so the person's
+   * edits to the other shapes, and the order everything is sewn in, are left alone). Resolves to null when nothing is to be put in: no
+   * trace, or a newer request, another conversion or another picture came first, so this answer is old.
+   */
+  const traceUpdate = useCallback(async (skipSet, includeSet, snap, fabric, fresh, lt = lastTrace.current, amend = false) => {
     const ref = hist.current.present.reference;
     if (!lt || !ref) return null;
+    const epoch = convertToken.current;
+    const seq = ++shapesSeq.current;
     // The shapes go where the picture is NOW: it may have been moved, resized or cropped since it was converted.
-    const mmPerPx = ref.mmPerPx / lt.scale;
-    const originX = ref.x + (lt.crop.x - ref.crop.x) * ref.mmPerPx;
-    const originY = ref.y + (lt.crop.y - ref.crop.y) * ref.mmPerPx;
+    const at = placementOf(ref, lt);
     const before = paletteRef.current;
-    const { objects, palette: pal, rank } = objectsFromTrace(lt.res, { originX, originY, mmPerPx, skip: skipSet, include: includeSet, fabric, snap, before: fresh ? null : before });
+    const job = { token: lt.token, skip: [...skipSet], include: [...includeSet], snap, fabric, originX: at.x, originY: at.y, mmPerPx: at.mmPerPx, before: fresh ? null : before, fresh, maxColors: lt.maxColors, detailThick: !!lt.thick };
+    let out;
+    try {
+      out = await engine.current.shapes(job);
+      if (out.gone) {
+        if (!(await remakeTrace(lt, epoch)) || seq !== shapesSeq.current) return null;
+        out = await engine.current.shapes(job);
+        if (out.gone) throw new Error("The colours of the picture could not be read again. Press Convert again.");
+      }
+    } catch (e) {
+      if (e.stale) return null;
+      throw e;
+    }
+    if (seq !== shapesSeq.current || epoch !== convertToken.current) return null;
+    // Not in the middle of a drag (a shape being moved, a number being typed): putting the shapes in now would cut it into two steps of the history.
+    // Shapes made for the cloth that is still being chosen (`amend`) are no step of their own: they go into that drag.
+    const ownDrag = () => amend && hist.current.present === clothPick.current;
+    for (let waited = 0; hist.current.dragging && !ownDrag() && waited < 600; waited++) {
+      await new Promise((r) => setTimeout(r, 60));
+      if (seq !== shapesSeq.current || epoch !== convertToken.current) return null;
+    }
+    const made = out.objects, rank = new Map(out.rank), pal = out.palette;
+    const stamp = { token: lt.token, fabric, skip: skipSet, include: includeSet, palette: pal, key: colourKey(pal, skipSet, includeSet) };
     return {
       palette: pal,
+      fabric,
+      details: out.details || null, // the fine lines and dots that went in with these shapes, counted (null: none)
       change: (d) => {
+        if (!d.reference) return d;
+        // The picture may have been moved or resized while the shapes were made: they go where it is by now (as the shapes already there did).
+        const now = placementOf(d.reference, lt);
+        const objects = now.x === at.x && now.y === at.y && now.mmPerPx === at.mmPerPx ? made : placeShapes(made, at, now);
         const list = mergeTraceObjects(d.objects, objects, { fresh, before, after: pal, rank });
-        const next = list === d.objects ? d : { ...d, objects: list };
-        return fabric && fabric !== next.fabricColor ? { ...next, fabricColor: fabric } : next;
+        let next = list === d.objects ? d : { ...d, objects: list };
+        // A new conversion takes the cloth from the picture (a white logo on black is for a black shirt), unless the person chose the cloth.
+        if (fresh && fabric && d.fabricAuto !== false && fabric !== next.fabricColor) next = { ...next, fabricColor: fabric };
+        const was = madeFor(next);
+        return was && was.token === stamp.token && was.fabric === stamp.fabric && was.key === stamp.key ? next : stampMadeFor(next, stamp);
       },
     };
-  }, []);
+  }, [remakeTrace]);
 
-  const applyTrace = useCallback((skipSet, includeSet, snap, fabric, fresh = false) => {
-    const u = traceUpdate(skipSet, includeSet, snap, fabric, fresh);
-    if (!u) return;
+  /**
+   * `onLand` runs when the shapes are in the design, in the same step, with everything else the conversion found out. Resolves to whether they were put in.
+   * `amend`: the shapes are for the cloth alone, so they are no step of their own: they go into the design as it is (with the cloth change that
+   * asked for them), and one undo takes back both. Otherwise they are a step.
+   */
+  const applyTrace = useCallback(async (skipSet, includeSet, snap, fabric, fresh = false, lt = lastTrace.current, onLand = null, amend = false) => {
+    const u = await traceUpdate(skipSet, includeSet, snap, fabric, fresh, lt, amend);
+    if (!u) return false;
+    // The cloth was changed while these shapes were made: they are for the old one. Make them again for the new one.
+    if (!fresh && hist.current.present.fabricColor !== u.fabric) { syncSoon(); return false; }
+    if (fresh) {
+      const old = lastTrace.current;
+      lastTrace.current = lt;
+      if (old && old.token !== lt.token) releaseTokens([old.token]); // the reading this one replaces is no use to anything now
+    }
     showPalette(u.palette);
-    commit(u.change);
+    chooseColours(skipSet, includeSet);
+    if (amend) live(u.change); else commit(u.change);
     if (fresh) setSelectionState([]); else sanitize();
-  }, [traceUpdate, showPalette, commit, sanitize]);
+    if (onLand) onLand(u);
+    return true;
+  }, [traceUpdate, showPalette, chooseColours, live, commit, sanitize, syncSoon, releaseTokens]);
+
+  /** Make the shapes in the design agree with the colour choices and the cloth as they are now (a colour was switched, the cloth was changed). */
+  const syncShapes = useCallback(async () => {
+    const d = hist.current.present, lt = lastTrace.current;
+    if (convertingRef.current || !lt || !d.reference) return; // a conversion on its way brings its own shapes
+    const made = madeFor(d);
+    if (!made || made.token !== lt.token) { // shapes that are not from the last reading of the picture: its colours cannot be changed on them
+      wantRef.current = chosenRef.current;
+      setPalette(paletteRef.current);
+      return;
+    }
+    const want = wantRef.current;
+    // Only the cloth changed: the shapes made for it complete that step. A colour switched on or off is a step of its own.
+    const amend = want === chosenRef.current;
+    shapesBusy.current++;
+    try {
+      await applyTrace(want.skip, want.include, settingsRef.current.snap, d.fabricColor, false, lt, null, amend);
+    } catch (e) {
+      // The shapes could not be made: show the colour list as the design really is.
+      wantRef.current = chosenRef.current;
+      setPalette(paletteRef.current);
+      notify(e.message || "The colours could not be changed.", "error");
+    } finally {
+      shapesBusy.current--;
+    }
+  }, [applyTrace, notify]);
+  syncShapesRef.current = syncShapes;
 
   /** `fit`: a picture that has just been placed is made as big as the hoop allows (what is stitched, not the picture's margins), then converted again at that size. */
   const runConvert = useCallback(async (override = {}, fit = false) => {
@@ -409,14 +698,21 @@ export function useDigitizer() {
     if (!ref0 || !img) return;
     const s = { ...settings, ...override };
     const token = ++convertToken.current;
-    setConverting(true);
+    clearTimeout(fabricTimer.current); // the shapes about to be made are for the cloth as it is when they land
+    busy(true);
     setConvertError(null);
+    // The tracer's answers stay in the worker, each under a token the page makes up: the one this conversion uses is kept, the others let go.
+    const made = [];
+    const newToken = () => { const t = newId(); made.push(t); tokens.current.add(t); return t; };
+    let landed = false, used = null, cloth = null;
     try {
       let ref = ref0;
       const first = extractImage(img.canvas, ref0.crop, 1600);
       const scale = first.scale;
       let mmPerPx = ref.mmPerPx / scale;
-      let res = await engine.current.trace(first.image, traceOptions(s, mmPerPx), "picture");
+      let opts = traceOptions(s, mmPerPx);
+      let tok = newToken();
+      let res = await engine.current.trace(first.image, opts, "picture", tok);
       if (token !== convertToken.current) return;
       // the cloth the picture was made for: a dark or coloured background means that garment, unless the person chose the cloth
       const now0 = hist.current.present;
@@ -431,7 +727,9 @@ export function useDigitizer() {
           const next = { ...ref0, mmPerPx: ref0.mmPerPx * k, x: -cx * k, y: -cy * k };
           const again = extractImage(img.canvas, ref0.crop, 1600); // the first copy went to the worker (its memory moved over): take another
           const mm2 = next.mmPerPx / again.scale;
-          const res2 = await engine.current.trace(again.image, traceOptions(s, mm2), "picture");
+          const opts2 = traceOptions(s, mm2);
+          const tok2 = newToken();
+          const res2 = await engine.current.trace(again.image, opts2, "picture", tok2);
           if (token !== convertToken.current) return;
           // a bigger picture can keep fine strokes the smaller one dropped, so the stitched part may now reach a little further than
           // measured: if it does not fit, scale the picture down a touch (no new trace is needed for that) and put it in the middle
@@ -444,27 +742,46 @@ export function useDigitizer() {
           }
           // only when the person has not changed the picture (crop, move, size) while it was being looked at: theirs wins
           if (sameReference(hist.current.present.reference, ref0)) {
-            commit((dd) => ({ ...dd, reference: fitted }));
+            commit((dd) => ({ ...dd, reference: fitted, objects: placeShapes(dd.objects, ref0, fitted) })); // a shape traced by hand meanwhile goes with the picture
+            if (traceRef.current) {
+              // ...and so do the points of one that is not finished yet
+              const sc = fitted.mmPerPx / ref0.mmPerPx;
+              setTraceNow({ ...traceRef.current, pts: traceRef.current.pts.map((p) => [fitted.x + (p[0] - ref0.x) * sc, fitted.y + (p[1] - ref0.y) * sc, ...p.slice(2)]) });
+            }
             ref = fitted;
             res = res2;
+            opts = opts2;
+            tok = tok2;
             mmPerPx = fitted.mmPerPx / again.scale;
           }
         }
       }
-      lastTrace.current = { res, scale, crop: { x: Math.round(ref.crop.x), y: Math.round(ref.crop.y) } };
+      used = tok;
+      const lt = { token: tok, scale, crop: { x: Math.round(ref.crop.x), y: Math.round(ref.crop.y) }, holder: img, maxColors: typeof s.colors === "number" ? Math.min(s.colors, s.maxColors) : s.maxColors, thick: !!s.detailThick, recipe: { crop: { x: ref0.crop.x, y: ref0.crop.y, w: ref0.crop.w, h: ref0.crop.h }, options: opts } };
       const perWorkPx = mmPerPx * (res.stats?.scale || 1); // millimetres a pixel of the tracer's own (maybe shrunk) copy is
-      setDropped(((res.stats?.removedSliverPixels || 0) + (res.stats?.removedSpeckPixels || 0)) * perWorkPx * perWorkPx);
-      setTraceInfo({ kind: res.stats?.kind || "logo", widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx });
+      const droppedMm2 = ((res.stats?.removedSliverPixels || 0) + (res.stats?.removedSpeckPixels || 0)) * perWorkPx * perWorkPx;
+      const info = { kind: res.stats?.kind || "logo", widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx };
       const nextSkip = new Set(), nextInclude = new Set();
-      setSkip(nextSkip);
-      setInclude(nextInclude);
-      applyTrace(nextSkip, nextInclude, s.snap, clothOf(res), true);
+      cloth = clothOf(res);
+      // The shapes are made in the worker. What was found out, the colour list and the shapes land together, in one step.
+      landed = await applyTrace(nextSkip, nextInclude, s.snap, cloth, true, lt, (u) => {
+        const done = { ...info, details: (u && u.details) || null }; // (what the fine lines and dots came to once they were checked against the colours)
+        setDropped(droppedMm2);
+        setTraceInfo(done);
+        // The picture remembers its last reading, so that undo and redo past the conversion (or past the picture) can give the colour tools back.
+        img.kept = { trace: lt, palette: paletteRef.current, skip: nextSkip, include: nextInclude, info: done, dropped: droppedMm2 };
+      });
     } catch (e) {
       if (!e.stale) setConvertError(e.message || "The picture could not be converted.");
     } finally {
-      if (token === convertToken.current) setConverting(false);
+      const dead = landed ? made.filter((t) => t !== used) : made;
+      releaseTokens(dead);
+      if (token === convertToken.current) {
+        busy(false);
+        if (landed && hist.current.present.fabricColor !== cloth) syncSoon(); // the person picked another cloth while the shapes were made
+      }
     }
-  }, [settings, applyTrace]);
+  }, [settings, applyTrace, busy, syncSoon, commit, setTraceNow, releaseTokens]);
 
   const changeSettings = useCallback((patch, convertNow = true) => {
     setSettings((s) => ({ ...s, ...patch }));
@@ -479,29 +796,38 @@ export function useDigitizer() {
 
   // Turn a colour of the picture on or off. A colour that matches the cloth starts off; turning it on is remembered in `include`.
   const toggleSkip = useCallback((index) => {
+    if (convertingRef.current) return; // the picture is being read: the colours it has are not known until it is done
     const entry = palette.find((p) => p.index === index);
     if (!entry || entry.background) return;
-    const nextSkip = new Set(skip), nextInclude = new Set(include);
+    const nextSkip = new Set(wantRef.current.skip), nextInclude = new Set(wantRef.current.include);
     if (entry.skipped) { nextSkip.delete(index); if (entry.sameAsCloth) nextInclude.add(index); }
     else { nextSkip.add(index); nextInclude.delete(index); }
-    setSkip(nextSkip);
-    setInclude(nextInclude);
-    applyTrace(nextSkip, nextInclude, settings.snap, hist.current.present.fabricColor);
-  }, [palette, skip, include, applyTrace, settings.snap]);
+    wantRef.current = { skip: nextSkip, include: nextInclude };
+    // The switch answers at once; the shapes follow when the worker has made them (a quick run of switches is made once, for the last).
+    setPalette((pal) => pal.map((p) => (p.index === index ? { ...p, skipped: !entry.skipped } : p)));
+    syncShapes();
+  }, [palette, syncShapes]);
 
   /** Change the colour of the cloth: it is how the design is shown, and picture colours that match it are not stitched. */
   const setFabricColor = useCallback((hex) => {
-    const u = traceUpdate(skip, include, settings.snap, hex, false);
-    if (u) showPalette(u.palette);
-    // Dragging through the colours is one undo step, not one for every colour passed.
-    coalesced((d) => (u ? u.change({ ...d, fabricColor: hex, fabricAuto: false }) : { ...d, fabricColor: hex, fabricAuto: false }));
-    if (u) sanitize();
-  }, [coalesced, traceUpdate, showPalette, sanitize, skip, include, settings.snap]);
+    // The cloth changes on screen at once. Dragging through the colours is one undo step, not one for every colour passed.
+    coalesced((d) => ({ ...d, fabricColor: hex, fabricAuto: false }));
+    clothPick.current = hist.current.present;
+    // Which colours of the picture are left out follows once the cloth has rested on a colour for a moment (only the newest answer is used).
+    if (lastTrace.current) syncSoon();
+  }, [coalesced, syncSoon]);
 
   const loadPictureFile = useCallback(async (file) => {
     try {
       const pic = await loadPicture(file);
-      refImage.current = { canvas: pic.canvas, name: pic.name };
+      const holder = { canvas: pic.canvas, name: pic.name };
+      const picId = newId();
+      const inUse = hist.current.present.reference?.pic;
+      const inUseHolder = inUse && pictures.current.get(inUse);
+      if (inUseHolder) { pictures.current.delete(inUse); pictures.current.set(inUse, inUseHolder); } // the picture on the table is the last to be let go
+      pictures.current.set(picId, holder);
+      while (pictures.current.size > KEEP_PICTURES) pictures.current.delete(pictures.current.keys().next().value); // the oldest goes first
+      refImage.current = holder;
       setHasImage(true);
       const d = hist.current.present;
       // About 80% of the hoop's width, never wider than 160 mm to start with.
@@ -511,11 +837,17 @@ export function useDigitizer() {
       const mmPerPx = wMm / pic.width;
       const reference = {
         name: pic.name, srcW: pic.width, srcH: pic.height, mmPerPx, crop: { x: 0, y: 0, w: pic.width, h: pic.height },
-        x: -wMm / 2, y: -(pic.height * mmPerPx) / 2, opacity: 1, visible: true,
+        x: -wMm / 2, y: -(pic.height * mmPerPx) / 2, opacity: 1, visible: true, pic: picId,
       };
       flush();
       cancelConversion(); // a conversion of the picture that was here must not land on this one
-      commit((dd) => ({ ...dd, name: dd.name === "Untitled design" ? fileSafe(pic.name, "Untitled design") : dd.name, objects: dd.objects.filter((o) => o.source !== "image"), reference }));
+      // The old picture's own shapes go; what was traced over it by hand stays, as shapes of their own (they belong to no picture now).
+      commit((dd) => ({
+        ...dd,
+        name: dd.name === "Untitled design" ? fileSafe(pic.name, "Untitled design") : dd.name,
+        objects: dd.objects.filter((o) => o.source !== "image").map((o) => (o.source === "hand" ? { ...o, source: undefined } : o)),
+        reference,
+      }));
       setMode("picture");
       setCrop(false);
       setTimeout(() => runConvertRef.current({}, true), 0);
@@ -529,14 +861,7 @@ export function useDigitizer() {
     live((d) => {
       const old = d.reference;
       if (!old) return d;
-      const s = next.mmPerPx / old.mmPerPx;
-      const moved = s !== 1 || next.x !== old.x || next.y !== old.y;
-      if (!moved) return { ...d, reference: next };
-      return {
-        ...d,
-        reference: next,
-        objects: d.objects.map((o) => (o.source === "image" ? moveObject(scaleObjectAbout(o, s, s, old.x, old.y), next.x - old.x, next.y - old.y) : o)),
-      };
+      return { ...d, reference: next, objects: placeShapes(d.objects, old, next) };
     });
   }, [live]);
 
@@ -564,19 +889,34 @@ export function useDigitizer() {
       return {
         ...d,
         reference: next,
-        objects: d.objects.map((o) => (o.source === "image" ? moveObject(scaleObjectAbout(o, s, s, cx, cy), 0, 0) : o)),
+        objects: d.objects.map((o) => (followsPicture(o) ? moveObject(scaleObjectAbout(o, s, s, cx, cy), 0, 0) : o)),
       };
     });
   }, [coalesced]);
 
-  const removeReference = useCallback(() => {
+  /**
+   * Take the picture off the table. The shapes made from it and traced over it stay, as shapes of their own (they no longer follow
+   * a picture), unless `withShapes`, which deletes them too. One step of the history: undo brings the picture back (it is still in
+   * `pictures`), and its shapes with it.
+   */
+  const removeReference = useCallback((withShapes = false) => {
+    if (!hist.current.present.reference) return;
+    flush();
+    // What the conversion found (its colour list) goes with the picture, so undo can give it back.
+    if (refImage.current) refImage.current.kept = { trace: lastTrace.current, palette: paletteRef.current, skip, include, info: traceInfo, dropped };
     cancelConversion();
     refImage.current = null;
     setHasImage(false);
-    commit((d) => ({ ...d, reference: null }));
+    commit((d) => ({
+      ...d,
+      reference: null,
+      objects: withShapes ? d.objects.filter((o) => !followsPicture(o)) : d.objects.map((o) => (followsPicture(o) ? { ...o, source: undefined } : o)),
+    }));
+    sanitize();
     setMode("design");
     setCrop(false);
-  }, [commit, cancelConversion]);
+    notify(withShapes ? "Picture and its shapes deleted. Ctrl+Z brings them back." : "Picture deleted. Its shapes are still here. Ctrl+Z brings it back.");
+  }, [commit, flush, cancelConversion, sanitize, notify, skip, include, traceInfo, dropped]);
 
   /* ── the stitch engine ────────────────────────────────────────────── */
 
@@ -602,7 +942,7 @@ export function useDigitizer() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [design, dragging, wantStitches]);
 
-  const summary = useMemo(() => (stitches ? summarize(stitches.flat, stitches.threads) : null), [stitches]);
+  const summary = useMemo(() => (stitches ? summarize(stitches.flat, stitches.threads, { standIn: !!stitches.standIn }) : null), [stitches]);
   const stale = !!stitches && !stitches.imported && stitches.for !== design;
 
   /* ── simulation ───────────────────────────────────────────────────── */
@@ -703,13 +1043,12 @@ export function useDigitizer() {
       cancelConversion();
       const name = fileSafe(file.name.replace(/\.[^.]+$/, ""), "Opened file");
       hist.current.reset(newDesign({ name, hoop: { w, h } }));
-      refImage.current = null;
-      setHasImage(false);
+      dropPictures();
       setSelectionState([]);
       importedRef.current = true;
       const checks = checkStitches(flat);
       const warnings = [{ kind: "opened", message: pattern.colorsFromFile === false ? `${file.name} does not store thread colours, so stand-in colours are shown. The stitches are exactly as in the file, moved to the middle of the hoop.` : `${file.name} opened. The stitches are exactly as in the file, moved to the middle of the hoop.` }, ...checkMessages(checks)];
-      setStitches({ flat, threads: pattern.threads, warnings, checks, imported: true, for: hist.current.present });
+      setStitches({ flat, threads: pattern.threads, warnings, checks, imported: true, standIn: pattern.colorsFromFile === false, for: hist.current.present });
       setMode("stitches");
       setCrop(false);
       markSaved();
@@ -717,7 +1056,7 @@ export function useDigitizer() {
     } catch (e) {
       notify(e.message || "That file could not be opened.", "error");
     }
-  }, [flush, notify, cancelConversion, markSaved]);
+  }, [flush, notify, cancelConversion, markSaved, dropPictures]);
   const openStitchFile = useCallback((file) => ask("open that file", () => openStitchFileNow(file)), [ask, openStitchFileNow]);
 
   const openDesignFileNow = useCallback(async (file) => {
@@ -726,8 +1065,7 @@ export function useDigitizer() {
       flush();
       cancelConversion();
       hist.current.reset(d);
-      refImage.current = null;
-      setHasImage(false);
+      dropPictures();
       setSelectionState([]);
       setMode("design");
       markSaved();
@@ -736,7 +1074,7 @@ export function useDigitizer() {
     } catch (e) {
       notify(e.message || "That file could not be opened.", "error");
     }
-  }, [flush, notify, cancelConversion, markSaved]);
+  }, [flush, notify, cancelConversion, markSaved, dropPictures]);
   const openDesignFile = useCallback((file) => ask("open that file", () => openDesignFileNow(file)), [ask, openDesignFileNow]);
 
   // Keep the last design on this computer so a closed tab does not lose the work.
@@ -763,14 +1101,13 @@ export function useDigitizer() {
       flush();
       cancelConversion();
       hist.current.reset(d);
-      refImage.current = null;
-      setHasImage(false);
+      dropPictures();
       setSelectionState([]);
       markSaved();
       force();
       notify("Your last design is back.");
     } catch { notify("The saved design could not be read.", "error"); }
-  }, [notify, flush, cancelConversion, markSaved]);
+  }, [notify, flush, cancelConversion, markSaved, dropPictures]);
   const restore = useCallback(() => ask("open your last design", restoreNow), [ask, restoreNow]);
 
   /* ── the stage's hooks ────────────────────────────────────────────── */
@@ -791,12 +1128,16 @@ export function useDigitizer() {
     onCropStart: () => hist.current.begin(),
     onCropLive: (ref) => cropRefRef.current(ref),
     onCropEnd: () => { hist.current.end(); force(); },
-  }), []);
+    onTraceAdd: (pt) => traceAdd(pt),
+    onTraceFinish: () => traceFinishRef.current(),
+    onMenu: (info) => openMenu(info),
+  }), [traceAdd, openMenu]);
   const [openRequest, setOpenRequest] = useState(0);
   const createShapeRef = useRef(createShape); createShapeRef.current = createShape;
   const createTextRef = useRef(createText); createTextRef.current = createText;
   const placeRefRef = useRef(placeReference); placeRefRef.current = placeReference;
   const cropRefRef = useRef(cropReference); cropRefRef.current = cropReference;
+  const traceFinishRef = useRef(traceFinish); traceFinishRef.current = traceFinish;
 
   // The last colour used is the next shape's colour.
   useEffect(() => { if (selected.length) lastColor.current = selected[0].fill.color; }, [selected]);
@@ -810,6 +1151,7 @@ export function useDigitizer() {
     patchFill, patchStroke, patchSatin, patchObject, addObjects, removeObjects, duplicate, reorder, stepOrder, breakApart: doBreakApart, fillHoles: doFillHoles,
     flip, setSize, setCentre, setRotation, align, nudge, recolor, setDesign, setHoop, newFile, editText, retext,
     runConvert, changeSettings, toggleSkip, loadPictureFile, setReference, setReferenceWidth, removeReference, replacing, confirmReplace, cancelReplace,
+    trace, traceBack, traceCancel, traceFinish, startTracing, menu, openMenu, closeMenu,
     playSim, pauseSim, stopSim, seekSim, setSimSpeed,
     exportFormats, exportPreview, printProduction, saveDesignFile, openDesignFile, openStitchFile, restore,
     newId, threadName,

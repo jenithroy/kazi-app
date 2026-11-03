@@ -42,12 +42,15 @@
 .dz-headbtns .kb-pillbtn:disabled { opacity: .45; cursor: default; }
 .dz-headbtns .kb-btn { height: 32px; border-radius: 999px; padding: 0 16px; }
 
+/* A message floats at the bottom of the canvas: it takes no room, so nothing under the pointer moves when it comes and goes.
+   Solid, because it lies over a picture. */
 .dz-note {
-  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 14px; border-radius: 12px; font-size: 13px; color: var(--kb-ink);
-  background: var(--kb-good-bg); border: 1px solid var(--kb-line);
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 3; width: max-content; max-width: calc(100% - 24px);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 8px 8px 14px; border-radius: 12px; font-size: 13px; line-height: 1.35; color: var(--kb-ink);
+  background: var(--kb-surface); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow);
 }
-.dz-note--error { background: var(--kb-bad-bg); color: var(--kb-bad); }
+.dz-note--error { color: var(--kb-bad); border-color: color-mix(in srgb, var(--kb-bad) 45%, transparent); }
 .dz-note button { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
 
 /* ── the stage ────────────────────────────────────────────────── */
@@ -91,6 +94,26 @@
   background: var(--kb-surface); color: var(--kb-ink); font: 600 12.5px/1 var(--font); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi); z-index: 2;
 }
 .dz-hint-chip button { height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--kb-line-hi); background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); cursor: pointer; }
+/* trace by hand: the strip over the canvas (what to do next, the kind of the next points, and the keys as buttons) */
+.dz-tracebar {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 2; width: max-content; max-width: calc(100% - 24px);
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 6px 12px; padding: 6px 8px 6px 14px; border-radius: 18px;
+  background: var(--kb-surface); color: var(--kb-ink); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi);
+}
+/* the strip floats over the work: clicks pass through everything but its own buttons, so it never hides a spot to click */
+.dz-tracebar { pointer-events: none; }
+.dz-tracebar .dz-seg, .dz-tracebar button { pointer-events: auto; }
+.dz-tracebar-msg { font: 600 12.5px/1.3 var(--font); }
+.dz-tracebar-ctl { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.dz-tracebar .dz-tool--text { height: 28px; border-color: var(--kb-line-hi); }
+.dz-tracebar .dz-seg button { height: 24px; }
+/* the "Reading the picture" bar goes to the bottom (above any message) while the strip is on top, so they never sit on each other */
+.dz-canvas-wrap.is-tracing .dz-busy-bar { top: auto; bottom: 64px; }
+/* a phone has little canvas to spare: the buttons say it all, the sentence stays for screen readers only */
+@media (max-width: 768px) {
+  .dz-tracebar { padding: 5px 6px; gap: 4px; border-radius: 14px; }
+  .dz-tracebar-msg { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .dz-empty-stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; pointer-events: none; }
 .dz-card {
   pointer-events: auto; max-width: 440px; padding: 22px 24px; border-radius: 18px; text-align: center;
@@ -121,6 +144,9 @@
   display: grid; grid-template-columns: 20px minmax(0, 1fr) 28px 28px; align-items: center; gap: 2px; min-height: 34px; padding: 0 2px; border-radius: 9px;
   border: 1px solid transparent; transition: background-color .12s;
 }
+/* a big picture makes thousands of shapes: rows far off screen are not laid out until they scroll near (their height is remembered) */
+.dz-orow { content-visibility: auto; contain-intrinsic-size: auto 34px; }
+@media (pointer: coarse) { .dz-orow { contain-intrinsic-size: auto 44px; } }
 .dz-orow:hover { background: var(--kb-well); }
 .dz-orow.is-on { background: var(--kb-chip); border-color: var(--kb-line-hi); }
 .dz-orow.is-hidden .dz-oname { opacity: .5; }
@@ -226,6 +252,25 @@
   background: var(--card, #fff); border: 1px solid var(--line-strong, rgba(15,46,34,.14)); box-shadow: var(--shadow-pop, 0 16px 48px -12px rgba(15,46,34,.25));
 }
 :root[data-theme="dark"] .dz-pop { background: #18211d; color: #edf1ef; border-color: rgba(255,255,255,.17); }
+/* the right-click menu lives in <body> too, so it carries its own colours as well */
+.dz-menu {
+  position: fixed; z-index: 1400; min-width: 200px; max-width: 280px; padding: 6px; border-radius: 12px; color: var(--ink, #0a1c14);
+  background: var(--card, #fff); border: 1px solid var(--line-strong, rgba(15,46,34,.14)); box-shadow: var(--shadow-pop, 0 16px 48px -12px rgba(15,46,34,.25));
+  animation: kn-pop .14s cubic-bezier(.2, .8, .2, 1) both; transform-origin: top left;
+}
+:root[data-theme="dark"] .dz-menu { background: #18211d; color: #edf1ef; border-color: rgba(255,255,255,.17); }
+.dz-menu button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font: 500 13px/1.3 var(--font); text-align: left; cursor: pointer;
+}
+.dz-menu button small { font: 400 11.5px/1.3 var(--font); color: var(--ink-3, #5b6a62); }
+.dz-menu button:hover, .dz-menu button:focus-visible { background: var(--bg-2, #e6ebe4); outline: none; }
+.dz-menu button.is-danger { color: #a8442c; }
+.dz-menu hr { margin: 4px 6px; border: 0; border-top: 1px solid var(--line, rgba(15,46,34,.1)); }
+:root[data-theme="dark"] .dz-menu button small { color: #b5c0bb; }
+:root[data-theme="dark"] .dz-menu button:hover, :root[data-theme="dark"] .dz-menu button:focus-visible { background: rgba(255,255,255,.08); }
+:root[data-theme="dark"] .dz-menu button.is-danger { color: #f4ae98; }
+:root[data-theme="dark"] .dz-menu hr { border-top-color: rgba(255,255,255,.12); }
 .dz-pop-h { margin: 8px 0 6px; font: 600 11px/1 var(--font); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3, #5b6a62); }
 .dz-pop-h:first-child { margin-top: 0; }
 :root[data-theme="dark"] .dz-pop-h { color: #b5c0bb; }
@@ -264,7 +309,7 @@
 .dz-format:disabled { opacity: .5; cursor: default; }
 .dz-format:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 
-@media (prefers-reduced-motion: reduce) { .dz-swatch:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .dz-swatch:hover { transform: none; } .dz-menu { animation: none; } }
 @media (pointer: coarse) { .dz-text, .dz-num input, .dz-textarea { font-size: 16px; } .dz-tool { min-width: 40px; height: 40px; } .dz-orow { min-height: 44px; } }
 
 /* a phone has no pane height to share out (`flex: 1 1 0` would shut a pane to nothing): the panes take the room they need and the page scrolls.

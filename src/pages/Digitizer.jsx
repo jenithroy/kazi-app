@@ -15,6 +15,8 @@ import { Icons } from "../components/ui";
 import Modal from "../components/Modal";
 import StageCanvas from "../components/digitizer/StageCanvas";
 import Toolbar from "../components/digitizer/Toolbar";
+import TraceBar from "../components/digitizer/TraceBar";
+import CanvasMenu from "../components/digitizer/CanvasMenu";
 import ObjectsPane from "../components/digitizer/ObjectsPane";
 import PicturePanel from "../components/digitizer/PicturePanel";
 import InspectorPanel from "../components/digitizer/InspectorPanel";
@@ -67,6 +69,26 @@ export default function Digitizer() {
     return () => { window.removeEventListener("dragover", over); window.removeEventListener("drop", drop); };
   }, []);
 
+  // A picture copied anywhere (a screenshot, a picture from a web page, a file copied in the file manager) is opened by Ctrl+V.
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (document.querySelector(".kmodal-overlay")) return;
+      const data = e.clipboardData;
+      if (!data) return;
+      const files = [...(data.files || [])];
+      if (!files.length) for (const item of data.items || []) { const f = item.kind === "file" ? item.getAsFile() : null; if (f) files.push(f); }
+      const file = files.find((f) => /^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|bmp|svg|json)$/i.test(f.name) || STITCH_FILE.test(f.name));
+      if (!file) return;
+      if (isTyping(e) && [...(data.types || [])].includes("text/plain")) return; // words pasted into a box stay words
+      e.preventDefault();
+      // A screenshot arrives called "image.png": give it a name that means something (it names the design).
+      const ext = { "image/jpeg": "jpg", "image/svg+xml": "svg" }[file.type] || file.type.split("/")[1] || "png";
+      filesRef.current([/^image\.\w+$/i.test(file.name) ? new File([file], `Pasted picture.${ext}`, { type: file.type }) : file]);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
+
   /* ── keyboard ─────────────────────────────────────────────────────── */
   const latest = useRef(api);
   latest.current = api;
@@ -77,17 +99,27 @@ export default function Digitizer() {
       if (document.querySelector(".kmodal-overlay")) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (mod && key === "z") { e.preventDefault(); if (e.shiftKey) a.redo(); else a.undo(); return; }
+      const tracing = a.tool === "trace" && !!a.trace; // a shape is half drawn: its keys come first
+      if (mod && key === "z") { e.preventDefault(); if (tracing && !e.shiftKey) a.traceBack(); else if (e.shiftKey) a.redo(); else a.undo(); return; }
       if (mod && key === "y") { e.preventDefault(); a.redo(); return; }
       if (mod && key === "s") { e.preventDefault(); a.saveDesignFile(); return; }
       if (mod && key === "a") { e.preventDefault(); a.setSelection(a.design.objects.filter((o) => !o.locked).map((o) => o.id)); return; }
       if (mod && key === "d") { e.preventDefault(); if (a.selection.length) a.duplicate(a.selection); return; }
       if (mod) return;
       if (a.mode === "picture") { if (e.key === "Escape" && a.crop) a.setCrop(false); if (key === "f") stageRef.current?.fitDesign(); return; }
-      if (e.key === "Delete" || e.key === "Backspace") { if (a.selection.length) { e.preventDefault(); a.removeObjects(a.selection); } return; }
-      if (e.key === "Escape") { a.setSelection([]); a.setTool("select"); a.stopSim(); return; }
       const ae = document.activeElement;
       const free = !ae || ae === document.body || ae.tagName === "CANVAS" || !!ae.closest?.(".dz-toolbar"); // not on some other button, which Enter must press
+      if (tracing) {
+        if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); a.traceBack(); return; }
+        if (e.key === "Escape") { a.traceCancel(); return; }
+        if (e.key === "Enter" && free) { e.preventDefault(); a.traceFinish(); return; }
+        // Half a shape is not thrown away by a tool key pressed by mistake (H, to move around, is the usual one): Space or a right-drag moves the view.
+        if (["v", "h", "r", "o", "t", "p"].includes(key)) return;
+      }
+      // With the trace tool the selected shape has no handles on screen, so keys that would act on it do nothing.
+      if (a.tool === "trace" && (e.key === "Delete" || e.key === "Backspace" || e.key.startsWith("Arrow") || e.key === "[" || e.key === "]")) return;
+      if (e.key === "Delete" || e.key === "Backspace") { if (a.selection.length) { e.preventDefault(); a.removeObjects(a.selection); } return; }
+      if (e.key === "Escape") { a.setSelection([]); a.setTool("select"); a.stopSim(); return; }
       if (e.key === "Enter" && free && (a.tool === "text" || a.tool === "rect" || a.tool === "ellipse")) {
         // Without a pointer: the shape or the words go in the middle of the hoop.
         e.preventDefault();
@@ -99,6 +131,7 @@ export default function Digitizer() {
       else if (key === "r") a.setTool("rect");
       else if (key === "o") a.setTool("ellipse");
       else if (key === "t") a.setTool("text");
+      else if (key === "p") a.setTool("trace");
       else if (key === "f") stageRef.current?.fitHoop();
       else if (e.key === "[") { if (a.selection.length) a.stepOrder(a.selection, -1); }
       else if (e.key === "]") { if (a.selection.length) a.stepOrder(a.selection, 1); }
@@ -137,7 +170,7 @@ export default function Digitizer() {
             {s ? (
               <>
                 <span>{s.stitches.toLocaleString("en-GB")} stitches</span>
-                <span>{s.blocks.length} colour{s.blocks.length === 1 ? "" : "s"}</span>
+                <span>{s.colours ?? s.blocks.length} colour{(s.colours ?? s.blocks.length) === 1 ? "" : "s"}</span>
                 <span>{s.widthMm.toFixed(1)} × {s.heightMm.toFixed(1)} mm</span>
                 <span>{formatMinutes(s.minutes)}</span>
               </>
@@ -159,13 +192,6 @@ export default function Digitizer() {
         </div>
       </header>
 
-      {api.notice && (
-        <div className={`dz-note dz-note--${api.notice.kind}`} role="status">
-          <span>{api.notice.text}</span>
-          <button type="button" aria-label="Dismiss" onClick={api.dismissNotice}>×</button>
-        </div>
-      )}
-
       <BentoGrid layout="digitizer">
         <section className="kb-tile dz-tile dz-left" aria-label="Objects">
           <div className="kb-hd"><h2 className="kb-ttl">Objects</h2><span className="kb-note">{design.objects.length}</span></div>
@@ -185,9 +211,10 @@ export default function Digitizer() {
             onZoom={(f) => stageRef.current?.zoomAt(f, stageRef.current.size.w / 2, stageRef.current.size.h / 2)}
             onFit={() => (mode === "picture" ? stageRef.current?.fitDesign() : stageRef.current?.fitHoop())}
           />
-          <div className="dz-canvas-wrap">
+          <div className={`dz-canvas-wrap${mode === "design" && api.tool === "trace" ? " is-tracing" : ""}`}>
             <StageCanvas api={api} stageRef={stageRef} />
-            {empty && api.tool !== "select" && (
+            {mode === "design" && api.tool === "trace" && <TraceBar api={api} />}
+            {empty && api.tool !== "select" && api.tool !== "trace" && (
               <div className="dz-hint-chip" role="status">
                 {api.tool === "text" ? "Click on the hoop where the words should go, or press Enter for the middle." : "Click or drag on the hoop to draw the shape, or press Enter for one in the middle."}
                 <button type="button" onClick={() => api.setTool("select")}>Cancel</button>
@@ -198,7 +225,7 @@ export default function Digitizer() {
                 <div className="dz-card">
                   <span className="dz-card-chip" aria-hidden="true"><Icons.Needle size={22} sw={1.7} /></span>
                   <h2>Start with a picture</h2>
-                  <p>Drop the client&apos;s logo here, or choose a file.</p>
+                  <p>Drop the client&apos;s logo here, paste it with Ctrl+V, or choose a file.</p>
                   <ol className="dz-steps">
                     <li><b>Picture</b> It is turned into shapes, one for each colour.</li>
                     <li><b>Design</b> Move, resize and recolour them, and add text.</li>
@@ -214,6 +241,13 @@ export default function Digitizer() {
               </div>
             )}
             {api.converting && <div className="dz-busy-bar" role="status">Reading the picture…</div>}
+            {/* Over the canvas, not above the page: a banner in the page pushed the canvas down while it showed, and a point clicked then landed off target. */}
+            {api.notice && (
+              <div className={`dz-note dz-note--${api.notice.kind}`} role="status">
+                <span>{api.notice.text}</span>
+                <button type="button" aria-label="Dismiss" onClick={api.dismissNotice}>×</button>
+              </div>
+            )}
             {dragOver && <div className="dz-drop" aria-hidden="true">Drop to open</div>}
           </div>
           {mode === "stitches" && api.stitches && (
@@ -254,6 +288,8 @@ export default function Digitizer() {
 
       <input ref={fileInput} type="file" accept={PICTURE_TYPES} hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
       <input ref={designInput} type="file" accept=".json,application/json,.dst,.pes,.pec,.exp,.jef,.vp3,.xxx,.u01" hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
+
+      {api.menu && <CanvasMenu api={api} />}
 
       {api.replacing && (
         <Modal

@@ -91,8 +91,9 @@ function DesignSettings({ api }) {
           <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("text")}>Text</button>
           <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("rect")}>Rectangle</button>
           <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("ellipse")}>Ellipse</button>
+          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("trace")} title="Draw a shape by clicking round its edge (P)">Trace by hand</button>
         </div>
-        <p className="dz-hint">Pick a tool, then click or drag on the canvas.</p>
+        <p className="dz-hint">Pick a tool, then click or drag on the canvas. Right-click a shape or the picture for more.</p>
       </Group>
     </>
   );
@@ -187,6 +188,7 @@ export default function InspectorPanel({ api }) {
         </Group>
       )}
 
+      {!selected.every((o) => o.open) && (
       <Group title="Colour and stitching">
         <Row label="Thread">
           <ColorField value={color ?? "#888888"} used={usedColors} label="Fill colour" onChange={(c) => api.patchFill(ids, { color: c })} />
@@ -224,6 +226,7 @@ export default function InspectorPanel({ api }) {
           </>
         )}
       </Group>
+      )}
 
       <Group title="Outline">
         <Row label="Line">

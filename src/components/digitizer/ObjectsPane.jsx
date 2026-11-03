@@ -1,6 +1,7 @@
 /**
  * The list of everything in the design, in the order it is sewn (first at the top). Press a row to select it (Shift or Ctrl to
- * add more), drag a row to change when it is sewn, use the eye to hide it and the padlock to keep it from being moved.
+ * add more), drag a row to change when it is sewn, use the eye to hide it and the padlock to keep it from being moved, and
+ * right-click a row for the same menu as a right-click on the shape.
  */
 import { useRef, useState } from "react";
 import { Icons } from "../ui";
@@ -58,6 +59,7 @@ export default function ObjectsPane({ api }) {
                 onDragLeave={() => setOverIdx((v) => (v === i ? null : v))}
                 onDrop={(e) => { e.preventDefault(); if (dragId && dragId !== o.id) api.reorder(dragId, i); setDragId(null); setOverIdx(null); }}
                 onDragEnd={() => { setDragId(null); setOverIdx(null); }}
+                onContextMenu={(e) => { if (e.target.closest("input, textarea")) return; e.preventDefault(); api.openMenu({ kind: "object", id: o.id, x: e.clientX, y: e.clientY }); }}
               >
                 <span className="dz-onum" aria-hidden="true">{i + 1}</span>
                 {editing === o.id ? (

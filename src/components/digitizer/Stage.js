@@ -7,20 +7,25 @@
  * Coordinates: millimetres in the hoop (+y down) in the design, pixels on the canvas; `view` is { k, ox, oy }:
  * pixel = mm * k + (ox, oy).
  *
- * What the pointer does depends on the tool (select, hand, rectangle, ellipse, text) and on what is under it. Dragging a shape
- * moves it, dragging a handle of the box scales it (corners keep the proportions, Shift frees them), the round handle above
+ * What the pointer does depends on the tool (select, hand, rectangle, ellipse, text, trace) and on what is under it. Dragging a
+ * shape moves it, dragging a handle of the box scales it (corners keep the proportions, Shift frees them), the round handle above
  * the box turns it (Shift snaps to 15 degrees), dragging empty space draws a box that selects, the wheel zooms where the pointer
- * is, and Space, the middle button or the hand tool pans. Two fingers pan and pinch.
+ * is, and Space, the middle button, the right button or the hand tool pans. Two fingers pan and pinch. A right-click that does
+ * not move asks the page for a menu (`hooks.onMenu`) about the picture or the shape under it. With the trace tool each click
+ * puts a point of a shape (`hooks.onTraceAdd`); a click on the first point closes it (`hooks.onTraceFinish`).
  */
 import {
   hitObject, objectBox, boxOfObjects, objectCorners, objectsInRect, moveObject, resizeByHandle, rotateObjectAbout, scaleObjectAbout,
   worldRings, localBox,
 } from "../../lib/digitizer/model.js";
 import { CMD } from "../../lib/embroidery/pattern.js";
+import { tracePolyline } from "../../lib/digitizer/trace.js";
 
 const HANDLE_PX = 7; // half the size of a handle square
 const ROTATE_OFFSET_PX = 26; // how far above the box the round handle sits
 const SNAP_PX = 6;
+const CLICK_PX = 4; // a press that moves less than this is a click, not a drag
+const TRACE_CLOSE_PX = 9; // a click this close to the first point of a traced shape closes it
 const THREAD_MM = 0.45; // sewn thread lies flat and spreads a little: about this wide
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -41,6 +46,8 @@ export class Stage {
     this.spaceDown = false;
     this.guides = [];
     this.marquee = null;
+    this.tracePointer = null; // where the pointer is over the hoop (mm) while tracing, for the line to the next point
+    this.lastClose = null; // when and where (pixels) the last traced shape was closed
     this.dirty = true;
     this.raf = 0;
     this.fitted = false;
@@ -64,7 +71,10 @@ export class Stage {
     canvas.addEventListener("wheel", this.onWheel, { passive: false });
     canvas.addEventListener("dblclick", this.onDoubleClick);
     canvas.addEventListener("contextmenu", this.onContext);
-    this.onLeave = () => { if (this.cursorEl) this.cursorEl.textContent = ""; };
+    this.onLeave = () => {
+      if (this.cursorEl) this.cursorEl.textContent = "";
+      if (this.tracePointer) { this.tracePointer = null; this.invalidate(); } // the line to the pointer goes with the pointer
+    };
     canvas.addEventListener("pointerleave", this.onLeave);
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -249,6 +259,7 @@ export class Stage {
   }
 
   onDoubleClick(e) {
+    if (this.props.tool === "trace") return; // the second click of a double click already closed the shape
     const [sx, sy] = this.pos(e);
     const [x, y] = this.toWorld(sx, sy);
     const id = hitObject(this.props.design, x, y, 5 / this.view.k);
@@ -265,13 +276,24 @@ export class Stage {
     const tool = this.props.tool;
     const mode = this.props.mode;
     const panning = e.button === 1 || e.button === 2 || this.spaceDown || tool === "hand";
-    if (panning) { this.drag = { kind: "pan", sx, sy, ox: this.view.ox, oy: this.view.oy }; this.updateCursor(); return; }
+    if (panning) {
+      // A right-click that does not move is a click (it opens the menu); one that moves is a pan.
+      this.drag = { kind: "pan", sx, sy, ox: this.view.ox, oy: this.view.oy, click: e.button === 2 && e.pointerType !== "touch", moved: false };
+      this.updateCursor();
+      return;
+    }
     if (e.button !== 0) return;
 
     const [x, y] = this.toWorld(sx, sy);
 
     // Picture step: the picture itself is what moves and scales (and crops).
     if (mode === "picture" && this.props.reference?.visible) { this.downPicture(e, sx, sy, x, y); return; }
+
+    // Trace tool: a click puts a point (decided when the button comes up, so a finger that drags can move the view instead).
+    if (tool === "trace" && mode === "design") {
+      this.drag = { kind: "tracepoint", sx, sy, x, y, alt: e.altKey, touch: e.pointerType === "touch", moved: false };
+      return;
+    }
 
     if (tool === "rect" || tool === "ellipse") {
       this.props.hooks?.begin?.();
@@ -390,9 +412,23 @@ export class Stage {
       return;
     }
     if (d.kind === "pan") {
+      if (d.click && !d.moved) { if (Math.hypot(sx - d.sx, sy - d.sy) < CLICK_PX) return; d.moved = true; } // still a right-click
       this.view = { ...this.view, ox: d.ox + (sx - d.sx), oy: d.oy + (sy - d.sy) };
       this.emitView();
       this.invalidate();
+      return;
+    }
+    if (d.kind === "tracepoint") {
+      if (!d.moved && Math.hypot(sx - d.sx, sy - d.sy) > CLICK_PX) {
+        d.moved = true;
+        if (d.touch) {
+          // A finger that drags moves the view (from where it first touched, so there is no jump).
+          this.drag = { kind: "pan", sx: d.sx, sy: d.sy, ox: this.view.ox, oy: this.view.oy };
+          this.view = { ...this.view, ox: this.drag.ox + (sx - d.sx), oy: this.drag.oy + (sy - d.sy) };
+          this.emitView();
+          this.invalidate();
+        }
+      }
       return;
     }
     if (d.kind === "move") {
@@ -536,8 +572,51 @@ export class Stage {
       else hooks?.onCreateShape?.(d.tool, null, [d.x0, d.y0]); // a click: the page makes a shape of its usual size there
     } else if (d.kind === "refmove" || d.kind === "refscale") hooks?.onRefEnd?.();
     else if (d.kind === "crop") hooks?.onCropEnd?.();
+    else if (d.kind === "tracepoint") { if (!d.moved && e.type === "pointerup") this.tracePress(d); }
+    else if (d.kind === "pan" && d.click && !d.moved && e.type === "pointerup") this.openMenuAt(e, d.sx, d.sy);
+    else if (d.kind === "pan" && d.click && d.moved) {
+      // Windows sends "contextmenu" when the right button comes up, to whatever is under the pointer: after a right-drag that
+      // ended over the list of objects, that would open that row's menu. The next one, a moment from now, is not wanted.
+      const swallow = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+      window.addEventListener("contextmenu", swallow, true);
+      setTimeout(() => window.removeEventListener("contextmenu", swallow, true), 300);
+    }
     this.updateCursor();
     this.invalidate();
+  }
+
+  /** A click with the trace tool: on the first point (or the last, as a double click does) it closes the shape, anywhere else it adds a point. */
+  tracePress(d) {
+    const hooks = this.props.hooks;
+    const pts = this.props.trace?.pts || [];
+    const near = (p, px) => { const [qx, qy] = this.toScreen(p[0], p[1]); return Math.hypot(qx - d.sx, qy - d.sy) <= px; };
+    // The second click of a double click on the first point has just closed the shape: it does not start the next one.
+    const c = this.lastClose;
+    if (c && performance.now() - c.t < 400 && Math.hypot(c.sx - d.sx, c.sy - d.sy) <= 12) return;
+    if (pts.length >= 3 && (near(pts[0], TRACE_CLOSE_PX) || near(pts[pts.length - 1], CLICK_PX))) {
+      this.lastClose = { t: performance.now(), sx: d.sx, sy: d.sy };
+      hooks?.onTraceFinish?.();
+      return;
+    }
+    if (pts.length && near(pts[pts.length - 1], CLICK_PX)) return; // a second click on the same spot is not a second point
+    hooks?.onTraceAdd?.([d.x, d.y, (this.props.traceCurve ? 1 : 0) ^ (d.alt ? 1 : 0)]); // Alt gives the other kind of point for this one click
+  }
+
+  /** A right-click that did not move: ask the page for the menu of what is under it (a shape, else the picture). */
+  openMenuAt(e, sx, sy) {
+    const p = this.props;
+    if (p.tool === "trace" || p.mode === "stitches") return;
+    const [x, y] = this.toWorld(sx, sy);
+    let target = null;
+    if (p.mode === "design") {
+      const id = hitObject(p.design, x, y, 4 / this.view.k);
+      if (id) target = { kind: "object", id };
+    }
+    if (!target) {
+      const box = this.refBox();
+      if (box && x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3]) target = { kind: "picture" };
+    }
+    if (target) p.hooks?.onMenu?.({ ...target, x: e.clientX, y: e.clientY });
   }
 
   updateHover(sx, sy) {
@@ -548,6 +627,13 @@ export class Stage {
       const box = this.refBox();
       const h = box && this.hitBoxHandle(box, sx, sy, !this.props.crop);
       cursor = h ? CURSORS[h] : box && !this.props.crop && this.inBox(box, sx, sy) ? "move" : "default";
+    } else if (this.props.tool === "trace") {
+      const [x, y] = this.toWorld(sx, sy);
+      this.tracePointer = [x, y];
+      const pts = this.props.trace?.pts || [];
+      const [fx, fy] = pts.length ? this.toScreen(pts[0][0], pts[0][1]) : [Infinity, Infinity];
+      cursor = pts.length >= 3 && Math.hypot(fx - sx, fy - sy) <= TRACE_CLOSE_PX ? "pointer" : "crosshair";
+      if (pts.length) this.invalidate();
     } else if (this.props.tool === "rect" || this.props.tool === "ellipse") cursor = "crosshair";
     else if (this.props.tool === "text") cursor = "text";
     else {
@@ -626,9 +712,10 @@ export class Stage {
     ctx.clip();
     // Reference picture.
     if (p.reference && p.reference.visible && p.refImage && p.mode !== "stitches") this.drawReference();
-    // The shapes.
+    // The shapes (see-through while tracing, so the picture shows through them).
     const mode = p.mode;
-    if (mode !== "stitches" || p.showShapes) this.drawObjects(mode === "stitches" ? 0.18 : mode === "picture" ? 0.55 : 1, mode === "picture");
+    const tracing = p.tool === "trace" && mode === "design";
+    if (mode !== "stitches" || p.showShapes) this.drawObjects(mode === "stitches" ? 0.18 : mode === "picture" ? 0.55 : tracing ? 0.5 : 1, mode === "picture");
     // The stitches.
     if (mode === "stitches" && p.stitches) this.drawStitches();
     ctx.restore();
@@ -646,10 +733,11 @@ export class Stage {
 
     this.drawRulers(hoop);
     if (mode === "picture") this.drawPictureHandles();
-    else if (mode !== "stitches") this.drawSelection();
+    else if (mode !== "stitches" && !tracing) this.drawSelection();
     this.drawGuides();
     this.drawMarquee();
     this.drawCreate();
+    this.drawTrace();
   }
 
   drawGrid(hoop) {
@@ -714,7 +802,8 @@ export class Stage {
     const [x, y] = this.toScreen(r.x, r.y);
     const w = r.crop.w * r.mmPerPx * this.view.k, h = r.crop.h * r.mmPerPx * this.view.k;
     ctx.save();
-    ctx.globalAlpha = this.props.mode === "picture" ? r.opacity ?? 1 : Math.min(r.opacity ?? 1, 0.35);
+    // Faint behind the shapes, as clear as it was set in the Picture step while tracing over it.
+    ctx.globalAlpha = this.props.mode === "picture" || this.props.tool === "trace" ? r.opacity ?? 1 : Math.min(r.opacity ?? 1, 0.35);
     if (this.props.crop) {
       // While cropping, show all of the picture dimmed, and the part kept at full strength.
       const fx = r.x - r.crop.x * r.mmPerPx, fy = r.y - r.crop.y * r.mmPerPx;
@@ -727,8 +816,8 @@ export class Stage {
     ctx.restore();
   }
 
-  /** Path of an object's rings in screen space. */
-  pathOf(rings, m) {
+  /** Path of an object's rings in screen space (closed shapes; `open`: lines, left open). */
+  pathOf(rings, m, open = false) {
     const { k, ox, oy } = this.view;
     const path = new Path2D();
     for (const ring of rings) {
@@ -737,7 +826,7 @@ export class Stage {
         const wx = m[0] * px + m[2] * py + m[4], wy = m[1] * px + m[3] * py + m[5];
         if (i === 0) path.moveTo(wx * k + ox, wy * k + oy); else path.lineTo(wx * k + ox, wy * k + oy);
       }
-      path.closePath();
+      if (!open) path.closePath();
     }
     return path;
   }
@@ -751,8 +840,8 @@ export class Stage {
       const t = o.transform;
       const r = (t.rot * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
       const m = [c * t.sx, s * t.sx, -s * t.sy, c * t.sy, t.x, t.y];
-      const path = this.pathOf(o.rings, m);
-      if (o.fill.type !== "none") {
+      const path = this.pathOf(o.rings, m, o.open);
+      if (o.fill.type !== "none" && !o.open) { // (open lines are only ever sewn along their outline: a fill is never drawn for them)
         if (outlineOnly) {
           // A dark line with a light one inside it shows on any picture, whatever the shape's own colour is.
           ctx.globalAlpha = 0.95;
@@ -972,7 +1061,7 @@ export class Stage {
   strokeObject(o) {
     const t = o.transform;
     const r = (t.rot * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
-    this.ctx.stroke(this.pathOf(o.rings, [c * t.sx, s * t.sx, -s * t.sy, c * t.sy, t.x, t.y]));
+    this.ctx.stroke(this.pathOf(o.rings, [c * t.sx, s * t.sx, -s * t.sy, c * t.sy, t.x, t.y], o.open));
   }
 
   drawPictureHandles() {
@@ -1041,6 +1130,54 @@ export class Stage {
     ctx.setLineDash([5, 4]);
     if (d.tool === "ellipse") { ctx.beginPath(); ctx.ellipse((x0 + x1) / 2, (y0 + y1) / 2, Math.abs(x1 - x0) / 2, Math.abs(y1 - y0) / 2, 0, 0, Math.PI * 2); ctx.stroke(); }
     else ctx.strokeRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+    ctx.restore();
+  }
+
+  /** The shape being traced by hand: the line so far, where the next point would take it (dashed, with the inside tinted), and the points. */
+  drawTrace() {
+    const p = this.props;
+    if (p.tool !== "trace" || p.mode !== "design") return;
+    const pts = p.trace?.pts || [];
+    if (!pts.length) return;
+    const { ctx } = this;
+    const th = this.theme();
+    const live = this.tracePointer;
+    const pathOf = (line, close) => {
+      const path = new Path2D();
+      line.forEach((pt, i) => { const [sx, sy] = this.toScreen(pt[0], pt[1]); if (i) path.lineTo(sx, sy); else path.moveTo(sx, sy); });
+      if (close) path.closePath();
+      return path;
+    };
+    // A dark line with a light one inside it shows on any picture.
+    const stroke = (path, dark, light) => {
+      ctx.strokeStyle = "rgba(10,28,20,.8)"; ctx.lineWidth = dark; ctx.stroke(path);
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = light; ctx.stroke(path);
+    };
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    if (live) {
+      const next = [...pts, [live[0], live[1], p.traceCurve ? 1 : 0]];
+      if (next.length >= 3) { ctx.fillStyle = "rgba(31,110,76,.16)"; ctx.fill(pathOf(tracePolyline(next, true), true), "evenodd"); }
+      ctx.setLineDash([6, 5]);
+      stroke(pathOf(tracePolyline(next, false)), 3, 1.2);
+      ctx.setLineDash([]);
+    }
+    if (pts.length >= 2) stroke(pathOf(tracePolyline(pts, false)), 3.6, 1.8);
+    // The points: a square is a corner and a circle is a curve point. The first is larger, and rings when a click on it would close the shape.
+    const [fx, fy] = this.toScreen(pts[0][0], pts[0][1]);
+    const [lx, ly] = live ? this.toScreen(live[0], live[1]) : [Infinity, Infinity];
+    const closable = pts.length >= 3 && Math.hypot(lx - fx, ly - fy) <= TRACE_CLOSE_PX;
+    pts.forEach((pt, i) => {
+      const [sx, sy] = this.toScreen(pt[0], pt[1]);
+      const r = i === 0 ? 6 : 4.5;
+      ctx.beginPath();
+      if (pt[2]) ctx.arc(sx, sy, r, 0, Math.PI * 2); else ctx.rect(sx - r, sy - r, r * 2, r * 2);
+      ctx.strokeStyle = "rgba(10,28,20,.85)"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = i === 0 ? th.accent : "#ffffff"; ctx.fill();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.2; ctx.stroke();
+    });
+    if (closable) { ctx.beginPath(); ctx.arc(fx, fy, 11, 0, Math.PI * 2); ctx.strokeStyle = th.accent; ctx.lineWidth = 2.5; ctx.stroke(); }
     ctx.restore();
   }
 }
