@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deleteRow, fetchAll, updateRow, upsertRow } from "../lib/db";
 import { addHoliday, holidaysNotSetUp, removeHoliday } from "../lib/holidays";
-import { fetchOvertimeDays } from "../lib/overtime";
+import { fetchOvertimeDays, fetchRequests, requestState } from "../lib/overtime";
 import { rulesOfMonth, rulesOn } from "../lib/workRules";
 import { refreshHolidays, useHolidays } from "../hooks/useHolidays";
 import { useAuth } from "../context/AuthContext";
@@ -80,6 +80,7 @@ export default function Attendance() {
   const [reportId, setReportId] = useState("*");                // the report: "*" is everyone, else one person
   const [holOpen, setHolOpen] = useState(false);
   const [otOpen, setOtOpen] = useState(false);
+  const [otWaiting, setOtWaiting] = useState(0);            // overtime requests waiting for an approver (said on the Overtime button)
   const { rows: holidays, status: holStatus } = useHolidays();
   const [busy, setBusy] = useState(() => new Set());
   const [toast, setToast] = useState(null);
@@ -122,6 +123,18 @@ export default function Attendance() {
   }, [month.start, month.end, seesTeam]);
 
   useEffect(() => { load(); }, [load]);
+
+  // how many overtime requests are waiting for a decision, for an approver: counted again when the dialog closes (a decision may have been made in it)
+  useEffect(() => {
+    if (!canEdit || otOpen) return undefined;
+    let live = true;
+    const range = { from: today, to: addDays(today, 60) };
+    Promise.all([fetchRequests(range), fetchOvertimeDays(range)]).then(
+      ([asked, approved]) => { if (live) setOtWaiting(asked.filter((r) => requestState(r, approved, today).state === "waiting").length); },
+      () => { if (live) setOtWaiting(0); },            // not on the database yet, or not readable: nothing to count
+    );
+    return () => { live = false; };
+  }, [canEdit, otOpen, today]);
 
   const isThisMonth = month.start === monthOf(today).start;
   useEffect(() => {
@@ -248,7 +261,7 @@ export default function Attendance() {
       // no `note` here on purpose: a status change leaves what somebody wrote alone (an upsert only touches the columns it names),
       // where sending the copy this page loaded could put back a note somebody has since changed
       loggedBy: profile?.name || "Unknown",
-      // the 25% cut only exists for days the old rule judged (before 1 December 2026); later days never carry one
+      // the 25% cut only exists for days the old rule judged (before the switch day in lib/workRules.js); later days never carry one
       lateCutApplied: status === "Late" && rulesOn(date) === "old" ? (patch.cut ?? prev?.lateCutApplied === true) : false,
       lateMinutes: status === "Late" ? Number(prev?.lateMinutes) || 0 : 0,
     };
@@ -404,11 +417,10 @@ export default function Attendance() {
                 <Icons.Calendar size={13} sw={1.9} aria-hidden="true" /> Holidays
               </button>
             )}
-            {seesTeam && (
-              <button type="button" className="kb-pillbtn" onClick={() => setOtOpen(true)}>
-                <Icons.Clock size={13} sw={1.9} aria-hidden="true" /> Overtime
-              </button>
-            )}
+            <button type="button" className="kb-pillbtn" onClick={() => setOtOpen(true)}>
+              <Icons.Clock size={13} sw={1.9} aria-hidden="true" /> Overtime
+              {canEdit && otWaiting > 0 && <span className="at-ot-n" role="img" aria-label={`${otWaiting} ${otWaiting === 1 ? "request" : "requests"} waiting`}>{otWaiting}</span>}
+            </button>
             <button type="button" className="kb-pillbtn" onClick={() => load()} aria-label="Refresh attendance">
               <Icons.RefreshCw size={13} sw={1.9} aria-hidden="true" /> Refresh
             </button>
@@ -447,14 +459,14 @@ export default function Attendance() {
             />
           )}
           <MonthTile kind="team" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} byDay={ready ? team.byDay : NOTHING} loading={firstLoad} holidays={holidays} />
-          <StatsTile kind="team" summary={team} label={monthTitle(month)} loading={loadingTiles} showCuts={rulesOfMonth(month.y, month.m) === "old"} />
+          <StatsTile kind="team" summary={team} label={monthTitle(month)} loading={loadingTiles} showCuts={rulesOfMonth(month.y, month.m) !== "new"} />
         </BentoGrid>
       ) : (
         <BentoGrid layout={layout}>
           <ClockTile profile={profile} onClockChange={() => load({ silent: true })} />
           <TodayTile row={myRow} date={date} today={today} loading={loadingTiles} onSaveNote={(text) => saveNote(myRow, text)} />
           <MonthTile kind="me" month={month} onMonth={stepMonth} date={date} onPick={goDate} today={today} days={ready ? myDays : NO_DAYS} loading={firstLoad} holidays={holidays} region={profile?.location} />
-          <StatsTile kind="me" summary={mine} label={monthTitle(month)} loading={loadingTiles} showCuts={rulesOfMonth(month.y, month.m) === "old"} />
+          <StatsTile kind="me" summary={mine} label={monthTitle(month)} loading={loadingTiles} showCuts={rulesOfMonth(month.y, month.m) !== "new"} />
           <RecentTile days={mine.days} today={today} date={date} onPick={goDate} loading={loadingTiles} />
         </BentoGrid>
       )}
@@ -477,6 +489,7 @@ export default function Attendance() {
       {otOpen && (
         <OvertimeDialog
           staff={staff}
+          me={me}
           date={date}
           today={today}
           canManage={canEdit}

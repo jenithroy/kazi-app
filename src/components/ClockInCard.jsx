@@ -9,7 +9,7 @@ import { useReward } from "../context/RewardContext";
 import { getCurrentPosition, hapticSuccess } from "../utils/native";
 import { useHolidays } from "../hooks/useHolidays";
 import { holidayOn } from "../lib/holidayDays";
-import { fetchApprovals } from "../lib/overtime";
+import { fetchApprovals, fetchRequests } from "../lib/overtime";
 
 function fmtHM(date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
@@ -52,6 +52,7 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
   const [workedHours, setWorkedHours] = useState(null);
   const [confirmingOut, setConfirmingOut] = useState(false);
   const [approval, setApproval] = useState(null);            // overtime approved for today ({ from, until }), said under the circle
+  const [asked, setAsked] = useState(null);                  // overtime this person asked for today ({ from, until, status }), said until it is approved
 
   // Live timer
   useEffect(() => {
@@ -75,7 +76,20 @@ export default function ClockInCard({ profile, onClockChange, variant = "ring", 
     fetchApprovals({ from: today, to: today, personId }).then((rows) => { if (live) setApproval(rows[0] || null); }, () => {});
     return () => { live = false; };
   }, [personId, today]);
-  const otNote = approval ? `Overtime approved ${approval.from} to ${approval.until}.` : "";
+  useEffect(() => {
+    if (!personId) return undefined;
+    let live = true;
+    fetchRequests({ from: today, to: today, personId }).then((rows) => { if (live) setAsked(rows[0] || null); }, () => {});
+    return () => { live = false; };
+  }, [personId, today]);
+  // an approval says it; otherwise what became of the request. One that is still waiting when the person has clocked in can no longer be approved.
+  const clockedAlready = status === "clocked" || status === "clocked_out";
+  const otNote = approval
+    ? `Overtime approved ${approval.from} to ${approval.until}.`
+    : !asked ? ""
+      : asked.status === "declined" ? "Overtime request declined."
+        : clockedAlready ? `Overtime asked for ${asked.from} to ${asked.until} was not approved before you clocked in, so it will not count.`
+          : `Overtime asked for ${asked.from} to ${asked.until}, waiting for approval.`;
 
   // Fetch initial clock-in status
   useEffect(() => {

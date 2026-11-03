@@ -491,3 +491,34 @@
 :root[data-theme="dark"] .kmodal--glass .at-hol-del.is-sure { color: #f4ae98; border-color: #f4ae98; }
 .at-hol-past summary { padding: 6px 0; font-size: 12.5px; color: var(--ink-3); cursor: pointer; }
 .at-hol-past[open] summary { margin-bottom: 4px; }
+
+/* ── The overtime dialog: a request's state, an approver's buttons, the decline note (same dialog tokens as above) ── */
+
+.at-ot-st { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: rgba(15, 46, 34, .05); color: var(--ink-2); font-size: 11.5px; font-weight: 600; line-height: 1.45; white-space: nowrap; }
+.at-ot-st--good { background: var(--mint-soft); color: var(--mint-deep); }
+.at-ot-st--warn { background: var(--amber-soft); color: #7d5512; }
+.at-ot-st--bad { background: var(--terra-soft); color: #a8442c; }
+:root[data-theme="dark"] .kmodal--glass .at-ot-st { background: rgba(255, 255, 255, .05); }
+:root[data-theme="dark"] .kmodal--glass .at-ot-st--good { background: rgba(125, 211, 168, .14); color: #7dd3a8; }
+:root[data-theme="dark"] .kmodal--glass .at-ot-st--warn { background: rgba(224, 180, 95, .14); color: #e6bd70; }
+:root[data-theme="dark"] .kmodal--glass .at-ot-st--bad { background: rgba(240, 164, 141, .14); color: #f4ae98; }
+.at-ot-wait { display: grid; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.at-ot-acts { flex: none; display: flex; align-items: center; gap: 6px; }
+.at-ot-yes { padding: 5px 12px; font-size: 12.5px; }
+.at-ot-why { display: block; margin-top: 4px; }
+.at-ot-why input { width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; }
+.at-ot-ask .at-hol-t span:not(.at-ot-why) { overflow-wrap: anywhere; }
+/* what the two times mean (only the time after the normal day is overtime), with a warning when the window starts inside it or can never count */
+.at-ot-hint { margin: -4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.at-ot-hint.is-warn { color: #7d5512; }
+.at-ot-hint.is-bad { color: #a8442c; }
+:root[data-theme="dark"] .kmodal--glass .at-ot-hint.is-warn { color: #e6bd70; }
+:root[data-theme="dark"] .kmodal--glass .at-ot-hint.is-bad { color: #f4ae98; }
+@media (max-width: 480px) {
+  .at-ot-ask { flex-wrap: wrap; }
+  .at-ot-ask .at-ot-acts { width: 100%; gap: 8px; }
+  .at-ot-ask .at-ot-acts button { flex: 1 1 0; min-height: 44px; }
+}
+
+/* the count on the page's Overtime button: requests waiting for an approver */
+.at-ot-n { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: -1px; border-radius: 999px; background: var(--kb-accent); color: var(--kb-on-accent); font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
