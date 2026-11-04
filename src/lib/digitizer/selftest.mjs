@@ -12,6 +12,7 @@ import { makeObject, engineDesign } from "./model.js";
 import { traceImage } from "../embroidery/trace/index.js";
 import { outlineRuns } from "../embroidery/stitch/outline.js";
 import { generate } from "../embroidery/stitch/engine.js";
+import { findPerson } from "./segmentClient.js";
 import { CMD } from "../embroidery/pattern.js";
 
 let failed = 0, total = 0;
@@ -218,6 +219,13 @@ console.log("convert.js: fine details are ranked by the region of the person the
   check("with the regions, the one new thread goes to the face's dark line, not to the longer pattern of the jacket", !!ranked && ranked.newColours === 1 && ranked.colours.join() === "#3c2319", ranked && JSON.stringify(ranked.colours));
   check("(control) without regions the longer line wins the thread, so the check above can fail", !!plain && plain.colours.join() === "#6e5ac8", plain && JSON.stringify(plain.colours));
   check("a detail limit can be changed by the caller (detailTune)", (() => { const d = objectsFromTrace(make(true), { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea", maxColors: 3, detailTune: { newColours: 0 } }).details; return !d || d.newColours === 0; })());
+}
+
+console.log("segmentClient.js (the person finder's door; the model itself runs in a browser worker and is checked there)");
+{
+  const img = (alpha) => ({ width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4).fill(alpha) });
+  check("with no Worker (here, plain node) the person finder answers null and the picture is traced as it is", (await findPerson(img(255))) === null);
+  check("a picture with real see-through parts is never sent to it", (await findPerson(img(0))) === null);
 }
 
 console.log(failed ? `\n${failed} of ${total} checks FAILED` : `\nall ${total} checks passed`);

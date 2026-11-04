@@ -104,6 +104,8 @@ export default function PicturePanel({ api, pickFile }) {
           <ColorField value={design.fabricColor} label="Cloth colour" onChange={(c) => api.setFabricColor(c)} />
         </Row>
         <Toggle checked={settings.background === "auto"} onChange={(v) => api.changeSettings({ background: v ? "auto" : "none" })}>Leave out the background</Toggle>
+        <Toggle checked={settings.people !== false} disabled={settings.background !== "auto"} onChange={(v) => api.changeSettings({ people: v })}>Find the person in a photo</Toggle>
+        <p className="dz-hint">In a photo of a person the background is left out, and the hair, face, body and clothes each get colours of their own, so the face keeps its detail. The first time, the browser loads a small picture model (about 30 MB) and keeps it.</p>
         <Toggle checked={settings.snap} onChange={(v) => api.changeSettings({ snap: v })}>Use the nearest thread colours</Toggle>
         <Toggle checked={settings.details !== false} onChange={(v) => api.changeSettings({ details: v })}>Fine details on top</Toggle>
         <p className="dz-hint">Thin lines and tiny dots, such as leaf veins, twigs, eyelids, lashes and small dark spots, are found in the picture itself and sewn on top, last. For photos and artwork; a flat logo has none.</p>
@@ -126,6 +128,9 @@ export default function PicturePanel({ api, pickFile }) {
                 ? <p className="dz-note-inline">The design has {linesNow} fine {linesNow === 1 ? "line" : "lines"}{dotsNow ? ` and ${dotsNow} ${dotsNow === 1 ? "dot" : "dots"}` : ""} on top{linesNow === traceInfo.details.lines && dotsNow === traceInfo.details.dots ? ` (about ${n(traceInfo.details.stitchesEst)} stitches)` : ""}. Untick "Fine details on top" to leave them out.</p>
                 : null)
               : <p className="dz-note-inline">No fine lines or dots were worth adding to this picture.</p>
+        )}
+        {traceInfo && traceInfo.person > 0 && settings.people !== false && !convertError && (
+          <p className="dz-note-inline">A person was found ({Math.round(traceInfo.person * 100)}% of the picture). The background is left out, and the hair, skin and clothes were given colours of their own. Untick "Find the person in a photo" to keep the whole picture.</p>
         )}
         {traceInfo && traceInfo.widenedMm2 >= 1 && !convertError && (
           <p className="dz-note-inline">Very thin lines and lettering were made about half a millimetre wide, the thinnest a line of thread can be, and are sewn as one line of stitches. If letters run together, make the picture bigger.</p>

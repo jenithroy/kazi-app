@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createHistory } from "../../lib/digitizer/history";
 import { createEngine } from "../../lib/digitizer/engineClient";
+import { findPerson, disposePersonFinder } from "../../lib/digitizer/segmentClient";
 import {
   newDesign, makeObject, boxOfObjects, objectBox, objectCorners, moveObject, setObjectSize, setObjectCentre, withTransform, scaleObjectAbout, flipObject,
   breakApart, fillHoles, cloneObjects, engineDesign, serializeDesign, parseDesign, DEFAULT_FILL, DEFAULT_CLOTH, newId, centreRings, followsPicture,
@@ -59,6 +60,9 @@ const read = (key, fallback) => {
   try { const v = JSON.parse(localStorage.getItem(key) || "null"); return v ?? fallback; } catch { return fallback; }
 };
 const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } };
+
+/** What identifies a crop of the picture for the person finder: what it found stays valid until the crop changes. */
+const personKey = (crop) => [crop.x, crop.y, crop.w, crop.h].map(Math.round).join(",");
 
 export function useDigitizer() {
   const hist = useRef(null);
@@ -147,7 +151,7 @@ export function useDigitizer() {
 
   const engine = useRef(null);
   if (!engine.current) engine.current = createEngine();
-  useEffect(() => () => engine.current?.dispose(), []);
+  useEffect(() => () => { engine.current?.dispose(); disposePersonFinder(); }, []);
   /** Let the worker forget tracer answers nobody can ask for any more. */
   const releaseTokens = useCallback((list) => {
     if (!list.length) return;
@@ -710,10 +714,28 @@ export function useDigitizer() {
       const first = extractImage(img.canvas, ref0.crop, 1600);
       const scale = first.scale;
       let mmPerPx = ref.mmPerPx / scale;
-      let opts = traceOptions(s, mmPerPx);
+      // A person found in a photograph (this crop of it) is cut out of its background, and its hair, skin and clothes get colours of their own: the tracer
+      // is given the region map the finder made. What was found is kept with the picture, so a slider moved later does not look again.
+      const seekKey = personKey(ref0.crop);
+      const lookForPerson = s.people !== false && s.background !== "none" && (s.kind === "auto" || s.kind === "photo");
+      const withPerson = (o) => (lookForPerson && img.person && img.person.key === seekKey && img.person.regions ? { ...o, regions: img.person.regions } : o);
+      let opts = withPerson(traceOptions(s, mmPerPx));
       let tok = newToken();
       let res = await engine.current.trace(first.image, opts, "picture", tok);
       if (token !== convertToken.current) return;
+      // The first look at a photograph: is there a person in it? If so it is read again with the person cut out (a few seconds more, once for this picture).
+      if (lookForPerson && res.stats?.kind === "photo" && !(img.person && img.person.key === seekKey)) {
+        const found = await findPerson(extractImage(img.canvas, ref0.crop, 1600).image);
+        if (token !== convertToken.current) return;
+        img.person = { key: seekKey, regions: found ? found.regions : null };
+        if (found) {
+          const again = extractImage(img.canvas, ref0.crop, 1600);
+          opts = withPerson(traceOptions(s, mmPerPx));
+          tok = newToken();
+          res = await engine.current.trace(again.image, opts, "picture", tok);
+          if (token !== convertToken.current) return;
+        }
+      }
       // the cloth the picture was made for: a dark or coloured background means that garment, unless the person chose the cloth
       const now0 = hist.current.present;
       const clothOf = (r) => (now0.fabricAuto === false ? now0.fabricColor : clothFromTrace(r) || DEFAULT_CLOTH);
@@ -727,7 +749,7 @@ export function useDigitizer() {
           const next = { ...ref0, mmPerPx: ref0.mmPerPx * k, x: -cx * k, y: -cy * k };
           const again = extractImage(img.canvas, ref0.crop, 1600); // the first copy went to the worker (its memory moved over): take another
           const mm2 = next.mmPerPx / again.scale;
-          const opts2 = traceOptions(s, mm2);
+          const opts2 = withPerson(traceOptions(s, mm2));
           const tok2 = newToken();
           const res2 = await engine.current.trace(again.image, opts2, "picture", tok2);
           if (token !== convertToken.current) return;
@@ -760,7 +782,7 @@ export function useDigitizer() {
       const lt = { token: tok, scale, crop: { x: Math.round(ref.crop.x), y: Math.round(ref.crop.y) }, holder: img, maxColors: typeof s.colors === "number" ? Math.min(s.colors, s.maxColors) : s.maxColors, thick: !!s.detailThick, recipe: { crop: { x: ref0.crop.x, y: ref0.crop.y, w: ref0.crop.w, h: ref0.crop.h }, options: opts } };
       const perWorkPx = mmPerPx * (res.stats?.scale || 1); // millimetres a pixel of the tracer's own (maybe shrunk) copy is
       const droppedMm2 = ((res.stats?.removedSliverPixels || 0) + (res.stats?.removedSpeckPixels || 0)) * perWorkPx * perWorkPx;
-      const info = { kind: res.stats?.kind || "logo", widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx };
+      const info = { kind: res.stats?.kind || "logo", person: res.stats?.person ?? null, widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx };
       const nextSkip = new Set(), nextInclude = new Set();
       cloth = clothOf(res);
       // The shapes are made in the worker. What was found out, the colour list and the shapes land together, in one step.

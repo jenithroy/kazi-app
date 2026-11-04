@@ -59,7 +59,7 @@ export function shapeWidthMm(shape, mmPerPx) {
  * lines and lettering are kept and widened to something a needle can follow. Detail 0.75 is the starting point: on 95 test pictures each step up the slider
  * (0.25, 0.5, 0.75, 1) kept more of the small things and made the stitched picture closer to the source, at a few per cent more stitches.
  */
-export const CONVERT_DEFAULTS = { colors: "auto", maxColors: 12, detail: 0.75, background: "auto", snap: false, kind: "auto", details: true, detailThick: false };
+export const CONVERT_DEFAULTS = { colors: "auto", maxColors: 12, detail: 0.75, background: "auto", snap: false, kind: "auto", details: true, detailThick: false, people: true };
 
 /**
  * Whether a portrait, artwork or a photograph is read half a step further up the Detail slider than a logo (`trace/detail.js`: its small shapes are the
