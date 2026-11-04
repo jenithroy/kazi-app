@@ -24,6 +24,7 @@ import { isFreeMail } from "./freeMail.js";
 
 export const FINDER_UA = "KaziContactFinder/1.0 (+https://kazimfg.com.np; reads a business's public contact pages only)";
 const ROBOTS_TOKEN = "kazicontactfinder";
+
 const MAX_BYTES = 1_500_000;
 const MAX_SCAN = 800_000;            // characters of a page that are read: the first and last half of this when a page is longer
 const MAX_ANCHORS = 4000;            // links looked at on one page
@@ -35,6 +36,36 @@ const MAX_REDIRECTS = 3;
 const MAX_PAGES = 3;                 // the home page and two more
 const PAUSE_MS = 700;
 const BUDGET_MS = 40_000;            // after this the pages not yet read are left
+
+/**
+ * Sites whose own rules forbid reading their pages with a program, whatever their robots.txt says path by path (and whatever the caller has
+ * switched off). The finder does not touch them (not even for the robots.txt) and says what to do instead. eBay: its robots.txt opens "The use of robots or other automated means
+ * to access the eBay site without the express permission of eBay is strictly prohibited", its User Agreement bars scrapers and any
+ * automated access, its store pages answer a program with 403, and its developer licence does not allow sellers' details to be used to
+ * write to them: a seller's own website is the way (see worker/lib/emailFinder.js and the Contact Finder page).
+ */
+const CLOSED_SITES = [
+  {
+    host: /(^|\.)ebay\.[a-z]{2,3}(\.[a-z]{2})?$/,
+    message: "eBay doesn't allow its pages to be read automatically, so this can't be read. Find the seller's own website (many sellers have one) and type that instead.",
+  },
+];
+
+// Social networks and search engines are closed to this reader too, whatever robots.txt is set to: they answer a program with a sign-in page or a
+// block, and what they show without one is next to nothing. The brand's own website is the way: it carries its email and links to its social pages.
+const SOCIAL = /(?:^|\.)(?:instagram\.com|facebook\.com|fb\.com|fb\.me|linkedin\.com|tiktok\.com|twitter\.com|x\.com|threads\.(?:net|com)|snapchat\.com|youtube\.com|youtu\.be|pinterest\.[a-z]{2,3}(?:\.[a-z]{2})?)$/;
+// (Google's own search host in any country, not every Google address: a business's website may well be on sites.google.com)
+const SEARCH = /^(?:www\.)?google\.[a-z]{2,3}(?:\.[a-z]{2})?$|(?:^|\.)bing\.com$|(?:^|\.)duckduckgo\.com$|^(?:[a-z]+\.)?search\.yahoo\.com$|(?:^|\.)yandex\.[a-z]{2,3}$|^(?:www\.)?baidu\.com$|(?:^|\.)ecosia\.org$|(?:^|\.)startpage\.com$|^search\.brave\.com$/;
+const SOCIAL_MESSAGE = "Instagram, Facebook and the other social networks don't let programs read their pages (they ask for a sign-in and block automated access), so this can't be read. The brand's own website usually shows the same email and links to its social pages: type that instead.";
+const SEARCH_MESSAGE = "Search engines don't let programs read their results pages, so this can't be read. Type the company's own website instead.";
+
+/** Why a host name may not be read at all, in plain words, or "". */
+export const closedTo = (host) => {
+  const h = String(host ?? "").toLowerCase().replace(/\.$/, "");
+  if (SOCIAL.test(h)) return SOCIAL_MESSAGE;
+  if (SEARCH.test(h)) return SEARCH_MESSAGE;
+  return CLOSED_SITES.find((s) => s.host.test(h))?.message || "";
+};
 
 /** Something the person who typed the address should be told, in plain words. */
 export class FinderError extends Error {
@@ -167,7 +198,7 @@ const ASSET_END = /\.(png|jpe?g|gif|webp|svg|ico|pdf|mp4|css|js|woff2?)$/i;
 const EMAIL_SHAPE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 const CF_RE = /data-cfemail=["']([0-9a-f]{2,400})["']|\/cdn-cgi\/l\/email-protection#([0-9a-f]{2,400})/gi;
 const LD_RE = /"email"\s{0,5}:\s{0,5}"([^"]{1,200})"/gi;
-const SOCIAL_RE = /https?:\/\/(?:www\.|m\.)?(instagram|facebook|tiktok|pinterest|linkedin)\.com\/([A-Za-z0-9_./-]{2,80})/gi;
+const SOCIAL_RE = /https?:\/\/(?:www\.|m\.|mobile\.|[a-z]{2}\.)?(instagram|facebook|tiktok|pinterest|linkedin|youtube|twitter|x)\.com\/(@?[A-Za-z0-9_./%-]{2,80})/gi;
 // Only an address WRITTEN OUT with brackets counts ("name [at] brand [dot] com"). The bare words "at" and "dot" are never read as an @ or a
 // dot: "visit us at brand.com" is a sentence, not us@brand.com. (Run on text whose white space is already single spaces.)
 const OBF_AT = / ?[[({] ?at ?[\])}] ?/gi;
@@ -292,15 +323,26 @@ export function emailsIn(html) {
   return new Set([...found].filter(plausibleEmail));
 }
 
-/** The brand's own pages on social networks that a page links to: { instagram: "https://…", facebook: … }, the first of each. */
+// the first part of an address that is a share button, a post, a player or a login, not the brand's own page
+const NOT_A_PROFILE = new Set(["sharer", "share", "sharer.php", "dialog", "plugins", "tr", "intent", "login", "p", "reel", "explore", "hashtag",
+  "watch", "embed", "results", "shorts", "playlist", "feed", "iframe_api", "redirect", "oembed", "home", "i", "search", "settings", "widgets.js", "privacy", "policies"]);
+
+/**
+ * The brand's own pages on social networks that a page links to: { instagram: "https://…", facebook: …, tiktok, pinterest, linkedin, youtube, x },
+ * the first of each. A link is only ever what the brand's own website shows: no social network is opened or searched (they do not allow it, and
+ * most would not show a program anything without a login). Twitter's old address is kept as "x"; a LinkedIn link is kept only when it is a
+ * company's page, not a person's own profile.
+ */
 export function socialLinksIn(html) {
   const out = {};
   for (const m of scanText(html).matchAll(SOCIAL_RE)) {
-    const net = m[1].toLowerCase();
+    const raw = m[1].toLowerCase();
+    const net = raw === "twitter" ? "x" : raw;
     const path = m[2].replace(/[/.]+$/, "");
     const first = path.split("/")[0].toLowerCase();
-    if (!first || ["sharer", "share", "sharer.php", "dialog", "plugins", "tr", "intent", "login", "p", "reel", "explore", "hashtag"].includes(first) || out[net]) continue;
-    out[net] = `https://www.${net}.com/${path}`;
+    if (!first || NOT_A_PROFILE.has(first) || out[net]) continue;
+    if (net === "linkedin" && !/^(company|showcase|school)\//i.test(path)) continue;                 // the company's page, never a person's own (linkedin.com/in/…)
+    out[net] = net === "x" ? `https://x.com/${path}` : `https://www.${net}.com/${path}`;
   }
   return out;
 }
@@ -418,10 +460,11 @@ export async function getPage(rawUrl, fetchImpl = fetch, { allow = null, site = 
 /**
  * Read one business's public contact pages. Resolves to
  *   { ok, site, host, pages, emails: [{ email, kind, ownDomain, source }], socials, robotsBlocked, message }
+ * (plus `closed: true` for a site that may not be read at all, and `blocked: true` for one that turned this reader away: 401, 403, 429, 503)
  * and throws a FinderError only for an address that may not be fetched at all. A site that cannot be reached, or that sends visitors to
  * another site, is `ok: false` with a message.
  */
-export async function findContacts(input, { fetchImpl = fetch, pause = PAUSE_MS } = {}) {
+export async function findContacts(input, { fetchImpl = fetch, pause = PAUSE_MS, respectRobots = true } = {}) {
   const start = parseSiteUrl(input);
   const deadline = Date.now() + BUDGET_MS;
   const robotsOf = new Map();                              // origin -> its robots.txt answer, read once
@@ -430,6 +473,7 @@ export async function findContacts(input, { fetchImpl = fetch, pause = PAUSE_MS 
     return robotsOf.get(origin);
   };
   const allow = async (url) => {
+    if (!respectRobots) return "ok";                         // the person who asked has switched it off (Sources: "Respect robots.txt"): the site's robots.txt is not read
     const u = new URL(url);
     const r = await robotsFor(u.origin);
     const v = robotsVerdict(r);
@@ -450,7 +494,11 @@ export async function findContacts(input, { fetchImpl = fetch, pause = PAUSE_MS 
     return null;
   };
 
-  // robots.txt comes first, for every site the request lands on: a site that asks robots to keep out is not touched at all
+  // a site whose own rules forbid programs is not touched at all
+  const closed = closedTo(start.hostname);
+  if (closed) return result({ ok: false, closed: true, message: closed });
+
+  // robots.txt comes first, for every site the request lands on (unless it was switched off): a site that asks robots to keep out is not touched at all
   let home = await getPage(start.toString(), fetchImpl, options);
   const noAnswer = home.status === null && !home.offSite && home.refused !== "disallowed";
   if (noAnswer && start.protocol === "https:") {                 // a few small sites answer on plain http only
@@ -464,6 +512,7 @@ export async function findContacts(input, { fetchImpl = fetch, pause = PAUSE_MS 
     const st = home.status;
     return result({
       ok: false,
+      blocked: [401, 403, 429, 503].includes(st),
       message: [401, 403, 429, 503].includes(st) ? `That site doesn't let automated readers in (${st}), so nothing could be read. Try its Instagram or Facebook by hand.`
         : st ? `That site answered with an error (${st}), so nothing could be read.` : "That site could not be reached.",
     });

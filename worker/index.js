@@ -7,7 +7,8 @@ import {
   handleLeadgenWebhookEvent,
   syncLeadGenAds,
 } from "./lib/metaLeads.js";
-import { REDDIT_CRON, handleFindEmails, handleRedditSync, runRedditSync } from "./lib/redditLeads.js";
+import { REDDIT_CRON, handleRedditSync, runRedditSync } from "./lib/redditLeads.js";
+import { handleFindEmails, handleFindWebsite, handleTenderSearch, handleWebSearch } from "./lib/emailFinder.js";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -265,7 +266,7 @@ export default {
       }
     }
 
-    // Reddit Leads: "Check now", and reading one business's public contact pages (worker/lib/redditLeads.js)
+    // Reddit Leads: "Check now" (worker/lib/redditLeads.js)
     if (request.method === "POST" && url.pathname === "/api/reddit-leads/sync") {
       try {
         return await handleRedditSync(request, env);
@@ -274,9 +275,35 @@ export default {
       }
     }
 
-    if (request.method === "POST" && url.pathname === "/api/reddit-leads/find-email") {
+    // Contact Finder: reading one business's public contact pages, the public notices on Find a Tender, finding a company's website from its name, and a
+    // web search through Brave's Search API (worker/lib/emailFinder.js)
+    if (request.method === "POST" && url.pathname === "/api/email-finder/site") {
       try {
         return await handleFindEmails(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/email-finder/tenders") {
+      try {
+        return await handleTenderSearch(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/email-finder/company") {
+      try {
+        return await handleFindWebsite(request, env);
+      } catch (err) {
+        return errorResponse(err);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/email-finder/search") {
+      try {
+        return await handleWebSearch(request, env);
       } catch (err) {
         return errorResponse(err);
       }

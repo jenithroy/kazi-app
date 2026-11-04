@@ -1,8 +1,9 @@
 /**
- * Reddit Leads, server side: the check that pulls new posts into the database, and the two routes the page calls.
+ * Reddit Leads, server side: the check that pulls new posts into the database, and the route the page calls.
  *
  *   POST /api/reddit-leads/sync        "Check now": the same check the schedule runs (every 30 minutes, REDDIT_CRON)
- *   POST /api/reddit-leads/find-email  read one business's public contact pages (worker/lib/contactFinder.js)
+ *
+ * (Reading a business's contact pages is not Reddit's: it lives in worker/lib/emailFinder.js, with the Contact Finder page.)
  *
  * Where the posts come from: Arctic Shift (arctic-shift.photon-reddit.com), a free public archive of Reddit that needs no key. Reddit's
  * own feeds refuse most automated readers (its JSON gives 403, its RSS answers 429 after a couple of requests in a second, and a cloud
@@ -20,10 +21,9 @@
  *      others.
  * A subreddit the archive cannot answer for is skipped and named; the rest still go in. However a check ends, how it went is written down.
  */
-import { AuthError } from "./metaAuth.js";
+import { checkMarketingPermission, noEdit } from "./marketingAccess.js";
 import { patch, select, upsert } from "./supabaseRest.js";
 import { DEFAULT_SETTINGS, leadRow } from "./redditScore.js";
-import { FinderError, findContacts } from "./contactFinder.js";
 
 export const REDDIT_CRON = "10,40 * * * *";
 
@@ -39,36 +39,6 @@ const MANUAL_GAP_MS = 45 * 1000;        // "Check now" again within this long of
 
 const isoSeconds = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 const oneLine = (s, n = 160) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
-
-/* ── Who may ask ──────────────────────────────────────────────── */
-
-function bearerToken(request) {
-  const header = request.headers.get("Authorization");
-  if (!header || !header.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim() || null;
-}
-
-/**
- * { view, edit } for the caller on the Marketing section. The caller's own token goes to PostgREST with the anon key, so row-level
- * security answers for the real signed-in person (the same way worker/lib/metaAuth.js does it). Reddit Leads has no permission of its
- * own: whoever may use Marketing may use it.
- */
-export async function checkMarketingPermission(request, env) {
-  const token = bearerToken(request);
-  if (!token) throw new AuthError(401, "Sign in to use Reddit Leads.");
-  let res;
-  try {
-    res = await fetch(`${env.SUPABASE_URL}/rest/v1/my_permissions?section_id=eq.marketing&select=can_view,can_edit`, {
-      headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
-    });
-  } catch {
-    throw new AuthError(503, "Could not verify your session. Try again.");
-  }
-  if (res.status === 401) throw new AuthError(401, "Your session has expired. Sign in again.");
-  if (!res.ok) throw new AuthError(503, "Could not verify your permissions. Try again.");
-  const row = (await res.json())[0] || {};
-  return { view: row.can_view === true, edit: row.can_edit === true };
-}
 
 /* ── The check ────────────────────────────────────────────────── */
 
@@ -223,25 +193,10 @@ export async function runRedditSync(env, { fetchImpl = fetch, now = Date.now(), 
   return { ok: !outcome.nothingRead, subreddits: settings.subreddits.length, fetched, matched, saved, errors, notes };
 }
 
-/* ── The routes ───────────────────────────────────────────────── */
-
-const noEdit = () => Response.json({ error: "Your role can't do this. Ask an admin for Edit on Marketing." }, { status: 403 });
+/* ── The route ────────────────────────────────────────────────── */
 
 export async function handleRedditSync(request, env) {
   const permission = await checkMarketingPermission(request, env);
   if (!permission.edit) return noEdit();
   return Response.json({ ok: true, ...(await runRedditSync(env, { minGapMs: MANUAL_GAP_MS })) });
-}
-
-export async function handleFindEmails(request, env) {
-  const permission = await checkMarketingPermission(request, env);
-  if (!permission.edit) return noEdit();
-  if (Number(request.headers.get("content-length") || 0) > 4096) return Response.json({ error: "That request is too big." }, { status: 413 });
-  const body = await request.json().catch(() => null);
-  try {
-    return Response.json({ ok: true, result: await findContacts(body?.url) });
-  } catch (err) {
-    if (err instanceof FinderError) return Response.json({ error: err.message }, { status: 400 });
-    throw err;
-  }
 }
