@@ -5,10 +5,9 @@
  */
 import { useId, useRef, useState } from "react";
 import EditCard, { Field, Seg, Tag } from "../EditCard";
-import { kindLabel, kindOf, normalizeWebsite, timeAgo } from "../../lib/redditLeads";
+import { SOCIALS, kindLabel, kindOf, normalizeWebsite, socialLinks, timeAgo } from "../../lib/redditLeads";
 
 const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
-const SOCIAL = { instagram: "Instagram", facebook: "Facebook", tiktok: "TikTok", pinterest: "Pinterest", linkedin: "LinkedIn" };
 
 export default function EmailCard({ email, lead, canEdit, onSave, onRemove, onClose }) {
   const id = useId();
@@ -20,7 +19,7 @@ export default function EmailCard({ email, lead, canEdit, onSave, onRemove, onCl
   const [mayEmail, setMayEmail] = useState(email.doNotEmail ? "no" : "yes");
   const dirty = brand !== base.current.brand || website !== base.current.website || note !== base.current.note || (mayEmail === "no") !== base.current.doNotEmail;
   const found = new Date(email.foundAt);
-  const socials = Object.entries(email.socials || {}).filter(([, v]) => typeof v === "string" && /^https?:\/\//.test(v));
+  const socials = socialLinks(email);
 
   async function save() {
     const changed = website !== base.current.website;
@@ -52,8 +51,8 @@ export default function EmailCard({ email, lead, canEdit, onSave, onRemove, onCl
         <div><dt>Type</dt><dd>{kindLabel(kindOf(email))}</dd></div>
         <div><dt>On the brand's own domain</dt><dd>{email.sameDomain ? "Yes" : "No"}</dd></div>
         <div><dt>Found</dt><dd>{Number.isNaN(found.getTime()) ? "—" : WHEN.format(found)} <small>{timeAgo(email.foundAt)}</small></dd></div>
-        <div><dt>Where</dt><dd>{email.sourceUrl ? <a href={email.sourceUrl} target="_blank" rel="noreferrer noopener">The page it was on</a> : "Added by hand"}</dd></div>
-        <div><dt>From the Reddit post</dt><dd>{lead ? <a href={lead.url} target="_blank" rel="noreferrer noopener">r/{lead.subreddit}</a> : "—"}</dd></div>
+        <div><dt>Where</dt><dd>{email.sourceUrl ? <a href={email.sourceUrl} target="_blank" rel="noreferrer noopener">{/find-tender\.service\.gov\.uk/.test(email.sourceUrl) ? "The tender notice" : "The page it was on"}</a> : "Added by hand"}</dd></div>
+        {lead && <div><dt>From the Reddit post</dt><dd><a href={lead.url} target="_blank" rel="noreferrer noopener">r/{lead.subreddit}</a></dd></div>}
       </dl>
       {email.doNotEmail && (
         <p className="rdl-line">
@@ -63,7 +62,7 @@ export default function EmailCard({ email, lead, canEdit, onSave, onRemove, onCl
       {socials.length > 0 && (
         <p className="rdl-find-soc">
           <span>Also on</span>
-          {socials.map(([net, link]) => <a key={net} href={link} target="_blank" rel="noreferrer noopener">{SOCIAL[net] || net}</a>)}
+          {socials.map(([net, link]) => <a key={net} href={link} target="_blank" rel="noreferrer noopener">{SOCIALS[net].name}</a>)}
         </p>
       )}
     </div>

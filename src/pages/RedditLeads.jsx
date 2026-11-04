@@ -4,31 +4,29 @@
  *
  * What it is for: people on Reddit who say they are looking for a clothing manufacturer (or private label, or a first production run) are
  * leads. A check reads the subreddits on the team's list (every 30 minutes on the server, or "Check now"), keeps the posts that score as
- * somebody needing a maker, and adds them here. The team replies to them on Reddit, and, for the email marketing, finds each brand's
- * public contact address on its own website (the email finder) and keeps it on the list. Nobody is emailed from here: the list is
- * downloaded for the email tool.
+ * somebody needing a maker, and adds them here. The team replies to them on Reddit, and, for the email marketing, can find a brand's public
+ * contact address on its own website from the post's card. Those addresses go on the team's email list, which is the Contact Finder's page
+ * (pages/ContactFinder.jsx): this page only counts a post's addresses. Nobody is emailed from here.
  *
- *   ?view=posts | emails        (no view: the posts)
+ * (It used to hold the email list in a second tab, `?view=emails`; that address still works and forwards to the Contact Finder.)
  *
- * This file is the frame: the header (how the last check went, Settings, Check now), the two tabs, the notices, and the data both views
- * share (the posts, the email list, the settings), read here so a tab switch does not read again. The views draw and write their own
- * parts (components/reddit/); every rule and sum is in lib/redditLeads.js, every write in lib/redditWrites.js.
+ * This file is the frame: the header (how the last check went, Settings, Check now), the notices, and the data the posts need (the posts, the
+ * addresses saved for them, the settings). The posts view draws and writes its own parts (components/reddit/); every rule and sum is in
+ * lib/redditLeads.js, every write in lib/redditWrites.js.
  *
- * No permission of its own: whoever has the Marketing section can see it, and edit (statuses, notes, the list, the settings) with Edit
+ * No permission of its own: whoever has the Marketing section can see it, and edit (statuses, notes, the settings) with Edit
  * on Marketing. The server side, and what it does and does not touch, is worker/lib/redditLeads.js. Posts come from Arctic Shift, a free
  * archive of Reddit, which has no promise of uptime: the header says when the last check worked.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
 import { kathmanduDate } from "../utils/date";
 import { BentoPage } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
-import { PageTabs } from "../components/table/Bar";
 import { LoadError, Notice } from "../components/reddit/Common";
 import PostsView from "../components/reddit/PostsView";
-import EmailsView from "../components/reddit/EmailsView";
 import SettingsDialog from "../components/reddit/SettingsDialog";
 import HelpDialog from "../components/reddit/HelpDialog";
 import useMetaLoad from "../hooks/useMetaLoad";
@@ -38,8 +36,8 @@ import { checkNow, saveSettings } from "../lib/redditWrites";
 import "../components/reddit/reddit.css";
 
 /**
- * The posts, the email list and the settings. The posts ARE the page (without them it is an error); the other two may fail without taking
- * the page down, and what could not be read is said (`emailsLost`, `settingsLost`), because "No address saved" is not what an unread list means.
+ * The posts, the addresses saved for them and the settings. The posts ARE the page (without them it is an error); the other two may fail without
+ * taking the page down, and what could not be read is said (`emailsLost`, `settingsLost`), because "No address saved" is not what an unread list means.
  */
 async function loadAll() {
   const [l, e, s] = await Promise.allSettled([fetchRedditLeads(), fetchLeadEmails(), fetchRedditSettings()]);
@@ -53,16 +51,20 @@ async function loadAll() {
   };
 }
 const EMPTY = { leads: NONE, emails: NONE, settings: null, emailsLost: false, settingsLost: false };
-const NO_PATCH = { leads: {}, emails: {}, gone: [], added: [] };
+const NO_PATCH = { leads: {}, added: [] };
 const LOOK_AGAIN_MS = 5 * 60 * 1000;
 
+/** The old `?view=emails` address now belongs to the Contact Finder. */
 export default function RedditLeads() {
+  const [params] = useSearchParams();
+  if (params.get("view") === "emails") return <Navigate to="/marketing/contact-finder" replace />;
+  return <RedditLeadsPage />;
+}
+
+function RedditLeadsPage() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "marketing");
   const canAddCustomer = sectionCanEdit(profile, "customers");
-  const [params, setParams] = useSearchParams();
-  const view = params.get("view") === "emails" ? "emails" : "posts";
-  const setView = (id) => setParams((prev) => { const n = new URLSearchParams(prev); if (id === "posts") n.delete("view"); else n.set("view", id); return n; }, { replace: true });
 
   // the office's date and the clock, which move on without a reload
   const [today, setToday] = useState(() => kathmanduDate());
@@ -83,13 +85,10 @@ export default function RedditLeads() {
   useEffect(() => { setPatches(NO_PATCH); }, [core.data]);
   const leads = useMemo(() => readLeads.map((l) => patches.leads[l.id] || l), [readLeads, patches.leads]);
   const emails = useMemo(() => {
-    const kept = readEmails.filter((e) => !patches.gone.includes(e.id)).map((e) => patches.emails[e.id] || e);
-    const have = new Set(kept.map((e) => e.id));
-    return [...patches.added.filter((e) => !have.has(e.id) && !patches.gone.includes(e.id)), ...kept];
+    const have = new Set(readEmails.map((e) => e.id));
+    return [...patches.added.filter((e) => !have.has(e.id)), ...readEmails];
   }, [readEmails, patches]);
   const onPatchLead = useCallback((row) => setPatches((p) => ({ ...p, leads: { ...p.leads, [row.id]: row } })), []);
-  const onPatchEmail = useCallback((row) => setPatches((p) => ({ ...p, emails: { ...p.emails, [row.id]: row } })), []);
-  const onDropEmail = useCallback((id) => setPatches((p) => ({ ...p, gone: [...p.gone, id] })), []);
   const onSavedEmails = useCallback((rows) => { setPatches((p) => ({ ...p, added: [...rows, ...p.added] })); reload(); }, [reload]);
 
   // look again every few minutes and when the tab is come back to, so a check that ran on the server shows without a reload
@@ -134,7 +133,7 @@ export default function RedditLeads() {
     return res;
   }
 
-  const props = { leads, emails, loading, canEdit, canAddCustomer, today, now, settings, checking, onCheck: check, onPatchLead, onPatchEmail, onDropEmail, onSavedEmails, notify, reload };
+  const props = { leads, emails, loading, canEdit, canAddCustomer, today, now, settings, checking, onCheck: check, onPatchLead, onSavedEmails, notify, reload };
   const missing = core.status === "error" && tableMissing(core.error);
   const subs = settings?.subreddits?.length || 0;
 
@@ -167,14 +166,6 @@ export default function RedditLeads() {
         </div>
       </header>
 
-      <div className="rdl-bar">
-        <PageTabs
-          label="Reddit Leads sections"
-          tabs={[{ id: "posts", label: "Posts", count: loading ? undefined : leads.length }, { id: "emails", label: "Email list", count: loading ? undefined : emails.length }]}
-          value={view} onChange={setView}
-        />
-      </div>
-
       {!canEdit && <Notice tone="info">You can see Reddit Leads but not change it. Ask an admin for Edit on Marketing (Admin Panel → Roles).</Notice>}
       {settings?.lastStatus === "failed" && (
         <Notice tone="bad" role="alert">The last check could not read Reddit{settings.lastError ? ` (${settings.lastError})` : ""}. It tries again every 30 minutes. The posts below are from earlier checks.</Notice>
@@ -195,7 +186,7 @@ export default function RedditLeads() {
         ? (missing
           ? <div className="kb-error" role="alert"><p>{NOT_SET_UP}</p></div>
           : <LoadError what="Reddit Leads" onRetry={reload} busy={core.refreshing} />)
-        : view === "emails" ? <EmailsView {...props} /> : <PostsView {...props} />}
+        : <PostsView {...props} />}
 
       {settingsOpen && settings && <SettingsDialog settings={settings} canEdit={canEdit} onSave={saveWhatToLookFor} onClose={() => setSettingsOpen(false)} />}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}

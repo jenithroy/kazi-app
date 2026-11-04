@@ -2,9 +2,8 @@
  * The "?" beside the header buttons opens this: how Reddit Leads works, in plain words.
  *
  * Written for the people who use the page (a clothing business, not a website team), so it uses no technical words: no "server", "archive",
- * "robots", "database" or "API". It uses the page's own words for what is on the screen (Posts, Email list, Check now, What to look for,
- * Find emails, Add as customer, Do not email, Download CSV), so a person can match what they read to what they see. When a button on the
- * page is renamed, rename it here (test-help.mjs checks that every button named below is on the page, and that no technical word has crept in).
+ * "robots", "database" or "API". It uses the page's own words for what is on the screen (Check now, What to look for, Find emails, Add as
+ * customer), so a person can match what they read to what they see. When a button on the page is renamed, rename it here (test-help.mjs checks that every button named below is on the page, and that no technical word has crept in).
  */
 import Modal from "../Modal";
 
@@ -24,13 +23,13 @@ export default function HelpDialog({ onClose }) {
           <h3>The page finds posts by itself</h3>
           <p>
             Every 30 minutes it reads the newest posts in the Reddit groups listed under <b>What to look for</b> (Reddit calls these groups
-            "subreddits"). It keeps the posts that sound like someone who needs a manufacturer and shows them in the <b>Posts</b> tab.
+            "subreddits"). It keeps the posts that sound like someone who needs a manufacturer and lists them on this page.
             In a hurry? Press <b>Check now</b> to look straight away.
           </p>
         </section>
 
         <section className="rdl-help-sec">
-          <h3>Reading the Posts tab</h3>
+          <h3>Reading the list of posts</h3>
           <ul>
             <li><b>Strong</b>, <b>Likely</b> and <b>Maybe</b> say how much a post sounds like a real buyer. Strong is very likely. Maybe is worth a quick look.</li>
             <li>The four small boxes at the top count the new posts, the posts from the last day, the ones you are following up, and the ones that became customers.</li>
@@ -52,7 +51,11 @@ export default function HelpDialog({ onClose }) {
           <p>
             If the brand has a website, type it in and press <b>Find emails</b>. The page looks at that one website only: its home page and
             up to two contact pages, the same pages anyone can open. It shows the email addresses written there. Tick the ones you want and
-            press Save, and they join the Email list. It never searches Google, Instagram or Facebook.
+            press Save, and they join the team's email list. It never searches Google, Instagram or Facebook.
+          </p>
+          <p>
+            The email list, and finding addresses by themselves (from UK government tenders, from Reddit posts, from a list of companies), are on the
+            <b> Contact Finder</b> page in the Marketing menu.
           </p>
         </section>
 
@@ -61,16 +64,6 @@ export default function HelpDialog({ onClose }) {
           <p>
             When a brand becomes a real customer, type its name, save, then press <b>Add as customer</b>. It adds them to the Customers
             page and marks the post as a customer. You need access to Customers for this.
-          </p>
-        </section>
-
-        <section className="rdl-help-sec">
-          <h3>The Email list tab</h3>
-          <p>
-            Every saved address, and where it was found. Use <b>Find from a website</b> to add more. <b>Do not email</b> is for anyone who
-            asked to be left alone, or whom you decide not to write to. Those addresses stay on the list, so nobody saves them again, but
-            they are never put in the download. <b>Download CSV</b> makes a spreadsheet file for your email program. Gmail-type addresses
-            (Gmail, Yahoo and so on) are left out unless you switch them on, because they are often a person, not a company.
           </p>
         </section>
 
@@ -85,7 +78,7 @@ export default function HelpDialog({ onClose }) {
         <section className="rdl-help-sec rdl-help-note">
           <h3>Good to know</h3>
           <ul>
-            <li>This page never sends any email. It only helps you find people and keep a list.</li>
+            <li>This page never sends any email. It only helps you find people.</li>
             <li>
               Before you email anyone: say who you are, include a way to unsubscribe, and stop writing to anyone who asks. If you are not
               sure of the rules, ask whoever looks after them for your business.

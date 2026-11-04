@@ -11,7 +11,7 @@
 import { useId, useRef, useState } from "react";
 import EditCard, { Field, Seg, Tag } from "../EditCard";
 import { Icons } from "../ui";
-import EmailFinder from "./EmailFinder";
+import SiteFinder from "../emails/SiteFinder";
 import { STATUSES, kindLabel, kindOf, leadStatus, matchTier, normalizeWebsite, statusMeta, timeAgo } from "../../lib/redditLeads";
 
 export default function LeadCard({ lead, saved = [], known, canEdit, canAddCustomer, customerMade = false, onSave, onAddCustomer, onSavedEmails, onClose }) {
@@ -103,7 +103,7 @@ export default function LeadCard({ lead, saved = [], known, canEdit, canAddCusto
   const side = (
     <div className="ec-wide rdl-side">
       <p className="rdl-sidehead">Find their email</p>
-      <EmailFinder initialUrl={normalizeWebsite(website) || ""} brand={brand} leadId={lead.id} known={known} canEdit={canEdit} onSaved={onSavedEmails} />
+      <SiteFinder initialUrl={normalizeWebsite(website) || ""} brand={brand} leadId={lead.id} known={known} canEdit={canEdit} onSaved={onSavedEmails} />
       <p className="rdl-sidehead">Saved for this post</p>
       {saved.length === 0 ? <p className="rdl-line rdl-dim">No address saved yet.</p> : (
         <ul className="rdl-saved">

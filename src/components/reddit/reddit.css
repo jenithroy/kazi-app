@@ -138,7 +138,7 @@
 .rdl-saved b { min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--ink); }
 .rdl-saved span { font-size: 12px; font-weight: 400; color: var(--ink-3); }
 
-/* the email finder */
+/* the website finder (by hand) */
 .rdl-find { display: grid; gap: 12px; min-width: 0; }
 .rdl-find-row { display: flex; gap: 8px; min-width: 0; }
 .rdl-find-row input { flex: 1 1 0; }
@@ -161,6 +161,72 @@
 .rdl-find-mail small { font-size: 12px; font-weight: 400; line-height: 1.4; color: var(--ink-3); }
 .rdl-find-soc { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--ink-3); }
 .rdl-find-save { display: flex; }
+.rdl-find-local { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 13px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.rdl-find-local:has(input:disabled) { cursor: default; opacity: .6; }
+.rdl-find-local input[type="checkbox"] { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--mint-deep); }
+.rdl-find-local span { min-width: 0; display: grid; gap: 1px; }
+.rdl-find-local small { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+
+/* the Add by hand dialog: its tabs (components/emails/FindDialog.jsx), and the finder's company list (RunPanel.jsx, which also uses the .rdl-auto-* rows) */
+.rdl-find-tabs { margin-bottom: 14px; max-width: 100%; overflow-x: auto; }
+.rdl-find-tabs .kregion-seg { max-width: none; }
+.rdl-find-panel { min-width: 0; }
+.rdl-find-panel[hidden] { display: none; }
+.rdl-auto { display: grid; gap: 10px; min-width: 0; }
+.rdl-auto-list { margin: 0; padding: 0; list-style: none; display: grid; }
+.rdl-auto-row { min-width: 0; display: grid; gap: 3px; padding: 10px 0; border-top: 1px solid var(--line); }
+.rdl-auto-row:first-child { padding-top: 2px; border-top: 0; }
+.rdl-auto-row.is-waiting { opacity: .6; }
+.rdl-auto-head { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 13px; color: var(--ink); }
+.rdl-auto-head b { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.rdl-auto-head a { font-size: 12px; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
+.rdl-auto-head .kb-tag { margin-left: auto; }
+.rdl-auto-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-3); overflow-wrap: anywhere; }
+.rdl-auto-saved { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; font-size: 12.5px; }
+.rdl-auto-mail { min-width: 0; font-weight: 600; color: var(--rdl-good); overflow-wrap: anywhere; }
+.rdl-auto .rdl-linkbtn { font-size: 12.5px; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+/* the run on the page itself (components/emails/RunPanel.jsx): sits between the toolbar and the table, inside the pane */
+.rdl-run {
+  flex: none; display: grid; gap: 6px; min-width: 0; margin: 0 16px 12px; padding: 12px 14px; border-radius: 14px; background: var(--kb-well);
+  /* it is drawn with the classes of the dialogs (.rdl-find-*, .rdl-auto-*), which read the dialog's tokens; inside a tile those are the page's */
+  --ink: var(--kb-ink); --ink-2: var(--kb-ink-2); --ink-3: var(--kb-ink-3); --line: var(--kb-line);
+  --rdl-well: var(--kb-well); --rdl-good: var(--kb-good); --rdl-bad: var(--kb-bad);
+}
+.rdl-run .rdl-find-msg { background: transparent; padding: 0; }
+.rdl-run-note { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.rdl-run-list { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+
+/* the Sources dialog (components/emails/SourcesDialog.jsx): one box for each place to look, then how the websites are read */
+.rdl-src { display: grid; gap: 12px; min-width: 0; }
+.rdl-src-box { display: grid; gap: 12px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; }
+.rdl-src-box.is-on { background: var(--rdl-well, var(--kb-well)); }
+.rdl-src-fields { display: grid; gap: 12px; min-width: 0; padding-left: 28px; }
+.rdl-src-fields textarea { font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; }
+.rdl-src-how { display: grid; gap: 12px; min-width: 0; padding-top: 4px; }
+.rdl-src-how h3 { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--ink); }
+.rdl-src-forget { margin: 0; display: grid; gap: 2px; justify-items: start; }
+.rdl-src-forget small { font-size: 12px; color: var(--ink-3); }
+.rdl-soc { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rdl-soc a { min-width: 24px; padding: 1px 6px; border-radius: 999px; background: var(--kb-well, var(--rdl-well)); font-size: 11px; font-weight: 600; text-align: center; color: var(--kb-ink-2, var(--ink-2)); text-decoration: none; }
+.rdl-soc a:hover { color: var(--kb-ink, var(--ink)); text-decoration: underline; }
+
+/* the tender finder (components/emails/TenderFinder.jsx): a form, then one block per notice */
+/* the headline of the results may be long (and a phone is narrow): it wraps instead of being cut */
+.rdl-tn .rdl-find-head { flex-wrap: wrap; gap: 2px 10px; }
+.rdl-tn .rdl-find-head b { overflow: visible; white-space: normal; text-overflow: clip; }
+.rdl-tn-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; }
+.rdl-tn-list { margin: 0; padding: 0; list-style: none; display: grid; }
+.rdl-tn-notice { min-width: 0; display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--line); }
+.rdl-tn-notice:first-child { padding-top: 2px; border-top: 0; }
+.rdl-tn-title { margin: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--ink); }
+.rdl-tn-title b { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.rdl-tn-title a { flex: none; font-size: 12px; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
+.rdl-tn-meta { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
+.rdl-tn-notice .rdl-find-list > li:first-child { border-top: 1px solid var(--line); }       /* inside a notice the list sits under its heading */
+.rdl-tn-won { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.rdl-tn-won li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.rdl-tn-won b { font-weight: 600; color: var(--ink); }
+.rdl-tn-won a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 
 /* the settings dialog: five boxes in a grid that stacks on a narrow dialog */
 .rdl-set { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 14px; }
@@ -194,7 +260,7 @@
   .ec-f textarea, .ec-f input:not([type="checkbox"]):not([type="radio"]) { font-size: 16px; }   /* a field under 16px makes iOS zoom in on it */
   .rdl-find-row { flex-wrap: wrap; }
   .rdl-find-row .ghost-button { height: 44px; flex: 1 1 100%; justify-content: center; }
-  .rdl-find-list input[type="checkbox"] { width: 22px; height: 22px; }
+  .rdl-find-list input[type="checkbox"], .rdl-find-local input[type="checkbox"] { width: 22px; height: 22px; }
 }
 
 /* the status choice has five parts (New, Contacted, Replied, Not a fit, Customer): on a 320px card they would push it sideways */

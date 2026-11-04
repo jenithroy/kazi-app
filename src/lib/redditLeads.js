@@ -221,6 +221,22 @@ export function checkLine(settings, now = Date.now()) {
   return `Checked ${ago}`;
 }
 
+/* ── Social networks ──────────────────────────────────────────── */
+
+/** The social networks a brand's own website can link to: the key the finder keeps each under, and how it reads in full and in a few letters. */
+export const SOCIALS = {
+  instagram: { name: "Instagram", short: "IG" },
+  facebook: { name: "Facebook", short: "FB" },
+  tiktok: { name: "TikTok", short: "TT" },
+  linkedin: { name: "LinkedIn", short: "LI" },
+  youtube: { name: "YouTube", short: "YT" },
+  x: { name: "X", short: "X" },
+  pinterest: { name: "Pinterest", short: "Pin" },
+};
+
+/** A row's social links as [[network, address], …]: only a network that is known, and only an `http(s)` address (it becomes a link). */
+export const socialLinks = (e) => Object.entries(e?.socials || {}).filter(([net, v]) => SOCIALS[net] && typeof v === "string" && /^https?:\/\//.test(v));
+
 /* ── Spreadsheets ─────────────────────────────────────────────── */
 
 const row = (cells) => cells.map(csvCell).join(",");
@@ -243,11 +259,11 @@ export function emailsCsv(emails, leads, { includeFree = false } = {}) {
     if (isFreeAddress(e) && !includeFree) { skippedFree += 1; continue; }
     kept.push(e);
   }
-  const head = ["Email", "Type", "Brand", "Website", "Found on", "Date found", "Reddit post", "Reddit link", "Lead status", "Instagram", "Facebook", "TikTok", "Note"];
+  const head = ["Email", "Type", "Brand", "Website", "Found on", "Date found", "Reddit post", "Reddit link", "Lead status", ...Object.values(SOCIALS).map((n) => n.name), "Note"];
   const rows = kept.map((e) => {
     const l = byId.get(e.leadId);
     const s = e.socials || {};
-    return [e.email, kindLabel(kindOf(e)), e.brand, e.website, e.sourceUrl, day(e.foundAt), l?.title, l?.url, l ? statusMeta(leadStatus(l)).label : "", s.instagram, s.facebook, s.tiktok, e.note];
+    return [e.email, kindLabel(kindOf(e)), e.brand, e.website, e.sourceUrl, day(e.foundAt), l?.title, l?.url, l ? statusMeta(leadStatus(l)).label : "", ...Object.keys(SOCIALS).map((net) => s[net]), e.note];
   });
   return { text: csv(head, rows), count: kept.length, skippedFree, skippedFlagged };
 }

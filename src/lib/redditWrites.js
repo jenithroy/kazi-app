@@ -5,12 +5,18 @@
  *   a lead         its status, brand, website and notes (and the customer made from it): the only columns the database lets a person change
  *   the email list added from the finder, flagged do-not-email, annotated, removed
  *   the settings   what to look for (never how the last check went: only the Worker writes that)
- *   a check        pulling new posts now, and reading a website's contact pages, through the Worker (lib/redditApi.js)
+ *   a check        pulling new posts now (lib/redditApi.js)
+ *   the finders    reading a website's contact pages, through the Worker (lib/emailFinderApi.js) or through the finder program on the person's own
+ *                  computer (lib/localFinder.js), and the public notices on Find a Tender (lib/emailFinderApi.js)
+ *
+ * The email list is the Contact Finder page's, and a Reddit post's card writes to it too, so its writes live here with the rest.
  */
 import { deleteRow, fetchAll, fetchOne, insertRow, updateRow } from "./db";
 import { kathmanduDate } from "../utils/date";
-import { runEmailFinder, runRedditCheck } from "./redditApi";
-import { bestEmail, leadStatus, normalizeWebsite, settingsPayload } from "./redditLeads";
+import { runEmailFinder, runFindWebsite, runTenderSearch, runWebSearch } from "./emailFinderApi";
+import { FinderOffline, runLocalEmailFinder, runLocalWebsiteFinder } from "./localFinder";
+import { runRedditCheck } from "./redditApi";
+import { bestEmail, brandFromSite, leadStatus, normalizeWebsite, settingsPayload } from "./redditLeads";
 
 const NO_PERMISSION = "Not saved. You may not have permission to change this.";
 const NO_CONNECTION = "Not saved. Check your connection and try again.";
@@ -24,7 +30,7 @@ const failure = (err) => ({ ok: false, message: denied(err) ? NO_PERMISSION : in
 const text = (v) => String(v ?? "").trim();
 const same = (a, b) => (a ?? null) === (b ?? null);
 
-/* ── Checks and the finder ────────────────────────────────────── */
+/* ── Checks and the finders ───────────────────────────────────── */
 
 /** Pull new posts now. */
 export async function checkNow() {
@@ -35,12 +41,65 @@ export async function checkNow() {
   }
 }
 
-/** Read a website's public contact pages. `res` is the finder's answer; `ok` only says the server could be asked. */
-export async function findEmails(url) {
+/** Read a website's public contact pages. `res` is the finder's answer; `ok` only says the server could be asked. `robots: false` leaves the site's robots.txt unread (the person's choice). */
+export async function findEmails(url, { robots = true } = {}) {
   try {
-    return { ok: true, res: await runEmailFinder(url) };
+    return { ok: true, res: await runEmailFinder(url, { robots }) };
   } catch (err) {
     return { ok: false, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/** Find a company's own website from its name. `res` is { site, host, confidence, evidence, tried } (`site` is null when there is none to be found). */
+export async function findWebsite(name, { robots = true } = {}) {
+  try {
+    return { ok: true, res: await runFindWebsite(name, { robots }) };
+  } catch (err) {
+    return { ok: false, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/** Read the public notices on Find a Tender. `params` is { stage, days, words }; `res` is the search's answer (worker/lib/tenders.js). */
+export async function findTenders(params) {
+  try {
+    return { ok: true, res: await runTenderSearch(params) };
+  } catch (err) {
+    return { ok: false, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/**
+ * Search the web for businesses' websites. `res.results` is the companies to look at: [{ name, website, about }], the name made from the web address
+ * (a search result's title is the page's, not the company's).
+ */
+export async function searchWeb(queries) {
+  try {
+    const res = await runWebSearch(queries);
+    return { ok: true, res: { results: res.sites.map((s) => ({ name: brandFromSite(s.website), website: s.website, about: `Web search: "${s.query}"` })) } };
+  } catch (err) {
+    return { ok: false, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/**
+ * The same, read by the finder program on this computer: in its browser (the default, which also runs the page's scripts) or, with `browser: false`, plainly
+ * through this computer's internet connection. `unreachable` says the program is not running (or this browser would not let the page reach it): then
+ * nothing was read, and the caller may read with the server instead.
+ */
+export async function findEmailsOnThisComputer(url, { browser = true, robots = true } = {}) {
+  try {
+    return { ok: true, res: await runLocalEmailFinder(url, { browser, robots }) };
+  } catch (err) {
+    return { ok: false, unreachable: err instanceof FinderOffline, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/** A company's own website found from its name by the finder program on this computer (see `findWebsite`); `unreachable` as above. */
+export async function findWebsiteOnThisComputer(name, { robots = true } = {}) {
+  try {
+    return { ok: true, res: await runLocalWebsiteFinder(name, { robots }) };
+  } catch (err) {
+    return { ok: false, unreachable: err instanceof FinderOffline, message: err?.message || "That didn't work. Try again." };
   }
 }
 
@@ -130,21 +189,22 @@ export async function linkCustomer(lead, customerId) {
 /* ── The email list ───────────────────────────────────────────── */
 
 /**
- * Save addresses the finder found. `found` is a list of { email, kind, ownDomain, source }; `site` is { brand, website, leadId, socials, note }
- * and goes on every row. An address already on the list is skipped (the list has one row per address) and named, never overwritten: it may
- * be flagged do-not-email. Resolves to { ok, saved, duplicates, failed } where `ok` is false only when nothing at all could be saved and
- * something was refused.
+ * Save addresses the finder found. `found` is a list of { email, kind, ownDomain, source } and `site` is { brand, website, leadId, socials, note }
+ * and goes on every row. An address of its own (a notice from Find a Tender names several organisations) can carry its own `brand`, `website`
+ * and `note`, which are used instead of the site's. An address already on the list is skipped (the list has one row per address) and named,
+ * never overwritten: it may be flagged do-not-email. Resolves to { ok, saved, duplicates, failed } where `ok` is false only when nothing at all
+ * could be saved and something was refused.
  */
 export async function saveEmails(found, site) {
   const saved = [], duplicates = [], failed = [];
-  const website = normalizeWebsite(site.website);
   for (const f of found) {
     const email = text(f.email).toLowerCase();
+    const website = normalizeWebsite(f.website ?? site.website);
     try {
       const row = await insertRow("lead_emails", {
         email, kind: f.kind, sameDomain: Boolean(f.ownDomain), sourceUrl: text(f.source) || null,
-        brand: text(site.brand) || null, website: website || null, leadId: site.leadId || null,
-        socials: site.socials || {}, note: text(site.note) || null,
+        brand: text(f.brand ?? site.brand).slice(0, 120) || null, website: website || null, leadId: site.leadId || null,
+        socials: site.socials || {}, note: text(f.note ?? site.note).slice(0, 1000) || null,
       });
       if (!row) { failed.push({ email, message: NO_CONNECTION }); continue; }
       saved.push(row);

@@ -3,7 +3,7 @@ import Login from "./pages/Login";
 // Every other page is fetched when it is first needed (and ahead of time, quietly): see lib/lazyPages.js.
 import {
   Dashboard, Attendance, Production, Inventory, Digitizer, Finance, FiscalYearTransactions, Purchases, Tasks, Budget, Billing,
-  Employees, AdminPanel, Usage, Roles, Leaderboard, Customers, Messenger, Sales, Marketing, MetaAds, RedditLeads, BugReport, Changelog,
+  Employees, AdminPanel, Usage, Roles, Leaderboard, Customers, Messenger, Sales, Marketing, MetaAds, RedditLeads, ContactFinderPage, BugReport, Changelog,
 } from "./lib/lazyPages";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
@@ -69,6 +69,8 @@ function App() {
         <Route path="/marketing"   element={<RequireSection section="marketing"><Marketing /></RequireSection>} />
         <Route path="/marketing/meta-ads" element={<RequireSection section="marketing"><MetaAds /></RequireSection>} />
         <Route path="/marketing/reddit-leads" element={<RequireSection section="marketing"><RedditLeads /></RequireSection>} />
+        <Route path="/marketing/contact-finder" element={<RequireSection section="marketing"><ContactFinderPage /></RequireSection>} />
+        <Route path="/marketing/email-finder" element={<Navigate to="/marketing/contact-finder" replace />} />
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
         <Route path="/admin"       element={<RequireSection section="admin"><SysPage><AdminPanel /></SysPage></RequireSection>} />
         <Route path="/usage"       element={<RequireSection section="usage_analytics"><SysPage><Usage /></SysPage></RequireSection>} />

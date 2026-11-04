@@ -42,6 +42,7 @@ export const Sales = page(() => import("../pages/Sales"));
 export const Marketing = page(() => import("../pages/Marketing"));
 export const MetaAds = page(() => import("../pages/MetaAds"));
 export const RedditLeads = page(() => import("../pages/RedditLeads"));
+export const ContactFinderPage = page(() => import("../pages/ContactFinder"));
 export const BugReport = page(() => import("../pages/BugReport"));
 export const Changelog = page(() => import("../pages/Changelog"));
 
@@ -66,6 +67,8 @@ const BY_PATH = [
   [under("/customers"), Customers],
   [under("/marketing/meta-ads"), MetaAds],
   [under("/marketing/reddit-leads"), RedditLeads],
+  [under("/marketing/contact-finder"), ContactFinderPage],
+  [under("/marketing/email-finder"), ContactFinderPage],       // the old address; the route forwards it
   [under("/marketing"), Marketing],
   [under("/messenger"), Messenger],
   [under("/admin"), AdminPanel],

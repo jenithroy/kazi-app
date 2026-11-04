@@ -1,8 +1,10 @@
 /**
- * Reddit Leads, Emails: the team's email list, for email marketing. Four short tiles count it (addresses, on the brand's own domain, marked
- * do-not-email, added this week); under them one table with a search and the Filters button (type, own domain, do-not-email, social links,
- * the day found), whose rows open that address's card. "Find from a website" reads a brand's public contact pages for more; "Download CSV"
- * saves the list for an email tool.
+ * The Contact Finder's list: the team's email addresses, for email marketing. Four short tiles count it (addresses, on the brand's own domain,
+ * marked do-not-email, added this week); under them one table with a search and the Filters button (type, own domain, do-not-email, social
+ * links, the day found), whose rows open that address's card. the page's "Find emails" (in the header, with Sources) runs the finder on the sources the person chose (lib/contactRun.js) and
+ * the table's panel above it (RunPanel) shows it working, company by company; "Add by hand" opens one website or the tender notices to look at
+ * yourself (FindDialog); "Download CSV" saves the list for an email tool. Where an address came from is said in its row (a Reddit post, a tender
+ * notice, or the website it was read from), and the brand's social links, which its own website gave, in the Social column.
  *
  * What the download leaves out, said every time it is made: an address marked do-not-email (always), and a Gmail-type address unless the
  * switch beside the button includes them (such an address is often a person, not a company). Each row of the file says where the address
@@ -15,22 +17,25 @@ import DataTable, { TwoLine } from "../table/DataTable";
 import { FindBar } from "../filters/FilterMenu";
 import useFilters from "../filters/useFilters";
 import EmailCard from "./EmailCard";
-import FinderDialog from "./FinderDialog";
-import { Kpi, ico } from "./Common";
+import FindDialog from "./FindDialog";
+import RunPanel, { SocialChips } from "./RunPanel";
+import { Kpi, ico } from "../reddit/Common";
 import { kathmanduDate } from "../../utils/date";
-import { NONE, domainOf, downloadCsv, emailStats, emailsCsv, kindLabel, kindOf, num, plural, searchEmails, timeAgo } from "../../lib/redditLeads";
+import { NONE, domainOf, downloadCsv, emailStats, emailsCsv, kindLabel, kindOf, num, plural, searchEmails, socialLinks, timeAgo } from "../../lib/redditLeads";
 import { fetchLeadEmails } from "../../lib/redditReads";
 import { removeEmail, updateEmail } from "../../lib/redditWrites";
 
 const fmtShort = (iso) => { const d = new Date(`${iso}T00:00:00`); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
+/** Where an address came from, in a word, for a row that is not from a Reddit post: "Find a Tender", or the website it was read from. */
+const sourceName = (url) => { const host = domainOf(url); return host === "find-tender.service.gov.uk" ? "Find a Tender" : host; };
 const dayFound = (e) => (e.foundAt && !Number.isNaN(Date.parse(e.foundAt)) ? kathmanduDate(e.foundAt) : "");
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const dayText = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : DAY.format(d); };
 
-export default function EmailsView({ emails, leads, loading, canEdit, today, now, onPatchEmail, onDropEmail, onSavedEmails, notify, reload }) {
+export default function EmailsView({ emails, leads, loading, canEdit, today, now, run, onStopRun, onDismissRun, onSaveLeft, onPatchEmail, onDropEmail, onSavedEmails, notify, reload }) {
   const [query, setQuery] = useState("");
   const [card, setCard] = useState(null);                    // the open address's id
-  const [finder, setFinder] = useState(false);
+  const [adding, setAdding] = useState(false);               // the Add by hand dialog, open
   const [includeFree, setIncludeFree] = useState(false);
 
   const rows = emails || NONE;
@@ -109,8 +114,17 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
       render: (e) => <span className="dt-stack"><span className="dt-num">{timeAgo(e.foundAt, now)}</span><small>{dayText(e.foundAt)}</small></span>,
     },
     {
+      id: "soc", label: "Social", width: 150, drop: 5,
+      render: (e) => (socialLinks(e).length ? <SocialChips socials={e.socials} className="rdl-soc dt-act" /> : <span className="dt-dim">—</span>),
+    },
+    {
       id: "from", label: "From", width: 200, drop: 4,
-      render: (e) => { const l = leadById.get(e.leadId); return l ? <span className="dt-two-t"><b title={l.title}>{l.title}</b><span>r/{l.subreddit}</span></span> : <span className="dt-dim">Added by hand</span>; },
+      render: (e) => {
+        const l = leadById.get(e.leadId);
+        if (l) return <span className="dt-two-t"><b title={l.title}>{l.title}</b><span>r/{l.subreddit}</span></span>;
+        const from = sourceName(e.sourceUrl);
+        return <span className={from ? undefined : "dt-dim"}>{from || "Added by hand"}</span>;
+      },
     },
     {
       id: "may", label: "Email it?", width: 112, drop: 1,
@@ -133,22 +147,24 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
           <div className="rdl-tools fn-barrow">
             <FindBar filters={tf} value={query} onChange={setQuery} placeholder="Search addresses" label="Search addresses by email, brand, website or note" />
             <span className="rdl-tools-r">
-              <button type="button" className="kb-btn kb-btn--ghost" onClick={() => setFinder(true)} disabled={!canEdit}><Icons.Search size={13} sw={1.9} aria-hidden="true" /> Find from a website</button>
+              <button type="button" className="kb-btn kb-btn--ghost" onClick={() => setAdding(true)} disabled={!canEdit}><Icons.Plus size={13} sw={1.9} aria-hidden="true" /> Add by hand</button>
               <button
                 type="button" className={cn("kb-btn kb-btn--ghost rdl-toggle", includeFree && "is-on")} aria-pressed={includeFree} onClick={() => setIncludeFree((v) => !v)}
                 title="Gmail-type addresses are often a person, not a company"
               >
                 {includeFree ? "Gmail-type: included" : "Gmail-type: left out"}
               </button>
-              <button type="button" className="kb-btn kb-btn--primary" onClick={download} disabled={list.length === 0}><Icons.Download size={13} sw={1.9} aria-hidden="true" /> Download CSV</button>
+              <button type="button" className="kb-btn kb-btn--ghost" onClick={download} disabled={list.length === 0}><Icons.Download size={13} sw={1.9} aria-hidden="true" /> Download CSV</button>
             </span>
           </div>
+
+          <RunPanel run={run} canEdit={canEdit} onStop={onStopRun} onDismiss={onDismissRun} onSaveLeft={onSaveLeft} />
 
           {!loading && list.length === 0 ? (
             <div className="dt-empty">
               <EmptyNote icon={<Icons.Send size={22} sw={1.5} />}>
                 {rows.length === 0
-                  ? "No address saved yet. Open a post and press Find emails, or use Find from a website."
+                  ? "No address saved yet. Press Find emails at the top (Sources chooses where it looks)."
                   : <>No addresses match. <button type="button" className="rdl-linkbtn" onClick={() => { setQuery(""); tf.clear(); }}>Show them all</button></>}
               </EmptyNote>
             </div>
@@ -169,7 +185,7 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
           onClose={() => setCard((cur) => (cur === open.id ? null : cur))}
         />
       )}
-      {finder && <FinderDialog known={known} canEdit={canEdit} onSaved={onSavedEmails} onClose={() => setFinder(false)} />}
+      {adding && <FindDialog known={known} canEdit={canEdit} onSaved={onSavedEmails} onClose={() => setAdding(false)} />}
     </>
   );
 }
