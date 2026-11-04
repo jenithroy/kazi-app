@@ -548,6 +548,9 @@ function applyAlpha(labels, lab2, soft, cov, w, h, cut, transIndex) {
   void n;
 }
 
+/** In a photograph a colour near the backdrop's belongs to it only when at least this share of the picture's border ring is that colour. */
+const BG_RING_MIN = 0.01;
+
 /**
  * Decide which palette entries are the background. Returns { type: "transparent" | "color" | "none", indices, share }.
  */
@@ -583,7 +586,11 @@ function decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgCo
   for (let y = 1; y < h - 1; y++) { tally(y * w); if (w > 1) tally(y * w + w - 1); }
   let top = 0;
   for (let k = 1; k < K; k++) if (counts[k] > counts[top]) top = k;
-  const group = near(top, o.backgroundTolerance);
+  let group = near(top, o.backgroundTolerance);
+  // A photograph's palette holds colours that are near the backdrop's without being the backdrop: grey or white hair against a grey wall is within
+  // the tolerance of it, and was swallowed into the background and never sewn. The backdrop is on the picture's edge, the hair is not: a colour of
+  // the group counts only when it makes up a share of the border ring itself.
+  if (o.kind === "photo") group = group.filter((k) => k === top || counts[k] >= BG_RING_MIN * ring);
   let share = 0;
   for (const k of group) share += counts[k];
   share /= ring;

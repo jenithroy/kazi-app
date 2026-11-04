@@ -15,6 +15,20 @@ export { detailLimits };
 export const CLOTH_MATCH = 14;
 
 /**
+ * A photograph is different: nothing in it is the page, and its colours run into each other. The default cream cloth is only a guess, so against it nothing
+ * of a photograph is "the cloth" (the white of hair or of a shirt is part of the picture: at 14 a portrait lost its hair and its collar). Against a cloth
+ * that means something (the backdrop's own colour, or one the person chose) only a colour very near it is left unstitched (the blurred green round a flower),
+ * and not the grey hair next to a grey wall, which is 10 away.
+ */
+export const CLOTH_MATCH_PHOTO = 7;
+
+/** How near (CIELAB distance) a colour must be to the cloth `fabric` (a hex colour) to be left unstitched, for this kind of picture (0: never). */
+export function clothMatch(kind, fabric = null) {
+  if (kind !== "photo") return CLOTH_MATCH;
+  return fabric && String(fabric).toLowerCase() === String(DEFAULT_CLOTH).toLowerCase() ? 0 : CLOTH_MATCH_PHOTO;
+}
+
+/**
  * A shape in a colour like the cloth is left unstitched (the cloth shows through) when it is wide: a gap in a fill can be kept clean
  * when it is about this wide, but not a narrow one (white lettering or a thin white ring inside a dark badge comes out ragged and
  * broken, because the rows of the fill around it cannot stop that close). A narrower shape than this (mean width in millimetres) is
@@ -350,6 +364,7 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
  */
 export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new Set(), include = new Set(), fabric = null, snap = false, bleed = 0.4, before = null, maxColors = 12, detailThick = false }) {
   const cloth = fabric ? toLab(...Object.values(hexToRgb(fabric))) : null;
+  const matchDE = clothMatch(traced.stats?.kind, fabric);
   // Which shapes have a hole that another shape sits in? Touching shapes share exactly the same boundary points, so a shape sits in the hole of
   // any shape whose hole outline has one of its own outline's points. Built (and widths measured) only when a colour like the cloth has narrow shapes.
   const indexOf = new Map(traced.shapes.map((sh, k) => [sh, k]));
@@ -392,7 +407,7 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
   const palette = traced.palette.map((p, index) => {
     const hex = snap ? nearestThread(p.r, p.g, p.b).hex : rgbToHex(p.r, p.g, p.b);
     const lab = toLab(p.r, p.g, p.b);
-    const sameAsCloth = !p.background && !!cloth && Math.hypot(lab[0] - cloth[0], lab[1] - cloth[1], lab[2] - cloth[2]) <= CLOTH_MATCH;
+    const sameAsCloth = !p.background && !!cloth && matchDE > 0 && Math.hypot(lab[0] - cloth[0], lab[1] - cloth[1], lab[2] - cloth[2]) <= matchDE;
     // a colour like the cloth is not stitched, except for its fine shapes (lettering, thin lines) unless the person asked for none of it
     const clothOnly = sameAsCloth && !include.has(index);
     const fineOnly = clothOnly && !p.background && !skip.has(index) && traced.shapes.some((s) => s.color === index && isFine(s));
@@ -440,11 +455,12 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
  */
 export function contentBox(traced, { originX, originY, mmPerPx, fabric = null }) {
   const cloth = fabric ? toLab(...Object.values(hexToRgb(fabric))) : null;
+  const matchDE = clothMatch(traced.stats?.kind, fabric);
   const counts = traced.palette.map((p) => {
     if (p.background) return false;
-    if (!cloth) return true;
+    if (!cloth || matchDE <= 0) return true;
     const lab = toLab(p.r, p.g, p.b);
-    return Math.hypot(lab[0] - cloth[0], lab[1] - cloth[1], lab[2] - cloth[2]) > CLOTH_MATCH;
+    return Math.hypot(lab[0] - cloth[0], lab[1] - cloth[1], lab[2] - cloth[2]) > matchDE;
   });
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const s of traced.shapes) {

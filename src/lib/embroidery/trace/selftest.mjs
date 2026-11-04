@@ -8,7 +8,7 @@
  */
 import { traceImage, renderTrace, quantize, detectBackground } from "./index.js";
 import { detailLimits, limitsFor } from "./detail.js";
-import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
+import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, clothFromTrace, clothMatch, CLOTH_MATCH, CLOTH_MATCH_PHOTO, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
 import { serializeDesign, parseDesign, engineDesign, newDesign, breakApart, hitObject, objectBox } from "../../digitizer/model.js";
 import { generate } from "../stitch/engine.js";
 import { unionShapes, intersectRings, offsetRings } from "../geometry/clip.js";
@@ -700,6 +700,30 @@ log("8b. fine lines and dots on top (photographs and artwork), and what the conv
   check("details: the separate pieces (each may cost a thread cut) stay under a fifth of the colour layer's shapes, and at least 12 are allowed", many.details.lines + many.details.dots === 12 && many.details.left.budget >= 388, JSON.stringify([many.details.lines, many.details.dots, many.details.left]));
   const alone = run({ lines: [], spots: [] });
   check("no details found: the same objects as before and no summary", alone.objects.every((o) => !o.layer) && alone.details === null);
+}
+
+log("N. a portrait: light hair against a light wall, read as a photograph");
+{
+  // wall, hair (near the wall in colour, near the cream cloth too), a face, a jacket: what a studio portrait does to the logo-era rules
+  const W = 360, H = 280;
+  const img = makeImage(W, H, [200, 205, 210]);
+  paint(img, [circle(180, 110, 70)], [222, 224, 228]);
+  paint(img, [circle(180, 140, 50)], [225, 170, 150]);
+  paint(img, [rect(110, 200, 140, 80)], [30, 40, 90]);
+  addNoise(img, 1.5, 0, 7);
+  const insideAny = (res, pt, pred = () => true) => res.shapes.some((s) => pred(res.palette[s.color]) && insideShape(pt, s));
+  const hairPt = [180, 55], wallPt = [20, 20];
+  const plain = traceImage(img, { mode: "photo", mmPerPx: 0.25 });
+  check("without a map: the hair is not swallowed by the wall (a colour near the backdrop's that is not on the picture's edge)", insideAny(plain, hairPt, (p) => !p.background));
+  const cream = objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea" });
+  check("on the default cream cloth nothing of a photograph is left bare as 'like the cloth' (the white of hair stays)", cream.palette.every((p) => !p.sameAsCloth), JSON.stringify(cream.palette.map((p) => [p.hex, p.sameAsCloth, p.background])));
+  const sameHair = objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#e1e1e1" });
+  check("on a cloth that means something (here exactly the hair's colour) a photograph colour that is the cloth is left to it", sameHair.palette.some((p) => p.sameAsCloth && !p.background));
+  const wallCloth = objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#c8cdd2" });
+  check("... but the hair 8 to 9 steps from a wall-coloured cloth is not taken for the cloth", wallCloth.palette.every((p) => !(p.sameAsCloth && p.r > 200)), JSON.stringify(wallCloth.palette.map((p) => [p.hex, p.sameAsCloth])));
+  check("cloth match by kind: logo and artwork 14; photograph 0 on the default cream, 7 on any other cloth", clothMatch("logo", "#ffffff") === CLOTH_MATCH && clothMatch("art", "#f4f1ea") === CLOTH_MATCH && clothMatch("photo", "#F4F1EA") === 0 && clothMatch("photo", "#202020") === CLOTH_MATCH_PHOTO && CLOTH_MATCH_PHOTO < CLOTH_MATCH);
+  const wall = { stats: { kind: "photo" }, palette: [{ background: true, r: 150, g: 160, b: 168 }] };
+  check("a plain backdrop darker than L 75 sets the cloth, in a photograph as in a logo", clothFromTrace(wall) !== null && clothFromTrace({ stats: { kind: "logo" }, palette: wall.palette }) !== null);
 }
 
 if (process.argv.includes("--perf")) {
