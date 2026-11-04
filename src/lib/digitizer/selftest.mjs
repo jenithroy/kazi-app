@@ -196,5 +196,29 @@ console.log("tracer and engine agree on what a thin line is (script lettering fe
   check("and as a shape drawn by hand (source hand, or none) too", kindOf({ source: "hand" }) !== "line" && kindOf({}) !== "line", kindOf({ source: "hand" }) + " / " + kindOf({}));
 }
 
+console.log("convert.js: fine details are ranked by the region of the person they lie in");
+{
+  // a face and a jacket, a short dark line on the face (30 mm) and a longer pattern on the jacket (60 mm): both want a thread of their own, and there is room for ONE
+  const sq = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  const make = (regions) => ({
+    width: 400, height: 200, stats: { kind: "photo" }, look: null, order: [0, 1],
+    palette: [{ r: 225, g: 170, b: 150, fraction: 0.5, background: false }, { r: 30, g: 40, b: 90, fraction: 0.5, background: false }],
+    shapes: [{ id: 0, color: 0, contours: [sq(0, 0, 200, 200)], area: 40000, bbox: [0, 0, 200, 200] }, { id: 1, color: 1, contours: [sq(200, 0, 200, 200)], area: 40000, bbox: [200, 0, 400, 200] }],
+    details: {
+      stats: {},
+      spots: [],
+      lines: [
+        { pts: [[20, 40], [140, 40]], lengthMm: 30, rgb: [60, 35, 25], strength: 30, under: 0, ...(regions ? { region: 3 } : {}) },
+        { pts: [[210, 120], [390, 120]], lengthMm: 60, rgb: [110, 90, 200], strength: 30, under: 1, ...(regions ? { region: 4 } : {}) },
+      ],
+    },
+  });
+  const made = (regions) => objectsFromTrace(make(regions), { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea", maxColors: 3 }).details;
+  const ranked = made(true), plain = made(false);
+  check("with the regions, the one new thread goes to the face's dark line, not to the longer pattern of the jacket", !!ranked && ranked.newColours === 1 && ranked.colours.join() === "#3c2319", ranked && JSON.stringify(ranked.colours));
+  check("(control) without regions the longer line wins the thread, so the check above can fail", !!plain && plain.colours.join() === "#6e5ac8", plain && JSON.stringify(plain.colours));
+  check("a detail limit can be changed by the caller (detailTune)", (() => { const d = objectsFromTrace(make(true), { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea", maxColors: 3, detailTune: { newColours: 0 } }).details; return !d || d.newColours === 0; })());
+}
+
 console.log(failed ? `\n${failed} of ${total} checks FAILED` : `\nall ${total} checks passed`);
 process.exit(failed ? 1 : 0);

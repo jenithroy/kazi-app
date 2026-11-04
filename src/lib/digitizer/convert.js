@@ -239,6 +239,22 @@ export const DETAIL_LINE_MM = 0.45;
 export const DETAIL_THICK_MM = 0.7;
 
 /**
+ * How much a detail counts, by the region of a person it lies in (regions.js: background, hair, body skin, face skin, clothes, other): the lids and lashes of a face
+ * come before the pattern on a tie when threads and stitches are shared out. Details of a picture without a region map count the same.
+ */
+export const DETAIL_REGION_WEIGHTS = Object.freeze([0, 2, 1.5, 4, 0.5, 1]);
+
+/** The numbers above as one set, so a caller (a test, a sweep) can try others: `objectsFromTrace(..., { detailTune: { visibleDE: 8 } })`. */
+export const DETAIL_TUNE = Object.freeze({
+  matchDE: DETAIL_MATCH_DE,
+  visibleDE: DETAIL_VISIBLE_DE,
+  newColours: DETAIL_NEW_COLOURS,
+  stitchShare: DETAIL_STITCH_SHARE,
+  piecesPerShape: DETAIL_PIECES_PER_SHAPE,
+  threads: DETAIL_THREADS,
+});
+
+/**
  * The objects for the fine lines and dots the tracer found on the picture (see trace/fine.js): one object of open lines for each thread
  * and one of small dots for each thread, after all the colour layer's shapes. They are sewn on top, last (the engine keeps them after
  * every object that comes before them in the design), dots first and then the lines, dark ones before light ones.
@@ -246,7 +262,8 @@ export const DETAIL_THICK_MM = 0.7;
  *            machine has needles to spare); else in the nearest anyway. One that would not show (its thread is the colour under it) is left out.
  *   amount:  the strongest and longest first, until their stitches reach DETAIL_STITCH_SHARE of the colour layer's or their pieces DETAIL_PIECES_PER_SHAPE of its shapes.
  */
-function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, maxColors, thick, shapes }) {
+function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, maxColors, thick, shapes, tune = null }) {
+  const t = { ...DETAIL_TUNE, ...(tune || {}) };
   const det = traced.details;
   if (!det || (!det.lines.length && !det.spots.length)) return null;
   const dE = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
@@ -259,16 +276,17 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
     sewn.push({ hex: p.hex, lab: labOfHex(p.hex) });
   }
   const items = [];
-  for (const l of det.lines) items.push({ line: l, d: l, w: l.lengthMm, lab: toLab(l.rgb[0], l.rgb[1], l.rgb[2]), cost: l.lengthMm * 1.5 + 8 });
-  for (const s of det.spots) items.push({ spot: s, d: s, w: Math.max(2, s.areaMm2 * 2), lab: toLab(s.rgb[0], s.rgb[1], s.rgb[2]), cost: s.areaMm2 + 12 });
+  const weightOf = (d) => (d.region ? DETAIL_REGION_WEIGHTS[d.region] ?? 1 : 1);
+  for (const l of det.lines) items.push({ line: l, d: l, w: l.lengthMm * weightOf(l), lab: toLab(l.rgb[0], l.rgb[1], l.rgb[2]), cost: l.lengthMm * 1.5 + 8 });
+  for (const s of det.spots) items.push({ spot: s, d: s, w: Math.max(2, s.areaMm2 * 2) * weightOf(s), lab: toLab(s.rgb[0], s.rgb[1], s.rgb[2]), cost: s.areaMm2 + 12 });
   const nearest = (lab, pool) => { let best = null, bd = Infinity; for (const c of pool) { const d = dE(lab, c.lab); if (d < bd) { bd = d; best = c; } } return { c: best, d: bd }; };
   for (const it of items) it.nearD = sewn.length ? nearest(it.lab, sewn).d : Infinity;
   // new colours for the details that no thread of the design is near: the biggest groups of alike ones
   const fresh = [];
-  const room = Math.max(0, Math.min(DETAIL_NEW_COLOURS, (maxColors | 0) - sewn.length));
+  const room = Math.max(0, Math.min(t.newColours, (maxColors | 0) - sewn.length));
   if (room > 0) {
     const groups = [];
-    for (const it of items.filter((x) => x.nearD > DETAIL_MATCH_DE).sort((a, b) => b.w - a.w)) {
+    for (const it of items.filter((x) => x.nearD > t.matchDE).sort((a, b) => b.w - a.w)) {
       let g = groups.find((q) => dE(it.lab, q.lab) <= 18);
       if (!g) { if (groups.length >= 8) continue; g = { lab: it.lab, w: 0, r: 0, g: 0, b: 0 }; groups.push(g); }
       g.w += it.w; g.r += it.w * it.d.rgb[0]; g.g += it.w * it.d.rgb[1]; g.b += it.w * it.d.rgb[2];
@@ -285,11 +303,11 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
   // under it (DETAIL_VISIBLE_DE); else it is left out. Then only the few threads (DETAIL_THREADS at most) that serve the most of them are kept: the
   // details of the others go to a kept thread when one is near enough, or are left out.
   for (const it of items) it.under = it.d.under >= 0 && palette[it.d.under] && !palette[it.d.under].skipped ? labOfHex(palette[it.d.under].hex) : cloth;
-  const stands = (it, c) => !!c && dE(it.lab, c.lab) <= DETAIL_MATCH_DE && dE(c.lab, it.under) >= DETAIL_VISIBLE_DE;
+  const stands = (it, c) => !!c && dE(it.lab, c.lab) <= t.matchDE && dE(c.lab, it.under) >= t.visibleDE;
   const assigned = items.map((it) => { const c = nearest(it.lab, pool).c; return stands(it, c) ? c : null; });
   const weight = new Map();
   items.forEach((it, i) => { if (assigned[i]) weight.set(assigned[i], (weight.get(assigned[i]) || 0) + it.w); });
-  const kept3 = [...weight].sort((a, b) => b[1] - a[1]).filter((e, k) => k < DETAIL_THREADS && (k === 0 || e[1] >= DETAIL_THREAD_MIN)).map((e) => e[0]);
+  const kept3 = [...weight].sort((a, b) => b[1] - a[1]).filter((e, k) => k < t.threads && (k === 0 || e[1] >= DETAIL_THREAD_MIN)).map((e) => e[0]);
   let invisible = 0, over = 0;
   const shown = [];
   items.forEach((it, i) => {
@@ -302,11 +320,11 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
   // the strongest first, as many as the stitch budget and the cap on pieces allow
   let baseMm2 = 0;
   for (const s of shapes) baseMm2 += s.area * mmPerPx * mmPerPx;
-  const budget = Math.max(150, DETAIL_STITCH_SHARE * 2 * baseMm2);
+  const budget = Math.max(150, t.stitchShare * 2 * baseMm2);
   shown.sort((a, b) => b.d.strength * Math.sqrt(b.w) - a.d.strength * Math.sqrt(a.w));
   const kept = [];
   let spent = 0;
-  const maxPieces = Math.max(DETAIL_MIN_PIECES, Math.round(DETAIL_PIECES_PER_SHAPE * shapes.length));
+  const maxPieces = Math.max(DETAIL_MIN_PIECES, Math.round(t.piecesPerShape * shapes.length));
   for (const it of shown) { // (strongest and longest first, so it is the weakest and shortest that are left out)
     if (kept.length >= maxPieces || spent + it.cost > budget) { over++; continue; }
     spent += it.cost;
@@ -362,7 +380,7 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
  *   CLOTH_FIELD_MM) are stitched: they are not `skipped`.
  *   Every object carries `pal`, the palette entry it was made for, and `rank` says where each entry comes in the sewing order.
  */
-export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new Set(), include = new Set(), fabric = null, snap = false, bleed = 0.4, before = null, maxColors = 12, detailThick = false }) {
+export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new Set(), include = new Set(), fabric = null, snap = false, bleed = 0.4, before = null, maxColors = 12, detailThick = false, detailTune = null }) {
   const cloth = fabric ? toLab(...Object.values(hexToRgb(fabric))) : null;
   const matchDE = clothMatch(traced.stats?.kind, fabric);
   // Which shapes have a hole that another shape sits in? Touching shapes share exactly the same boundary points, so a shape sits in the hole of
@@ -444,7 +462,7 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
     };
   });
   // The fine lines and dots found on the picture itself go on top of everything the colour layer made (and of its angles and edge lines), last in the design.
-  const onTop = traced.details ? fineObjects(traced, { palette, cloth: cloth || toLab(...Object.values(hexToRgb(DEFAULT_CLOTH))), originX, originY, mmPerPx, snap, maxColors, thick: detailThick, shapes }) : null;
+  const onTop = traced.details ? fineObjects(traced, { palette, cloth: cloth || toLab(...Object.values(hexToRgb(DEFAULT_CLOTH))), originX, originY, mmPerPx, snap, maxColors, thick: detailThick, shapes, tune: detailTune }) : null;
   const looked = applyLook(objects, shapes, traced, mmPerPx); // (the colour layer's objects only: the look is worked out shape by shape)
   return { objects: onTop ? [...looked, ...onTop.objects] : looked, palette, rank, details: onTop ? onTop.summary : null };
 }

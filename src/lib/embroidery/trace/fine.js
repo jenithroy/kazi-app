@@ -123,6 +123,22 @@ export function findFineDetails(image, o, kind, a, shapes) {
     return best;
   };
 
+  // The region of the person (regions.js) a detail lies in, when the picture has a region map: the class most of its points are in (0 = none).
+  const classes = a.regionCls || null;
+  const regionOf = (pts) => {
+    if (!classes) return 0;
+    const votes = new Uint8Array(8);
+    const n = pts.length;
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const p = pts[Math.min(n - 1, Math.round(t * (n - 1)))];
+      const x = Math.min(lw - 1, Math.max(0, Math.floor(p[0] / sx))), y = Math.min(lh - 1, Math.max(0, Math.floor(p[1] / sy)));
+      votes[classes[y * lw + x] & 7]++;
+    }
+    let best = 0;
+    for (let c = 1; c < 8; c++) if (votes[c] > votes[best]) best = c;
+    return best;
+  };
+
   const stepPx = Math.max(1, 0.3 / mm), minPx = MIN_LINE_MM / mm;
   const lines = [];
   for (const ln of res.lines) {
@@ -130,7 +146,7 @@ export function findFineDetails(image, o, kind, a, shapes) {
     let covered = 0;
     for (const p of s) if (at(p)) covered++;
     if (covered / s.length >= COVERED_DROP) { stats.droppedLines++; continue; }
-    if (!covered) { if (ln.lengthMm >= MIN_LINE_MM) lines.push({ ...ln, under: under(ln.pts) }); else stats.droppedLines++; continue; }
+    if (!covered) { if (ln.lengthMm >= MIN_LINE_MM) lines.push({ ...ln, under: under(ln.pts), region: regionOf(ln.pts) }); else stats.droppedLines++; continue; }
     // some of it is covered: keep the stretches that are not
     let from = -1, cut = false;
     for (let i = 0; i <= s.length; i++) {
@@ -141,7 +157,7 @@ export function findFineDetails(image, o, kind, a, shapes) {
         from = -1;
         if (d1 - d0 < minPx || part.length < 2) { cut = true; continue; }
         const pts = part.map((p) => [p[0], p[1]]);
-        lines.push({ ...ln, pts, lengthMm: +(polyLenPx(pts) * mm).toFixed(2), under: under(pts) });
+        lines.push({ ...ln, pts, lengthMm: +(polyLenPx(pts) * mm).toFixed(2), under: under(pts), region: regionOf(pts) });
         cut = true;
       }
     }
@@ -152,7 +168,7 @@ export function findFineDetails(image, o, kind, a, shapes) {
     let covered = 0;
     for (const p of sp.ring) if (at(p)) covered++;
     if (at(sp.centre) || covered / sp.ring.length >= 0.5) { stats.droppedSpots++; continue; }
-    spots.push({ ...sp, under: under([sp.centre]) });
+    spots.push({ ...sp, under: under([sp.centre]), region: regionOf([sp.centre]) });
   }
 
   let lengthMm = 0, spotArea = 0;
