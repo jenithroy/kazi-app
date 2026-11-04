@@ -26,6 +26,7 @@
     "@capacitor/push-notifications": "^8.1.1",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
+    "@mediapipe/tasks-vision": "^1.2.2",
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/supabase-js": "^2.112.4",
     "clipper-lib": "^6.4.2",

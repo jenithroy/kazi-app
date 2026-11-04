@@ -5,6 +5,8 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 
 export default defineConfig({
   plugins: [react(), cloudflare()],
+  // Web Workers are built as ES modules: the person finder's worker pulls in @mediapipe/tasks-vision with a dynamic import, which a classic (iife) worker bundle cannot hold.
+  worker: { format: "es" },
   build: {
     // The pages are fetched on demand (src/lib/lazyPages.js), but their CSS still ships as ONE stylesheet in a fixed
     // order (src/allStyles.js): where two rules weigh the same the later one wins, so a different order could change a look.
