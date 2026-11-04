@@ -9,6 +9,8 @@
 import { traceImage, renderTrace, quantize, detectBackground } from "./index.js";
 import { detailLimits, limitsFor } from "./detail.js";
 import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, clothFromTrace, clothMatch, CLOTH_MATCH, CLOTH_MATCH_PHOTO, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
+import { REGION, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS } from "./regions.js";
+import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
 import { serializeDesign, parseDesign, engineDesign, newDesign, breakApart, hitObject, objectBox } from "../../digitizer/model.js";
 import { generate } from "../stitch/engine.js";
 import { unionShapes, intersectRings, offsetRings } from "../geometry/clip.js";
@@ -702,7 +704,7 @@ log("8b. fine lines and dots on top (photographs and artwork), and what the conv
   check("no details found: the same objects as before and no summary", alone.objects.every((o) => !o.layer) && alone.details === null);
 }
 
-log("N. a portrait: light hair against a light wall, read as a photograph");
+log("N. a portrait: light hair against a light wall, and a person cut out of the wall (regions)");
 {
   // wall, hair (near the wall in colour, near the cream cloth too), a face, a jacket: what a studio portrait does to the logo-era rules
   const W = 360, H = 280;
@@ -724,6 +726,49 @@ log("N. a portrait: light hair against a light wall, read as a photograph");
   check("cloth match by kind: logo and artwork 14; photograph 0 on the default cream, 7 on any other cloth", clothMatch("logo", "#ffffff") === CLOTH_MATCH && clothMatch("art", "#f4f1ea") === CLOTH_MATCH && clothMatch("photo", "#F4F1EA") === 0 && clothMatch("photo", "#202020") === CLOTH_MATCH_PHOTO && CLOTH_MATCH_PHOTO < CLOTH_MATCH);
   const wall = { stats: { kind: "photo" }, palette: [{ background: true, r: 150, g: 160, b: 168 }] };
   check("a plain backdrop darker than L 75 sets the cloth, in a photograph as in a logo", clothFromTrace(wall) !== null && clothFromTrace({ stats: { kind: "logo" }, palette: wall.palette }) !== null);
+
+  // the region map: 0 wall, 1 hair, 3 face skin, 4 clothes
+  const cls = new Uint8Array(W * H);
+  const put = (v, f) => { for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (f(x + 0.5, y + 0.5)) cls[y * W + x] = v; };
+  put(REGION.HAIR, (x, y) => (x - 180) ** 2 + (y - 110) ** 2 <= 70 * 70);
+  put(REGION.FACE_SKIN, (x, y) => (x - 180) ** 2 + (y - 140) ** 2 <= 50 * 50);
+  put(REGION.CLOTHES, (x, y) => x >= 110 && x < 250 && y >= 200);
+  const regions = { width: W, height: H, data: cls };
+  const half = resampleClasses(regions, W / 2, H / 2);
+  check("a region map is read at the nearest pixel on any grid", half.length === (W / 2) * (H / 2) && half[(140 >> 1) * (W / 2) + (180 >> 1)] === REGION.FACE_SKIN && half[0] === REGION.BACKGROUND);
+  const cut = cutOutPerson(img, regions);
+  check("the cut-out makes the background see-through and keeps the person's pixels", cut && cut.image.data[(20 * W + 20) * 4 + 3] === 0 && cut.image.data[(110 * W + 180) * 4 + 3] === 255 && cut.share > 0.2 && cut.share < 0.5, cut ? `person ${(cut.share * 100).toFixed(0)} %` : "none");
+  check("a map with almost no person in it cuts nothing out", cutOutPerson(img, { width: W, height: H, data: new Uint8Array(W * H) }) === null);
+  const imp = importanceMap(cls);
+  check("importance: the face pulls harder than the clothes, the background not at all", Math.abs(imp[140 * W + 180] - DEFAULT_REGION_WEIGHTS[REGION.FACE_SKIN]) < 1e-5 && Math.abs(imp[250 * W + 180] - DEFAULT_REGION_WEIGHTS[REGION.CLOTHES]) < 1e-5 && imp[0] === 0);
+  const withMap = traceImage(img, { mode: "photo", mmPerPx: 0.25, regions });
+  check("with a map the wall is left out: no shape on it, and the picture says how much of it is a person", !insideAny(withMap, wallPt) && withMap.stats.person > 0.2, `person ${withMap.stats.person}`);
+  check("with a map the hair and the face are sewn, in their own colours", insideAny(withMap, hairPt, (p) => !p.background && p.r > 200) && insideAny(withMap, [180, 150], (p) => !p.background && p.r > p.b + 40));
+  check("the outer background of a cut-out picture is the see-through entry, so the cloth is not taken from it", clothFromTrace(withMap) === null);
+  // the palette by region: a many-toned face earns more colours than a plain jacket, and every region keeps to its own
+  {
+    const rgb = new Uint8ClampedArray(W * H * 3);
+    for (let i = 0; i < W * H; i++) { rgb[i * 3] = img.data[i * 4]; rgb[i * 3 + 1] = img.data[i * 4 + 1]; rgb[i * 3 + 2] = img.data[i * 4 + 2]; }
+    // give the face four tones (stripes) so it has something to earn colours with
+    for (let y = 100; y < 190; y++) for (let x = 130; x < 230; x++) if (cls[y * W + x] === REGION.FACE_SKIN) { const k = Math.floor((x - 130) / 25); const v = [[225, 170, 150], [200, 140, 120], [170, 110, 90], [235, 195, 175]][k]; const o = (y * W + x) * 3; rgb[o] = v[0]; rgb[o + 1] = v[1]; rgb[o + 2] = v[2]; }
+    const rp = buildRegionalPalette(rgb, W, H, cls, { maxColors: 9, seed: 1, mergeDE: 6, crumbs: "strict", noiseTol: 6, weights: DEFAULT_REGION_WEIGHTS });
+    const askedFor = (c) => (rp.alloc.find((a) => a[0] === c) || [0, 0])[1];
+    check("regional palette: one palette for the whole person, within the colours asked for", !!rp && rp.n >= 3 && rp.n <= 9, rp ? `${rp.n} colours, asked for ${JSON.stringify(rp.alloc)}` : "none");
+    check("regional palette: the many-toned face is given more colours than the plain jacket", askedFor(REGION.FACE_SKIN) > askedFor(REGION.CLOTHES), JSON.stringify(rp.alloc));
+    const palLab = rp.lab;
+    const labels = classifyByRegion(rgb, W * H, W, H, palLab, rp.n, cls, rp, 2);
+    let leaks = 0, n = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (cls[i] !== REGION.CLOTHES) continue;
+      const y = (i / W) | 0, x = i % W;
+      if (y < 210 || x < 120 || x > 240) continue; // deep inside the jacket, away from any other region
+      n++;
+      if (!(rp.classMask[labels[i]] & (1 << REGION.CLOTHES))) leaks++;
+    }
+    check("regional palette: a pixel deep inside a region takes only colours that region owns", n > 1000 && leaks === 0, `${leaks} of ${n} pixels took another region's colour`);
+  }
+  const auto = traceImage(img, { mode: "auto", mmPerPx: 0.25, regions });
+  check("a picture with a person cut out is traced as a photograph when the kind is left to the tracer", auto.stats.kind === "photo");
 }
 
 if (process.argv.includes("--perf")) {

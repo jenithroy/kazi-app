@@ -47,6 +47,8 @@ import { processChains } from "./simplify.js";
 import { findCrossing, pullBack } from "./repair.js";
 import { renderTrace } from "./render.js";
 import { detectKind, kuwahara, restoreThin, thinLines } from "./photo.js";
+import { validRegions, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS } from "./regions.js";
+import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
 import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
 import { limitsFor } from "./detail.js";
 import { findFineDetails } from "./fine.js";
@@ -94,6 +96,10 @@ export const DEFAULT_OPTIONS = Object.freeze({
   contrast: true, // how much a small piece stands out decides whether it stays: a petal on dark leaves is kept small, a patch of sky a shade off is not
   fineParams: null, // (for tuning) overrides of the fine-detail finder's numbers, see detailParams in details.js
   fineDetail: 0.75, // the Detail slider (0 to 1) as the fine-detail finder sees it (details.js): how many and how faint the lines and dots it keeps
+  regions: null, // a map of what each pixel is (background, hair, skin, clothes ...), see regions.js: the background is cut out and the person's colours are weighted by class
+  regionPalette: true, // with a region map: every region (hair, skin, clothes ...) gets colours of its own and its pixels keep to them (regionPalette.js); false: one palette for the person, only weighted
+  regionWeights: null, // how hard each class pulls on the palette (by class number); null = DEFAULT_REGION_WEIGHTS
+  reserveColors: 1, // a person cut out of a photograph, fine details on: this many of the colours are kept back for the details' own threads (a dark brown for lids and lashes), see convert.js fineObjects
   details: false, // photographs and artwork: also find the fine lines (veins, twigs, lids, lashes) and small dots from the picture itself, to be sewn on top of the colours (details.js, fine.js); the colour layer is not changed
 });
 
@@ -147,6 +153,10 @@ export function normalizeOptions(opts = {}) {
     lineShare: num(opts.lineShare, DEFAULT_OPTIONS.lineShare, 0.001, 1),
     keepThin: num(opts.keepThin, DEFAULT_OPTIONS.keepThin, 0, 255),
     maxShapes: Math.round(num(opts.maxShapes, DEFAULT_OPTIONS.maxShapes, 0, 1e6)),
+    reserveColors: Math.round(num(opts.reserveColors, DEFAULT_OPTIONS.reserveColors, 0, 4)),
+    regions: validRegions(opts.regions) ? opts.regions : null,
+    regionWeights: Array.isArray(opts.regionWeights) ? opts.regionWeights : null,
+    regionPalette: opts.regionPalette === undefined ? true : !!opts.regionPalette,
   };
 }
 
@@ -215,6 +225,12 @@ function analyse(image, o, maxSide) {
   const wk = prepare(image, maxSide, o.mmPerPx > 0.4 ? Math.min(longPx * 8, (longPx * o.mmPerPx) / 0.2) : 0);
   const { w, h, hasAlpha, cov } = wk;
   const N = w * h;
+  // the person's classes on the work grid: each pulls on the palette by its weight (the face over the clothes), see regions.js
+  let imp = null, regionCls = null;
+  if (o.personClasses) {
+    regionCls = resampleClasses({ width: o.personSize[0], height: o.personSize[1], data: o.personClasses }, w, h);
+    imp = importanceMap(regionCls, o.regionWeights || DEFAULT_REGION_WEIGHTS);
+  }
   stages.prepare = now() - t;
   t = now();
   const dn = denoise(wk.rgb, w, h);
@@ -238,8 +254,16 @@ function analyse(image, o, maxSide) {
   }
   const excludeLab = bgColor ? new Float64Array(3) : null;
   if (bgColor) rgbToLab(bgColor[0], bgColor[1], bgColor[2], excludeLab, 0);
-  const maxFg = Math.max(1, o.colors - (hasAlpha ? 1 : 0) - (bgColor ? 1 : 0));
-  const pal = buildPalette(rgbD, w, h, {
+  // Colours kept back for the details' own threads: only for a person cut out of a photograph, where the details are a face's lids, lashes and brows and need a dark thread
+  // of their own (for other photographs the colour layer keeps all the colours, as measured on 42 pictures). A small palette is the person's own choice: nothing is taken from it.
+  const reserve = kind !== "logo" && o.details && o.colors >= 8 && o.personClasses ? o.reserveColors : 0;
+  // (a person cut out of a photograph leaves a see-through label, which is no thread: only a logo's own transparency takes one of the colours)
+  const maxFg = Math.max(1, o.colors - (hasAlpha && !o.personClasses ? 1 : 0) - (bgColor ? 1 : 0) - reserve);
+  // a person cut out of a photograph: each region gets the colours it earns, and its pixels keep to them (regionPalette.js)
+  const regional = regionCls && kind === "photo" && o.regionPalette
+    ? buildRegionalPalette(rgbD, w, h, regionCls, { maxColors: maxFg, seed: o.seed, mergeDE: o.mergeDE || 6, crumbs: "strict", noiseTol: dn.tol, weightPower: 0.5, weights: o.regionWeights || DEFAULT_REGION_WEIGHTS, skip })
+    : null;
+  const pal = regional || buildPalette(rgbD, w, h, {
     maxColors: maxFg,
     seed: o.seed,
     mergeDE: o.mergeDE || (kind === "photo" ? 6 : kind === "art" ? 8 : 11),
@@ -251,6 +275,7 @@ function analyse(image, o, maxSide) {
     excludeLab,
     excludeDist: o.backgroundTolerance,
     skip,
+    imp,
   });
   let Kfg = pal.n;
   let fgRgb = Array.from(pal.rgb).slice(0, Kfg * 3);
@@ -264,7 +289,7 @@ function analyse(image, o, maxSide) {
   for (let k = 0; k < Kfg; k++) rgbFloatToLab(fgRgb[k * 3], fgRgb[k * 3 + 1], fgRgb[k * 3 + 2], fgLab, k * 3);
   // colours that are only the soft edge between two others (anti-aliasing, JPEG halos) are not colours of their own
   let preLabels = null;
-  if (Kfg >= 3) {
+  if (Kfg >= 3 && !regional) {
     const pre = classifyPixels(rgbD, N, fgLab, Kfg);
     const drop = transitionalEntries(pre, w, h, Float64Array.from(fgRgb), Kfg);
     let dropped = 0;
@@ -302,7 +327,9 @@ function analyse(image, o, maxSide) {
   t = now();
 
   // one label per pixel, with how much of each colour an edge pixel holds
-  const labels0 = preLabels && !bgColor ? preLabels : classifyPixels(rgbD, N, palLab, Kc);
+  const labels0 = regional
+    ? classifyByRegion(rgbD, N, w, h, palLab, Kc, regionCls, regional, Math.max(2, Math.round(REGION_BORDER_MM / (o.mmPerPx * scale))))
+    : preLabels && !bgColor ? preLabels : classifyPixels(rgbD, N, palLab, Kc);
   const flat = flatMask(rgbD, w, h, pal.tFlat);
   const sm = softMembership(rgbD, w, h, labels0, flat, palRgb, Kc);
   const labels = sm.labels;
@@ -464,7 +491,7 @@ function analyse(image, o, maxSide) {
     if (cls[k] !== k) for (let j = 0; j < 3; j++) pal2.rgb[k * 3 + j] = pal2.rgb[cls[k] * 3 + j];
   }
   for (let k = 0; k < K2; k++) rgbFloatToLab(pal2.rgb[k * 3], pal2.rgb[k * 3 + 1], pal2.rgb[k * 3 + 2], pal2.lab, k * 3);
-  return { wk, w, h, N, labels, lab2, soft, cls, pal: pal2, K: K2, scale, minFeaturePx, minAreaPx, noise: dn, cleaned, stages, bgInfo };
+  return { wk, w, h, N, labels, lab2, soft, cls, pal: pal2, K: K2, scale, minFeaturePx, minAreaPx, noise: dn, cleaned, stages, bgInfo, regionAlloc: regional ? regional.alloc : null, regionCls };
 }
 
 /**
@@ -547,6 +574,9 @@ function applyAlpha(labels, lab2, soft, cov, w, h, cut, transIndex) {
   }
   void n;
 }
+
+/** How far (mm) from the border of another region a pixel may also take that region's colours: the map is only a guess at the edge, the picture's own colours say where it really is. */
+const REGION_BORDER_MM = 0.5;
 
 /** In a photograph a colour near the backdrop's belongs to it only when at least this share of the picture's border ring is that colour. */
 const BG_RING_MIN = 0.01;
@@ -762,9 +792,14 @@ export function traceImage(image, opts = {}) {
   const tStart = now();
   checkImage(image);
   const o0 = normalizeOptions(opts);
-  const { kind, info } = resolveKind(image, o0);
-  const o = withKind(o0, kind);
-  const a = analyse(image, o, workSide(image, o));
+  // a person found in the picture: its background is made see-through, and the colours are found from the person alone
+  const cut = o0.regions ? cutOutPerson(image, o0.regions) : null;
+  const pic = cut ? cut.image : image;
+  const { kind, info } = cut && o0.mode === "auto" ? { kind: "photo", info: null } : resolveKind(pic, o0);
+  // (a person's small shapes are the eyes, brows and wrinkles: read half a step higher up the Detail slider than a logo, as detail.js does for a portrait; measured on 8
+  // portraits with the person cut out: 24 % more shapes, 3 % more stitches, the face's structure match 0.691 to 0.698, colour error 8.40 to 8.35)
+  const o = { ...withKind(cut && o0.detail === null ? { ...o0, detail: o0.fineDetail } : o0, kind), personClasses: cut ? cut.classes : null, personSize: cut ? [pic.width, pic.height] : null };
+  const a = analyse(pic, o, workSide(pic, o));
   const { w, h, labels, lab2, soft, K } = a;
   let t = now();
 
@@ -903,7 +938,7 @@ export function traceImage(image, opts = {}) {
 
   // fine lines and dots found on the picture itself, to be sewn on top of these shapes (logos have none)
   const tFine = now();
-  const details = o.details && kind !== "logo" ? findFineDetails(image, o, kind, a, shapes) : null;
+  const details = o.details && kind !== "logo" ? findFineDetails(pic, o, kind, a, shapes) : null;
   const fineMs = now() - tFine;
 
   return {
@@ -932,6 +967,8 @@ export function traceImage(image, opts = {}) {
       strokeMedianMm: (a.cleaned.strokeMedian || 0) * a.scale * o.mmPerPx,
       kind,
       kindInfo: info,
+      regionColours: a.regionAlloc || null, // [class, colours asked for] for each region that got colours of its own (regionPalette.js)
+      person: cut ? +cut.share.toFixed(3) : null, // the share of the picture that is a person, when a region map cut one out (regions.js)
       stages: a.stages,
     },
   };

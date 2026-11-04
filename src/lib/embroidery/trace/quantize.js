@@ -24,7 +24,7 @@ function makePalette(n) {
  * One value per sample pixel (a lattice of pixels `stride` apart): how flat its neighbourhood is, as the largest
  * channel difference to its four neighbours. Returns { idx (pixel numbers), val (0..255), m (count) }.
  */
-function sampleFlatness(rgb, w, h, stride, skip, all = false) {
+export function sampleFlatness(rgb, w, h, stride, skip, all = false) {
   const maxCount = Math.ceil((h - 2) / stride) * Math.ceil((w - 2) / stride) + 1;
   const idx = new Int32Array(maxCount);
   const val = new Uint8Array(maxCount);
@@ -63,7 +63,7 @@ function sampleFlatness(rgb, w, h, stride, skip, all = false) {
  * Histogram of the flat samples (flatness value up to tFlat): a cell is 2^shift levels wide in each of R, G, B. Returns
  * the cells that are not empty with their mean colour (RGB and Lab) and how many pixels fell in them.
  */
-function binFlatSamples(rgb, smp, tFlat, shift, excludeLab, excludeDist, weightPower = 1) {
+export function binFlatSamples(rgb, smp, tFlat, shift, excludeLab, excludeDist, weightPower = 1, imp = null) {
   const bits = 8 - shift;
   const slot = new Int32Array(1 << (3 * bits)).fill(-1);
   let cap = 2048;
@@ -71,6 +71,7 @@ function binFlatSamples(rgb, smp, tFlat, shift, excludeLab, excludeDist, weightP
   let sg = new Float64Array(cap);
   let sb = new Float64Array(cap);
   let cn = new Float64Array(cap);
+  let wn = imp ? new Float64Array(cap) : null; // the same count, each pixel counted by its importance
   let nb = 0;
   let total = 0;
   const lab = new Float64Array(3);
@@ -92,11 +93,13 @@ function binFlatSamples(rgb, smp, tFlat, shift, excludeLab, excludeDist, weightP
         cap *= 2;
         const grow = (a) => { const n = new Float64Array(cap); n.set(a); return n; };
         sr = grow(sr); sg = grow(sg); sb = grow(sb); cn = grow(cn);
+        if (wn) wn = grow(wn);
       }
       s = nb++;
       slot[key] = s;
     }
     sr[s] += r; sg[s] += g; sb[s] += b; cn[s] += 1;
+    if (wn) wn[s] += imp[smp.idx[k]];
   }
   const pts = new Float64Array(nb * 3);
   const rgbm = new Float64Array(nb * 3);
@@ -109,14 +112,15 @@ function binFlatSamples(rgb, smp, tFlat, shift, excludeLab, excludeDist, weightP
     rgbm[i * 3 + 2] = sb[i] / c;
     rgbFloatToLab(rgbm[i * 3], rgbm[i * 3 + 1], rgbm[i * 3 + 2], pts, i * 3);
     // how much a colour pulls on the clusters: with a power under 1 a big smooth area (a sky) does not take every colour
-    wts[i] = weightPower === 1 ? c : Math.pow(c, weightPower);
+    const pull = wn ? wn[i] : c; // (a face pixel counts for more than a pixel of the clothes: `imp`)
+    wts[i] = weightPower === 1 ? pull : Math.pow(pull, weightPower);
     cnts[i] = c;
   }
   return { m: nb, pts, rgb: rgbm, wts, cnts, total };
 }
 
 /** k-means++ seeding on weighted points. Returns up to K centres (fewer if there are not K distinct points). */
-function seedCentres(pts, wts, m, K, rng) {
+export function seedCentres(pts, wts, m, K, rng) {
   const centres = [];
   const d2 = new Float64Array(m).fill(Infinity);
   let totalW = 0;
@@ -158,7 +162,7 @@ function seedCentres(pts, wts, m, K, rng) {
 }
 
 /** Lloyd's iterations on weighted points. Returns { centres, assign, sse }. */
-function lloyd(pts, wts, m, centres, K, maxIter) {
+export function lloyd(pts, wts, m, centres, K, maxIter) {
   const assign = new Int32Array(m).fill(-1);
   const sums = new Float64Array(K * 3);
   const sw = new Float64Array(K);
@@ -205,7 +209,7 @@ function lloyd(pts, wts, m, centres, K, maxIter) {
  * Turn the histogram into a palette: k-means with the cap on colours, then merge close colours and drop crumbs.
  * `maxColors` counts the colours of the picture only (the caller already reserved a slot for a see-through background).
  */
-function paletteFromBins(bins, maxColors, opts) {
+export function paletteFromBins(bins, maxColors, opts) {
   const { m, pts, rgb, wts } = bins;
   const cnts = bins.cnts || wts;
   if (m === 0) return makePalette(0);
@@ -300,7 +304,8 @@ function paletteFromBins(bins, maxColors, opts) {
  * Find the palette of a working picture.
  * opts: { maxColors, seed, mergeDE, minFeaturePx, noiseTol, excludeLab, excludeDist, allPixels (every pixel is a sample, for photographs),
  *   weightPower (1: a colour pulls by its pixel count; 0.5: by the square root, so a big smooth area does not take every cluster),
- *   crumbs ("strict": keep small colours that differ from the rest) }
+ *   crumbs ("strict": keep small colours that differ from the rest),
+ *   imp (optional Float32Array, one weight per pixel: a pixel of weight 2 pulls on the colours twice as hard as one of weight 1: the face over the clothes) }
  */
 export function buildPalette(rgb, w, h, opts) {
   const n = w * h;
@@ -323,8 +328,8 @@ export function buildPalette(rgb, w, h, opts) {
     tFlat = Math.min(255, tFlat * 2);
   }
   const power = opts.weightPower ?? 1;
-  let bins = binFlatSamples(rgb, smp, tFlat, 2, opts.excludeLab, opts.excludeDist, power);
-  if (bins.m > 15000) bins = binFlatSamples(rgb, smp, tFlat, 3, opts.excludeLab, opts.excludeDist, power);
+  let bins = binFlatSamples(rgb, smp, tFlat, 2, opts.excludeLab, opts.excludeDist, power, opts.imp || null);
+  if (bins.m > 15000) bins = binFlatSamples(rgb, smp, tFlat, 3, opts.excludeLab, opts.excludeDist, power, opts.imp || null);
   const pal = paletteFromBins(bins, opts.maxColors, opts);
   pal.flatSamples = bins.total;
   pal.tFlat = tFlat;
