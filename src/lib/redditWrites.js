@@ -14,7 +14,7 @@
 import { deleteRow, fetchAll, fetchOne, insertRow, updateRow } from "./db";
 import { kathmanduDate } from "../utils/date";
 import { runEmailFinder, runFindWebsite, runTenderSearch, runWebSearch } from "./emailFinderApi";
-import { FinderOffline, runLocalEmailFinder, runLocalWebsiteFinder } from "./localFinder";
+import { FinderOffline, runLocalEmailFinder, runLocalSearch, runLocalSocials, runLocalWebsiteFinder } from "./localFinder";
 import { runRedditCheck } from "./redditApi";
 import { bestEmail, brandFromSite, leadStatus, normalizeWebsite, settingsPayload } from "./redditLeads";
 
@@ -94,10 +94,39 @@ export async function findEmailsOnThisComputer(url, { browser = true, robots = t
   }
 }
 
-/** A company's own website found from its name by the finder program on this computer (see `findWebsite`); `unreachable` as above. */
-export async function findWebsiteOnThisComputer(name, { robots = true } = {}) {
+/**
+ * A company's own website found from its name by the finder program on this computer (see `findWebsite`): by trying the likely addresses and, when that finds
+ * nothing sure, by a search for the name in that computer's browser. `help` lets the program open a window for a person to answer a check a search engine asks.
+ * `unreachable` as above.
+ */
+export async function findWebsiteOnThisComputer(name, { robots = true, help = true } = {}) {
   try {
-    return { ok: true, res: await runLocalWebsiteFinder(name, { robots }) };
+    return { ok: true, res: await runLocalWebsiteFinder(name, { robots, help }) };
+  } catch (err) {
+    return { ok: false, unreachable: err instanceof FinderOffline, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/**
+ * The Web search source, done by the finder program in its browser on this computer (no search service, no key): the same answer as `searchWeb`, plus how the
+ * search went: `blocked` (an engine asked for a person and nobody answered: the search stopped) and `limited` (the hour's searches are used up).
+ */
+export async function searchWebOnThisComputer(queries, { help = true } = {}) {
+  try {
+    const res = await runLocalSearch(queries, { help });
+    return {
+      ok: true,
+      res: { results: res.sites.map((s) => ({ name: brandFromSite(s.website), website: s.website, about: `Web search: "${s.query}"` })), searched: res.searched, blocked: Boolean(res.blocked), limited: Boolean(res.limited) },
+    };
+  } catch (err) {
+    return { ok: false, unreachable: err instanceof FinderOffline, message: err?.message || "That didn't work. Try again." };
+  }
+}
+
+/** A company's Facebook and Instagram pages from a search for its name, by the finder program on this computer: { ok, res: { facebook?, instagram?, blocked, limited } } (the links only; `unreachable` as above). */
+export async function findSocialsOnThisComputer(name, { help = true } = {}) {
+  try {
+    return { ok: true, res: await runLocalSocials(name, { help }) };
   } catch (err) {
     return { ok: false, unreachable: err instanceof FinderOffline, message: err?.message || "That didn't work. Try again." };
   }

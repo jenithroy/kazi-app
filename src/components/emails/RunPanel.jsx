@@ -3,7 +3,8 @@
  * was saved, and the links to its social pages. While it runs there is a Stop; after it, the sum of it and a Clear. What it saved is already in the list
  * under it. The last run stays here on the next visit (it holds the companies that only gave social links, which have no address to list).
  *
- * It shows a company's own website and the social links that website gives. It never opens a search engine or a social network.
+ * It shows a company's own website and its social links: the ones that website gives, or, with the finder program on this computer, the ones a search for its name
+ * turns up. It never opens a social network's page.
  */
 import { cn } from "../ui";
 import { estimateMinutes } from "../../lib/autoFind";

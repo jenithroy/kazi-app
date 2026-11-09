@@ -43,10 +43,12 @@ export default function ContactHelpDialog({ onClose }) {
             <li><b>UK tenders</b>: public bodies publish what they buy on a government website, Find a Tender. The companies that won clothing and textile contracts are looked up. Most give a phone number and no website, so the page finds the website from the name.</li>
             <li><b>Reddit posts</b>: the websites written on posts in Reddit Leads that have no address saved yet.</li>
             <li><b>My list</b>: companies or websites you type in, one on each line.</li>
-            <li><b>eBay stores</b>: eBay does not let programs read its pages, so a store's page is never opened. Type the store's link or its company name and the page looks for that company's own website. A store's real company name works best.</li>
-            <li><b>Web search</b>: finds the websites of businesses with a paid search service. It needs the search key set up on the server (ask whoever looks after the website), and each search costs a little. Directories, marketplaces and review sites are left out of the results.</li>
+            <li><b>eBay stores</b>: eBay's rules do not allow programs to read its pages, and it shows them a security check, so a store's page is never opened. Type the store's link or its company name and the page looks for that company's own website. A store's real company name works best.</li>
+            <li><b>Web search</b>: finds the websites of businesses by searching Bing, and DuckDuckGo if Bing says no, in the browser on your computer, a few seconds apart. Bing's rules ask programs not to use its search: this does it slowly and never tries to get past a check by itself. It needs the finder program running on your computer (see Run on this computer) and no key. If a search engine asks for a person to check, one window opens for you to answer it; if nobody does, searching stops for that run. Directories, marketplaces and review sites are left out of the results.</li>
             <li><b>Respect robots.txt</b>: a website can ask robots to keep out. On, those sites are left alone. Off, they are read anyway. Either way, only a few public pages of each site are read, one site at a time.</li>
-            <li><b>Run on this computer</b>: the websites are found and read from your own computer's internet connection, and its browser reads any that show no address, instead of the server doing it. This reaches websites that turn the server away, and it is what to use for a long list. It needs the Kazi finder program running on your computer: ask whoever looks after the website for its folder, double-click <b>start.bat</b> (Windows) or <b>start.sh</b> (Mac or Linux), leave its window open, then turn this on. Chrome or Edge will ask once whether the Kazi site may connect to apps on your computer: choose Allow.</li>
+            <li><b>Run on this computer</b>: the websites are found and read from your own computer's internet connection, and its browser reads any that show no address, and does the searching (a company's website from its name when guessing the address fails, its Facebook and Instagram pages, and Web search), instead of the server doing it. This reaches websites that turn the server away, and it is what to use for a long list. It needs the Kazi finder program running on your computer: ask whoever looks after the website for its folder, double-click <b>start.bat</b> (Windows) or <b>start.sh</b> (Mac or Linux), leave its window open, then turn this on. Chrome or Edge will ask once whether the Kazi site may connect to apps on your computer: choose Allow.</li>
+            <li><b>Look for Facebook and Instagram pages with a search</b>: for a company whose own website links none, the browser on your computer searches for its name and keeps the links it finds (the pages are never opened). Off by default: Bing and DuckDuckGo ask a person to prove they are one after a search or two, and this makes a search for every company.</li>
+            <li><b>Let me answer a search engine's check</b>: when a search engine asks, one window opens on your computer for you to answer it, and asks again in the same window if it asks again. Nothing answers it for you: if nobody does, searching stops for that run.</li>
             <li><b>Also save a person's own address</b>: by default only company addresses are saved by themselves.</li>
           </ul>
           <p>Your Sources are kept in this browser, so everyone has their own. A company where nothing was found is left out of the next runs for two weeks; Sources has a button to look at them again.</p>
@@ -56,9 +58,10 @@ export default function ContactHelpDialog({ onClose }) {
           <h3>What it does not read</h3>
           <p>
             Instagram, Facebook, LinkedIn, TikTok and the like do not let programs read their pages: they ask for a sign-in and block anything automatic,
-            and they are not a mailing list. Google, Bing and other search engines do not either. eBay does not either. The page does not try to get
-            past that, and the Respect robots.txt switch does not change it. Reading a company's own website is the way around all of them: it shows the
-            same email and links to the same social pages.
+            and they are not a mailing list. So their pages are never opened: the page only keeps the links to a company's Facebook and Instagram that its own
+            website gives, or that a search for its name turns up. eBay's rules do not allow programs to read its pages either, and it shows them a security check. Bing and DuckDuckGo are searched, in your
+            browser, a few seconds apart; if one asks for a person to check, nothing tries to get past it. Reading a company's own website is the
+            way to its email: it shows the address and the links to the same social pages.
           </p>
         </section>
 

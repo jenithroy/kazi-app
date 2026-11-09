@@ -6,9 +6,12 @@
  *   tenders  UK public contracts about clothing and textiles (Find a Tender): the companies that won them
  *   reddit   the websites written on the Reddit Leads posts that have no address saved yet
  *   list     companies or websites the person typed, one on each line
- *   ebay     eBay store links or names. eBay's own pages are never read (it does not allow it): a store's NAME is looked for like any company's
- *   search   a web search through an official search service (Brave's), for the sites of businesses that sell what the person looks for
+ *   ebay     eBay store links or names. eBay's own pages are never read (its rules do not allow programs, and it shows them a security check): a store's NAME is looked for like any company's
+ *   search   a web search for the sites of businesses that sell what the person looks for: done in the browser on the person's computer (the finder program:
+ *            Bing, then DuckDuckGo, no key), or, without it, through a paid search service the server may have a key for (Brave's)
  *   robots   whether a website's robots.txt is respected (on unless the person turns it off; eBay, social networks and search engines are closed regardless)
+ *   window   when a search engine asks for a person (a CAPTCHA), the program may open ONE window on the computer for them to answer it
+ *   socials  also look for each company's Facebook and Instagram pages with a search (off: a search engine asks for a person after a search or two, so this is slow)
  *   people   also save a person's own address on the company's domain, not only company addresses (sales@, info@)
  *
  * `buildTargets` is the first step of a run (lib/contactRun.js): it collects the companies from every source that is on, drops repeats, drops the ones
@@ -18,7 +21,7 @@
 import { MAX_COMPANIES, targetsFromText } from "./autoFind";
 import { brandFromSite, emailsByLead, leadStatus, normalizeWebsite } from "./redditLeads";
 
-export const MAX_SEARCHES = 5;                                  // searches (one per line) in one run: each is a paid request to the search service
+export const MAX_SEARCHES = 5;                                  // searches (one per line) in one run: each is a request to a search engine, and they are paced
 export const TRIED_DAYS = 14;                                   // a company looked at with nothing found is not looked at again for this long
 const DAY_MS = 86_400_000;
 
@@ -29,6 +32,8 @@ export const DEFAULT_SOURCES = {
   ebay: { on: false, text: "" },
   search: { on: false, queries: "" },
   robots: true,
+  window: true,
+  socials: false,
   people: false,
 };
 
@@ -47,6 +52,8 @@ export function normalizeSources(raw) {
     ebay: { on: flag(r.ebay?.on, d.ebay.on), text: words(r.ebay?.text, 20000) },
     search: { on: flag(r.search?.on, d.search.on), queries: words(r.search?.queries, 2000) },
     robots: flag(r.robots, d.robots),
+    window: flag(r.window, d.window),
+    socials: flag(r.socials, d.socials),
     people: flag(r.people, d.people),
   };
 }
@@ -158,7 +165,10 @@ export async function buildTargets(config, ctx) {
     const res = await ctx.searchWeb(searches);
     if (res.ok) {
       groups.push(res.res.results);
-      notes.push(`Web search: ${res.res.results.length} ${res.res.results.length === 1 ? "website" : "websites"} from ${searches.length} ${searches.length === 1 ? "search" : "searches"}.`);
+      const made = res.res.searched ?? searches.length;
+      notes.push(`Web search: ${res.res.results.length} ${res.res.results.length === 1 ? "website" : "websites"} from ${made} ${made === 1 ? "search" : "searches"}.`);
+      if (res.res.blocked) notes.push("A search engine asked for a person to check and nobody answered, so the web search stopped there. Try again in a while.");
+      if (res.res.limited) notes.push("The hour's searches on this computer are used up, so the web search stopped there. Try again in a while.");
     } else {
       notes.push(`Web search did not run: ${res.message}`);
     }

@@ -53,7 +53,7 @@ export default function SiteFinder({ initialUrl = "", brand = "", leadId = null,
     setBusy(true); setError(""); setNote(""); setReport(null); setFound(null);
     let res = local ? await findEmailsOnThisComputer(site, { robots }) : null;
     if (res && !res.ok && res.unreachable) {
-      setNote("The finder isn't running on this computer, or this browser didn't let the page reach it, so the server read the site instead.");
+      setNote("Couldn't reach the finder program on this computer (it isn't started, or this browser blocked the connection), so the server read the site instead.");
       res = null;
     }
     if (!res) res = await findEmails(site, { robots });

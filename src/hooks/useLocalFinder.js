@@ -6,7 +6,7 @@ import { pingLocalFinder } from "../lib/localFinder";
  * to the Worker. One choice for the Contact Finder's Sources, its by-hand website tab and every card that has the finder, remembered between visits.
  *
  *   const [local, setLocal] = useLocalFinder();
- *   const status = useLocalStatus(local);       // { checked, running, browser }: asked once when the choice is on, never when it is off
+ *   const status = useLocalStatus(local);       // { checked, running, browser, search }: asked once when the choice is on, never when it is off
  *
  * The program is only ever asked when the choice is on: a browser asks the person for permission the first time a page reaches the program,
  * and nobody who never uses it should see that question.
@@ -35,13 +35,13 @@ export default function useLocalFinder() {
   return [local, setLocalFinder];
 }
 
-/** { checked, running, browser } for the program on this computer, looked at once each time `on` turns on. */
+/** { checked, running, browser, search } for the program on this computer (`search`: it is a version that can search), looked at once each time `on` turns on. */
 export function useLocalStatus(on) {
-  const [status, setStatus] = useState({ checked: false, running: false, browser: "" });
+  const [status, setStatus] = useState({ checked: false, running: false, browser: "", search: false });
   useEffect(() => {
-    if (!on) { setStatus({ checked: false, running: false, browser: "" }); return undefined; }
+    if (!on) { setStatus({ checked: false, running: false, browser: "", search: false }); return undefined; }
     let alive = true;
-    pingLocalFinder().then((s) => { if (alive) setStatus({ checked: true, running: s.running, browser: s.browser || "" }); });
+    pingLocalFinder().then((s) => { if (alive) setStatus({ checked: true, running: s.running, browser: s.browser || "", search: Boolean(s.search) }); });
     return () => { alive = false; };
   }, [on]);
   return status;

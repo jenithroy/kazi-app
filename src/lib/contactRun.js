@@ -8,7 +8,9 @@
  *                   typed lists are read, and the ones already on the list, or looked at lately with nothing found, are left out
  *   2. running      lib/autoFind.js `runAuto` does each company in turn: finds its website from its name, reads the website for its addresses and its social
  *                   links, saves the addresses worth writing to. With "Run on this computer" on and the finder program running here, the website is found and
- *                   read from this computer (its connection, and its browser for a site that shows no address); otherwise the server does it all
+ *                   read from this computer (its connection, and its browser for a site that shows no address), and the browser there SEARCHES (Bing, then
+ *                   DuckDuckGo: the Web search source, a website from a name the guessing missed, a company's Facebook and Instagram pages); otherwise the
+ *                   server does the reading, and a Web search needs the server's own search key
  *   3. done         the sum of it, and every company with what was found; the last run is kept in this browser so it is there on the next visit
  *
  * What was saved is already on the list; `saved` is the same rows again, for the page to show at once without reading the list for every company.
@@ -16,7 +18,7 @@
 import { runAuto } from "./autoFind";
 import { buildTargets, targetKey } from "./sources";
 import { pingLocalFinder } from "./localFinder";
-import { findEmails, findEmailsOnThisComputer, findTenders, findWebsite, findWebsiteOnThisComputer, saveEmails, searchWeb } from "./redditWrites";
+import { findEmails, findEmailsOnThisComputer, findSocialsOnThisComputer, findTenders, findWebsite, findWebsiteOnThisComputer, saveEmails, searchWeb, searchWebOnThisComputer } from "./redditWrites";
 
 const LAST_KEY = "kazi.contactFinder.lastRun";
 const TRIED_KEY = "kazi.contactFinder.tried";
@@ -74,9 +76,9 @@ function setRow(i, patch) {
  * The functions `runAuto` calls. With the finder program on this computer in use, finding a website and a plain read go to it first; if it stops
  * answering part-way, the server does the rest. The browser read is only for a site that showed no address (autoFind.js `worthABrowser`).
  */
-export function makeDeps({ robots, onThisComputer }) {
+export function makeDeps({ robots, onThisComputer, help = true, search = false, socials = false }) {
   const server = { findWebsite: (name) => findWebsite(name, { robots }), readSite: (url) => findEmails(url, { robots }) };
-  if (!onThisComputer) return { ...server, readSiteOnThisComputer: null, save: saveEmails };
+  if (!onThisComputer) return { ...server, readSiteOnThisComputer: null, findSocials: null, save: saveEmails };
   let gone = false;                                   // the program stopped answering: the server takes over for the rest of the run
   const here = (local, fallback) => async (arg) => {
     if (gone) return fallback(arg);
@@ -85,11 +87,30 @@ export function makeDeps({ robots, onThisComputer }) {
     return out;
   };
   return {
-    findWebsite: here((name) => findWebsiteOnThisComputer(name, { robots }), server.findWebsite),
+    findWebsite: here((name) => findWebsiteOnThisComputer(name, { robots, help }), server.findWebsite),
     readSite: here((url) => findEmailsOnThisComputer(url, { browser: false, robots }), server.readSite),
     readSiteOnThisComputer: (url) => findEmailsOnThisComputer(url, { browser: true, robots }),
+    // only the program can search (the server has no browser): when it stops answering, there are simply no more searches for social pages
+    findSocials: search && socials ? async (name) => {
+      if (gone) return { ok: false, unreachable: true };
+      const out = await findSocialsOnThisComputer(name, { help });
+      if (out.unreachable) gone = true;
+      return out;
+    } : null,
     save: saveEmails,
   };
+}
+
+/**
+ * The Web search the server can do: with a paid search service's key set up on the server, which a person may not have. Without it the answer says what to do
+ * instead (the finder program on this computer searches by itself, no key).
+ */
+async function serverSearch(queries) {
+  const out = await searchWeb(queries);
+  if (!out.ok && /isn't set up|BRAVE_SEARCH_KEY/.test(out.message || "")) {
+    return { ok: false, message: "Web search runs in the finder program on this computer, in its browser, with no key: turn on \"Run on this computer\" in Sources and start the program (the ? has the steps)." };
+  }
+  return out;
 }
 
 /* ── A run ────────────────────────────────────────────────────── */
@@ -114,22 +135,33 @@ export async function startRun({ config, local, emails, leads }) {
   const notes = [];
   try {
     let onThisComputer = false;
+    let searchHere = false;
     if (local) {
       const program = await pingLocalFinder();
       onThisComputer = program.running;
-      if (!program.running) notes.push("\"Run on this computer\" is on, but the finder program isn't running here (or this browser didn't let the page reach it), so the server did the reading. See ? for how to start it.");
+      searchHere = program.running && program.search;
+      if (program.running && !program.search) notes.push("The finder program on this computer is an older version that cannot search. Close its window, update the folder and start it again to search with the browser.");
+      if (!program.running) notes.push("\"Run on this computer\" is on, but the page couldn't reach the finder program here (it isn't started, or this browser blocked the connection), so the server did the reading, which finds fewer addresses and can't use the Bing and DuckDuckGo searches. See ? for how to start it.");
     }
     set({ local: onThisComputer });
 
-    const built = await buildTargets(config, { leads, emails, tried: triedLately(), findTenders, searchWeb });
+    const built = await buildTargets(config, {
+      leads, emails, tried: triedLately(), findTenders,
+      searchWeb: searchHere ? (queries) => searchWebOnThisComputer(queries, { help: config.window }) : serverSearch,
+    });
     notes.push(...built.notes);
     if (stopFlag) return finish({ notes, message: "Stopped before it began." });
     if (built.targets.length === 0) return finish({ notes, message: "Nothing new to look at. Change what to look for in Sources, or come back when there are new companies." });
 
     set({ phase: "running", notes, rows: built.targets.map(blank) });
-    const results = await runAuto(built.targets, makeDeps({ robots: config.robots, onThisComputer }), {
+    const addNote = (text) => {
+      if (notes.includes(text)) return;
+      notes.push(text);
+      set({ notes: [...notes] });
+    };
+    const results = await runAuto(built.targets, makeDeps({ robots: config.robots, onThisComputer, help: config.window, search: searchHere, socials: config.socials }), {
       known: new Map((emails || []).map((e) => [e.email, e])),
-      local: onThisComputer, people: config.people, pause: onThisComputer ? 300 : 800,
+      local: onThisComputer, people: config.people, pause: onThisComputer ? 300 : 800, onNote: addNote,
       onChange: (i, patch) => {
         setRow(i, patch);
         if (patch.status === "saved") set({ saved: [...state.saved, ...patch.saved] });

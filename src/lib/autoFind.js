@@ -6,8 +6,11 @@
  *      turns the Worker away, and the finder program is running on this computer, this computer's own browser reads it instead.
  *   3. Save the addresses worth writing to, each with where it came from.
  *
- * It reads a company's own website, which is what the manual finders read too. It never opens a search engine or a social network (they do not
- * allow it and show a program next to nothing without a login): the social links it reports are the ones the company's own website gives.
+ * It reads a company's own website, which is what the manual finders read too. A social network's page is never opened (they ask for a sign-in and show
+ * a program next to nothing without one). With the finder program running on this computer it also SEARCHES, in that computer's browser (Bing, then
+ * DuckDuckGo, as a person would): for a company's website when guessing the address found nothing sure (that is the program's, see `findWebsite`), and for its
+ * Facebook and Instagram pages when its own website did not link them, or it has no website: the links the search results give, nothing more. When a search
+ * engine asks for a person to check, the program asks a person (one window) and the searches stop for the rest of the run if nobody answers: nothing is got past.
  *
  * Which addresses it saves by itself: the company's own (on its own website's domain), a company's address (sales@, enquiries@, contact@) and not
  * a person's, not Gmail-type, not already on the list, not meant for something other than selling to (jobs@, support@, privacy@ …), and at most
@@ -31,6 +34,9 @@ export const NOT_FOR_SALES = new Set([
   "support", "help", "helpdesk", "privacy", "dpo", "gdpr", "legal", "abuse", "webmaster", "postmaster", "noreply", "no-reply", "donotreply",
   "do-not-reply", "press", "media", "accounts", "billing", "invoices", "invoice", "payments", "unsubscribe",
 ]);
+
+const SEARCH_STOPPED = "A search engine asked for a person to check and nobody answered, so the browser stopped searching for the rest of this run (company websites are still read). Try again in a while.";
+const SEARCH_USED_UP = "The hour's searches on this computer are used up, so the browser stopped searching for the rest of this run. Try again in a while.";
 
 const URL_LIKE = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]\S*)?$/i;
 const EBAY_STORE = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)?ebay\.[a-z.]{2,}\/(?:str|usr)\/([A-Za-z0-9._-]+)/i;
@@ -115,10 +121,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * `onChange(index, patch)` is told of every step; `shouldStop()` is asked between steps. Resolves to the final record of each company:
  * { name, website, status, note, via, saved: [rows], left: [...], socials }, where `status` is saved, none, nosite, unreadable, error or stopped.
  */
-export async function runAuto(targets, deps, { known = [], local = false, people = false, pause = 800, onChange = () => {}, shouldStop = () => false } = {}) {
+export async function runAuto(targets, deps, { known = [], local = false, people = false, pause = 800, onChange = () => {}, onNote = () => {}, shouldStop = () => false } = {}) {
   const have = new Set(known instanceof Map ? known.keys() : known);
   let browser = Boolean(local);                       // switched off for the rest of the run when the program turns out not to be running
+  let socialSearch = Boolean(deps.findSocials);       // switched off for the rest of the run when the program is gone, or a search engine asked for a person and nobody answered
   const results = [];
+
+  /** The Facebook and Instagram pages a search for the company's name gives: { facebook?, instagram? }, {} when there are none or searching is off. */
+  async function socialsBySearch(name) {
+    if (!socialSearch || !name) return {};
+    const out = await deps.findSocials(name);
+    if (!out.ok) { if (out.unreachable) socialSearch = false; return {}; }
+    if (out.res.blocked || out.res.limited) {
+      socialSearch = false;
+      onNote(out.res.blocked ? SEARCH_STOPPED : SEARCH_USED_UP);
+    }
+    const found = {};
+    for (const net of ["facebook", "instagram"]) if (out.res[net]) found[net] = out.res[net];
+    return found;
+  }
 
   for (let i = 0; i < targets.length; i += 1) {
     const t = targets[i];
@@ -132,9 +153,15 @@ export async function runAuto(targets, deps, { known = [], local = false, people
         say({ note: "Finding the website…" });
         const f = await deps.findWebsite(t.name);
         if (!f.ok) { say({ status: "error", note: f.message || "Could not look for the website." }); continue; }
+        if (f.res.searchBlocked || f.res.searchLimited) onNote(f.res.searchBlocked ? SEARCH_STOPPED : SEARCH_USED_UP);
         if (!f.res.site) {
           const outOfTime = Number(f.res.tried) < Number(f.res.of);
-          say({ status: "nosite", note: outOfTime ? `No website found: it ran out of time after ${f.res.tried} of ${f.res.of} likely addresses. Trying again may find it.` : "No website found for this name." });
+          const missed = outOfTime ? `No website found: it ran out of time after ${f.res.tried} of ${f.res.of} likely addresses. Trying again may find it.` : "No website found for this name.";
+          // no website, but its social pages may be found by a search: shown with the company, there is no address to save with them
+          say({ status: "nosite", note: socialSearch ? "No website found. Looking for its social pages…" : missed });
+          const found = await socialsBySearch(t.name);
+          const names = Object.keys(found).map((n) => (n === "facebook" ? "Facebook" : "Instagram"));
+          say({ status: "nosite", socials: found, note: names.length ? `No website found, but a search found its ${names.join(" and ")} ${names.length === 1 ? "page" : "pages"}.` : missed });
           continue;
         }
         if (Number(f.res.confidence) < MIN_CONFIDENCE) {
@@ -157,6 +184,12 @@ export async function runAuto(targets, deps, { known = [], local = false, people
       rec.via = via;
       rec.socials = res.socials || {};
       if (!res.ok) { say({ status: "unreadable", note: res.message || "Could not read the website." }); continue; }
+      if (Object.keys(rec.socials).length === 0 && socialSearch) {
+        // its own website linked no social page: a search for its name may find them
+        say({ note: "Looking for its social pages…" });
+        const found = await socialsBySearch(t.name || brandFromSite(rec.website));
+        if (Object.keys(found).length) rec.socials = found;
+      }
 
       const { pick, left } = chooseAddresses(res.emails, have, { people });
       rec.left = left;

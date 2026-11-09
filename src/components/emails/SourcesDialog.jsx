@@ -91,7 +91,7 @@ export default function SourcesDialog({ sources, local, redditCount, onSave, onC
         <section className={`rdl-src-box${draft.ebay.on ? " is-on" : ""}`}>
           <Check
             id={`${id}-ebay`} checked={draft.ebay.on} onChange={(on) => set("ebay", { on })} title="eBay stores"
-            hint="eBay does not let programs read its pages, so a store's own page is never opened. A store's name is looked up instead, as a company with a website of its own."
+            hint="eBay's rules don't allow programs to read its pages, and it shows them a security check, so a store's own page is never opened. A store's name is looked up instead, as a company with a website of its own."
           />
           {draft.ebay.on && (
             <div className="rdl-src-fields">
@@ -105,11 +105,11 @@ export default function SourcesDialog({ sources, local, redditCount, onSave, onC
         <section className={`rdl-src-box${draft.search.on ? " is-on" : ""}`}>
           <Check
             id={`${id}-search`} checked={draft.search.on} onChange={(on) => set("search", { on })} title="Web search"
-            hint="Finds the websites of businesses with a paid search service (Brave Search), never by reading Google or Bing. Needs its key set up on the server; each search costs a little."
+            hint="Finds the websites of businesses by searching Bing and DuckDuckGo in the browser on this computer, no key. Bing's rules ask programs not to use its search, so it is done slowly (one search every 8 seconds) and the program never tries to get past a check by itself. Needs the finder program running here (turn on Run on this computer)."
           />
           {draft.search.on && (
             <div className="rdl-src-fields">
-              <Field label="What to search for" htmlFor={`${id}-search-text`} hint={`One search on each line, up to ${MAX_SEARCHES}. Directories, marketplaces, review sites and social networks are left out of the results. ${searches ? `${searches} ${plural(searches, "search", "searches")} will be made.` : ""}`}>
+              <Field label="What to search for" htmlFor={`${id}-search-text`} hint={`One search on each line, up to ${MAX_SEARCHES}. Directories, marketplaces, review sites and social networks are left out of the results. The searches are made a few seconds apart. ${searches ? `${searches} ${plural(searches, "search", "searches")} will be made.` : ""}`}>
                 <textarea id={`${id}-search-text`} rows={3} spellCheck={false} value={draft.search.queries} onChange={(e) => set("search", { queries: e.target.value })} placeholder={"hoodie manufacturer UK\ncustom workwear supplier"} />
               </Field>
             </div>
@@ -120,19 +120,27 @@ export default function SourcesDialog({ sources, local, redditCount, onSave, onC
           <h3>How the websites are read</h3>
           <Check
             id={`${id}-robots`} checked={draft.robots} onChange={flag("robots")} title="Respect robots.txt"
-            hint="A website can ask robots to keep out in a file called robots.txt. On, those sites are left alone. Off, they are read anyway (at most three pages each, one site at a time, under an honest name). eBay, social networks and search engines are never read either way."
+            hint="A website can ask robots to keep out in a file called robots.txt. On, those sites are left alone. Off, they are read anyway (at most three pages each, one site at a time, under an honest name). eBay and the social networks' own pages are never opened either way."
           />
           <Check
             id={`${id}-here`} checked={here} onChange={setHere} title="Run on this computer"
-            hint="The websites are found and read from this computer's own internet connection, and its browser reads any that show no address, instead of the server doing it. Needs the finder program running here (the ? has the steps)."
+            hint="The websites are found and read from this computer's own internet connection, and its browser reads any that show no address and does the searching (Bing, then DuckDuckGo), instead of the server doing it. Needs the finder program running here (the ? has the steps)."
           />
           {here && program.checked && (
             <p className={`rdl-find-msg${program.running ? " is-good" : ""}`} role="status">
               {program.running
-                ? `The finder program is running on this computer (${program.browser || "a browser was found"}).`
-                : "The finder program isn't running on this computer, or this browser didn't let the page reach it. The server will do the reading until it is."}
+                ? `The finder program is running on this computer (${program.browser || "a browser was found"})${program.search ? "." : ", but it is an older version that cannot search: close its window, update the folder and start it again."}`
+                : "Can't reach the finder program on this computer. Either it isn't started (the ? has the steps; leave its window open), or this browser blocked the connection (if it asks whether this site may connect to apps on your computer, choose Allow). Until it answers, the server does the reading: it finds fewer addresses and can't use the Bing and DuckDuckGo searches."}
             </p>
           )}
+          <Check
+            id={`${id}-socials`} checked={draft.socials} onChange={flag("socials")} title="Look for Facebook and Instagram pages with a search"
+            hint="For a company whose own website links none, the browser searches for its name and keeps the links to its Facebook and Instagram pages (the pages themselves are not opened). Search engines ask a person to prove they are one after a search or two, so this is slow and may ask you often. Needs Run on this computer."
+          />
+          <Check
+            id={`${id}-window`} checked={draft.window} onChange={flag("window")} title="Let me answer a search engine's check"
+            hint="If Bing or DuckDuckGo asks for a person to prove they are one, a window opens on this computer, once, for you to answer it. The program never tries to get past a check by itself. If nobody answers, it stops searching for the rest of that run."
+          />
           <Check
             id={`${id}-people`} checked={draft.people} onChange={flag("people")} title="Also save a person's own address"
             hint="Off, only company addresses (sales@, info@, enquiries@) are saved by themselves; a named person's work address is left for you to choose. On, a named person's address on the company's own website is saved too."

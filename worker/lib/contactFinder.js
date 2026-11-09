@@ -41,13 +41,15 @@ const BUDGET_MS = 40_000;            // after this the pages not yet read are le
  * Sites whose own rules forbid reading their pages with a program, whatever their robots.txt says path by path (and whatever the caller has
  * switched off). The finder does not touch them (not even for the robots.txt) and says what to do instead. eBay: its robots.txt opens "The use of robots or other automated means
  * to access the eBay site without the express permission of eBay is strictly prohibited", its User Agreement bars scrapers and any
- * automated access, its store pages answer a program with 403, and its developer licence does not allow sellers' details to be used to
+ * automated access ("for any purpose, except with the prior express permission of eBay") and collecting users' email addresses without their consent,
+ * its store pages answer a plain program with 403 and answered the finder's own Chromium with a "Please verify yourself to continue" security check
+ * (one load, 2026-11-05; its robots.txt path rules do leave /str/<name> open, but its header says that is no permission), and its developer licence does not allow sellers' details to be used to
  * write to them: a seller's own website is the way (see worker/lib/emailFinder.js and the Contact Finder page).
  */
 const CLOSED_SITES = [
   {
     host: /(^|\.)ebay\.[a-z]{2,3}(\.[a-z]{2})?$/,
-    message: "eBay doesn't allow its pages to be read automatically, so this can't be read. Find the seller's own website (many sellers have one) and type that instead.",
+    message: "eBay's rules don't allow programs to read its pages, and it shows them a security check, so this can't be read. Find the seller's own website (many sellers have one) and type that instead.",
   },
 ];
 
