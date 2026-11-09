@@ -52,6 +52,7 @@ import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
 import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
 import { limitsFor } from "./detail.js";
 import { findFineDetails } from "./fine.js";
+import { removeFrame } from "./frame.js";
 
 export { renderTrace };
 
@@ -94,6 +95,7 @@ export const DEFAULT_OPTIONS = Object.freeze({
   gapMm: 0.7, // ... a gap or a dot to this (never wider than the strokes' own width, see thickenMm)
   lineShare: 0.03, // all lines together are held to the strongest of this share of the picture (a picture that is all texture keeps only its strongest lines)
   contrast: true, // how much a small piece stands out decides whether it stays: a petal on dark leaves is kept small, a patch of sky a shade off is not
+  trimFrame: true, // a thin frame round the picture (a chart's border, a screenshot's outline) is painted over with the margin inside it, see frame.js
   fineParams: null, // (for tuning) overrides of the fine-detail finder's numbers, see detailParams in details.js
   fineDetail: 0.75, // the Detail slider (0 to 1) as the fine-detail finder sees it (details.js): how many and how faint the lines and dots it keeps
   regions: null, // a map of what each pixel is (background, hair, skin, clothes ...), see regions.js: the background is cut out and the person's colours are weighted by class
@@ -142,6 +144,7 @@ export function normalizeOptions(opts = {}) {
     contrast: opts.contrast === undefined ? DEFAULT_OPTIONS.contrast : !!opts.contrast,
     details: opts.details === undefined ? DEFAULT_OPTIONS.details : !!opts.details,
     fineDetail: num(opts.fineDetail, DEFAULT_OPTIONS.fineDetail, 0, 1),
+    trimFrame: opts.trimFrame === undefined ? DEFAULT_OPTIONS.trimFrame : !!opts.trimFrame,
     fineParams: opts.fineParams && typeof opts.fineParams === "object" ? opts.fineParams : null,
     lines: opts.lines === undefined ? DEFAULT_OPTIONS.lines : !!opts.lines,
     lineTau: num(opts.lineTau, DEFAULT_OPTIONS.lineTau, 5, 255),
@@ -792,6 +795,9 @@ export function traceImage(image, opts = {}) {
   const tStart = now();
   checkImage(image);
   const o0 = normalizeOptions(opts);
+  // a thin frame round the picture would be taken for its background (and the cloth made the colour of the frame): paint it over first
+  const unframed = o0.trimFrame ? removeFrame(image) : null;
+  if (unframed) image = unframed.image;
   // a person found in the picture: its background is made see-through, and the colours are found from the person alone
   const cut = o0.regions ? cutOutPerson(image, o0.regions) : null;
   const pic = cut ? cut.image : image;
@@ -966,6 +972,7 @@ export function traceImage(image, opts = {}) {
       strokeCount: a.cleaned.strokeCount || 0,
       strokeMedianMm: (a.cleaned.strokeMedian || 0) * a.scale * o.mmPerPx,
       kind,
+      frame: unframed ? unframed.px : 0, // the thickness (pixels) of a frame that was painted over, else 0
       kindInfo: info,
       regionColours: a.regionAlloc || null, // [class, colours asked for] for each region that got colours of its own (regionPalette.js)
       person: cut ? +cut.share.toFixed(3) : null, // the share of the picture that is a person, when a region map cut one out (regions.js)

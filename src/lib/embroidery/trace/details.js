@@ -28,6 +28,14 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+/**
+ * A ridge of one sort (dark or light) that runs along a ridge of the other sort is the HALO of it (the ringing a sharpened or compressed picture puts
+ * beside a line) only when the other one is this many times STRONGER. It was "at least 0.8 times as strong", which also threw away a line that is the
+ * stronger of the two, and when two neighbouring lines of opposite sorts are about as strong (the dark whiskers of a tiger and the pale gaps between them,
+ * the dark and light strokes of fur or hatching) each was taken for the halo of the other and BOTH were dropped.
+ */
+export const HALO_RATIO = 1.25;
+
 /* ------------------------------------------------------------------------------------------------------------------ parameters */
 
 /**
@@ -665,7 +673,7 @@ export function extractDetails(input) {
         if (x < 0 || y < 0 || x >= dw || y >= dh) continue;
         n++;
         const o = other[y * dw + x];
-        if (o >= 0 && kept[o].dE >= 0.8 * it.dE) hit++;
+        if (o >= 0 && kept[o].dE >= HALO_RATIO * it.dE) hit++;
       }
       if (n >= 3 && hit / n >= 0.5) drop[i] = 1;
     }

@@ -11,6 +11,9 @@ import { detailLimits, limitsFor } from "./detail.js";
 import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, clothFromTrace, clothMatch, CLOTH_MATCH, CLOTH_MATCH_PHOTO, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
 import { REGION, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS } from "./regions.js";
 import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
+import { removeFrame } from "./frame.js";
+import { HALO_RATIO } from "./details.js";
+import { CARRY_DE, OVERFETCH } from "./fine.js";
 import { serializeDesign, parseDesign, engineDesign, newDesign, breakApart, hitObject, objectBox } from "../../digitizer/model.js";
 import { generate } from "../stitch/engine.js";
 import { unionShapes, intersectRings, offsetRings } from "../geometry/clip.js";
@@ -650,6 +653,28 @@ log("8b. fine lines and dots on top (photographs and artwork), and what the conv
   check("a logo has none (the answer says null) and its shapes are the same as without the option", logoRes.details === null && JSON.stringify(logoRes.shapes) === JSON.stringify(traceImage(img, { ...opt, mode: "logo", details: false }).shapes));
   const photo = traceImage(img, { ...opt, mode: "photo" });
   check("a photograph: the colour layer already carries that twig as a thin shape, so it is found but NOT added a second time", !!photo.details && photo.details.lines.length === 0 && photo.details.stats.droppedLines >= 1, photo.details && JSON.stringify(photo.details.stats.found) + " dropped " + photo.details.stats.droppedLines);
+
+  // a thin frame round the picture (frame.js): painted over with the margin inside it, so it is not taken for the background (and the cloth is not made black)
+  {
+    const pic = (bg, fn) => { const im = makeImage(300, 300, bg); fn(im); return im; };
+    const border = (im, t, c) => { for (let y = 0; y < im.height; y++) for (let x = 0; x < im.width; x++) if (x < t || y < t || x >= im.width - t || y >= im.height - t) { const o = (y * im.width + x) * 4; im.data[o] = c[0]; im.data[o + 1] = c[1]; im.data[o + 2] = c[2]; } };
+    const fopt = { mode: "art", mmPerPx: 0.3, colors: 4, maxColors: 4 };
+    const framed = pic([255, 255, 255], (im) => { paint(im, [circle(150, 150, 90)], [200, 30, 40]); border(im, 2, [5, 5, 5]); });
+    const fr = traceImage(framed, fopt), keep = traceImage(framed, { ...fopt, trimFrame: false });
+    check("frame: a two pixel black frame round a picture is found and painted over (the answer says how thick it was)", fr.stats.frame === 2 && keep.stats.frame === 0, `frame ${fr.stats.frame} / ${keep.stats.frame}`);
+    check("frame: the paper inside is then the background (the cloth is not made black) and the disc is the one shape", clothFromTrace(fr) === null && fr.shapes.length === 1 && fr.palette.some((p) => p.background && p.hex === "#ffffff"), `cloth ${clothFromTrace(fr)}, ${fr.shapes.length} shapes`);
+    check("frame: with the option off the frame is the background, as it always was (the cloth would be made dark)", clothFromTrace(keep) !== null && keep.shapes.length === 2, `cloth ${clothFromTrace(keep)}`);
+    const badge = pic([20, 40, 110], (im) => paint(im, [circle(150, 150, 70)], [240, 240, 240]));
+    const thick = pic([255, 255, 255], (im) => { paint(im, [circle(150, 150, 60)], [200, 30, 40]); border(im, 20, [0, 0, 0]); });
+    const plain = pic([255, 255, 255], (im) => paint(im, [circle(150, 150, 90)], [200, 30, 40]));
+    check("frame: a design that fills its picture, a thick dark border and a picture with no frame are left alone", traceImage(badge, fopt).stats.frame === 0 && traceImage(thick, fopt).stats.frame === 0 && traceImage(plain, fopt).stats.frame === 0);
+    const soft = pic([255, 255, 255], (im) => { paint(im, [circle(150, 150, 90)], [200, 30, 40]); border(im, 1, [20, 20, 20]); for (let x = 1; x < 299; x++) for (const y of [1, 298]) { const o = (y * 300 + x) * 4; im.data[o] = im.data[o + 1] = im.data[o + 2] = 140; } });
+    check("frame: a one pixel frame with the faint shadow JPEG leaves inside it is found too", traceImage(soft, fopt).stats.frame === 1);
+    const done = removeFrame(framed);
+    const at = (im, x, y) => im.data[(y * 300 + x) * 4];
+    check("frame: the picture keeps its size, the frame becomes the paper's colour and the middle is not touched", !!done && done.image.width === 300 && done.image.height === 300 && at(done.image, 0, 0) === 255 && at(done.image, 299, 150) === 255 && at(done.image, 150, 150) === at(framed, 150, 150) && at(framed, 0, 0) === 5);
+    check("fine details: a ridge is the halo of another only when the other is clearly stronger, and the colour layer only carries a detail of about its own colour", HALO_RATIO > 1 && CARRY_DE > 0 && CARRY_DE < 40 && OVERFETCH >= 2, `halo ${HALO_RATIO}, carry ${CARRY_DE}, over ${OVERFETCH}`);
+  }
 
   // the converter: colours, threads, order, amount (a made-up answer: three threads in the colour layer, details of several colours)
   const sq = (x, y, s) => [[x, y], [x + s, y], [x + s, y + s], [x, y + s]];

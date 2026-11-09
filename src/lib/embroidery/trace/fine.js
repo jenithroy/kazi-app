@@ -8,7 +8,8 @@
  * whether a detail would show at all (a vein in the leaf's own colour is invisible once the colours are reduced to a few threads).
  */
 import { prepare } from "./prep.js";
-import { extractDetails } from "./details.js";
+import { extractDetails, detailParams } from "./details.js";
+import { rgbToLab } from "./color.js";
 
 /** A line shorter than this (mm) is never kept, whatever its strength (a stitch of a bean line is 2 mm). */
 export const MIN_LINE_MM = 1.5;
@@ -19,9 +20,21 @@ const FINE_AREA_MM2 = 6;
 const NEAR_MM = 0.25;
 /** A line this much covered by the colour layer's own thin shapes is dropped whole; less, and only its uncovered stretches stay. */
 const COVERED_DROP = 0.6;
+/**
+ * A shape of the colour layer carries a detail only when its own colour is this near (CIELAB distance) the detail's colour. A dark whisker that runs over an
+ * orange patch is not carried by the patch: the patch is small, but it is orange. (Before this a small shape of ANY colour carried every detail on it, and on
+ * a picture made of thousands of small patches nearly every fine line was thrown away as "already there".)
+ */
+export const CARRY_DE = 26;
+/**
+ * The finder is asked for this many times its usual budget of lines, and the budget is applied here, AFTER the lines the colour layer carries are dropped.
+ * Asked for its usual budget the finder spent it on the long outlines the colour layer already sews, those were then dropped, and the lines that were
+ * missing (whiskers, veins, tendrils: nothing in the colour layer has them) never got in.
+ */
+export const OVERFETCH = 3;
 
-/** Even-odd scanline fill of closed rings (pixel coordinates) into a Uint8Array mask: 1 inside. */
-function fillRings(mask, w, h, rings) {
+/** Even-odd scanline fill of closed rings (pixel coordinates) into a typed array: `value` inside. */
+function fillRings(mask, w, h, rings, value = 1) {
   let y0 = Infinity, y1 = -Infinity;
   for (const r of rings) for (const p of r) { if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
   y0 = Math.max(0, Math.floor(y0)); y1 = Math.min(h - 1, Math.ceil(y1));
@@ -38,27 +51,9 @@ function fillRings(mask, w, h, rings) {
     xs.sort((p, q) => p - q);
     for (let k = 0; k + 1 < xs.length; k += 2) {
       const xa = Math.max(0, Math.ceil(xs[k] - 0.5)), xb = Math.min(w - 1, Math.floor(xs[k + 1] - 0.5));
-      for (let x = xa; x <= xb; x++) mask[y * w + x] = 1;
+      for (let x = xa; x <= xb; x++) mask[y * w + x] = value;
     }
   }
-}
-
-/** The mask grown by `r` pixels in a square (two passes with running sums: fast whatever r is). */
-function grow(mask, w, h, r) {
-  if (r < 1) return mask;
-  const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h);
-  const sum = new Int32Array(Math.max(w, h) + 1);
-  for (let y = 0; y < h; y++) {
-    sum[0] = 0;
-    for (let x = 0; x < w; x++) sum[x + 1] = sum[x] + mask[y * w + x];
-    for (let x = 0; x < w; x++) tmp[y * w + x] = sum[Math.min(w, x + r + 1)] - sum[Math.max(0, x - r)] > 0 ? 1 : 0;
-  }
-  for (let x = 0; x < w; x++) {
-    sum[0] = 0;
-    for (let y = 0; y < h; y++) sum[y + 1] = sum[y] + tmp[y * w + x];
-    for (let y = 0; y < h; y++) out[y * w + x] = sum[Math.min(h, y + r + 1)] - sum[Math.max(0, y - r)] > 0 ? 1 : 0;
-  }
-  return out;
 }
 
 const polyLenPx = (pts) => { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; };
@@ -91,20 +86,42 @@ export function findFineDetails(image, o, kind, a, shapes) {
   const longSide = Math.max(image.width, image.height);
   const pic = prepare(image, longSide, 0); // the picture as it is (no shrinking), the see-through parts filled from what is next to them
   const w = pic.w, h = pic.h, mm = o.mmPerPx;
-  const res = extractDetails({ w, h, rgb: pic.rgb, cov: pic.cov, mmPerPx: mm, kind, detail: o.fineDetail, params: o.fineParams, mask: false });
-  const stats = { ...res.stats, found: { lines: res.lines.length, spots: res.spots.length }, droppedLines: 0, droppedSpots: 0, cutLines: 0 };
+  // The usual numbers of the finder for this picture (what is kept in the end), and the same asked for OVERFETCH times over (what the finder is asked to bring).
+  const base = detailParams(kind, o.fineDetail, o.fineParams);
+  const areaCm2 = (w * mm) * (h * mm) / 100;
+  const budgetMm = Math.max(30, base.lineMmPerCm2 * areaCm2), maxLines = Math.max(4, Math.round(base.linesPerCm2 * areaCm2)), maxSpots = Math.round(base.spotsPerCm2 * areaCm2);
+  const asked = { ...(o.fineParams || {}), budgetScale: ((o.fineParams && o.fineParams.budgetScale) || 1) * OVERFETCH };
+  const res = extractDetails({ w, h, rgb: pic.rgb, cov: pic.cov, mmPerPx: mm, kind, detail: o.fineDetail, params: asked, mask: false });
+  const stats = { ...res.stats, found: { lines: res.lines.length, spots: res.spots.length }, droppedLines: 0, droppedSpots: 0, droppedBudget: 0, cutLines: 0 };
   if (!res.lines.length && !res.spots.length) return { lines: [], spots: [], stats };
 
-  // What the colour layer already carries: its thin shapes and its small ones, a little grown.
-  const carried = new Uint8Array(w * h);
+  // What the colour layer already carries: its thin shapes and its small ones (not the background, which is not sewn), each with its colour.
+  const K = a.K, pal = a.pal;
+  const palLab = new Float32Array(K * 3);
+  for (let k = 0; k < K; k++) rgbToLab(pal.rgb[k * 3], pal.rgb[k * 3 + 1], pal.rgb[k * 3 + 2], palLab, k * 3);
+  const carrier = new Int16Array(w * h).fill(-1);
   for (const s of shapes) {
+    if (pal.bg[s.color]) continue;
     let per = 0;
     for (const c of s.contours) { for (let i = 0, n = c.length; i < n; i++) { const p = c[i], q = c[i + 1 === n ? 0 : i + 1]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); } }
     const meanW = per > 0 ? (2 * s.area * mm) / per : 0, areaMm2 = s.area * mm * mm;
-    if (meanW <= THIN_MM || areaMm2 <= FINE_AREA_MM2) fillRings(carried, w, h, s.contours);
+    if (meanW <= THIN_MM || areaMm2 <= FINE_AREA_MM2) fillRings(carrier, w, h, s.contours, s.color);
   }
-  const near = grow(carried, w, h, Math.max(1, Math.round(NEAR_MM / mm)));
-  const at = (p) => { const x = Math.round(p[0] - 0.5), y = Math.round(p[1] - 0.5); return x >= 0 && y >= 0 && x < w && y < h ? near[y * w + x] : 0; };
+  const nearPx = Math.max(1, Math.round(NEAR_MM / mm));
+  const labOf = (rgb) => { const out = new Float32Array(3); rgbToLab(rgb[0], rgb[1], rgb[2], out, 0); return out; };
+  /** Is the point carried: is a shape of the colour layer within NEAR_MM of it whose colour is near the detail's own (`lab`)? */
+  const at = (p, lab) => {
+    const cx = Math.round(p[0] - 0.5), cy = Math.round(p[1] - 0.5);
+    for (let y = Math.max(0, cy - nearPx); y <= Math.min(h - 1, cy + nearPx); y++) {
+      for (let x = Math.max(0, cx - nearPx); x <= Math.min(w - 1, cx + nearPx); x++) {
+        const k = carrier[y * w + x];
+        if (k < 0) continue;
+        const dL = palLab[k * 3] - lab[0], dA = palLab[k * 3 + 1] - lab[1], dB = palLab[k * 3 + 2] - lab[2];
+        if (dL * dL + dA * dA + dB * dB <= CARRY_DE * CARRY_DE) return 1;
+      }
+    }
+    return 0;
+  };
 
   // The colour of the colour layer under a point (palette index, or -1 for the background or the see-through part).
   const labels = a.labels, lw = a.w, lh = a.h, sx = a.wk.sx, sy = a.wk.sy;
@@ -143,14 +160,15 @@ export function findFineDetails(image, o, kind, a, shapes) {
   const lines = [];
   for (const ln of res.lines) {
     const s = along(ln.pts, stepPx);
+    const lab = labOf(ln.rgb);
     let covered = 0;
-    for (const p of s) if (at(p)) covered++;
+    for (const p of s) if (at(p, lab)) covered++;
     if (covered / s.length >= COVERED_DROP) { stats.droppedLines++; continue; }
     if (!covered) { if (ln.lengthMm >= MIN_LINE_MM) lines.push({ ...ln, under: under(ln.pts), region: regionOf(ln.pts) }); else stats.droppedLines++; continue; }
     // some of it is covered: keep the stretches that are not
     let from = -1, cut = false;
     for (let i = 0; i <= s.length; i++) {
-      const free = i < s.length && !at(s[i]);
+      const free = i < s.length && !at(s[i], lab);
       if (free && from < 0) from = i;
       if (!free && from >= 0) {
         const part = s.slice(from, i), d0 = part[0][2], d1 = part[part.length - 1][2];
@@ -165,11 +183,21 @@ export function findFineDetails(image, o, kind, a, shapes) {
   }
   const spots = [];
   for (const sp of res.spots) {
+    const lab = labOf(sp.rgb);
     let covered = 0;
-    for (const p of sp.ring) if (at(p)) covered++;
-    if (at(sp.centre) || covered / sp.ring.length >= 0.5) { stats.droppedSpots++; continue; }
+    for (const p of sp.ring) if (at(p, lab)) covered++;
+    if (at(sp.centre, lab) || covered / sp.ring.length >= 0.5) { stats.droppedSpots++; continue; }
     spots.push({ ...sp, under: under([sp.centre]), region: regionOf([sp.centre]) });
   }
+
+  // The usual budget, now that what the colour layer carries is out of the way: the strongest and longest first (the finder's own order of worth).
+  const worth = (l) => l.strength * Math.pow(Math.min(l.lengthMm, 30), base.lenExp);
+  lines.sort((p, q) => worth(q) - worth(p));
+  let spent = 0, keep = 0;
+  while (keep < lines.length && keep < maxLines && spent < budgetMm) spent += lines[keep++].lengthMm;
+  stats.droppedBudget = lines.length - keep;
+  lines.length = keep;
+  if (spots.length > maxSpots) { spots.sort((p, q) => q.strength * Math.sqrt(q.areaMm2) - p.strength * Math.sqrt(p.areaMm2)); stats.droppedBudget += spots.length - maxSpots; spots.length = maxSpots; }
 
   let lengthMm = 0, spotArea = 0;
   for (const l of lines) lengthMm += l.lengthMm;
