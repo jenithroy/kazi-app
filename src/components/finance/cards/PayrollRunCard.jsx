@@ -6,9 +6,8 @@
  * else knows are typed: a bonus, receivable due, advance repaid, PF or other, and the TDS rate when it is not 1%.
  *
  *   Add a bonus     a bonus of any kind (Dashain, Tihar, performance ...): say what it is for, then a percentage of everyone's basic or
- *                   the same amount for each, and a switch fills every line and adds the bonuses up. "Dashain: 50% of basic" is the one
- *                   formula in the monthly sheet, one click. Every line can still be changed by hand (a figure typed in a line is
- *                   labelled with the same words), and switching it off puts back what was there.
+ *                   the same amount for each, and a switch fills every line and adds the bonuses up. Every line can still be changed by
+ *                   hand (a figure typed in a line is labelled with the same words), and switching it off puts back what was there.
  *   Save            writes one payroll record per person for the month (changing the one already made, if there is one)
  *   Save and print  the same, then prints every salary slip, one to a page, in the slip's usual layout
  *
@@ -26,7 +25,7 @@ import { runTotals } from "../../../lib/payrollMath";
 import { bonusFor, runPeople, runRows, runSkipped, seedManual, slipFor } from "../../../lib/payrollRun";
 import { savePayrollRun } from "../../../lib/payrollWrites";
 import { openPrintWindow, slipDocument } from "../../../lib/salarySlip";
-import { ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, DASHAIN_PCT, NEW_RULES_LABEL, rulesOfMonth } from "../../../lib/workRules";
+import { ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, NEW_RULES_LABEL, rulesOfMonth } from "../../../lib/workRules";
 import "../payroll-run.css";
 
 const MONTH_OPTIONS = MONTHS.map((m) => ({ value: m, label: m }));
@@ -62,7 +61,7 @@ export function RunTable({ rows, totals, rules, money, canEdit, onCell }) {
             <th scope="col" className="pyr-n">Basic</th>
             {showCuts && <th scope="col" className="pyr-n">Late cuts</th>}
             {showAbs && <th scope="col" className="pyr-n">Absences</th>}
-            <th scope="col" className="pyr-n">Leave days</th>
+            <th scope="col" className="pyr-n">Leave amount</th>
             <th scope="col" className="pyr-n">Overtime</th>
             <th scope="col" className="pyr-n">Bonus</th>
             <th scope="col" className="pyr-n">Receivable due</th>
@@ -97,8 +96,8 @@ export function RunTable({ rows, totals, rules, money, canEdit, onCell }) {
                     {f.missedClockOuts > 0 ? <small className="pyr-warn">{f.missedClockOuts} no clock-out</small> : null}
                   </td>
                 )}
-                <td className="pyr-n" title="Days away, typed as on the slip: each costs a day's pay (basic ÷ 30). Half a day is 0.5.">
-                  <Cell count value={manual.leaveDays ?? ""} label={`Leave days for ${e.name}`} disabled={!canEdit} onChange={(v) => onCell(e.id, "leaveDays", v)} />
+                <td className="pyr-n" title="How much to cut for leave, typed as on the slip.">
+                  <Cell value={manual.leaveAmount ?? ""} label={`Leave amount for ${e.name}`} disabled={!canEdit} onChange={(v) => onCell(e.id, "leaveAmount", v)} />
                   <small className={line.att.parts.leave > 0 ? "pyr-bad" : undefined}>
                     {line.att.parts.leave > 0 ? `− ${money(line.att.parts.leave)}` : f.leaveRecorded > 0 ? `${f.leaveRecorded} marked on Attendance` : "—"}
                   </small>
@@ -125,7 +124,7 @@ export function RunTable({ rows, totals, rules, money, canEdit, onCell }) {
           <tr>
             <th scope="row">{totals.people} {totals.people === 1 ? "person" : "people"}</th>
             <td className="pyr-n">{money(totals.basic)}</td>
-            <td className="pyr-n" title="Late cuts, absences and leave days, together">{totals.attendance > 0 ? `− ${money(totals.attendance)}` : "—"}</td>
+            <td className="pyr-n" title="Late cuts, absences and leave, together">{totals.attendance > 0 ? `− ${money(totals.attendance)}` : "—"}</td>
             {showCuts && showAbs && <td className="pyr-n" />}
             <td className="pyr-n" />
             <td className="pyr-n">{totals.overtime > 0 ? money(totals.overtime) : "—"}</td>
@@ -296,7 +295,6 @@ export default function PayrollRunCard({ employees, payroll, canEdit, profile, r
           <input type="number" min="0" step="any" className="pyr-in" value={bonus.value} placeholder="0" aria-label="Bonus amount" disabled={!canEdit || loading} onChange={(e) => giveBonus({ ...bonus, value: e.target.value })} />
           <Select label="How the bonus is worked out" value={bonus.basis} onChange={(basis) => giveBonus({ ...bonus, basis })} options={BASIS_OPTIONS} searchable={false} disabled={!canEdit || loading} />
         </span>
-        {canEdit && <button type="button" className="pyr-link" disabled={loading || !rows.length} onClick={() => giveBonus({ on: true, name: "Dashain", basis: "percent", value: String(DASHAIN_PCT) })}>Dashain: {DASHAIN_PCT}% of basic</button>}
         <b className="pyr-bonus-total" aria-live="polite">{totals.bonus > 0 ? `${money(totals.bonus)} in total` : "no bonus yet"}</b>
       </div>
 
@@ -306,7 +304,7 @@ export default function PayrollRunCard({ employees, payroll, canEdit, profile, r
           : rules === "mixed"
             ? `This month holds the change on ${NEW_RULES_LABEL}. Late days before it cost a quarter of a day's pay each (the old cut); from it, ${ABSENCES_PER_DAY_CUT} unapproved absences cost a day of salary (basic ÷ 30) and lateness costs nothing. Each day is judged by the rule of its own day.`
             : `Before ${NEW_RULES_LABEL}: a quarter of a day's pay for each late day flagged with the old cut.`}
-        {" "}Leave days are typed, as on the slip: each costs a day's pay (basic ÷ 30). If your own record of late days or absences differs from the attendance's, type your count over it. TDS is taken on the basic salary and any bonus.
+        {" "}The leave amount is typed, as on the slip: it is taken off as it is. If your own record of late days or absences differs from the attendance's, type your count over it. TDS is taken on the basic salary and any bonus.
       </p>
 
       {facts.status === "error" && <p className="pyr-note pyr-note--bad" role="alert"><Chip tone="bad">Problem</Chip> {facts.error} Nothing below can be trusted until it loads.</p>}

@@ -15,11 +15,11 @@ export const emptyPayroll = (now = new Date()) => ({
   month: now.toLocaleString("en-US", { month: "long" }),
   year: now.getFullYear(),
   basicNPR: "", bonusNPR: "", bonusReason: "", pfDeductionNPR: "", receivableDueNPR: "", advanceNPR: "", tdsRatePct: String(DEFAULT_TDS_PCT),
-  leaveDays: "", lateAdjustmentNPR: 0, note: "",
+  leaveAmount: "", lateAdjustmentNPR: 0, note: "",
 });
 
-/** The columns migrations 0064 and 0066 add. */
-const NEW_LINES = ["receivableDueNPR", "advanceNPR", "tdsNPR", "tdsRatePct", "unapprovedAbsences", "overtimeMinutes", "bonusReason", "leaveDays"];
+/** The columns migrations 0064, 0066 and 0067 add. */
+const NEW_LINES = ["receivableDueNPR", "advanceNPR", "tdsNPR", "tdsRatePct", "unapprovedAbsences", "overtimeMinutes", "bonusReason", "leaveDays", "leaveAmountNPR"];
 
 /** Whether a new line holds anything: a rate when there is one, a label when there is text, else any amount but nothing. */
 const filledLine = (k, v) => (k === "tdsRatePct" ? v != null : k === "bonusReason" ? Boolean(v) : Number(v) !== 0);
@@ -38,7 +38,8 @@ export function payrollData({ form, line, facts, personId, profile }) {
     basicNPR: line.basic,
     lateDays: Number(facts?.lateDays || 0),
     lateCutsCount: line.rules === "new" ? 0 : line.counts.cuts,                  // the counts USED (the accountant may have typed others over the attendance's)
-    leaveDays: line.counts.leaveDays,
+    leaveAmountNPR: line.counts.leaveAmount,
+    leaveDays: 0,                                                                  // the amount is what is kept now; an older record's days are priced into it (payrollMath.leaveAmountOf)
     lateDeductionNPR: line.late,
     pfDeductionNPR: line.pf,
     bonusNPR: line.bonus,
@@ -65,9 +66,15 @@ async function write(id, data) {
     return id ? await updateChecked("finance_payroll", id, data) : await insertRow("finance_payroll", data);
   } catch (err) {
     if (!columnMissing(err)) throw err;
-    // The database has not had migration 0064 yet.
+    // Migration 0067 (the leave amount) is the newest: with no leave amount to keep, leave it out and try again, so a database that has
+    // 0064 and 0066 still saves everything else.
+    if ("leaveAmountNPR" in data && !Number(data.leaveAmountNPR)) {
+      const { leaveAmountNPR, ...rest } = data;      // eslint-disable-line no-unused-vars
+      return write(id, rest);
+    }
+    // The database has not had migration 0064 yet (or 0067, for a leave amount).
     if (NEW_LINES.some((k) => filledLine(k, data[k]))) {
-      throw new Error("Not saved. Payroll now keeps overtime, receivable due, advance, TDS, leave days and what a bonus was for, which needs migrations 0064 and 0066 on the database.");
+      throw new Error("Not saved. Payroll now keeps overtime, receivable due, advance, TDS, the leave amount and what a bonus was for, which needs migrations 0064, 0066 and 0067 on the database.");
     }
     const old = Object.fromEntries(Object.entries(data).filter(([k]) => !NEW_LINES.includes(k)));
     return id ? updateChecked("finance_payroll", id, old) : insertRow("finance_payroll", old);

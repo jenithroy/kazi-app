@@ -22,9 +22,9 @@ import useCardForm from "./useCardForm";
 import usePayrollFacts from "../../../hooks/usePayrollFacts";
 import { MONTHS } from "../../../lib/finance";
 import { fmtMinutes } from "../../../lib/attendance";
-import { bonusAmount, payLine } from "../../../lib/payrollMath";
+import { leaveAmountOf, payLine } from "../../../lib/payrollMath";
 import { emptyPayroll, removePayroll, savePayroll } from "../../../lib/payrollWrites";
-import { rulesOfMonth, ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, DASHAIN_PCT, NEW_RULES_LABEL } from "../../../lib/workRules";
+import { rulesOfMonth, ABSENCES_PER_DAY_CUT, BONUS_REASON_MAX, BONUS_SUGGESTIONS, NEW_RULES_LABEL } from "../../../lib/workRules";
 import { enterAdvance, focusFirst, thenAdvance } from "../flow";
 import "../payroll-run.css";
 
@@ -38,7 +38,7 @@ function fromRecord(r) {
     basicNPR: r.basicNPR || "", bonusNPR: r.bonusNPR || "", bonusReason: r.bonusReason || "", pfDeductionNPR: r.pfDeductionNPR || "",
     receivableDueNPR: blank(r.receivableDueNPR), advanceNPR: blank(r.advanceNPR),
     tdsRatePct: r.tdsRatePct == null ? "" : String(Number(r.tdsRatePct)),       // a record from before TDS was kept has no rate
-    leaveDays: blank(r.leaveDays),
+    leaveAmount: blank(leaveAmountOf(r)),              // a record made when leave was typed in days is priced at a day's pay each
     lateAdjustmentNPR: 0, note: r.note || "",
   };
 }
@@ -61,7 +61,7 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
 
   const manual = {
     bonus: form.bonusNPR, receivable: form.receivableDueNPR, advance: form.advanceNPR, other: form.pfDeductionNPR,
-    leaveDays: form.leaveDays, adjustment: form.lateAdjustmentNPR, tdsRate: form.tdsRatePct,
+    leaveAmount: form.leaveAmount, adjustment: form.lateAdjustmentNPR, tdsRate: form.tdsRatePct,
   };
   const line = payLine({ basic: form.basicNPR, rules, facts, manual });
 
@@ -119,10 +119,7 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
       <Field label="Basic salary" htmlFor={`${uid}-basic`} className="fn-s2">
         <NumberInput id={`${uid}-basic`} unit="NPR" value={form.basicNPR} placeholder="0" disabled={off} onChange={(e) => num(e, "basicNPR")} />
       </Field>
-      <Field
-        label="Bonus or allowance" htmlFor={`${uid}-bonus`} className="fn-s2"
-        hint={canEdit && Number(form.basicNPR) > 0 ? <button type="button" className="pyr-link" onClick={() => set((f) => ({ ...f, bonusNPR: String(bonusAmount(f.basicNPR, "percent", DASHAIN_PCT)), bonusReason: "Dashain" }))}>Dashain: {DASHAIN_PCT}% of basic</button> : undefined}
-      >
+      <Field label="Bonus or allowance" htmlFor={`${uid}-bonus`} className="fn-s2">
         <NumberInput id={`${uid}-bonus`} unit="NPR" value={form.bonusNPR} placeholder="0" disabled={off} onChange={(e) => num(e, "bonusNPR")} />
       </Field>
       <Field label="Bonus for" htmlFor={`${uid}-bfor`} className="fn-s2" hint="What the bonus is for. Kept with the record.">
@@ -141,8 +138,8 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
       <Field label="TDS rate" htmlFor={`${uid}-tds`} className="fn-s2" hint={form.tdsRatePct === "" ? "No TDS on this record." : "Of the basic salary and any bonus, as on the slips. 0 is an exemption."}>
         <NumberInput id={`${uid}-tds`} unit="%" value={form.tdsRatePct} placeholder="none" max="100" disabled={off} onChange={(e) => num(e, "tdsRatePct")} />
       </Field>
-      <Field label="Leave days" htmlFor={`${uid}-leave`} className="fn-s2" hint="Typed, as on the slip: each costs a day's pay (basic ÷ 30). Half a day is 0.5.">
-        <NumberInput id={`${uid}-leave`} value={form.leaveDays} placeholder="0" max="31" step="any" disabled={off} onChange={(e) => num(e, "leaveDays")} />
+      <Field label="Leave amount" htmlFor={`${uid}-leave`} className="fn-s2" hint="How much to cut for leave, typed as on the slip.">
+        <NumberInput id={`${uid}-leave`} unit="NPR" value={form.leaveAmount} placeholder="0" step="any" disabled={off} onChange={(e) => num(e, "leaveAmount")} />
       </Field>
       <Field label="Note" htmlFor={`${uid}-note`} className="fn-s2">
         <input id={`${uid}-note`} type="text" value={form.note} placeholder="Optional" disabled={off} onChange={(e) => set({ note: e.target.value })} />
@@ -205,7 +202,7 @@ export default function PayrollCard({ record, employees, canEdit, profile, reloa
         ["Receivable due", money(line.receivable)],
         ["Gross pay", money(line.gross)],
         [rules === "new" ? "Absence deduction" : rules === "mixed" ? "Late and absence deduction" : `Late deduction${facts.cuts ? ` (${facts.cuts} × ¼ day)` : ""}`, waiting ? "…" : `− ${money(Math.max(0, line.late - line.att.parts.leave))}`, line.late - line.att.parts.leave > 0 ? "bad" : undefined],
-        ...(line.att.parts.leave > 0 ? [[`Leave days (${line.counts.leaveDays})`, `− ${money(line.att.parts.leave)}`, "bad"]] : []),
+        ...(line.att.parts.leave > 0 ? [["Leave", `− ${money(line.att.parts.leave)}`, "bad"]] : []),
         ["Advance repaid", `− ${money(line.advance)}`, line.advance > 0 ? "bad" : undefined],
         ["PF or other", `− ${money(line.pf)}`, line.pf > 0 ? "bad" : undefined],
         [line.tdsRatePct == null ? "TDS" : `TDS (${line.tdsRatePct}%)`, line.tdsRatePct == null ? "none" : `− ${money(line.tds)}`, line.tds > 0 ? "bad" : undefined],

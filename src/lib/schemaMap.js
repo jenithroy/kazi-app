@@ -543,7 +543,8 @@ export const SCHEMA_MAP = {
       "unapprovedAbsences": "unapproved_absences",
       "overtimeMinutes": "overtime_minutes",
       "bonusReason": "bonus_reason",
-      "leaveDays": "leave_days"
+      "leaveDays": "leave_days",
+      "leaveAmountNPR": "leave_amount_npr"
     },
     "derived": [
       "region"
@@ -560,6 +561,7 @@ export const SCHEMA_MAP = {
       "late_cuts_count",
       "late_days",
       "late_deduction_npr",
+      "leave_amount_npr",
       "leave_days",
       "legacy_role",
       "legacy_staff_id",

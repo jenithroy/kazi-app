@@ -26,7 +26,6 @@ export const PAY_DIVISOR = 30;          // a day's pay is the monthly basic over
 export const STANDARD_DAY_HOURS = 8;    // the hours of a shift when a person has none saved; otherwise an hour's pay is a day's over THEIR shift hours (as the sheets)
 export const OT_RATE = 1.5;             // overtime pays this many times the hour's pay (the sheets have no formula for overtime, only typed amounts: confirm with the accountant)
 export const DEFAULT_TDS_PCT = 1;       // "Income Tax (1%)" on every slip, taken on the basic salary and any bonus
-export const DASHAIN_PCT = 50;          // the one formula in Deepa's sheet: salary x 1.5 - salary (a shortcut; any bonus can be given)
 export const BONUS_REASON_MAX = 60;     // letters in what a bonus was for
 /** What a bonus is often for. Suggestions only: anything can be typed. */
 export const BONUS_SUGGESTIONS = ["Dashain", "Tihar", "Performance", "Attendance"];

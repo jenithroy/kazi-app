@@ -11,7 +11,7 @@
  * A blank rate on a run row means 0, never "the old default", so the slip prints exactly what the row says.
  */
 import { MONTHS } from "./finance";
-import { NO_FACTS, attendanceDeduction, bonusAmount, payLine, round2 } from "./payrollMath";
+import { NO_FACTS, attendanceDeduction, bonusAmount, leaveAmountOf, payLine, round2 } from "./payrollMath";
 import { periodKey } from "./payroll";
 import { slipOf } from "./personPay";
 import { slipView } from "./salarySlip";
@@ -38,8 +38,8 @@ export function lastRate(payroll, e) {
 
 /**
  * What each person's typed fields start with, by person id: { bonus, bonusReason (what it was for), receivable, advance, other, tdsRate,
- * cuts, absences, leaveDays, adjustment }. `cuts` and `absences` are blank (use what the attendance says) unless a saved record used a
- * different count, which stays typed; `leaveDays` is what the record kept (leave days are typed, never read from the attendance).
+ * cuts, absences, leaveAmount, adjustment }. `cuts` and `absences` are blank (use what the attendance says) unless a saved record used a
+ * different count, which stays typed; `leaveAmount` is what the record kept (the leave amount is typed, never read from the attendance).
  */
 export function seedManual({ people, payroll, byPerson, month, year }) {
   const rules = rulesOfMonth(Number(year), MONTHS.indexOf(month));
@@ -51,12 +51,12 @@ export function seedManual({ people, payroll, byPerson, month, year }) {
     const typed = {
       cuts: rules !== "new" ? kept(rec?.lateCutsCount, f.cuts) : "",              // the old rule's count: old months and the days before the switch
       absences: rules !== "old" ? kept(rec?.unapprovedAbsences, f.absences) : "",   // the new rule's count: new months and the days from the switch
-      leaveDays: text(rec?.leaveDays),
+      leaveAmount: text(leaveAmountOf(rec)),
     };
     const auto = attendanceDeduction(rules, {
       cuts: typed.cuts === "" ? f.cuts : Number(typed.cuts),
       absences: typed.absences === "" ? f.absences : Number(typed.absences),
-      leaveDays: Number(typed.leaveDays) || 0,
+      leaveAmount: Number(typed.leaveAmount) || 0,
     }, e.basicSalaryNPR).amount;
     out[e.id] = {
       bonus: text(rec?.bonusNPR),

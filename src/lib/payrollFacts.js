@@ -39,7 +39,7 @@ export function factsOf({ records, clocks, overtime, mo, today }) {
     cuts: lateCounts(records.filter((r) => rulesOn(String(r.date)) === "old")).cuts,
     absences: pm.days.filter((d) => fromSwitch(d) && d.record?.status === "Absent").length,
     missedClockOuts: pm.days.filter((d) => fromSwitch(d) && d.record?.missedClockOut).length,
-    leaveRecorded: pm.leave,                                   // days somebody marked Leave: shown to whoever types the leave days, never deducted by itself
+    leaveRecorded: pm.leave,                                   // days somebody marked Leave: shown to whoever types the leave amount, never deducted by itself
     overtimeMinutes: overtime.reduce((sum, o) => sum + o.minutes, 0),
     // overtime in lengths of the person's own shift (minutes over that day's shift minutes), which is how the sheets price an hour
     overtimeShifts: overtime.reduce((sum, o) => sum + o.minutes / (o.shiftMinutes > 0 ? o.shiftMinutes : STANDARD_DAY_HOURS * 60), 0),

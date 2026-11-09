@@ -16,14 +16,16 @@
  *
  * The attendance deduction follows the rules of the month (lib/workRules.js). Before them: a quarter of a day's pay for each late
  * day flagged with the old cut ("Late Time" on the slips: every such line in the October slips is a whole number of quarter days).
- * From them: one day of salary for every ABSENCES_PER_DAY_CUT unapproved absences. In both: each LEAVE DAY typed costs a day's pay
- * ("Leave Day" on the slips). Leave days are typed, not read from the attendance: the attendance rows of October could not
- * reproduce the slips' leave lines (they are too thin), and the accountant's own register is where they come from.
+ * From them: one day of salary for every ABSENCES_PER_DAY_CUT unapproved absences. In both: the LEAVE AMOUNT typed is taken off as it
+ * is ("Leave Day" on the slips). The amount is typed, not read from the attendance: the attendance rows of October could not
+ * reproduce the slips' leave lines (they are too thin), and the accountant's own register is where they come from. (Records made when
+ * leave was typed in days hold the days: `leaveAmountOf` prices them at a day's pay each.)
  * Counts can be typed over what the attendance gave (`manual.cuts`, `manual.absences`), as the slips' lines are typed.
  *
  * Amounts are kept to the paisa; screens and the slip round to the rupee when they show them.
  *
- * Checked against the October slips: 20,000 basic, "Leave Day 4,000" = 6 days; 10,000 basic, "Leave Day 2,331" = 7 days at 333;
+ * Checked against the October slips: 20,000 basic, "Leave Day 4,000" = 6 days; 10,000 basic, "Leave Day 2,331" = 7 days at 333 (so a
+ * leave amount of 4,000 and of 2,331);
  * 25,000 basic, "Late Time 1,872" = 9 quarter-day cuts (2.25 days); "Income Tax (1%)" = 1% of basic on all fourteen.
  */
 import { ABSENCES_PER_DAY_CUT, OT_RATE, PAY_DIVISOR, STANDARD_DAY_HOURS } from "./workRules";
@@ -43,6 +45,16 @@ export const dayRate = (basic) => num(basic) / PAY_DIVISOR;
 /** An hour's pay: a day's pay over the person's own shift hours (8 when none is known), as the sheets price an hour. */
 export const hourRate = (basic, shiftHours = STANDARD_DAY_HOURS) => dayRate(basic) / (num(shiftHours) > 0 ? num(shiftHours) : STANDARD_DAY_HOURS);
 
+/**
+ * The leave amount a saved record holds: the amount that was typed, or, for a record made while leave was typed in days, those days at a
+ * day's pay of its own basic (what they cost then, so opening such a record changes no figure). 0 when it holds none.
+ */
+export function leaveAmountOf(rec) {
+  if (!rec) return 0;
+  const amount = num(rec.leaveAmountNPR);
+  return amount > 0 ? round2(amount) : round2(num(rec.leaveDays) * dayRate(rec.basicNPR));
+}
+
 /** What a month's attendance gave for one person when nothing has been read yet. */
 export const NO_FACTS = Object.freeze({ records: 0, lateDays: 0, cuts: 0, absences: 0, missedClockOuts: 0, leaveRecorded: 0, overtimeMinutes: 0, overtimeShifts: 0 });
 
@@ -58,19 +70,18 @@ export function lateCounts(rows) {
 /**
  * What the month takes off the basic for attendance, under the rules of that month ("old", "new", or "mixed": the month that holds
  * the switch day, whose `cuts` are those of the days before it and whose `absences` are those of the days from it, lib/workRules.js).
- * `counts` is { cuts, absences, leaveDays }; the old rule reads cuts, the new one absences, a mixed month both, and leave days always.
- * Resolves to { amount, days, parts }: the deduction, the days of salary it stands for, and what each part came to (`cuts`, `absences`,
- * `late` the two together, `leave`).
+ * `counts` is { cuts, absences, leaveAmount }; the old rule reads cuts, the new one absences, a mixed month both, and the leave amount
+ * (rupees, typed) always. Resolves to { amount, days, parts }: the deduction, the days of salary it stands for, and what each part
+ * came to (`cuts`, `absences`, `late` the two together, `leave`).
  */
 export function attendanceDeduction(rules, counts, basic) {
   const day = dayRate(basic);
-  const leaveDays = num(counts?.leaveDays);
-  const leave = round2(leaveDays * day);
+  const leave = Math.max(0, round2(counts?.leaveAmount));
   const cutCount = rules === "new" ? 0 : num(counts?.cuts);
   const absentDays = rules === "old" ? 0 : Math.floor(num(counts?.absences) / ABSENCES_PER_DAY_CUT);
   const cuts = Math.round(day * 0.25 * cutCount);          // whole rupees, as the old rule always was
   const absences = round2(absentDays * day);
-  return { amount: round2(cuts + absences + leave), days: cutCount / 4 + absentDays + leaveDays, parts: { cuts, absences, late: round2(cuts + absences), leave } };
+  return { amount: round2(cuts + absences + leave), days: cutCount / 4 + absentDays + (day > 0 ? leave / day : 0), parts: { cuts, absences, late: round2(cuts + absences), leave } };
 }
 
 /** Approved overtime pays the hour's pay times OT_RATE. `shifts` is the overtime in lengths of the person's own shift (minutes over their shift's minutes, day by day). */
@@ -78,7 +89,7 @@ export const overtimePay = (shifts, basic) => round2(num(shifts) * dayRate(basic
 
 /**
  * A bonus for one person, of any kind: `value` per cent of their basic (basis "percent", the default) or the same `value` in rupees
- * for everyone (basis "amount"). Dashain's, in the monthly sheet, is 50 per cent (salary x 1.5 - salary). Never below nothing.
+ * for everyone (basis "amount"). Never below nothing.
  */
 export const bonusAmount = (basic, basis, value) => Math.max(0, round2(basis === "amount" ? num(value) : (num(basic) * num(value)) / 100));
 
@@ -115,13 +126,13 @@ export function computePayroll(f) {
 
 /**
  * One person's line of a month: what the attendance gives, plus what somebody typed (`manual`: bonus, receivable, advance, other,
- * adjustment, tdsRate, and the counts the slips have typed lines for: leaveDays, and cuts or absences to use instead of the
+ * adjustment, tdsRate, and what the slips have typed lines for: leaveAmount, and cuts or absences to use instead of the
  * attendance's). The card and the monthly run both build their numbers here, so they cannot disagree.
  * `counts` in the answer is what was used, so it can be kept with the record.
  */
 export function payLine({ basic, rules, facts, manual = {} }) {
   const f = facts || NO_FACTS;
-  const counts = { cuts: typedOr(manual.cuts, f.cuts), absences: typedOr(manual.absences, f.absences), leaveDays: typedOr(manual.leaveDays, 0) };
+  const counts = { cuts: typedOr(manual.cuts, f.cuts), absences: typedOr(manual.absences, f.absences), leaveAmount: typedOr(manual.leaveAmount, 0) };
   const att = attendanceDeduction(rules, counts, basic);
   const overtimeNPR = overtimePay(f.overtimeShifts, basic);
   const calc = computePayroll({
