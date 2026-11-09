@@ -1,6 +1,6 @@
 {
   "name": "kazi-email-finder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Finds companies' websites and reads their public contact pages from this computer, for the Contact Finder.",

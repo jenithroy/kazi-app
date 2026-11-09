@@ -64,15 +64,16 @@ export function findBrowserPath(env = process.env) {
 }
 
 /**
- * Start the browser (`args` are extra command-line switches, for tests). Resolves to { browser, path, name, userAgent }: `name` reads "Chromium 152.0.7977.82" for the start-up message and
+ * Start the browser (`args` are extra command-line switches, for tests; `headless: false` opens a window a person can see, for answering a check a search
+ * engine asks of a person: search.mjs). Resolves to { browser, path, name, userAgent }: `name` reads "Chromium 152.0.7977.82" for the start-up message and
  * `userAgent` is the browser's own name with the finder's honest one after it. Throws an Error whose message says what to do.
  */
-export async function startBrowser({ args = [] } = {}) {
+export async function startBrowser({ args = [], headless = true } = {}) {
   const path = findBrowserPath();
   let browser;
   try {
     // Playwright starts the browser with its pop-up blocker off; a page the finder reads should not be able to open windows
-    browser = await chromium.launch({ headless: true, args, ignoreDefaultArgs: ["--disable-popup-blocking"], ...(path ? { executablePath: path } : {}) });
+    browser = await chromium.launch({ headless, args, ignoreDefaultArgs: ["--disable-popup-blocking"], ...(path ? { executablePath: path } : {}) });
   } catch (err) {
     if (!path) throw new Error(NO_BROWSER);
     throw new Error(`Could not start ${path}: ${String(err?.message || err).split("\n")[0]}`);
