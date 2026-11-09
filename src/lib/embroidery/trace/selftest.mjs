@@ -14,6 +14,7 @@ import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
 import { removeFrame } from "./frame.js";
 import { HALO_RATIO } from "./details.js";
 import { buildPalette, missingNeutral, NEUTRAL_FAR, NEUTRAL_MIN_SHARE } from "./quantize.js";
+import { extractHairlines, HAIRLINE } from "./hairlines.js";
 import { CARRY_DE, OVERFETCH } from "./fine.js";
 import { serializeDesign, parseDesign, engineDesign, newDesign, breakApart, hitObject, objectBox } from "../../digitizer/model.js";
 import { generate } from "../stitch/engine.js";
@@ -713,6 +714,58 @@ log("8b. fine lines and dots on top (photographs and artwork), and what the conv
     check("neutral: the numbers are the ones measured (22 away from every colour, half a per cent of the picture)", NEUTRAL_FAR === 22 && NEUTRAL_MIN_SHARE === 0.005);
   }
 
+  // hairlines (hairlines.js): the lines of a pixel or two (a whisker, a hair, a twig) are taken out of the colour layer as centre lines and sewn as one line of thread each,
+  // where widened they ran together into a blob and were filled
+  {
+    const W = 140, H = 140;
+    const mkMask = () => ({ mask: new Uint8Array(W * H), lab: new Uint8Array(W * H) });
+    const stroke = (m, x0, y0, x1, y1, th = 1) => { const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2); for (let k = 0; k <= n; k++) { const x = Math.round(x0 + ((x1 - x0) * k) / n), y = Math.round(y0 + ((y1 - y0) * k) / n); for (let dy = 0; dy < th; dy++) for (let dx = 0; dx < th; dx++) m.mask[(y + dy) * W + x + dx] = 1; } };
+    const opt = { maxWidthPx: 2.4, minLenPx: 13, minChainPx: 5 };
+    // a fan: five one pixel lines that leave one point
+    const fan = mkMask();
+    const tips = [[20, 20], [45, 12], [70, 10], [95, 12], [120, 20]];
+    for (const t of tips) stroke(fan, 70, 120, t[0], t[1]);
+    const fr = extractHairlines(fan.mask, fan.lab, W, H, opt);
+    const chains = fr.comps.flatMap((c) => c.chains);
+    const distSeg = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy))); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
+    const worst = Math.max(...chains.flatMap((c) => c.pts.map((p) => Math.min(...tips.map((t) => distSeg([p[0] - 0.5, p[1] - 0.5], [70, 120], t))))));
+    check("hairlines: a fan of five one pixel lines is one piece of five centre lines, each as long as its line (the tangle where they meet is left out)", fr.comps.length === 1 && chains.length === 5 && chains.every((c) => c.lenPx > 95 && c.lenPx < 112), `${fr.comps.length} piece(s), ${chains.length} chains of ${chains.map((c) => c.lenPx.toFixed(0)).join(" ")} px`);
+    check("... they lie on the lines (within a pixel) and reach each tip", worst < 1 && tips.every((t) => chains.some((c) => c.pts.some((p) => Math.hypot(p[0] - 0.5 - t[0], p[1] - 0.5 - t[1]) < 2.5))), `worst ${worst.toFixed(2)} px`);
+    const bar = mkMask(); for (let y = 20; y < 80; y++) for (let x = 20; x < 25; x++) bar.mask[y * W + x] = 1;
+    const two = mkMask(); stroke(two, 30, 20, 30, 80, 2);
+    const three = mkMask(); stroke(three, 30, 20, 30, 80, 3);
+    const dot = mkMask(); for (let x = 20; x < 26; x++) dot.mask[50 * W + x] = 1;
+    const ring = mkMask(); for (let a = 0; a < 6.3; a += 0.01) ring.mask[Math.round(70 + 30 * Math.sin(a)) * W + Math.round(70 + 30 * Math.cos(a))] = 1;
+    const count = (m) => extractHairlines(m.mask, m.lab, W, H, opt).comps.length;
+    const rr = extractHairlines(ring.mask, ring.lab, W, H, opt);
+    check("hairlines: a line of two pixels is one, a line of three pixels, a bar of five and a piece of six pixels are not", count(two) === 1 && count(three) === 0 && count(bar) === 0 && count(dot) === 0);
+    check("hairlines: a ring of one pixel is one closed line of its own length", rr.comps.length === 1 && rr.comps[0].chains.length === 1 && Math.abs(rr.comps[0].lenPx - 2 * Math.PI * 30) < 8, rr.comps[0] && rr.comps[0].lenPx.toFixed(1));
+
+    // an artwork: three discs and a fan of five black lines of one pixel
+    const pic = (th) => {
+      const im = makeImage(320, 320, [246, 240, 230]);
+      const px = (x, y, c) => { if (x < 0 || y < 0 || x >= 320 || y >= 320) return; const o = (y * 320 + x) * 4; im.data[o] = c[0]; im.data[o + 1] = c[1]; im.data[o + 2] = c[2]; };
+      const disc = (cx, cy, r, c) => { for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if (Math.hypot(x - cx, y - cy) <= r) px(x, y, c); };
+      disc(90, 160, 60, [214, 110, 40]); disc(90, 250, 40, [60, 130, 70]); disc(200, 70, 36, [120, 120, 140]);
+      for (const t of [[300, 120], [310, 160], [312, 200], [304, 240], [290, 290]]) { const n = Math.ceil(Math.hypot(t[0] - 160, t[1] - 170) * 2); for (let k = 0; k <= n; k++) { const x = Math.round(160 + ((t[0] - 160) * k) / n), y = Math.round(170 + ((t[1] - 170) * k) / n); for (let dy = 0; dy < th; dy++) for (let dx = 0; dx < th; dx++) px(x + dx, y + dy, [25, 25, 30]); } }
+      return im;
+    };
+    const topt = { mode: "art", mmPerPx: 0.15, colors: 6, maxColors: 6, details: true, fineDetail: 0.75, thicken: true };
+    const fine = pic(1), on = traceImage(fine, topt), off = traceImage(fine, { ...topt, hairlines: false });
+    const big = (r) => r.shapes.filter((sh) => sh.area * 0.15 * 0.15 > 1).length;
+    check("hairlines: in artwork the five whiskers are five lines of about their own length, in the colour they have in the picture", on.hairlines.length === 5 && on.hairlines.every((h) => h.lengthMm > 17 && h.lengthMm < 31 && Math.max(...h.rgb) < 80), JSON.stringify(on.hairlines.map((h) => [h.lengthMm, h.rgb])));
+    check("... the colour layer has no strip for them: with the option off the lines were one more shape, in the way (and none comes out as a hairline)", big(on) + 1 === big(off) && off.hairlines.length === 0, `${big(on)} against ${big(off)} shapes over 1 mm2`);
+    check("... a logo has none, and neither has a picture whose lines are four pixels wide", traceImage(fine, { ...topt, mode: "logo" }).hairlines.length === 0 && traceImage(pic(4), topt).hairlines.length === 0);
+    const made = objectsFromTrace(on, { originX: -24, originY: -24, mmPerPx: 0.15, fabric: "#f4f1ea" });
+    const lineObjs = made.objects.filter((o) => o.layer === "detail" && o.open);
+    check("hairlines: the converter makes one open object of bean lines of them in the detail layer, last, in an ink thread (the picture's colours are not touched)", lineObjs.length === 1 && lineObjs[0].rings.length >= 5 && lineObjs[0].stroke.type === "bean" && made.objects.slice(0, made.objects.length - lineObjs.length).every((o) => !o.layer), lineObjs.map((o) => `${o.name} ${o.rings.length} lines`).join(", "));
+    const gen = generate(engineDesign(newDesign({ name: "whiskers", hoop: { w: 100, h: 100 }, fabric: "woven", fabricColor: "#f4f1ea", objects: made.objects, settings: {} })), {});
+    const near = (x, y) => { let best = Infinity; for (const st of gen.pattern.stitches) best = Math.min(best, Math.hypot(st[0] / 10 - x, st[1] / 10 - y)); return best; };
+    const tipMm = [[300, 120], [310, 160], [312, 200], [304, 240], [290, 290]].map((t) => [-24 + (t[0] + 0.5) * 0.15, -24 + (t[1] + 0.5) * 0.15]);
+    check("hairlines: every whisker is sewn out to its tip (a stitch within a millimetre of each)", tipMm.every((t) => near(t[0], t[1]) < 1), tipMm.map((t) => near(t[0], t[1]).toFixed(2)).join(" "));
+    check("hairlines: the numbers are the ones measured (a line of at most 0.36 mm, chains of at least 0.8 mm)", HAIRLINE.maxWidthMm === 0.36 && HAIRLINE.minChainMm === 0.8 && HAIRLINE.minLenMm === 2);
+  }
+
   // the converter: colours, threads, order, amount (a made-up answer: three threads in the colour layer, details of several colours)
   const sq = (x, y, s) => [[x, y], [x + s, y], [x + s, y + s], [x, y + s]];
   const pal = (r, g, b, fraction) => ({ r, g, b, fraction, background: false });
@@ -762,6 +815,25 @@ log("8b. fine lines and dots on top (photographs and artwork), and what the conv
   check("a fine line can be picked with the pointer on it, from half the usual reach (it must not steal clicks meant for the shape under it)", hitObject({ objects: [lineObj] }, onLine[0], onLine[1], 0.6) === lineObj.id && hitObject({ objects: [lineObj] }, onLine[0] + 0.5, onLine[1] + 0.5, 0.6) === null && hitObject({ objects: [lineObj] }, onLine[0] + 30, onLine[1] + 30, 0.6) === null);
   check("Break apart makes one object per line", breakApart(lineObj).length === lineObj.rings.length && breakApart(lineObj).every((o) => o.open && o.rings.length === 1 && o.layer === "detail"));
   check("details: the separate pieces (each may cost a thread cut) stay under a fifth of the colour layer's shapes, and at least 12 are allowed", many.details.lines + many.details.dots === 12 && many.details.left.budget >= 388, JSON.stringify([many.details.lines, many.details.dots, many.details.left]));
+  // hairlines in the converter (the tracer's `hairlines`: thin lines taken out of the colour layer): each is sewn in a thread near its own colour that shows on what lies under it,
+  // never in a far one, at most two threads of them
+  {
+    const hl = (rgb, under, color, len = 10, x = 20) => ({ color, under, rgb, pts: [[x, 20], [x + len * 4, 60]], lengthMm: len });
+    const hair = (list) => objectsFromTrace(fake({ hairlines: list }), { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea" });
+    const hexesOf = (made) => OBJ(made).map((o) => o.fill.color);
+    const navy = "#14286e", red = "#c81e28", green = "#3c9646";
+    const sameColour = hair([hl([20, 40, 110], 0, 0)]);
+    check("hairlines: a hairline in the colour of what lies under it would not show, and is left out", OBJ(sameColour).length === 0, JSON.stringify(hexesOf(sameColour)));
+    const onRed = hair([hl([22, 42, 112], 1, 0)]);
+    check("hairlines: a dark blue line over the red shape is sewn in the navy thread, as an open line of bean stitch in the detail layer", hexesOf(onRed).length === 1 && hexesOf(onRed)[0] === navy && OBJ(onRed)[0].open && OBJ(onRed)[0].stroke.type === "bean", JSON.stringify(hexesOf(onRed)));
+    const pale = hair([hl([232, 232, 238], 0, 0)]);
+    check("hairlines: a pale line over a dark shape is never sewn in a dark thread because that was all the design had (no thread is near it: it is left out)", OBJ(pale).length === 0, JSON.stringify(hexesOf(pale)));
+    const three = hair([hl([22, 42, 112], 1, 0, 10, 20), hl([198, 32, 42], 2, 1, 10, 80), hl([62, 148, 72], 0, 2, 10, 140)]);
+    check("hairlines: three lines of three colours are sewn in at most two threads (each is a colour change)", new Set(hexesOf(three)).size <= 2 && new Set(hexesOf(three)).size >= 1, JSON.stringify(hexesOf(three)));
+    const none = hair([]);
+    check("hairlines: none, and none is the answer of a logo: no object and no change to the colour layer", OBJ(none).length === 0 && none.objects.length === run({ lines: [], spots: [] }).objects.length);
+  }
+
   const alone = run({ lines: [], spots: [] });
   check("no details found: the same objects as before and no summary", alone.objects.every((o) => !o.layer) && alone.details === null);
 }

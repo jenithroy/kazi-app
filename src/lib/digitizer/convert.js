@@ -234,6 +234,13 @@ export const DETAIL_MIN_PIECES = 12;
 export const DETAIL_THREADS = 3;
 /** A further thread for the details is only worth its colour change when it serves this much more (millimetres of line, a dot counting for twice its area). */
 const DETAIL_THREAD_MIN = 25;
+/** A hairline (the thin lines taken out of the colour layer, see trace/hairlines.js) is always sewn, in the nearest thread of the design, unless that thread is this near the colour under it (CIELAB): then it would not show, and no thread could make it. */
+export const HAIRLINE_VISIBLE_DE = 8;
+/** A hairline is sewn in a thread no further than this from its own colour (CIELAB; the details: 18, DETAIL_MATCH_DE): a pale line is never sewn dark because a dark thread was the only one left. */
+export const HAIRLINE_MATCH_DE = 24;
+/** The hairlines are sewn in at most this many threads (each is a colour change, and they join the details' own threads where these are the same), and a thread is only worth it when its lines come to this many millimetres; the lines of another go to one of these when it is near enough, or are left out. */
+export const HAIRLINE_THREADS = 2;
+export const HAIRLINE_THREAD_MIN_MM = 3;
 /** Across the stroke (mm): one thread sewn three times (bean), or a narrow satin column when thicker lines are asked for (a line of one thread can sink into a dense fill). */
 export const DETAIL_LINE_MM = 0.45;
 export const DETAIL_THICK_MM = 0.7;
@@ -264,8 +271,9 @@ export const DETAIL_TUNE = Object.freeze({
  */
 function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, maxColors, thick, shapes, tune = null }) {
   const t = { ...DETAIL_TUNE, ...(tune || {}) };
-  const det = traced.details;
-  if (!det || (!det.lines.length && !det.spots.length)) return null;
+  const det = traced.details || { lines: [], spots: [], stats: {} };
+  const hair = traced.hairlines || [];
+  if (!det.lines.length && !det.spots.length && !hair.length) return null;
   const dE = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
   const labOfHex = (hex) => { const c = hexToRgb(hex); return toLab(c.r, c.g, c.b); };
   // the threads the colour layer really sews
@@ -279,6 +287,8 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
   const weightOf = (d) => (d.region ? DETAIL_REGION_WEIGHTS[d.region] ?? 1 : 1);
   for (const l of det.lines) items.push({ line: l, d: l, w: l.lengthMm * weightOf(l), lab: toLab(l.rgb[0], l.rgb[1], l.rgb[2]), cost: l.lengthMm * 1.5 + 8 });
   for (const s of det.spots) items.push({ spot: s, d: s, w: Math.max(2, s.areaMm2 * 2) * weightOf(s), lab: toLab(s.rgb[0], s.rgb[1], s.rgb[2]), cost: s.areaMm2 + 12 });
+  // the hairlines come first, and are not held to the details' budget or their cap on pieces: they are no longer in the colour layer (the tracer took them out and budgeted them)
+  for (const h of hair) items.push({ line: h, d: { rgb: h.rgb, under: h.under, strength: 1e6 }, w: h.lengthMm, lab: toLab(h.rgb[0], h.rgb[1], h.rgb[2]), cost: 0, hair: true, label: h.color });
   const nearest = (lab, pool) => { let best = null, bd = Infinity; for (const c of pool) { const d = dE(lab, c.lab); if (d < bd) { bd = d; best = c; } } return { c: best, d: bd }; };
   for (const it of items) it.nearD = sewn.length ? nearest(it.lab, sewn).d : Infinity;
   // new colours for the details that no thread of the design is near: the biggest groups of alike ones
@@ -286,7 +296,7 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
   const room = Math.max(0, Math.min(t.newColours, (maxColors | 0) - sewn.length));
   if (room > 0) {
     const groups = [];
-    for (const it of items.filter((x) => x.nearD > t.matchDE).sort((a, b) => b.w - a.w)) {
+    for (const it of items.filter((x) => !x.hair && x.nearD > t.matchDE).sort((a, b) => b.w - a.w)) { // (a hairline never brings a new colour)
       let g = groups.find((q) => dE(it.lab, q.lab) <= 18);
       if (!g) { if (groups.length >= 8) continue; g = { lab: it.lab, w: 0, r: 0, g: 0, b: 0 }; groups.push(g); }
       g.w += it.w; g.r += it.w * it.d.rgb[0]; g.g += it.w * it.d.rgb[1]; g.b += it.w * it.d.rgb[2];
@@ -304,30 +314,48 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
   // details of the others go to a kept thread when one is near enough, or are left out.
   for (const it of items) it.under = it.d.under >= 0 && palette[it.d.under] && !palette[it.d.under].skipped ? labOfHex(palette[it.d.under].hex) : cloth;
   const stands = (it, c) => !!c && dE(it.lab, c.lab) <= t.matchDE && dE(c.lab, it.under) >= t.visibleDE;
-  const assigned = items.map((it) => { const c = nearest(it.lab, pool).c; return stands(it, c) ? c : null; });
+  const showsHair = (it, c) => !!c && dE(c.lab, it.under) >= HAIRLINE_VISIBLE_DE; // (it shows when its thread is not the colour under it)
+  // a hairline takes the nearest thread that is near its colour and shows; failing that the thread of the colour it was drawn in (the tracer drew it in a colour within 28 of its own); failing that it is left out
+  const labelThread = (it) => { const pe = palette[it.label]; return pe && !pe.skipped ? pool.find((c) => c.hex === pe.hex) || null : null; };
+  const hairThread = (it, from) => { const c = nearest(it.lab, from).c; if (c && dE(it.lab, c.lab) <= HAIRLINE_MATCH_DE && showsHair(it, c)) return c; const l = labelThread(it); return l && showsHair(it, l) && from.includes(l) ? l : null; };
+  const assigned = items.map((it) => { if (it.hair) return null; const c = nearest(it.lab, pool).c; return stands(it, c) ? c : null; });
   const weight = new Map();
   items.forEach((it, i) => { if (assigned[i]) weight.set(assigned[i], (weight.get(assigned[i]) || 0) + it.w); });
   const kept3 = [...weight].sort((a, b) => b[1] - a[1]).filter((e, k) => k < t.threads && (k === 0 || e[1] >= DETAIL_THREAD_MIN)).map((e) => e[0]);
   let invisible = 0, over = 0;
   const shown = [];
   items.forEach((it, i) => {
+    if (it.hair) return;
     let c = assigned[i];
     if (c && !kept3.includes(c)) { const k = nearest(it.lab, kept3).c; c = stands(it, k) ? k : null; }
     if (!c) { invisible++; return; } // no thread of the design looks like it and shows on what lies under it
     it.hex = c.hex;
     shown.push(it);
   });
+  // The hairlines are no longer in the colour layer (the tracer took them out), so each must be sewn if it can be: in a thread of its own colour, at most HAIRLINE_THREADS of them
+  const hairItems = items.filter((it) => it.hair);
+  const hairLength = new Map();
+  for (const it of hairItems) { it.thread = hairThread(it, pool); if (it.thread) hairLength.set(it.thread, (hairLength.get(it.thread) || 0) + it.line.lengthMm); }
+  const hairKept = [...hairLength].filter(([, mm]) => mm >= HAIRLINE_THREAD_MIN_MM).sort((a, b) => b[1] - a[1]).slice(0, HAIRLINE_THREADS).map(([c]) => c);
+  for (const it of hairItems) {
+    const c = it.thread && !hairKept.includes(it.thread) ? hairThread(it, hairKept) : it.thread;
+    if (!c) { invisible++; continue; }
+    it.hex = c.hex;
+    shown.push(it);
+  }
   // the strongest first, as many as the stitch budget and the cap on pieces allow
   let baseMm2 = 0;
   for (const s of shapes) baseMm2 += s.area * mmPerPx * mmPerPx;
   const budget = Math.max(150, t.stitchShare * 2 * baseMm2);
   shown.sort((a, b) => b.d.strength * Math.sqrt(b.w) - a.d.strength * Math.sqrt(a.w));
   const kept = [];
-  let spent = 0;
+  let spent = 0, pieces = 0;
   const maxPieces = Math.max(DETAIL_MIN_PIECES, Math.round(t.piecesPerShape * shapes.length));
   for (const it of shown) { // (strongest and longest first, so it is the weakest and shortest that are left out)
-    if (kept.length >= maxPieces || spent + it.cost > budget) { over++; continue; }
+    if (it.hair) { kept.push(it); spent += it.line.lengthMm * 1.5 + 8; continue; }
+    if (pieces >= maxPieces || spent + it.cost > budget) { over++; continue; }
     spent += it.cost;
+    pieces++;
     kept.push(it);
   }
   const toMm = (p) => [originX + p[0] * mmPerPx, originY + p[1] * mmPerPx];
@@ -462,7 +490,7 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
     };
   });
   // The fine lines and dots found on the picture itself go on top of everything the colour layer made (and of its angles and edge lines), last in the design.
-  const onTop = traced.details ? fineObjects(traced, { palette, cloth: cloth || toLab(...Object.values(hexToRgb(DEFAULT_CLOTH))), originX, originY, mmPerPx, snap, maxColors, thick: detailThick, shapes, tune: detailTune }) : null;
+  const onTop = traced.details || (traced.hairlines && traced.hairlines.length) ? fineObjects(traced, { palette, cloth: cloth || toLab(...Object.values(hexToRgb(DEFAULT_CLOTH))), originX, originY, mmPerPx, snap, maxColors, thick: detailThick, shapes, tune: detailTune }) : null;
   const looked = applyLook(objects, shapes, traced, mmPerPx); // (the colour layer's objects only: the look is worked out shape by shape)
   return { objects: onTop ? [...looked, ...onTop.objects] : looked, palette, rank, details: onTop ? onTop.summary : null };
 }

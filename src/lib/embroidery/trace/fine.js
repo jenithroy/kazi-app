@@ -84,7 +84,7 @@ function along(pts, stepPx) {
  * @param {{ color: number, area: number, contours: number[][][] }[]} shapes  the colour layer's shapes, in the picture's pixels
  * @returns {null | { lines, spots, stats }}  in the picture's pixels, x right, y down
  */
-export function findFineDetails(image, o, kind, a, shapes) {
+export function findFineDetails(image, o, kind, a, shapes, hairlines = null) {
   if (kind === "logo") return null;
   const longSide = Math.max(image.width, image.height);
   const pic = prepare(image, longSide, 0); // the picture as it is (no shrinking), the see-through parts filled from what is next to them
@@ -109,6 +109,20 @@ export function findFineDetails(image, o, kind, a, shapes) {
     for (const c of s.contours) { for (let i = 0, n = c.length; i < n; i++) { const p = c[i], q = c[i + 1 === n ? 0 : i + 1]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); } }
     const meanW = per > 0 ? (2 * s.area * mm) / per : 0, areaMm2 = s.area * mm * mm;
     if (meanW <= THIN_MM || areaMm2 <= FINE_AREA_MM2) fillRings(carrier, w, h, s.contours, s.color);
+  }
+  // the hairlines (hairlines.js) are sewn too: a line of the finder that runs along one is carried by it, as by a shape
+  if (hairlines) {
+    for (const hl of hairlines) {
+      const col = hl.color < K ? hl.color : -1;
+      if (col < 0) continue;
+      for (let i = 0; i + 1 < hl.pts.length; i++) {
+        const p = hl.pts[i], q = hl.pts[i + 1], steps = Math.max(1, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / 0.5));
+        for (let t = 0; t <= steps; t++) {
+          const cx = Math.floor(p[0] + ((q[0] - p[0]) * t) / steps), cy = Math.floor(p[1] + ((q[1] - p[1]) * t) / steps);
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const x = cx + dx, y = cy + dy; if (x >= 0 && y >= 0 && x < w && y < h) carrier[y * w + x] = col; }
+        }
+      }
+    }
   }
   const nearPx = Math.max(1, Math.round(NEAR_MM / mm));
   const labOf = (rgb) => { const out = new Float32Array(3); rgbToLab(rgb[0], rgb[1], rgb[2], out, 0); return out; };

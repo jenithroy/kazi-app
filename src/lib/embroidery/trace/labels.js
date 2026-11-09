@@ -9,6 +9,7 @@
  * Labels are bytes: 0..14 palette entries, 254 = "being decided", 255 = outside the picture.
  */
 import { rgbToLab } from "./color.js";
+import { extractHairlines } from "./hairlines.js";
 
 export const OUT = 255;
 const UNSET = 254;
@@ -454,6 +455,7 @@ export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = nu
   let widened = 0;
   let strokeCount = 0;
   let strokeMedian = 0;
+  let hairlines = null;
   // thin lines found straight from the picture (see photo.js thinLines) are drawn in the colour they were found in, and kept as features
   if (keep && strokes.lines) {
     for (let i = 0; i < n; i++) {
@@ -491,6 +493,49 @@ export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = nu
     strokeCount = lens.length;
     strokeMedian = lens.length ? lens[lens.length >> 1] : 0;
     const target = strokes.targetPx || minFeature;
+    // The thin lines of the contrast class (a whisker, a hair, a twig: a pixel or two across) are taken out as centre lines before they are widened: widened,
+    // a bundle of them runs together into one blob (hairlines.js). Each leaves the label map in the colour beside it; the converter sews the lines on top.
+    if (strokes.hairlines && !strokes.hairlinesDone) {
+      strokes.hairlinesDone = true; // (a later round of cleaning, with bigger limits, must not find the same lines again)
+      const H = strokes.hairlines;
+      const m2 = new Uint8Array(n);
+      for (let i = 0; i < n; i++) m2[i] = keep.mask[i] === 2 ? 1 : 0;
+      const { comps } = extractHairlines(m2, keep.lab, w, h, H);
+      comps.sort((p, q) => q.lenPx - p.lenPx);
+      const chosen = [];
+      let spent = 0, chains = 0;
+      for (const c of comps) {
+        if (spent + c.lenPx > H.budgetPx || chains + c.chains.length > H.maxChains) continue;
+        spent += c.lenPx; chains += c.chains.length;
+        chosen.push(c);
+      }
+      if (chosen.length) {
+        flag.fill(0);
+        for (const c of chosen) {
+          // the colour of the line: what the finder of thin lines measured for it (the darkest or the lightest half of its pixels), else the picture's own pixels
+          let r = 0, g = 0, b = 0;
+          for (const i of c.pixels) {
+            const piece = strokes.lineOf ? strokes.lineOf[i] : 0;
+            if (piece > 0) { const ink = strokes.lineInk[piece]; r += ink[0]; g += ink[1]; b += ink[2]; }
+            else { r += ctx.rgb[i * 3]; g += ctx.rgb[i * 3 + 1]; b += ctx.rgb[i * 3 + 2]; }
+            keep.mask[i] = 0;
+            flag[i] = 1;
+            if (strokes.lines) strokes.lines[i] = 0;
+          }
+          c.rgb = [r / c.pixels.length, g / c.pixels.length, b / c.pixels.length];
+        }
+        give();
+        hairlines = [];
+        for (const c of chosen) {
+          // the colour of the layer under the line: the one most of its pixels were given to
+          const votes = new Map();
+          for (const i of c.pixels) votes.set(labels[i], (votes.get(labels[i]) || 0) + 1);
+          let under = -1, best = 0;
+          for (const [l, k] of votes) if (l < ctx.K && k > best) { best = k; under = l; }
+          for (const ch of c.chains) hairlines.push({ pts: ch.pts, lenPx: ch.lenPx, label: c.label, rgb: c.rgb, under });
+        }
+      }
+    }
     if (cx) {
       // two kinds of kept piece: strokes (lettering, hairlines of the minor colours) are widened to `targetPx`, the thin features found by their contrast
       // (veins, twigs, gaps) to a little less, so a picture full of fine lines is not turned into a solid
@@ -503,7 +548,7 @@ export function cleanLabels(labels, w, h, ctx, minArea, minFeature, strokes = nu
       if (flagSlivers(labels, w, h, 1, flag, 1.5, null)) give();
     }
   }
-  return { specks, slivers, widened, strokeCount, strokeMedian };
+  return { specks, slivers, widened, strokeCount, strokeMedian, hairlines };
 }
 
 /**

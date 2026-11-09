@@ -53,6 +53,7 @@ import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
 import { limitsFor } from "./detail.js";
 import { findFineDetails } from "./fine.js";
 import { removeFrame } from "./frame.js";
+import { HAIRLINE } from "./hairlines.js";
 
 export { renderTrace };
 
@@ -95,6 +96,7 @@ export const DEFAULT_OPTIONS = Object.freeze({
   gapMm: 0.7, // ... a gap or a dot to this (never wider than the strokes' own width, see thickenMm)
   lineShare: 0.03, // all lines together are held to the strongest of this share of the picture (a picture that is all texture keeps only its strongest lines)
   contrast: true, // how much a small piece stands out decides whether it stays: a petal on dark leaves is kept small, a patch of sky a shade off is not
+  hairlines: true, // the thin lines of artwork and photographs (a whisker, a hair, a twig: a pixel or two across) are taken out as centre lines, to be sewn as one line of thread each, see hairlines.js; needs `details`
   trimFrame: true, // a thin frame round the picture (a chart's border, a screenshot's outline) is painted over with the margin inside it, see frame.js
   fineParams: null, // (for tuning) overrides of the fine-detail finder's numbers, see detailParams in details.js
   fineDetail: 0.75, // the Detail slider (0 to 1) as the fine-detail finder sees it (details.js): how many and how faint the lines and dots it keeps
@@ -145,6 +147,7 @@ export function normalizeOptions(opts = {}) {
     details: opts.details === undefined ? DEFAULT_OPTIONS.details : !!opts.details,
     fineDetail: num(opts.fineDetail, DEFAULT_OPTIONS.fineDetail, 0, 1),
     trimFrame: opts.trimFrame === undefined ? DEFAULT_OPTIONS.trimFrame : !!opts.trimFrame,
+    hairlines: opts.hairlines === undefined ? DEFAULT_OPTIONS.hairlines : !!opts.hairlines,
     fineParams: opts.fineParams && typeof opts.fineParams === "object" ? opts.fineParams : null,
     lines: opts.lines === undefined ? DEFAULT_OPTIONS.lines : !!opts.lines,
     lineTau: num(opts.lineTau, DEFAULT_OPTIONS.lineTau, 5, 255),
@@ -379,7 +382,7 @@ function analyse(image, o, maxSide) {
     const designMm = Math.max(image.width, image.height) * o.mmPerPx; // how wide the design is
     const strongMm = o.strongMm || Math.max(0.3, Math.min(0.5, 0.5 - (0.2 * (designMm - 60)) / 40));
     // thin lines of artwork and photographs, found from the luminance of the unflattened picture and given the label of the palette colour they are drawn in
-    let lines = null;
+    let lines = null, lineOf = null, lineInk = null;
     if (o.lines && kind !== "logo") {
       const rr = Math.max(2, Math.min(8, Math.ceil(0.42 * pxMm + 0.3)));
       // (the bigger the design, the more of a picture's texture reaches the size of a line: its share of lines falls with the size, to 0.4 of it at 250 mm)
@@ -387,6 +390,8 @@ function analyse(image, o, maxSide) {
       const tl = thinLines(dn.rgb, w, h, rr, o.lineTau, Math.max(3, o.lineMm * pxMm), 2.2, share, skip);
       if (tl.pieces.length) {
         lines = new Uint8Array(N);
+        lineOf = new Int32Array(N); // which piece (1, 2 ...) a pixel of a line is of, and the colour of that piece (its darkest or lightest half): hairlines.js sews it in that colour
+        lineInk = [null];
         const lab = new Float64Array(3);
         for (const pc of tl.pieces) {
           // the darkest (or lightest) half of its pixels give its colour
@@ -406,14 +411,18 @@ function analyse(image, o, maxSide) {
             if (d < bd) { bd = d; best = k; }
           }
           if (best < 0) continue;
-          for (const p of pc.pixels) lines[p] = best + 1;
+          lineInk.push([sr / half.length, sg / half.length, sb / half.length]);
+          for (const p of pc.pixels) { lines[p] = best + 1; lineOf[p] = lineInk.length - 1; }
         }
       }
     }
     const bgSet = new Uint8Array(256);
     for (const k of early.indices) bgSet[k] = 1;
+    // Hairlines (hairlines.js): a pixel of work grid is this many millimetres across, so a line of at most HAIRLINE.maxWidthMm is this many pixels (a coarse grid still sees a one pixel line)
+    const areaCm2 = (image.width * o.mmPerPx * image.height * o.mmPerPx) / 100;
     strokes = {
-      lines, bgSet,
+      lines, lineOf, lineInk, bgSet,
+      hairlines: o.hairlines && o.details && kind !== "logo" ? { maxWidthPx: Math.max(1.6, HAIRLINE.maxWidthMm * pxMm), minLenPx: HAIRLINE.minLenMm * pxMm, minChainPx: HAIRLINE.minChainMm * pxMm, budgetPx: HAIRLINE.budgetMmPerCm2 * areaCm2 * pxMm, maxChains: HAIRLINE.maxChains } : null,
       accent, solo, minExtent: Math.max(3, (strokeMm / o.mmPerPx) / scale), minAspect: photo ? 5 : o.kind === "art" ? 2.5 : 0, targetPx: targetMm / o.mmPerPx / scale,
       // delta-E at which a piece counts as standing out (ref), the most the usual size limit grows for a piece that hardly shows (areaMax), what a thin piece
       // must differ from its surroundings by to be kept (keepContrast; dotContrast for a small round one), and the smallest a needle can sew
@@ -959,7 +968,9 @@ export function traceImage(image, opts = {}) {
 
   // fine lines and dots found on the picture itself, to be sewn on top of these shapes (logos have none)
   const tFine = now();
-  const details = o.details && kind !== "logo" ? findFineDetails(pic, o, kind, a, shapes) : null;
+  // the thin lines taken out of the colour layer (hairlines.js), in the picture's pixels, each with its colour and the palette entry under it
+  const hairlines = (a.cleaned.hairlines || []).map((c) => ({ color: c.label, under: c.under, rgb: c.rgb.map(Math.round), pts: c.pts.map((p) => [p[0] * a.wk.sx, p[1] * a.wk.sy]), lengthMm: +(c.lenPx * a.scale * o.mmPerPx).toFixed(2) }));
+  const details = o.details && kind !== "logo" ? findFineDetails(pic, o, kind, a, shapes, hairlines) : null;
   const fineMs = now() - tFine;
 
   return {
@@ -969,7 +980,7 @@ export function traceImage(image, opts = {}) {
     shapes,
     order,
     look: opts.look || null, // how the shapes are to be sewn (rows' angles, edge lines): carried along for the digitizer's converter, not used here
-    ...(o.details ? { details } : {}),
+    ...(o.details ? { details, hairlines } : {}),
     stats: {
       ms: now() - tStart,
       fineMs,
