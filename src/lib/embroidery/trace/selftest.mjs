@@ -13,6 +13,7 @@ import { REGION, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WE
 import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
 import { removeFrame } from "./frame.js";
 import { HALO_RATIO } from "./details.js";
+import { buildPalette, missingNeutral, NEUTRAL_FAR, NEUTRAL_MIN_SHARE } from "./quantize.js";
 import { CARRY_DE, OVERFETCH } from "./fine.js";
 import { serializeDesign, parseDesign, engineDesign, newDesign, breakApart, hitObject, objectBox } from "../../digitizer/model.js";
 import { generate } from "../stitch/engine.js";
@@ -674,6 +675,42 @@ log("8b. fine lines and dots on top (photographs and artwork), and what the conv
     const at = (im, x, y) => im.data[(y * 300 + x) * 4];
     check("frame: the picture keeps its size, the frame becomes the paper's colour and the middle is not touched", !!done && done.image.width === 300 && done.image.height === 300 && at(done.image, 0, 0) === 255 && at(done.image, 299, 150) === 255 && at(done.image, 150, 150) === at(framed, 150, 150) && at(framed, 0, 0) === 5);
     check("fine details: a ridge is the halo of another only when the other is clearly stronger, and the colour layer only carries a detail of about its own colour", HALO_RATIO > 1 && CARRY_DE > 0 && CARRY_DE < 40 && OVERFETCH >= 2, `halo ${HALO_RATIO}, carry ${CARRY_DE}, over ${OVERFETCH}`);
+  }
+
+  // a grey the palette missed (quantize.js missingNeutral): the greys of an eye or a muzzle are a few per cent of a picture, k-means gives them no colour of their own,
+  // and they were taken for the page's white (left unsewn) or the nearest dark
+  {
+    const rectFill = (im, x0, y0, w, h, f) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { const c = f(x, y), o = (y * im.width + x) * 4; im.data[o] = c[0]; im.data[o + 1] = c[1]; im.data[o + 2] = c[2]; } };
+    const hsl = (h, sat, l) => { const a = sat * Math.min(l, 1 - l); const f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1))); }; return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))]; };
+    const hues = Array.from({ length: 14 }, (_, i) => hsl((i * 360) / 14, 0.75, i % 2 ? 0.38 : 0.52));
+    // 14 colour blocks of 4 % each (more colours than the 12 asked for) and, in the 15th cell, a patch of two greys woven in 3 pixel squares, like a stitch chart
+    const chart = (grey) => {
+      const im = makeImage(400, 400);
+      hues.forEach((c, i) => rectFill(im, (i % 4) * 100 + 10, Math.floor(i / 4) * 100 + 10, 80, 80, () => c));
+      if (grey) rectFill(im, 210 + ((80 - grey) >> 1), 310 + ((80 - grey) >> 1), grey, grey, (x, y) => (((x / 3 | 0) + (y / 3 | 0)) % 2 ? [148, 148, 138] : [184, 184, 174]));
+      return im;
+    };
+    const rgbOf = (im) => { const o = new Float32Array(im.width * im.height * 3); for (let i = 0; i < im.width * im.height; i++) { o[i * 3] = im.data[i * 4]; o[i * 3 + 1] = im.data[i * 4 + 1]; o[i * 3 + 2] = im.data[i * 4 + 2]; } return o; };
+    const kmeans = (im) => { const p = buildPalette(rgbOf(im), im.width, im.height, { maxColors: 12, seed: 1, mergeDE: 8, crumbs: "strict", minFeaturePx: 4, noiseTol: 6 }); return { p, have: Array.from(p.rgb).slice(0, p.n * 3) }; };
+    const withGrey = chart(44);
+    const km = kmeans(withGrey);
+    const got = missingNeutral(rgbOf(withGrey), 400, 400, km.have, km.p.n);
+    const distTo = (rgb, c) => Math.hypot(rgb[0] - c[0], rgb[1] - c[1], rgb[2] - c[2]);
+    check("neutral: k-means with 12 colours gives the 14 colour blocks the colours and the woven grey none, and the missing grey is found (its mean, 1 % of the picture)", km.p.n === 12 && !!got && distTo(got.rgb, [166, 166, 156]) < 14 && got.share > 0.006 && got.share < 0.02, got && JSON.stringify({ rgb: got.rgb.map(Math.round), share: +got.share.toFixed(4) }));
+    check("neutral: nothing is missing once the grey is in the palette", missingNeutral(rgbOf(withGrey), 400, 400, [...km.have, 166, 166, 156], km.p.n + 1) === null);
+    const small = chart(30), kms = kmeans(small);
+    check("neutral: a patch under half a per cent of the picture is not worth a colour", missingNeutral(rgbOf(small), 400, 400, kms.have, kms.p.n) === null);
+    const none = chart(0), kmn = kmeans(none);
+    check("neutral: a picture with no grey has nothing missing", missingNeutral(rgbOf(none), 400, 400, kmn.have, kmn.p.n) === null);
+    // the soft ramps between two colours are never a patch: a plain picture of a few colours with blurred edges
+    const soft = makeImage(400, 400);
+    rectFill(soft, 60, 60, 280, 280, () => [20, 20, 20]);
+    for (let pass = 0; pass < 3; pass++) { const c = new Uint8ClampedArray(soft.data); for (let y = 1; y < 399; y++) for (let x = 1; x < 399; x++) for (let k = 0; k < 3; k++) { let t = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) t += soft.data[((y + dy) * 400 + x + dx) * 4 + k]; c[(y * 400 + x) * 4 + k] = t / 9; } soft.data.set(c); }
+    check("neutral: the soft grey ramp round a black square on white paper (a blurred picture) is an edge, not a grey", missingNeutral(rgbOf(soft), 400, 400, [255, 255, 255, 20, 20, 20], 2) === null);
+    const art = traceImage(withGrey, { mode: "art", mmPerPx: 0.25, colors: 12, maxColors: 12 });
+    const sewn = art.palette.filter((p) => !p.background);
+    check("neutral: artwork keeps its colours to the 12 asked for and one of them is the grey (a slot is made by asking k-means for one colour fewer)", sewn.length <= 12 && sewn.some((p) => distTo([p.r, p.g, p.b], [166, 166, 156]) < 24), `${sewn.length} colours: ` + sewn.map((p) => p.hex).join(" "));
+    check("neutral: the numbers are the ones measured (22 away from every colour, half a per cent of the picture)", NEUTRAL_FAR === 22 && NEUTRAL_MIN_SHARE === 0.005);
   }
 
   // the converter: colours, threads, order, amount (a made-up answer: three threads in the colour layer, details of several colours)

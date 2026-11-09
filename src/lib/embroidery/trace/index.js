@@ -40,7 +40,7 @@
  * Pure ES module: no DOM, no Node-only calls. Everything is deterministic (same input and options, same output).
  */
 import { prepare, denoise, ALPHA_CUT } from "./prep.js";
-import { buildPalette, missingColours, classifyPixels, flatMask, softMembership, clusterMeans, transitionalEntries, HARD_MAX_COLORS } from "./quantize.js";
+import { buildPalette, missingColours, missingNeutral, classifyPixels, flatMask, softMembership, clusterMeans, transitionalEntries, HARD_MAX_COLORS } from "./quantize.js";
 import { cleanLabels, connectedComponents, OUT } from "./labels.js";
 import { buildChains, chainRawPoints, traceLoops } from "./contours.js";
 import { processChains } from "./simplify.js";
@@ -266,8 +266,8 @@ function analyse(image, o, maxSide) {
   const regional = regionCls && kind === "photo" && o.regionPalette
     ? buildRegionalPalette(rgbD, w, h, regionCls, { maxColors: maxFg, seed: o.seed, mergeDE: o.mergeDE || 6, crumbs: "strict", noiseTol: dn.tol, weightPower: 0.5, weights: o.regionWeights || DEFAULT_REGION_WEIGHTS, skip })
     : null;
-  const pal = regional || buildPalette(rgbD, w, h, {
-    maxColors: maxFg,
+  const paletteOf = (maxColors) => buildPalette(rgbD, w, h, {
+    maxColors,
     seed: o.seed,
     mergeDE: o.mergeDE || (kind === "photo" ? 6 : kind === "art" ? 8 : 11),
     allPixels: kind === "photo",
@@ -280,8 +280,23 @@ function analyse(image, o, maxSide) {
     skip,
     imp,
   });
+  let pal = regional || paletteOf(maxFg);
+  // Artwork: a grey, a silver, the shade of a muzzle that k-means gave no colour (it spends them on the big areas) is a colour of its own, and its slot is made by
+  // asking for one colour fewer (the other colours are then found again, so the one that goes is the one that costs least), see missingNeutral.
+  let neutral = null;
+  if (kind === "art" && !regional && maxFg >= 4) {
+    const have = (p) => { const a = Array.from(p.rgb).slice(0, p.n * 3); return bgColor ? [...a, bgColor[0], bgColor[1], bgColor[2]] : a; };
+    neutral = missingNeutral(rgbD, w, h, have(pal), have(pal).length / 3, { skip });
+    if (neutral && pal.n >= maxFg) {
+      // (if the grey is not missing from the smaller palette after all, that palette is not used: nothing is given up for it)
+      const fewer = paletteOf(maxFg - 1);
+      const again = missingNeutral(rgbD, w, h, have(fewer), have(fewer).length / 3, { skip });
+      if (again) { pal = fewer; neutral = again; } else neutral = null;
+    }
+  }
   let Kfg = pal.n;
   let fgRgb = Array.from(pal.rgb).slice(0, Kfg * 3);
+  if (neutral && Kfg < maxFg) { fgRgb.push(neutral.rgb[0], neutral.rgb[1], neutral.rgb[2]); Kfg++; }
   // ink that is only thin lines has no flat pixel, so the palette misses it: look for colours nothing explains (not in photographs)
   if (kind !== "photo" && Kfg < maxFg) {
     const have = bgColor ? [...fgRgb, bgColor[0], bgColor[1], bgColor[2]] : fgRgb;

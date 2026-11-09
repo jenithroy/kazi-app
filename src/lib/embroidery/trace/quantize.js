@@ -441,6 +441,124 @@ export function missingColours(rgb, w, h, palRgb, K, { skip = null, most = 2, mi
   return out;
 }
 
+/** A colour is "missing" from a palette when it is this far (CIELAB) from every colour in it ... */
+export const NEUTRAL_FAR = 22;
+/** ... is a neutral: no more chroma than this (greys, silvers, warm and cool off-whites) ... */
+export const NEUTRAL_CHROMA = 22;
+/** ... and is not the page's own white: farther than this from it. */
+export const NEUTRAL_PAGE_DE = 14;
+/** A patch, not an edge: at least this share of the 5 x 5 blocks round a block are candidates too (a soft colour edge is a band of 3 blocks at most). */
+export const NEUTRAL_DENSITY = 0.7;
+/** Least share of the picture (all pixels that are not see-through) such a patch must make up. */
+export const NEUTRAL_MIN_SHARE = 0.005;
+
+/**
+ * A grey, a silver or the shade of a muzzle that the palette missed. The palette is found from the flat pixels by k-means, which spends its colours on the
+ * big areas: the greys of an eye or a muzzle, a few per cent of a picture, get none, and are then taken for the page's white (and left unsewn) or for the
+ * nearest dark (on a stitch chart of a tiger and a dragon, the muzzle, the eyes and the teeth came out as bare cloth: 14 % of the light features of the
+ * design were sewn light, 49 % once the palette had a light grey). This looks for a coherent patch of the picture's own pixels that is a neutral and is
+ * not the page's white, far (NEUTRAL_FAR, CIELAB) from every palette colour. It works on blocks (`stride` pixels square, at most about 500 000 of them),
+ * each the mean colour of its pixels and then blurred 3 x 3, so the weave of a chart and the noise of a JPEG are gone while a colour edge is still an edge;
+ * a block counts only when most of the 5 x 5 blocks round it do too (NEUTRAL_DENSITY), so the soft ramp between two colours, one to three blocks wide, never does.
+ * Returns the colour [r, g, b] of the densest group of such blocks with its `share` of the picture and the `gain` it would bring (the squared distance
+ * the group's blocks have to their nearest colour, as a share of the picture), or null when no group holds NEUTRAL_MIN_SHARE of it.
+ * `palRgb` holds `K` colours (3 numbers each), the page's own colour among them.
+ */
+export function missingNeutral(rgb, w, h, palRgb, K, { skip = null, minShare = NEUTRAL_MIN_SHARE, far = NEUTRAL_FAR, chromaMax = NEUTRAL_CHROMA, pageDE = NEUTRAL_PAGE_DE, density = NEUTRAL_DENSITY } = {}) {
+  const n = w * h;
+  const lab = new Float64Array(3);
+  const pal = [];
+  for (let k = 0; k < K; k++) { rgbFloatToLab(palRgb[k * 3], palRgb[k * 3 + 1], palRgb[k * 3 + 2], lab, 0); pal.push([lab[0], lab[1], lab[2]]); }
+  const page = pal.filter((l) => l[0] >= 94 && Math.hypot(l[1], l[2]) <= 8);
+  const stride = Math.max(1, Math.ceil(Math.sqrt(n / 500000)));
+  const gw = Math.floor(w / stride), gh = Math.floor(h / stride), gn = gw * gh;
+  if (gw < 8 || gh < 8) return null;
+  const R = new Float32Array(gn), G = new Float32Array(gn), Bc = new Float32Array(gn), ok = new Uint8Array(gn);
+  for (let gy = 0; gy < gh; gy++) {
+    for (let gx = 0; gx < gw; gx++) {
+      let r = 0, g = 0, b = 0, c = 0, bad = false;
+      for (let dy = 0; dy < stride && !bad; dy++) {
+        for (let dx = 0; dx < stride; dx++) {
+          const i = (gy * stride + dy) * w + gx * stride + dx;
+          if (skip && skip[i]) { bad = true; break; }
+          r += rgb[i * 3]; g += rgb[i * 3 + 1]; b += rgb[i * 3 + 2]; c++;
+        }
+      }
+      if (bad || !c) continue;
+      const gi = gy * gw + gx;
+      ok[gi] = 1; R[gi] = r / c; G[gi] = g / c; Bc[gi] = b / c;
+    }
+  }
+  const blur3 = (src) => {
+    const out = new Float32Array(gn);
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        let t = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const x = gx + dx, y = gy + dy;
+            if (x < 0 || y < 0 || x >= gw || y >= gh || !ok[y * gw + x]) continue;
+            t += src[y * gw + x]; c++;
+          }
+        }
+        out[gy * gw + gx] = c ? t / c : 0;
+      }
+    }
+    return out;
+  };
+  const Rb = blur3(R), Gb = blur3(G), Bb = blur3(Bc);
+  const cand = new Uint8Array(gn);
+  const L = new Float32Array(gn), A = new Float32Array(gn), Bl = new Float32Array(gn), dn = new Float32Array(gn);
+  let counted = 0;
+  for (let gi = 0; gi < gn; gi++) {
+    if (!ok[gi]) continue;
+    counted++;
+    rgbFloatToLab(Rb[gi], Gb[gi], Bb[gi], lab, 0);
+    L[gi] = lab[0]; A[gi] = lab[1]; Bl[gi] = lab[2];
+    let nearest = Infinity;
+    for (let k = 0; k < K; k++) { const d = Math.hypot(lab[0] - pal[k][0], lab[1] - pal[k][1], lab[2] - pal[k][2]); if (d < nearest) nearest = d; }
+    dn[gi] = nearest;
+    if (nearest <= far || Math.hypot(lab[1], lab[2]) > chromaMax) continue;
+    let isPage = false;
+    for (const pg of page) if (Math.hypot(lab[0] - pg[0], lab[1] - pg[1], lab[2] - pg[2]) <= pageDE) { isPage = true; break; }
+    if (!isPage) cand[gi] = 1;
+  }
+  if (!counted) return null;
+  // a patch, not an edge (a summed-area table counts the candidates in every 5 x 5 window)
+  const sat = new Int32Array((gw + 1) * (gh + 1));
+  for (let y = 0; y < gh; y++) {
+    let row = 0;
+    for (let x = 0; x < gw; x++) { row += cand[y * gw + x]; sat[(y + 1) * (gw + 1) + x + 1] = sat[y * (gw + 1) + x + 1] + row; }
+  }
+  const box = (x0, y0, x1, y1) => sat[(y1 + 1) * (gw + 1) + x1 + 1] - sat[y0 * (gw + 1) + x1 + 1] - sat[(y1 + 1) * (gw + 1) + x0] + sat[y0 * (gw + 1) + x0];
+  const hits = [];
+  for (let y = 2; y < gh - 2; y++) {
+    for (let x = 2; x < gw - 2; x++) {
+      const gi = y * gw + x;
+      if (cand[gi] && box(x - 2, y - 2, x + 2, y + 2) >= density * 25) hits.push(gi);
+    }
+  }
+  if (hits.length < minShare * counted) return null;
+  // the densest group: a coarse grid in CIELAB (8 units a cell), the cell with most blocks together with its neighbours
+  const cells = new Map();
+  const key = (l, a, b) => Math.floor(l / 8) * 10000 + Math.floor((a + 64) / 8) * 100 + Math.floor((b + 64) / 8);
+  for (const i of hits) { const k = key(L[i], A[i], Bl[i]); cells.set(k, (cells.get(k) || 0) + 1); }
+  let bestKey = -1, bestN = 0;
+  for (const [k, c] of cells) {
+    let tot = c;
+    for (const dl of [-1, 0, 1]) for (const da of [-1, 0, 1]) for (const db of [-1, 0, 1]) { if (dl || da || db) tot += cells.get(k + dl * 10000 + da * 100 + db) || 0; }
+    if (tot > bestN) { bestN = tot; bestKey = k; }
+  }
+  const bl = Math.floor(bestKey / 10000), ba = Math.floor((bestKey % 10000) / 100), bb = bestKey % 100;
+  let r = 0, g = 0, b = 0, m = 0, d2 = 0;
+  for (const i of hits) {
+    const kl = Math.floor(L[i] / 8), ka = Math.floor((A[i] + 64) / 8), kb = Math.floor((Bl[i] + 64) / 8);
+    if (Math.abs(kl - bl) <= 1 && Math.abs(ka - ba) <= 1 && Math.abs(kb - bb) <= 1) { r += R[i]; g += G[i]; b += Bc[i]; m++; d2 += dn[i] * dn[i]; }
+  }
+  if (m < minShare * counted) return null;
+  return { rgb: [r / m, g / m, b / m], share: m / counted, gain: d2 / counted };
+}
+
 /**
  * Which pixels are "flat": all four neighbours are within `tFlat` of the pixel in every channel. Flat pixels are the
  * ones whose colour is certainly one palette colour and not a mix at an edge.

@@ -23,9 +23,12 @@ const COVERED_DROP = 0.6;
 /**
  * A shape of the colour layer carries a detail only when its own colour is this near (CIELAB distance) the detail's colour. A dark whisker that runs over an
  * orange patch is not carried by the patch: the patch is small, but it is orange. (Before this a small shape of ANY colour carried every detail on it, and on
- * a picture made of thousands of small patches nearly every fine line was thrown away as "already there".)
+ * a picture made of thousands of small patches nearly every fine line was thrown away as "already there".) It is the same distance a detail may have to the
+ * thread it is sewn in (`DETAIL_MATCH_DE` in the converter, 18): a shape the detail could be sewn in carries it, one it could not be sewn in does not. At 26 a
+ * dark line over a blue-grey patch counted as carried by it; on the tiger of the acceptance picture 18 gives 10 lines in place of 6, the strict line recall
+ * .483 -> .506, for 60 stitches, and no other picture of the check changed.
  */
-export const CARRY_DE = 26;
+export const CARRY_DE = 18;
 /**
  * The finder is asked for this many times its usual budget of lines, and the budget is applied here, AFTER the lines the colour layer carries are dropped.
  * Asked for its usual budget the finder spent it on the long outlines the colour layer already sews, those were then dropped, and the lines that were
