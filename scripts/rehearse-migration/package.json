@@ -1,0 +1,16 @@
+{
+  "name": "kazi-migration-rehearsal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Rehearses a database migration on a scratch Postgres (never the live database).",
+  "scripts": {
+    "test:0068": "node 0068.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.16"
+  }
+}
