@@ -524,12 +524,15 @@ export function contentBox(traced, { originX, originY, mmPerPx, fabric = null })
 /**
  * How much bigger the picture (and so the design) can be made so that what is stitched fills the hoop, with a little room round
  * it: 1 when it already does (or nearly), never more than `most`. `box` is contentBox's answer, `hoop` { w, h } in millimetres.
+ * `shrink`: the person asked for the picture to fit THIS hoop, so it may also be made smaller (a design bigger than the hoop),
+ * and any difference of more than 3 % is worth acting on.
  */
-export function fillScale(box, hoop, { margin = 0.92, most = 2.5, atLeast = 1.12 } = {}) {
+export function fillScale(box, hoop, { margin = 0.92, most = 2.5, atLeast = 1.12, shrink = false } = {}) {
   if (!box) return 1;
   const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
   if (!(bw > 0 && bh > 0)) return 1;
   const k = Math.min((hoop.w * margin) / bw, (hoop.h * margin) / bh, most);
+  if (shrink) return Math.abs(k - 1) < 0.03 ? 1 : k;
   return k >= atLeast ? k : 1;
 }
 

@@ -109,7 +109,9 @@ export class Stage {
   set(props) {
     const prev = this.props;
     this.props = props;
-    if (prev.design?.hoop !== props.design?.hoop && !this.fitted) this.fitHoop();
+    // A different hoop (picked, typed, a new or opened design): show all of it. (Before, the view stayed as it was once it had been fitted,
+    // so a bigger hoop was drawn mostly out of sight.)
+    if (prev.design?.hoop !== props.design?.hoop) this.fitHoop();
     if (prev.theme !== props.theme) this.themeCache = null;
     this.invalidate();
   }
@@ -255,7 +257,7 @@ export class Stage {
   }
   isTyping(e) {
     const t = e.target;
-    return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable || !!t.closest?.(".ksel"));
   }
 
   onDoubleClick(e) {

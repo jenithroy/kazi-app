@@ -3,6 +3,7 @@
  * shapes (how many colours, how much detail, whether the background is left out), with the colours it found.
  */
 import { Group, Row, NumberField, Slider, Segmented, Toggle, ColorField } from "./Controls";
+import HoopFit from "./HoopFit";
 import { followsPicture } from "../../lib/digitizer/model";
 
 const COLOR_CHOICES = [
@@ -63,6 +64,7 @@ export default function PicturePanel({ api, pickFile }) {
           <NumberField label="Picture width in millimetres" value={widthMm} min={5} max={1000} digits={1} step={1} unit="mm" disabled={!hasImage} onChange={(v) => api.setReferenceWidth(v)} />
         </Row>
         <p className="dz-hint">{widthMm.toFixed(1)} × {heightMm.toFixed(1)} mm. The shapes made from it change size with it.</p>
+        <HoopFit api={api} />
         <div className="dz-actions">
           <button type="button" className={`kb-btn ${crop ? "kb-btn--primary" : "kb-btn--ghost"}`} disabled={!hasImage} onClick={() => api.setCrop(!crop)}>{crop ? "Done cropping" : "Crop"}</button>
           <button

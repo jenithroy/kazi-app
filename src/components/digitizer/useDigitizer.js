@@ -61,12 +61,20 @@ const read = (key, fallback) => {
 };
 const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } };
 
+const HOOP_KEY = "kazi.digitizer.hoop";
+/** The hoop last chosen on this computer: a new design starts with it, so a bigger hoop is not forgotten between designs (the first time: Left chest, 100 x 100). */
+const rememberedHoop = () => {
+  const h = read(HOOP_KEY, null);
+  const ok = (v) => typeof v === "number" && v >= 20 && v <= 1000;
+  return h && ok(h.w) && ok(h.h) ? { w: h.w, h: h.h } : { w: 100, h: 100 };
+};
+
 /** What identifies a crop of the picture for the person finder: what it found stays valid until the crop changes. */
 const personKey = (crop) => [crop.x, crop.y, crop.w, crop.h].map(Math.round).join(",");
 
 export function useDigitizer() {
   const hist = useRef(null);
-  if (!hist.current) hist.current = createHistory(newDesign());
+  if (!hist.current) hist.current = createHistory(newDesign({ hoop: rememberedHoop() }));
   const [, force] = useReducer((n) => n + 1, 0);
   const design = hist.current.present;
   const dragging = hist.current.dragging;
@@ -425,7 +433,10 @@ export function useDigitizer() {
   }, [commit]);
 
   const setDesign = useCallback((patch, how = "commit") => (how === "coalesce" ? coalesced : commit)((d) => ({ ...d, ...patch })), [coalesced, commit]);
-  const setHoop = useCallback((w, h) => commit((d) => (d.hoop.w === w && d.hoop.h === h ? d : { ...d, hoop: { w, h } })), [commit]);
+  const setHoop = useCallback((w, h) => {
+    write(HOOP_KEY, { w, h });
+    commit((d) => (d.hoop.w === w && d.hoop.h === h ? d : { ...d, hoop: { w, h } }));
+  }, [commit]);
 
   // A new, opened or restored design starts with no picture and no unfinished trace: its history is gone, so are the pictures kept for undo.
   const dropPictures = useCallback(() => {
@@ -436,7 +447,7 @@ export function useDigitizer() {
   const newFileNow = useCallback(() => {
     flush();
     cancelConversion();
-    hist.current.reset(newDesign());
+    hist.current.reset(newDesign({ hoop: rememberedHoop() }));
     dropPictures();
     setSelectionState([]);
     importedRef.current = false;
@@ -694,7 +705,11 @@ export function useDigitizer() {
   }, [applyTrace, notify]);
   syncShapesRef.current = syncShapes;
 
-  /** `fit`: a picture that has just been placed is made as big as the hoop allows (what is stitched, not the picture's margins), then converted again at that size. */
+  /**
+   * `fit`: a picture that has just been placed is made as big as the hoop allows (what is stitched, not the picture's margins), then converted again at that size.
+   * `fit === "hoop"` is the person pressing "Make it fill the hoop": the same, but the picture may also be made smaller (it was bigger than the hoop) and bigger
+   * than a new picture is ever made (up to 10 times; a hoop picked after the picture can be many times its size).
+   */
   const runConvert = useCallback(async (override = {}, fit = false) => {
     const d = hist.current.present;
     const ref0 = d.reference;
@@ -708,7 +723,7 @@ export function useDigitizer() {
     // The tracer's answers stay in the worker, each under a token the page makes up: the one this conversion uses is kept, the others let go.
     const made = [];
     const newToken = () => { const t = newId(); made.push(t); tokens.current.add(t); return t; };
-    let landed = false, used = null, cloth = null;
+    let landed = false, used = null, cloth = null, stepped = false;
     try {
       let ref = ref0;
       const first = extractImage(img.canvas, ref0.crop, 1600);
@@ -741,8 +756,8 @@ export function useDigitizer() {
       const clothOf = (r) => (now0.fabricAuto === false ? now0.fabricColor : clothFromTrace(r) || DEFAULT_CLOTH);
       if (fit) {
         const box = contentBox(res, { originX: ref0.x, originY: ref0.y, mmPerPx, fabric: clothOf(res) });
-        const k = fillScale(box, now0.hoop);
-        if (k > 1) {
+        const k = fillScale(box, now0.hoop, fit === "hoop" ? { most: 10, shrink: true } : undefined);
+        if (k !== 1) {
           // bigger, with what is stitched in the middle of the hoop; then look at the picture again at that size (thin lines and
           // small lettering keep more of themselves in a bigger design, so the shapes are made afresh, not stretched)
           const cx = (box.x0 + box.x1) / 2 - ref0.x, cy = (box.y0 + box.y1) / 2 - ref0.y;
@@ -775,6 +790,7 @@ export function useDigitizer() {
             opts = opts2;
             tok = tok2;
             mmPerPx = fitted.mmPerPx / again.scale;
+            stepped = true;
           }
         }
       }
@@ -792,7 +808,7 @@ export function useDigitizer() {
         setTraceInfo(done);
         // The picture remembers its last reading, so that undo and redo past the conversion (or past the picture) can give the colour tools back.
         img.kept = { trace: lt, palette: paletteRef.current, skip: nextSkip, include: nextInclude, info: done, dropped: droppedMm2 };
-      });
+      }, fit === "hoop" && stepped); // "Make it fill the hoop" is ONE step to undo: the bigger picture and its new shapes together (a new picture keeps its two)
     } catch (e) {
       if (!e.stale) setConvertError(e.message || "The picture could not be converted.");
     } finally {
@@ -815,6 +831,8 @@ export function useDigitizer() {
   }, []);
   const runConvertRef = useRef(runConvert);
   runConvertRef.current = runConvert;
+  /** Make the picture (and the shapes made from it) as big as the hoop allows and read it again at that size: where the extra detail of a bigger hoop comes from. */
+  const fitToHoop = useCallback(() => runConvertRef.current({}, "hoop"), []);
 
   // Turn a colour of the picture on or off. A colour that matches the cloth starts off; turning it on is remembered in `include`.
   const toggleSkip = useCallback((index) => {
@@ -1172,7 +1190,7 @@ export function useDigitizer() {
     undo, redo, commit, coalesced, begin, live, end, flush, setFabricColor, include,
     patchFill, patchStroke, patchSatin, patchObject, addObjects, removeObjects, duplicate, reorder, stepOrder, breakApart: doBreakApart, fillHoles: doFillHoles,
     flip, setSize, setCentre, setRotation, align, nudge, recolor, setDesign, setHoop, newFile, editText, retext,
-    runConvert, changeSettings, toggleSkip, loadPictureFile, setReference, setReferenceWidth, removeReference, replacing, confirmReplace, cancelReplace,
+    runConvert, fitToHoop, changeSettings, toggleSkip, loadPictureFile, setReference, setReferenceWidth, removeReference, replacing, confirmReplace, cancelReplace,
     trace, traceBack, traceCancel, traceFinish, startTracing, menu, openMenu, closeMenu,
     playSim, pauseSim, stopSim, seekSim, setSimSpeed,
     exportFormats, exportPreview, printProduction, saveDesignFile, openDesignFile, openStitchFile, restore,

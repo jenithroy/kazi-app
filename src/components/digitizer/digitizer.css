@@ -132,8 +132,7 @@
 .dz-sim input[type="range"] { flex: 1 1 160px; min-width: 120px; accent-color: var(--kb-accent); }
 .dz-sim output { font-variant-numeric: tabular-nums; min-width: 120px; text-align: right; }
 .dz-speed { display: inline-flex; align-items: center; gap: 6px; }
-.dz-speed select { height: 28px; border-radius: 8px; border: 1px solid var(--kb-line-hi); background: var(--kb-surface); color: var(--kb-ink); font: 500 12px var(--font); padding: 0 6px; }
-.dz-chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.dz-sim .dz-toggle { font-size: 12px; color: var(--kb-ink-2); }
 
 /* ── the objects pane ─────────────────────────────────────────── */
 
@@ -184,6 +183,11 @@
 .dz-warn p { margin: 0 0 8px; }
 .dz-warn .kb-btn { height: 28px; }
 .dz-note-inline { margin: 0; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: var(--kb-info); background: var(--kb-info-bg); }
+/* "Make it fill the hoop": the note, its button and what it does */
+.dz-fit { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 10px; background: var(--kb-info-bg); }
+.dz-fit p { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--kb-info); }
+.dz-fit .dz-fit-sub { font-size: 12px; color: var(--kb-ink-3); }
+.dz-fit .kb-btn { height: 30px; }
 .dz-busy { font: 600 11.5px/1 var(--font); color: var(--kb-ink-3); }
 .dz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -216,6 +220,19 @@
 .dz-num input { padding-right: 30px; text-align: left; }
 .dz-unit { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font: 600 11px/1 var(--font); color: var(--kb-ink-3); pointer-events: none; }
 .dz-num.is-off input { opacity: .55; }
+
+/* The shared dropdown (Select.jsx) drawn as a form field reads the base tokens (`--mg-input`, `--ink`, `--line-strong`) that only a dialog
+   defines: in a pane it was a white, 40px box in the dark, beside 32px dark text boxes. Here it reads the pane's own tokens and has the
+   text box's height, radius, border and type. (`.dz-tile` first: one class more than controls.css, so it wins in any stylesheet order.) */
+.dz-tile .ksel--field {
+  height: 32px; gap: 6px; padding: 0 8px 0 9px; border: 1.5px solid var(--kb-line-hi); border-radius: 9px;
+  background-color: var(--kb-surface); color: var(--kb-ink); font: 500 13px/1.3 var(--font); font-variant-numeric: tabular-nums;   /* 1.3: the value is clipped to its box, and a tighter line cut the tail off a g */
+}
+.dz-tile .ksel--field:hover:not(:disabled):not(.is-open) { border-color: var(--kb-ink-3); }
+.dz-tile .ksel--field:focus-visible, .dz-tile .ksel--field.is-open { border-color: var(--kb-accent); border-radius: 9px; box-shadow: 0 0 0 3px var(--kb-chip); }
+.dz-tile .ksel--field:disabled { background-color: var(--kb-well); color: var(--kb-ink-3); }
+.dz-tile .ksel--field .ksel-chev { color: var(--kb-ink-3); }
+.dz-tile .ksel-val.is-ph { color: var(--kb-ink-3); }
 
 .dz-slider { display: flex; align-items: center; gap: 8px; }
 .dz-slider input { flex: 1 1 auto; min-width: 0; accent-color: var(--kb-accent); }
@@ -310,7 +327,7 @@
 .dz-format:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) { .dz-swatch:hover { transform: none; } .dz-menu { animation: none; } }
-@media (pointer: coarse) { .dz-text, .dz-num input, .dz-textarea { font-size: 16px; } .dz-tool { min-width: 40px; height: 40px; } .dz-orow { min-height: 44px; } }
+@media (pointer: coarse) { .dz-text, .dz-num input, .dz-textarea, .dz-tile .ksel--field { font-size: 16px; } .dz-tool { min-width: 40px; height: 40px; } .dz-orow { min-height: 44px; } }
 
 /* a phone has no pane height to share out (`flex: 1 1 0` would shut a pane to nothing): the panes take the room they need and the page scrolls.
    After the rules they override, on purpose: equal weight, the later one wins. */

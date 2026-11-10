@@ -269,20 +269,42 @@ function analyse(image, o, maxSide) {
   const regional = regionCls && kind === "photo" && o.regionPalette
     ? buildRegionalPalette(rgbD, w, h, regionCls, { maxColors: maxFg, seed: o.seed, mergeDE: o.mergeDE || 6, crumbs: "strict", noiseTol: dn.tol, weightPower: 0.5, weights: o.regionWeights || DEFAULT_REGION_WEIGHTS, skip })
     : null;
-  const paletteOf = (maxColors) => buildPalette(rgbD, w, h, {
-    maxColors,
-    seed: o.seed,
-    mergeDE: o.mergeDE || (kind === "photo" ? 6 : kind === "art" ? 8 : 11),
-    allPixels: kind === "photo",
-    weightPower: kind === "photo" ? 0.5 : 1,
-    crumbs: kind === "logo" ? "loose" : "strict",
-    minFeaturePx,
-    noiseTol: dn.tol,
-    excludeLab,
-    excludeDist: o.backgroundTolerance,
-    skip,
-    imp,
-  });
+  // The colours of a picture are its own, whatever size it is sewn at. When the picture is enlarged for tracing (above), its colours are still found on its own
+  // pixels. On the enlarged copy the k-means centres shift a little with every change of size (the copy's size changes with it), so two colours near the merge
+  // distance (delta-E 11) were merged at one size and kept apart at the next: the sun picture gave 5 colours and 46,584 stitches at 238.6 mm and 6 colours and
+  // 53,084 at 239.0 mm, a tan split in two with 238 slivers, and the rabbit 6 colours up to 0.4 mm a pixel and 8 above it. Found on the picture's own pixels the
+  // palette is the one every smaller size gets, so it does not move with the size (a picture that is not enlarged, and so any size up to 0.4 mm a pixel, is unchanged).
+  let own = null;
+  if (wk.sx < 0.99 && kind !== "photo" && !imp) {
+    const nat = prepare(image, maxSide, 0);
+    const dnN = denoise(nat.rgb, nat.w, nat.h);
+    let skipN = null;
+    if (nat.hasAlpha) {
+      skipN = new Uint8Array(nat.w * nat.h);
+      for (let i = 0; i < skipN.length; i++) skipN[i] = nat.cov[i] < cut ? 1 : 0;
+    }
+    own = { rgb: dnN.rgb, w: nat.w, h: nat.h, tol: dnN.tol, skip: skipN, minFeaturePx: o.minFeatureMm / o.mmPerPx / Math.sqrt(nat.sx * nat.sy) };
+  }
+  const paletteOf = (maxColors) => {
+    const opts = {
+      maxColors,
+      seed: o.seed,
+      mergeDE: o.mergeDE || (kind === "photo" ? 6 : kind === "art" ? 8 : 11),
+      allPixels: kind === "photo",
+      weightPower: kind === "photo" ? 0.5 : 1,
+      crumbs: kind === "logo" ? "loose" : "strict",
+      excludeLab,
+      excludeDist: o.backgroundTolerance,
+      imp,
+    };
+    const p = buildPalette(rgbD, w, h, { ...opts, minFeaturePx, noiseTol: dn.tol, skip });
+    if (!own) return p;
+    const q = buildPalette(own.rgb, own.w, own.h, { ...opts, minFeaturePx: own.minFeaturePx, noiseTol: own.tol, skip: own.skip });
+    if (!q.n) return p;
+    q.tFlat = p.tFlat; // the flatness limit belongs to the copy the pixels are labelled on
+    q.flatSamples = p.flatSamples;
+    return q;
+  };
   let pal = regional || paletteOf(maxFg);
   // Artwork: a grey, a silver, the shade of a muzzle that k-means gave no colour (it spends them on the big areas) is a colour of its own, and its slot is made by
   // asking for one colour fewer (the other colours are then found again, so the one that goes is the one that costs least), see missingNeutral.

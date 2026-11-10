@@ -905,6 +905,48 @@ log("N. a portrait: light hair against a light wall, and a person cut out of the
   check("a picture with a person cut out is traced as a photograph when the kind is left to the tracer", auto.stats.kind === "photo");
 }
 
+log("10. the colours of a picture do not change with the size it is sewn at");
+{
+  // A flat-colour cartoon with a smooth shade of tan across its face: a continuum of colours, so where k-means cuts it depends on the pixels it is given. Traced
+  // on the copy enlarged to about 0.2 mm a pixel (a picture's pixels bigger than 0.4 mm once stitched) the cuts moved with every size, and two colours near the
+  // merge distance were merged at one size and kept apart at the next (the real sun picture: 5 colours at 238.6 mm, 6 at 239.0, 8 at 0.55 mm a pixel).
+  const shaded = (seed) => {
+    const W = 300;
+    let s = seed >>> 0;
+    const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const img = makeImage(W, W);
+    const put = (x, y, c, a = 1) => { const o = (y * W + x) * 4; for (let k = 0; k < 3; k++) img.data[o + k] = img.data[o + k] * (1 - a) + c[k] * a; };
+    const fill = (cover, c) => { for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) { const a = cover(x + 0.5, y + 0.5); if (a > 0) put(x, y, c, Math.min(1, a)); } };
+    const edge = (d) => Math.max(0, Math.min(1, 0.5 - d)); // one pixel of anti-aliasing
+    const cx = W / 2, cy = W / 2;
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + 0.2; fill((x, y) => edge(Math.hypot(x - (cx + Math.cos(a) * 0.34 * W), y - (cy + Math.sin(a) * 0.34 * W)) - 0.1 * W), [247, 188, 71]); }
+    fill((x, y) => edge(Math.hypot(x - cx, y - cy) - 0.3 * W), [241, 212, 67]);
+    const g1 = [229, 194, 101], g0 = Math.round(150 + (seed % 13) * 6); // a gradient from one tan to a darker one, the darker end different for each picture
+    const inBand = (x, y) => x > cx - 0.28 * W && x < cx + 0.28 * W && y > cy + 0.02 * W && y < cy + 0.2 * W;
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (inBand(x, y)) { const t = (x - (cx - 0.28 * W)) / (0.56 * W); put(x, y, [g1[0] + (g0 - g1[0]) * t, g1[1] + (g0 - 40 - g1[1]) * t, g1[2] + (96 - g1[2]) * t]); }
+    const tans = [[229, 194, 101], [210, 179, 111], [200, 170, 113]];
+    for (let i = 0; i < 70; i++) {
+      const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 0.27 * W;
+      const bx = cx + Math.cos(a) * r, by = cy + Math.sin(a) * r, br = (0.012 + rnd() * 0.03) * W, c = tans[Math.floor(rnd() * 3)];
+      fill((x, y) => edge(Math.hypot((x - bx) / 1.4, y - by) - br), c);
+    }
+    fill((x, y) => edge(Math.abs(Math.hypot(x - cx, y - cy) - 0.3 * W) - 2.2), [25, 15, 9]);
+    fill((x, y) => edge(Math.hypot((x - cx) / 1.6, y - cy * 1.2) - 0.07 * W), [210, 86, 87]);
+    return img;
+  };
+  // the options the Digitizer page gives the tracer at its default detail
+  const page = { colors: "auto", maxColors: 12, background: "auto", mode: "auto", thicken: true, minFeatureMm: 0.55, minAreaMm2: 0.775, simplifyMm: 0.0425 };
+  for (const seed of [1, 15]) {
+    const img = shaded(seed);
+    const sizes = [0.39, 0.41, 0.45, 0.49, 0.53, 0.57, 0.61]; // 0.39 is traced on the picture itself, the others on an enlarged copy of it
+    const counts = sizes.map((mm) => nonBg(traceImage(img, { ...page, mmPerPx: mm })).length);
+    check(`shaded cartoon ${seed}: the same colours at 0.39 mm a pixel (not enlarged) and at six enlarged sizes`, new Set(counts).size === 1, `${counts.join(" ")} colours at ${sizes.join(" ")}`);
+  }
+  // the pictures that are not enlarged (up to 0.4 mm a pixel) are traced as they always were
+  const a = traceImage(shaded(1), { ...page, mmPerPx: 0.3 }), b = traceImage(shaded(1), { ...page, mmPerPx: 0.3 });
+  check("a picture that is not enlarged traces the same twice (nothing random, nothing kept between runs)", JSON.stringify(a.palette) === JSON.stringify(b.palette) && a.shapes.length === b.shapes.length);
+}
+
 if (process.argv.includes("--perf")) {
   log("9. speed");
   const logo = (size) => {

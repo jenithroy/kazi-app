@@ -27,13 +27,25 @@ let counter = 0;
 /** A short id that is unique within a session and across reloads of a saved design. */
 export const newId = () => `o${Date.now().toString(36)}${(counter++).toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
 
+/**
+ * The hoops on offer, smallest to biggest (a hoop is the space the design can fill: pictures are made as big as it allows, and a
+ * bigger design keeps more detail). Any other size is the "Custom size" boxes. The ids of the first six are the old ones.
+ */
 export const HOOPS = [
-  { id: "chest", label: "Left chest · 100 × 100 mm", w: 100, h: 100 },
-  { id: "small", label: "Small · 130 × 180 mm", w: 130, h: 180 },
-  { id: "medium", label: "Medium · 200 × 200 mm", w: 200, h: 200 },
-  { id: "large", label: "Large · 260 × 260 mm", w: 260, h: 260 },
-  { id: "back", label: "Back · 300 × 350 mm", w: 300, h: 350 },
   { id: "cap", label: "Cap · 150 × 60 mm", w: 150, h: 60 },
+  { id: "chest", label: "Left chest · 100 × 100 mm", w: 100, h: 100 },
+  { id: "h120", label: "120 × 120 mm", w: 120, h: 120 },
+  { id: "small", label: "Small · 130 × 180 mm", w: 130, h: 180 },
+  { id: "h150", label: "150 × 150 mm", w: 150, h: 150 },
+  { id: "h180", label: "180 × 180 mm", w: 180, h: 180 },
+  { id: "medium", label: "Medium · 200 × 200 mm", w: 200, h: 200 },
+  { id: "h240", label: "240 × 240 mm", w: 240, h: 240 },
+  { id: "large", label: "Large · 260 × 260 mm", w: 260, h: 260 },
+  { id: "h300", label: "300 × 300 mm", w: 300, h: 300 },
+  { id: "back", label: "Back · 300 × 350 mm", w: 300, h: 350 },
+  { id: "h350", label: "350 × 350 mm", w: 350, h: 350 },
+  { id: "h400", label: "400 × 400 mm", w: 400, h: 400 },
+  { id: "h450", label: "Biggest · 400 × 450 mm", w: 400, h: 450 },
 ];
 
 /** The cloth a new design is drawn on until the picture or the person says otherwise (a pale cream). */

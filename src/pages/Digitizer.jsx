@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BentoGrid, BentoPage } from "../components/bento/Bento";
 import { Icons } from "../components/ui";
 import Modal from "../components/Modal";
+import Select from "../components/Select";
+import { Toggle } from "../components/digitizer/Controls";
 import StageCanvas from "../components/digitizer/StageCanvas";
 import Toolbar from "../components/digitizer/Toolbar";
 import TraceBar from "../components/digitizer/TraceBar";
@@ -29,9 +31,18 @@ import "../components/digitizer/digitizer.css";
 /** Machine embroidery files the page can open to look at and convert. */
 const STITCH_FILE = /\.(dst|pes|pec|exp|jef|vp3|xxx|u01)$/i;
 
+/** How fast the stitch preview plays (stitches a second). */
+const SPEEDS = [
+  { value: 800, label: "Slow" },
+  { value: 3000, label: "Normal" },
+  { value: 12000, label: "Fast" },
+  { value: 40000, label: "Very fast" },
+];
+
+// A dropdown (the shared Select is a button, not a <select>) keeps its own keys: a letter typed on it must not pick a tool, nor Delete remove the shapes.
 const isTyping = (e) => {
   const t = e.target;
-  return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable || !!t.closest?.(".ksel"));
 };
 
 export default function Digitizer() {
@@ -160,6 +171,14 @@ export default function Digitizer() {
   }, [api.stitches]);
   const sewnNo = stitchesBefore ? stitchesBefore[Math.min(total, Math.max(0, Math.round(api.sim.pos ?? total)))] : 0;
   const panelTitle = mode === "picture" ? "Picture" : mode === "stitches" ? "Stitches" : api.selected.length ? "Properties" : "Design";
+  // "Make it fill the hoop" changes the design's size: afterwards show all of it, or most of the bigger design is out of view.
+  const panelApi = {
+    ...api,
+    fitToHoop: async () => {
+      await api.fitToHoop();
+      setTimeout(() => (mode === "picture" ? stageRef.current?.fitDesign() : stageRef.current?.fitHoop()), 80);
+    },
+  };
 
   return (
     <BentoPage className="dz-page">
@@ -260,17 +279,13 @@ export default function Digitizer() {
               </button>
               <input type="range" aria-label="How far through the stitching" min={0} max={total} step={1} value={api.sim.pos ?? total} onChange={(e) => api.seekSim(Number(e.target.value))} />
               <output title="Stitch number">{sewnNo.toLocaleString("en-GB")} / {(stitchesBefore ? stitchesBefore[total] : 0).toLocaleString("en-GB")}</output>
-              <label className="dz-speed">Speed
-                <select value={api.sim.speed} onChange={(e) => api.setSimSpeed(Number(e.target.value))} aria-label="Playback speed">
-                  <option value={800}>Slow</option>
-                  <option value={3000}>Normal</option>
-                  <option value={12000}>Fast</option>
-                  <option value={40000}>Very fast</option>
-                </select>
-              </label>
-              <label className="dz-chk"><input type="checkbox" checked={api.prefs.showJumps} onChange={(e) => api.setPrefs({ showJumps: e.target.checked })} /> Show jumps</label>
+              <span className="dz-speed">
+                <span>Speed</span>
+                <Select variant="pill" on={false} searchable={false} label="Playback speed" value={api.sim.speed} options={SPEEDS} minWidth={130} onChange={(v) => api.setSimSpeed(Number(v))} />
+              </span>
+              <Toggle checked={!!api.prefs.showJumps} onChange={(v) => api.setPrefs({ showJumps: v })}>Show jumps</Toggle>
               {api.stitches.checks?.piledCount > 0 && (
-                <label className="dz-chk"><input type="checkbox" checked={!!api.prefs.showProblems} onChange={(e) => api.setPrefs({ showProblems: e.target.checked })} /> Show crowded spots</label>
+                <Toggle checked={!!api.prefs.showProblems} onChange={(v) => api.setPrefs({ showProblems: v })}>Show crowded spots</Toggle>
               )}
             </div>
           )}
@@ -279,8 +294,8 @@ export default function Digitizer() {
         <section className="kb-tile dz-tile dz-right" aria-label={panelTitle}>
           <div className="kb-hd"><h2 className="kb-ttl">{panelTitle}</h2>{selection.length > 0 && mode === "design" && <span className="kb-note">{selection.length} selected</span>}</div>
           <div className="dz-panel">
-            {mode === "picture" && <PicturePanel api={api} pickFile={pickFile} />}
-            {mode === "design" && <InspectorPanel api={api} />}
+            {mode === "picture" && <PicturePanel api={panelApi} pickFile={pickFile} />}
+            {mode === "design" && <InspectorPanel api={panelApi} />}
             {mode === "stitches" && <StitchPanel api={api} />}
           </div>
         </section>

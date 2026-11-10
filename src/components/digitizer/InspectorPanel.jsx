@@ -5,9 +5,16 @@
 import { useEffect, useRef } from "react";
 import Select from "../Select";
 import { Group, Row, NumberField, Slider, Segmented, Toggle, ColorField } from "./Controls";
+import HoopFit from "./HoopFit";
 import { HOOPS, boxOfObjects, objectSize } from "../../lib/digitizer/model";
 import { FABRICS } from "../../lib/embroidery/stitch/presets";
 import { FONTS } from "../../lib/digitizer/text";
+
+/** "Woven (shirts, twill, denim, canvas)" is the name on the button and the examples beside it in the list: the whole line does not fit in the box. */
+const fabricOption = ([id, f]) => {
+  const m = /^(.*?)\s*\((.*)\)\s*$/.exec(f.label);
+  return m ? { value: id, label: m[1], hint: m[2] } : { value: id, label: f.label };
+};
 
 const FILL_TYPES = [
   { value: "auto", label: "Auto", title: "Satin for strokes and letters, tatami for areas" },
@@ -66,18 +73,20 @@ function DesignSettings({ api }) {
             value={hoopValue}
             label="Hoop size"
             variant="field"
+            searchable={false}
             options={[...HOOPS.map((h) => ({ value: h.id, label: h.label })), { value: "custom", label: "Custom size" }]}
             onChange={(v) => { const h = HOOPS.find((x) => x.id === v); if (h) api.setHoop(h.w, h.h); }}
           />
         </Row>
-        <Row label="Size (mm)">
+        <Row label="Size (mm)" hint={design.objects.length || design.reference ? undefined : "The space the design can fill. Choose it before the picture: a picture is made as big as the hoop allows, and a bigger design keeps more detail."}>
           <div className="dz-pair">
             <NumberField label="Hoop width in millimetres" value={design.hoop.w} min={20} max={1000} digits={0} unit="W" onChange={(v) => api.setHoop(v, design.hoop.h)} />
             <NumberField label="Hoop height in millimetres" value={design.hoop.h} min={20} max={1000} digits={0} unit="H" onChange={(v) => api.setHoop(design.hoop.w, v)} />
           </div>
         </Row>
+        <HoopFit api={api} />
         <Row label="Fabric" hint="Sets how dense and how long the stitches are, and the underlay.">
-          <Select value={design.fabric} label="Fabric" variant="field" options={Object.entries(FABRICS).map(([id, f]) => ({ value: id, label: f.label }))} onChange={(v) => api.setDesign({ fabric: v })} />
+          <Select value={design.fabric} label="Fabric" variant="field" searchable={false} minWidth={280} options={Object.entries(FABRICS).map(fabricOption)} onChange={(v) => api.setDesign({ fabric: v })} />
         </Row>
       </Group>
       <Group title="Cloth">
