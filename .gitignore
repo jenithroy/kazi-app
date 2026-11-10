@@ -64,3 +64,12 @@ meta-dm-bot/
 /*.md
 !/README.md
 !/CONTRIBUTING.md
+
+# Speech test kit (scripts/transcription-test): private business recordings, the transcripts of them,
+# the glossary (it can hold customer and staff names) and its Python environment. Never commit these.
+# These rules live here because the rule above ignores any nested .gitignore file.
+/scripts/transcription-test/recordings/
+/scripts/transcription-test/results/
+/scripts/transcription-test/glossary.txt
+/scripts/transcription-test/venv/
+/scripts/transcription-test/__pycache__/

@@ -1,0 +1,5 @@
+faster-whisper>=1.2.1
+ctranslate2>=4.6.3
+rapidfuzz>=3.0
+# faster-whisper 1.2.1 opens audio with an option (metadata_errors) that PyAV 19 removed, so hold PyAV below 19.
+av>=11,<19
