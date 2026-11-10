@@ -214,6 +214,7 @@ export const SECTION_LABEL = {
   messenger: "Chat",
   admin: "Roles & Permissions",
   usage_analytics: "Usage & Activity",
+  comms_record: "Conversation Record",
   directors: "Company Overview",
   bug_report: "Bug Report",
 };
@@ -236,5 +237,6 @@ export const SECTION_PATH = {
   messenger: "/messenger",
   admin: "/admin",
   usage_analytics: "/usage",
+  comms_record: "/conversations",
   bug_report: "/bug-report",
 };

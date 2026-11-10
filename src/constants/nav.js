@@ -97,6 +97,7 @@ export const NAV_GROUPS = [
     items: [
       { id: "admin",     to: "/admin",      label: "Admin",            Icon: Icons.Admin,     desc: "Roles and permissions",          can: section("admin") },
       { id: "usage",     to: "/usage",      label: "Usage & Activity", Icon: Icons.Pulse,     desc: "Who uses the ERP, and for what", can: section("usage_analytics") },
+      { id: "conversations", to: "/conversations", label: "Conversation Record", Icon: Icons.Message, desc: "Every work chat, kept as text", can: section("comms_record") },
       // Open to everyone who is signed in, same as their routes in App.jsx.
       { id: "roles",     to: "/roles",      label: "Roles & Duties",   Icon: Icons.Directors, desc: "What each role logs",            can: everyone },
       { id: "bug",       to: "/bug-report", label: "Bug Report",       Icon: Icons.Bug,       desc: "Tell us something is broken",    can: everyone },

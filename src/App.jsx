@@ -3,7 +3,7 @@ import Login from "./pages/Login";
 // Every other page is fetched when it is first needed (and ahead of time, quietly): see lib/lazyPages.js.
 import {
   Dashboard, Attendance, Production, Inventory, Digitizer, Finance, FiscalYearTransactions, Purchases, Tasks, Budget, Billing,
-  Employees, AdminPanel, Usage, Roles, Leaderboard, Customers, Messenger, Sales, Marketing, MetaAds, RedditLeads, ContactFinderPage, BugReport, Changelog,
+  Employees, AdminPanel, Usage, ConversationRecord, Roles, Leaderboard, Customers, Messenger, Sales, Marketing, MetaAds, RedditLeads, ContactFinderPage, BugReport, Changelog,
 } from "./lib/lazyPages";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireSection from "./components/RequireSection";
@@ -74,6 +74,8 @@ function App() {
         <Route path="/messenger"   element={<RequireSection section="messenger"><Messenger /></RequireSection>} />
         <Route path="/admin"       element={<RequireSection section="admin"><SysPage><AdminPanel /></SysPage></RequireSection>} />
         <Route path="/usage"       element={<RequireSection section="usage_analytics"><SysPage><Usage /></SysPage></RequireSection>} />
+        {/* Every work chat and call kept as text (migrations 0068/0069). Read only; the top tier has it until the Admin Panel gives it to another position. */}
+        <Route path="/conversations" element={<RequireSection section="comms_record"><SysPage><ConversationRecord /></SysPage></RequireSection>} />
 
         {/* Open to everyone who is signed in. Roles is where a person reads
             what their own position is expected to log — gating it behind a

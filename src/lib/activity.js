@@ -62,6 +62,7 @@ const ROUTE_SECTIONS = [
   ["/messenger",  "messenger"],
   ["/admin",      "admin"],
   ["/usage",      USAGE_SECTION],
+  ["/conversations", "comms_record"],
   ["/bug-report", "bug_report"],
   ["/changelog",  "changelog"],
 ];

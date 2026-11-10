@@ -1,0 +1,110 @@
+/* Conversation Record (pages/ConversationRecord.jsx). Drawn inside <SysPage>, so --ink, --line, --card and the mint tokens already
+   follow the light and the dark theme; only the two colours written out below need a dark counterpart. */
+
+.kcr { --kcr-bad: #8d3d27; --kcr-warn: #8a5a12; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+:root[data-theme="dark"] .kcr { --kcr-bad: #f0a48d; --kcr-warn: #e6bb6c; }
+
+.kcr-error {
+  padding: 12px 14px; border-radius: var(--r-input);
+  background: var(--terra-soft); border: 1px solid rgba(196, 101, 74, .3);
+  color: var(--kcr-bad); font-size: 13px;
+}
+
+/* ── The channels, which are also the filter ── */
+.kcr-tiles { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.kcr-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 11px 14px; text-align: left; cursor: pointer;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-input);
+  color: var(--ink); font: inherit;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.kcr-tile:hover { border-color: var(--line-strong); }
+.kcr-tile:focus-visible { outline: 2px solid var(--mint-deep); outline-offset: 2px; }
+.kcr-tile.is-picked { border-color: var(--mint-deep); background: var(--mint-soft); }
+.kcr-tile-label { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+.kcr-tile-n { font-family: var(--mono); font-size: 22px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kcr-tile-state { font-size: 12px; color: var(--ink-3); line-height: 1.35; }
+.kcr-tile-state.is-live { color: var(--mint-deep); font-weight: 600; }
+.kcr-tile-state.is-off { color: var(--kcr-warn); }
+.kcr-soon { margin: -4px 0 0; font-size: 12px; color: var(--ink-4); }
+
+/* ── Search and what is showing ── */
+.kcr-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.kcr-search {
+  flex: 1 1 260px; max-width: 420px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; height: 38px;
+  background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--r-input); color: var(--ink-3);
+}
+.kcr-search:focus-within { border-color: var(--mint-deep); }
+.kcr-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13.5px; }
+.kcr-now { margin: 0 0 0 auto; font-size: 12.5px; color: var(--ink-3); }
+
+/* ── The list ── */
+.kcr-day + .kcr-day { margin-top: 14px; }
+.kcr-day-h {
+  position: sticky; top: 0; z-index: 1; padding: 2px 0 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4);
+}
+.kcr-events { list-style: none; margin: 0; padding: 0; }
+.kcr-item { border-top: 1px solid var(--line); }
+.kcr-item:first-child { border-top: 0; }
+.kcr-event {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%;
+  padding: 10px 6px; margin: 0; text-align: left;
+  background: transparent; border: 0; border-radius: 8px; color: inherit; font: inherit;
+}
+button.kcr-event { cursor: pointer; }
+button.kcr-event:hover { background: var(--bg-2); }
+button.kcr-event:focus-visible { outline: 2px solid var(--mint-deep); outline-offset: -2px; }
+.kcr-dir { flex: 0 0 74px; padding-top: 1px; }
+.kcr-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.kcr-line { font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+.kcr-line strong { color: var(--ink); font-weight: 600; }
+.kcr-verb { color: var(--ink-4); }
+.kcr-text {
+  font-size: 13.5px; color: var(--ink); line-height: 1.5; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.kcr-text.is-quiet, .kcr-msg-text.is-quiet { color: var(--ink-3); font-style: italic; }
+.kcr-tag {
+  display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: var(--r-pill);
+  background: var(--mint-soft); color: var(--mint-deep); font-size: 11.5px; font-weight: 600; font-style: normal; white-space: nowrap;
+}
+.kcr-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11.5px; color: var(--ink-4); }
+.kcr-meta span + span::before { content: "·"; margin-right: 8px; color: var(--ink-5); }
+.kcr-warn { color: var(--kcr-warn); }
+.kcr-when { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 11.5px; color: var(--ink-3); }
+.kcr-clock { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.kcr-ago { color: var(--ink-4); }
+
+.kcr-more { display: flex; justify-content: center; padding-top: 12px; }
+.kcr-empty { padding: 34px 8px; text-align: center; color: var(--ink-4); font-size: 13px; }
+.kcr-link { background: none; border: 0; padding: 0; color: var(--mint-deep); font: inherit; text-decoration: underline; cursor: pointer; }
+.kcr-foot { margin: 0 0 8px; max-width: 80ch; font-size: 11.5px; line-height: 1.6; color: var(--ink-4); }
+
+/* ── One conversation, in its window ── */
+.kcr-thread { display: flex; flex-direction: column; gap: 4px; }
+.kcr-msg { display: flex; }
+.kcr-msg--out { justify-content: flex-end; }
+.kcr-bubble {
+  max-width: min(78%, 520px); display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px; border-radius: 14px;
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--ink);
+}
+.kcr-msg--out .kcr-bubble { background: var(--mint-soft); border-color: transparent; }
+.kcr-msg-who { font-size: 11px; font-weight: 600; color: var(--ink-3); }
+.kcr-msg-text { font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.kcr-msg-time { align-self: flex-end; font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); }
+
+@media (max-width: 720px) {
+  .kcr-bar { align-items: stretch; }
+  .kcr-search { max-width: none; }
+  .kcr-now { margin-left: 0; flex: 1 1 100%; }
+  /* the time drops under the words rather than squeezing them */
+  .kcr-event { flex-wrap: wrap; }
+  .kcr-dir { flex: 0 0 auto; }
+  .kcr-body { flex: 1 1 calc(100% - 90px); }
+  .kcr-when { flex-direction: row; gap: 8px; width: 100%; justify-content: flex-start; padding-left: 0; }
+  .kcr-bubble { max-width: 90%; }
+}

@@ -74,7 +74,7 @@ const SECTION_ICONS = {
   employees: Icons.Employees, directors: Icons.Directors, customers: Icons.Customers,
   marketing: Icons.Marketing, messenger: Icons.Message, admin: Icons.Admin,
   bug_report: Icons.Bug, changelog: Icons.Changelog,
-  usage_analytics: Icons.Pulse,
+  usage_analytics: Icons.Pulse, comms_record: Icons.Message,
 };
 
 const SectionIcon = ({ id, ...rest }) => {

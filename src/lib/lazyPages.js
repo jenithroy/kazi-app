@@ -45,6 +45,7 @@ export const RedditLeads = page(() => import("../pages/RedditLeads"));
 export const ContactFinderPage = page(() => import("../pages/ContactFinder"));
 export const BugReport = page(() => import("../pages/BugReport"));
 export const Changelog = page(() => import("../pages/Changelog"));
+export const ConversationRecord = page(() => import("../pages/ConversationRecord"));
 
 const exact = (path) => (pathname) => pathname === path;
 const under = (path) => (pathname) => pathname === path || pathname.startsWith(`${path}/`);
@@ -73,6 +74,7 @@ const BY_PATH = [
   [under("/messenger"), Messenger],
   [under("/admin"), AdminPanel],
   [under("/usage"), Usage],
+  [under("/conversations"), ConversationRecord],
   [under("/roles"), Roles],
   [under("/leaderboard"), Leaderboard],
   [under("/bug-report"), BugReport],
