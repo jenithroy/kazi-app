@@ -6,8 +6,8 @@
  * "Find emails" does it by itself on the places the person chose in "Sources" (UK tenders, Reddit posts, a typed list, eBay store names, a web
  * search): each company's own website is worked out from its name, read for its addresses and its social links, and the addresses worth writing to
  * are saved. It shows its work on this page, company by company, above the list. The websites can be found and read from the person's own computer
- * (the finder program in scripts/email-finder) instead of the server. An address saved from a Reddit post's card lands here too. Nobody is
- * emailed from here: the list is downloaded for the email tool.
+ * (the finder program in scripts/email-finder) instead of the server. The "Reddit posts" source reads the website a Reddit post names (the Reddit
+ * check pulls it out of the post's text; the post has no card to type one on any more). Nobody is emailed from here: the list is downloaded for the email tool.
  *
  * This file is the frame: the header (the count, Sources, and the "?"), the notices, the data the list reads (the addresses, and the Reddit posts
  * only to say which post an address came from), and the join between the run (lib/contactRun.js, which outlives this page) and the list. The list

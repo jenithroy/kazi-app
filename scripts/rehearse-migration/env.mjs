@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 import { makeScratch } from "./scratch.mjs";
 
 const REPO = fileURLToPath(new URL("../../", import.meta.url));
-const BASELINE = fs.readFileSync(REPO + "supabase/migrations/0000_baseline.sql", "utf8");
-const M0028 = fs.readFileSync(REPO + "supabase/migrations/0028_protect_permission_matrix.sql", "utf8");
+// (a Windows checkout turns the files' line ends into CRLF, and the patterns below match LF only: read both the same either way)
+const BASELINE = fs.readFileSync(REPO + "supabase/migrations/0000_baseline.sql", "utf8").replace(/\r\n/g, "\n");
+const M0028 = fs.readFileSync(REPO + "supabase/migrations/0028_protect_permission_matrix.sql", "utf8").replace(/\r\n/g, "\n");
 
 function table(name) {
   const m = BASELINE.match(new RegExp(`^create table if not exists ${name} \\(\\n[\\s\\S]*?^\\);`, "m"));

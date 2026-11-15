@@ -2111,11 +2111,13 @@ export const SCHEMA_MAP = {
       "doNotEmail": "do_not_email",
       "note": "note",
       "foundBy": "found_by",
-      "foundAt": "found_at"
+      "foundAt": "found_at",
+      "contactedAt": "contacted_at"
     },
     "derived": [],
     "columns": [
       "brand",
+      "contacted_at",
       "do_not_email",
       "email",
       "found_at",

@@ -1,7 +1,9 @@
 /**
  * The Contact Finder's list: the team's email addresses, for email marketing. Four short tiles count it (addresses, on the brand's own domain,
  * marked do-not-email, added this week); under them one table with a search and the Filters button (type, own domain, do-not-email, social
- * links, the day found), whose rows open that address's card. the page's "Find emails" (in the header, with Sources) runs the finder on the sources the person chose (lib/contactRun.js) and
+ * links, the day found). A row is a link to the page the address was found on (a new tab); in the row, a button copies the address, a pencil
+ * opens its card (note, do-not-email, remove), and the Contacted tick, shared by the whole team, says "we have already written to this one".
+ * The page's "Find emails" (in the header, with Sources) runs the finder on the sources the person chose (lib/contactRun.js) and
  * the table's panel above it (RunPanel) shows it working, company by company; "Add by hand" opens one website or the tender notices to look at
  * yourself (FindDialog); "Download CSV" saves the list for an email tool. Where an address came from is said in its row (a Reddit post, a tender
  * notice, or the website it was read from), and the brand's social links, which its own website gave, in the Social column.
@@ -10,7 +12,7 @@
  * switch beside the button includes them (such an address is often a person, not a company). Each row of the file says where the address
  * was found and when, so the team can show where it came from.
  */
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icons, cn } from "../ui";
 import { BentoGrid, EmptyNote, Tile } from "../bento/Bento";
 import DataTable, { TwoLine } from "../table/DataTable";
@@ -23,7 +25,31 @@ import { Kpi, ico } from "../reddit/Common";
 import { kathmanduDate } from "../../utils/date";
 import { NONE, domainOf, downloadCsv, emailStats, emailsCsv, kindLabel, kindOf, num, plural, searchEmails, socialLinks, timeAgo } from "../../lib/redditLeads";
 import { fetchLeadEmails } from "../../lib/redditReads";
-import { removeEmail, updateEmail } from "../../lib/redditWrites";
+import { markContacted, removeEmail, updateEmail } from "../../lib/redditWrites";
+
+/** Copy text to the clipboard: the modern way where the page may use it, else the old way (a page not served over https, an old browser). */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* the old way, below */ }
+  const back = document.activeElement;
+  try {
+    const box = document.createElement("textarea");
+    box.value = text;
+    box.setAttribute("readonly", "");
+    box.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0";
+    document.body.appendChild(box);
+    box.select();
+    const done = document.execCommand("copy");
+    box.remove();
+    return done;
+  } catch {
+    return false;
+  } finally {
+    back?.focus?.({ preventScroll: true });             // the old way moves the cursor into a box: put it back where it was
+  }
+}
+/** A web address a browser may open, or "" (never a javascript: or data: link, whatever was saved). */
+const webUrl = (u) => { try { const x = new URL(String(u || "")); return x.protocol === "http:" || x.protocol === "https:" ? x.href : ""; } catch { return ""; } };
+const shortDay = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 
 const fmtShort = (iso) => { const d = new Date(`${iso}T00:00:00`); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 /** Where an address came from, in a word, for a row that is not from a Reddit post: "Find a Tender", or the website it was read from. */
@@ -37,8 +63,17 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
   const [card, setCard] = useState(null);                    // the open address's id
   const [adding, setAdding] = useState(false);               // the Add by hand dialog, open
   const [includeFree, setIncludeFree] = useState(false);
+  const [copied, setCopied] = useState(null);                // the id of the address just copied: its button shows a tick for a moment
+  const copyTimer = useRef(0);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   const rows = emails || NONE;
+  // The latest rows, for a tick whose save ends after another change; and the addresses whose tick is being saved (a second press waits for it).
+  const rowsRef = useRef(rows);
+  useEffect(() => { rowsRef.current = rows; });
+  const ticking = useRef(new Set());
+  // Before migration 0072 is applied the list has no Contacted field at all: the ticks are then shown but cannot be pressed (and say why).
+  const hasTick = rows.length === 0 || rows.some((e) => "contactedAt" in e);
   const stats = useMemo(() => emailStats(rows, now), [rows, now]);
   const known = useMemo(() => new Map(rows.map((e) => [e.email, e])), [rows]);
   const leadById = useMemo(() => new Map((leads || NONE).map((l) => [l.id, l])), [leads]);
@@ -98,12 +133,86 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
     return res;
   }
 
-  const columns = useMemo(() => [
+  const copy = useCallback(async (e) => {
+    if (!(await copyText(e.email))) { notify("bad", `Couldn't copy. Select ${e.email} and copy it by hand.`); return; }
+    clearTimeout(copyTimer.current);
+    setCopied(e.id);
+    copyTimer.current = setTimeout(() => setCopied(null), 1600);
+  }, [notify]);
+
+  /** Tick or untick "contacted". Shown at once; the saved row replaces it, and if the save fails the old state comes back with the reason. */
+  const tick = useCallback(async (e) => {
+    if (ticking.current.has(e.id)) return;
+    const latest = rowsRef.current.find((x) => x.id === e.id) || e;
+    const was = latest.contactedAt || null;
+    const want = !was;
+    ticking.current.add(e.id);
+    onPatchEmail({ ...latest, contactedAt: want ? new Date().toISOString() : null });
+    try {
+      const res = await markContacted(latest, want);
+      if (res.ok) { if (res.row) onPatchEmail(res.row); return; }
+      if (res.gone) onDropEmail(e.id);
+      else onPatchEmail({ ...(rowsRef.current.find((x) => x.id === e.id) || latest), contactedAt: was });
+      notify("bad", res.message);
+    } finally {
+      ticking.current.delete(e.id);
+    }
+  }, [onPatchEmail, onDropEmail, notify]);
+
+  /** The page an address was found on; else the Reddit post that led to it; else the brand's own website. "" when none is known. */
+  const sourceHref = useCallback((e) => webUrl(e.sourceUrl) || webUrl(leadById.get(e.leadId)?.url) || webUrl(e.website), [leadById]);
+
+  const columns = useMemo(() => {
+    /** The Contacted tick: a checkbox. In its own column it shows the day beside the box; in front of the address (`lead`, a phone's list) it is the box alone. */
+    const tickButton = (e, lead) => {
+      const on = Boolean(e.contactedAt);
+      const why = !hasTick ? "The database needs its update for this tick first (migration 0072). Ask whoever looks after the website."
+        : !canEdit ? "You can look but not change this (Marketing is view-only for you)."
+        : on ? `Contacted ${dayText(e.contactedAt)}. Press to undo.` : "Press when you have written to this address.";
+      return (
+        <button
+          type="button" role="checkbox" aria-checked={on} disabled={!canEdit || !hasTick} onClick={() => tick(e)}
+          className={cn("rdl-tick dt-act", lead && "rdl-tick--lead", on && "is-on")} aria-label={`Contacted: ${e.email}`} title={why}
+        >
+          <span className="rdl-tick-box" aria-hidden="true">{on && <Icons.Check size={13} sw={2.6} />}</span>
+          {on && !lead && <span className="rdl-tick-t">{shortDay(e.contactedAt)}</span>}
+        </button>
+      );
+    };
+
+    return [
     {
       id: "email", label: "Address", grow: true, min: 220, max: 460, sort: (e) => e.email,
-      render: (e, { dropped }) => (
-        <TwoLine main={e.email} sub={[e.brand || domainOf(e.website), dropped.has("kind") ? kindLabel(kindOf(e)) : ""].filter(Boolean).join(" · ")} />
-      ),
+      render: (e, { dropped }) => {
+        // a phone's list has no Contacted column: the tick comes in front of the address and the day goes on the quiet line
+        const tickHere = dropped.has("done");
+        const about = [
+          tickHere && e.contactedAt ? `Contacted ${shortDay(e.contactedAt)}` : "",
+          e.brand || domainOf(e.website), dropped.has("kind") ? kindLabel(kindOf(e)) : "",
+        ].filter(Boolean).join(" · ");
+        const gotIt = copied === e.id;
+        return (
+          <span className="rdl-addr">
+            {tickHere && tickButton(e, true)}
+            <TwoLine
+              main={e.email}
+              sub={e.doNotEmail ? <><span className="kb-tag kb-tag--bad rdl-dne">Do not email</span>{about ? ` ${about}` : ""}</> : about}
+            />
+            <button
+              type="button" className={cn("rdl-iconbtn dt-act", gotIt && "is-done")} onClick={() => copy(e)}
+              aria-label={`Copy ${e.email}`} title={gotIt ? "Copied" : "Copy the address"}
+            >
+              {gotIt ? <Icons.Check size={14} sw={2.2} aria-hidden="true" /> : <Icons.Copy size={14} sw={1.8} aria-hidden="true" />}
+            </button>
+            <button
+              type="button" className="rdl-iconbtn dt-act" onClick={() => setCard(e.id)}
+              aria-label={`Open the card of ${e.email}`} title="Note, do not email, remove"
+            >
+              <Icons.Edit size={14} sw={1.8} aria-hidden="true" />
+            </button>
+          </span>
+        );
+      },
     },
     {
       id: "kind", label: "Type", width: 150, drop: 2, sort: (e) => kindOf(e),
@@ -121,16 +230,27 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
       id: "from", label: "From", width: 200, drop: 4,
       render: (e) => {
         const l = leadById.get(e.leadId);
-        if (l) return <span className="dt-two-t"><b title={l.title}>{l.title}</b><span>r/{l.subreddit}</span></span>;
+        // the row itself leads to the page the address was read on; the post that led to it has its own link, here
+        if (l) {
+          return (
+            <span className="dt-two-t">
+              <a className="rdl-from dt-act" href={l.url} target="_blank" rel="noopener noreferrer" title="Open the Reddit post">{l.title}</a>
+              <span>r/{l.subreddit}</span>
+            </span>
+          );
+        }
         const from = sourceName(e.sourceUrl);
         return <span className={from ? undefined : "dt-dim"}>{from || "Added by hand"}</span>;
       },
     },
     {
-      id: "may", label: "Email it?", width: 112, drop: 1,
-      render: (e) => (e.doNotEmail ? <span className="kb-tag kb-tag--bad">Do not email</span> : <span className="dt-dim">Yes</span>),
+      // Press it when somebody has written to this address; press again to undo. Sorted, the ones not yet written to come first (then the oldest tick).
+      // A phone's list has no room for a column: the address cell carries the tick (`dropCompact`).
+      id: "done", label: "Contacted", width: 100, dropCompact: true, sort: (e) => (e.contactedAt ? Date.parse(e.contactedAt) || 0 : -1),
+      render: (e) => tickButton(e, false),
     },
-  ], [leadById, now]);
+    ];
+  }, [leadById, now, copied, canEdit, hasTick, copy, tick]);
 
   return (
     <>
@@ -171,10 +291,12 @@ export default function EmailsView({ emails, leads, loading, canEdit, today, now
           ) : (
             <DataTable
               label="Email list" rows={list} rowKey={(e) => e.id} columns={columns} defaultSort={null}
-              onOpen={(e) => setCard(e.id)} rowLabel={(e) => `Open ${e.email}${e.doNotEmail ? ", do not email" : ""}`}
+              rowHref={sourceHref}
+              rowLabel={(e) => (webUrl(e.sourceUrl) ? `Open the page ${e.email} was found on` : webUrl(leadById.get(e.leadId)?.url) ? `Open the Reddit post ${e.email} came from` : `Open the website of ${e.email}`)}
               activeKey={card || undefined} loading={loading}
             />
           )}
+          <span className="rdl-sr" role="status" aria-live="polite">{copied ? `Copied ${rows.find((e) => e.id === copied)?.email || "the address"}` : ""}</span>
         </Tile>
       </BentoGrid>
 

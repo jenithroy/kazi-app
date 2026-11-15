@@ -23,7 +23,7 @@ export function SocialChips({ socials, className = "rdl-soc" }) {
   return (
     <span className={className}>
       {links.map(([net, url]) => (
-        <a key={net} href={url} target="_blank" rel="noreferrer noopener" title={`${SOCIALS[net].name}: ${url}`} aria-label={SOCIALS[net].name}>{SOCIALS[net].short}</a>
+        <a key={net} href={url} target="_blank" rel="noreferrer noopener" title={`${SOCIALS[net].name}: ${url}`} aria-label={`${SOCIALS[net].short}, ${SOCIALS[net].name}`}>{SOCIALS[net].short}</a>
       ))}
     </span>
   );

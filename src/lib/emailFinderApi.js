@@ -30,7 +30,7 @@ export async function runFindWebsite(name, { robots = true } = {}) {
   return json.result;
 }
 
-/** Read Find a Tender. `params` is { stage: "tender" | "award", days, words }. Resolves to the search's `result` (see worker/lib/tenders.js searchTenders). */
+/** Read Find a Tender. `params` is { stage: "tender" | "award" | "planning", days, words }. Resolves to the search's `result` (see worker/lib/tenders.js searchTenders). */
 export async function runTenderSearch(params) {
   const json = await callWorker("/api/email-finder/tenders", params, PAGE);
   if (!json.result || !Array.isArray(json.result.notices)) throw new Error("The server's answer could not be read.");

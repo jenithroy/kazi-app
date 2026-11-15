@@ -27,15 +27,20 @@ const ORIGIN = "https://www.find-tender.service.gov.uk";
 const API = `${ORIGIN}/api/1.0/ocdsReleasePackages`;
 export const TENDER_UA = "KaziContactFinder/1.0 (+https://kazimfg.com.np; reads public tender notices)";
 
-const STAGES = new Set(["tender", "award"]);
+const RECORDS = `${ORIGIN}/api/1.0/ocdsRecordPackages`;           // every notice one process has had (planning, tender, award…), by its ocid
+
+const STAGES = new Set(["tender", "award", "planning"]);
 const MAX_DAYS = 30;
+const MAX_DAYS_PLANNED = 120;       // a planned purchase is announced months ahead, so it is looked for further back (and there are few: about 90 a month)
 const WINDOW_DAYS = 7;
+const WINDOW_DAYS_PLANNED = 30;     // few notices, so few requests: the service refuses anyone who asks for more than about 15 pages a minute
+const MAX_CHECKED = 30;             // planned notices whose later history is looked up (one request each)
 const PAGE = 100;
 const PARALLEL = 4;
 const MAX_RELEASES = 3000;
 const MAX_NOTICES = 60;
-const BUDGET_MS = 40_000;
-const TIMEOUT_MS = 20_000;
+const BUDGET_MS = 75_000;
+const TIMEOUT_MS = 45_000;          // one page: about 1 MB of JSON for 100 notices, which took 14 to 26 s on a busy day (2026-11-14), and the body counts against it
 const MAX_TYPED = 12;
 const DAY_MS = 86_400_000;
 
@@ -93,6 +98,62 @@ export function matchesTopic(release, words) {
   if (codes.some((c) => TEXTILE_CPV.some((p) => c.startsWith(p)))) return true;
   const text = [t.title, t.description, ...lots.map((l) => l?.title), ...lots.map((l) => l?.description)].filter(Boolean).join(" ").slice(0, 6000).toLowerCase();
   return words.some((w) => text.includes(w));
+}
+
+/* ── A planned purchase ("pipeline notice"): clothing, and still only planned ── */
+
+// What a PLANNED purchase must be about is stricter than `matchesTopic`. Of 359 planning notices read in four months (2026-11-14) the loose test kept two,
+// and neither was clothing: a waste contract that says "textile", and a webinar series for suppliers whose notice lists 23 category codes, one of them clothing.
+// So: the notice's MAIN category or an item's own category is a clothing one (181… occupational clothing, 182… outerwear, 183… garments, 184… special
+// clothing and accessories, 3581… uniforms, 33199… medical clothing, 35113… protective clothing), never the long list of "additional" codes; or a clothing word
+// stands in the TITLE with nothing about waste, vehicles, software, vouchers, laundry, curtains, events… in it. Words the person typed are looked for in the
+// title and description.
+const GARMENT_CPV = ["181", "182", "183", "184", "3581", "33199", "35113"];
+const GARMENT_TITLE = /\b(?:uniforms?|workwear|work wear|clothing|garments?|apparel|scrubs|hi-?vis|high[- ]visibility|overalls?|jackets?|trousers|shirts?|polo|hoodies?|fleece|coats?|waterproofs?|footwear|boots)\b/i;
+const NOT_GARMENT_TITLE = /\b(?:waste|recycl\w*|refuse|vehicles?|atv|cycl\w*|software|case management|vouchers?|laundry|linen|windows?|curtains?|blinds?|furniture|catering|food|webinars?|events?|training|doing business)\b/i;
+
+/** Whether a PLANNED purchase is about clothing (see above). `typed` are the words the person added. */
+export function plannedIsGarments(release, typed = []) {
+  const t = release?.tender || {};
+  const lots = Array.isArray(t.lots) ? t.lots : [];
+  const items = [...(Array.isArray(t.items) ? t.items : []), ...lots.flatMap((l) => (Array.isArray(l?.items) ? l.items : []))];
+  const codes = [t.classification?.id, ...items.map((i) => i?.classification?.id)].filter(Boolean).map(String);
+  if (codes.some((c) => GARMENT_CPV.some((p) => c.startsWith(p)))) return true;
+  const title = String(t.title ?? "");
+  if (GARMENT_TITLE.test(title) && !NOT_GARMENT_TITLE.test(title)) return true;
+  const text = [title, t.description].filter(Boolean).join(" ").slice(0, 6000).toLowerCase();
+  return typed.some((w) => text.includes(w));
+}
+
+/** Whether a release is a planning notice and nothing more: no tender, award or contract tag, still "planned", no award, no contract. */
+export function isOnlyPlanned(release) {
+  const tags = Array.isArray(release?.tag) ? release.tag : [];
+  if (!tags.includes("planning") || tags.some((g) => g !== "planning")) return false;
+  const status = release?.tender?.status;
+  if (status !== undefined && status !== "planned") return false;
+  return !(Array.isArray(release?.awards) && release.awards.length) && !(Array.isArray(release?.contracts) && release.contracts.length);
+}
+
+/**
+ * Whether a planned purchase has moved on since: the same process (its ocid) now has a tender, award or contract notice, or was cancelled or withdrawn.
+ * Asks the service for the process's record, every notice it has had. true = moved on (leave it out), false = still only planned, null = could not tell
+ * (leave it out too: nothing is let in that might already have a winner).
+ */
+export async function processMovedOn(ocid, fetchImpl = fetch) {
+  if (!/^ocds-[a-z0-9]+-[A-Za-z0-9-]{1,60}$/.test(String(ocid ?? ""))) return null;
+  let pkg;
+  try { pkg = await getPage(`${RECORDS}/${encodeURIComponent(ocid)}`, fetchImpl); } catch { return null; }
+  const rec = Array.isArray(pkg?.records) ? pkg.records[0] : null;
+  if (!rec) return null;
+  const seen = [...(Array.isArray(rec.releases) ? rec.releases : []), rec.compiledRelease].filter((r) => r && typeof r === "object");
+  if (seen.length === 0) return null;
+  const moved = (r) => {
+    const tags = Array.isArray(r.tag) ? r.tag : [];
+    return tags.some((g) => g !== "planning")
+      || (Array.isArray(r.awards) && r.awards.length > 0) || (Array.isArray(r.contracts) && r.contracts.length > 0)
+      || (r.tender?.status !== undefined && r.tender.status !== "planned");
+  };
+  return seen.some(moved);
 }
 
 /** An `http(s)` address of a public host, or null: it will become a link on the page, so nothing else is let through. */
@@ -170,15 +231,18 @@ export function noticeOf(release) {
     }
   }
   const code = t.classification?.id ? { id: short(t.classification.id, 12), description: short(t.classification.description, 80) } : null;
+  const tags = Array.isArray(release.tag) ? release.tag : [];
   return {
     id,
+    ocid: short(release.ocid, 80),
     url: /^\d{3,7}-\d{4}$/.test(id) ? `${ORIGIN}/Notice/${id}` : null,
     title: short(t.title, 200),
     summary: short(t.description, 240),
     buyer: short(release.buyer?.name || release.parties?.find((p) => roleOf(p) === "buyer")?.name, 120),
-    stage: (release.tag || []).includes("award") ? "award" : "tender",
+    stage: tags.includes("award") ? "award" : tags.includes("tender") ? "tender" : "planning",
     date: typeof release.date === "string" ? release.date : null,
     deadline: typeof t.tenderPeriod?.endDate === "string" ? t.tenderPeriod.endDate : null,
+    expected: typeof t.communication?.futureNoticeDate === "string" ? t.communication.futureNoticeDate : null,      // a planned purchase: when its tender notice is due
     value: valueOf(release),
     cpv: code,
     contacts,
@@ -206,7 +270,13 @@ async function getPage(url, fetchImpl) {
       continue;
     }
     if (!res.ok) throw new TenderError(`Find a Tender answered with an error (${res.status}). Try again later.`, 502);
-    try { return await res.json(); } catch { throw new TenderError("Find a Tender sent something that could not be read.", 502); }
+    try {
+      return await res.json();
+    } catch (err) {
+      // the same time limit covers reading the body: a page still arriving when it runs out is a slow answer, not a broken one
+      if (err?.name === "TimeoutError" || err?.name === "AbortError") throw new TenderError("Find a Tender is slow to answer right now. Try again in a minute.", 504);
+      throw new TenderError("Find a Tender sent something that could not be read.", 502);
+    }
   }
   throw new TenderError("Find a Tender is busy right now. Try again in a minute.", 503);
 }
@@ -222,17 +292,26 @@ export function nextPage(pkg) {
 }
 
 /**
- * Read the notices of one stage over the last `days` days and keep the ones about clothing or textiles. `input` is { stage: "tender" | "award",
- * days: 1 to 30, words }. Resolves to { stage, days, from, to, words, scanned, matched, capped, notices, message }; `notices` is newest
- * first (at most MAX_NOTICES, `matched` says how many there were), and for open tenders only those whose deadline has not passed.
+ * Read the notices of one stage over the last `days` days and keep the ones about clothing or textiles. `input` is { stage: "tender" | "award" |
+ * "planning", days: 1 to 30 (1 to 120 for "planning"), words }. Resolves to { stage, days, from, to, words, scanned, matched, capped, notices,
+ * message, moved, unchecked }; `notices` is newest first (at most MAX_NOTICES, `matched` says how many there were), and for open tenders only those whose
+ * deadline has not passed.
+ *
+ * "planning" is a purchase a buyer has said it WILL make (a pipeline notice): only the ones about clothing (`plannedIsGarments`, strict) that are still
+ * only planned. A planning notice stays in the feed after its tender is published and after it is awarded, so each candidate's whole process is looked up
+ * (`processMovedOn`): one that has a tender, an award or a contract by now is left out and counted in `moved`, and one that could not be looked up is left
+ * out and counted in `unchecked`: nothing that might already have a winner is let in.
  * Throws a TenderError for a request that cannot be answered.
  */
 export async function searchTenders(input, { fetchImpl = fetch, now = Date.now() } = {}) {
   const stage = String(input?.stage ?? "tender");
-  if (!STAGES.has(stage)) throw new TenderError("Choose open tenders or awarded contracts.");
+  if (!STAGES.has(stage)) throw new TenderError("Choose open tenders, awarded contracts or planned tenders.");
+  const planned = stage === "planning";
+  const maxDays = planned ? MAX_DAYS_PLANNED : MAX_DAYS;
   const days = Number(input?.days ?? 7);
-  if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) throw new TenderError(`Choose a period of 1 to ${MAX_DAYS} days.`);
+  if (!Number.isInteger(days) || days < 1 || days > maxDays) throw new TenderError(`Choose a period of 1 to ${maxDays} days.`);
   const words = parseWords(input?.words);
+  const typed = words.slice(DEFAULT_WORDS.length);          // what the person added (a planned purchase is judged by its categories and title, not by the usual words)
   const from = now - days * DAY_MS;
   const stopAt = Date.now() + BUDGET_MS;
 
@@ -247,7 +326,7 @@ export async function searchTenders(input, { fetchImpl = fetch, now = Date.now()
       const pkg = await getPage(url, fetchImpl);
       for (const r of Array.isArray(pkg?.releases) ? pkg.releases : []) {
         scanned += 1;
-        if (!matchesTopic(r, words)) continue;
+        if (planned ? !(isOnlyPlanned(r) && plannedIsGarments(r, typed)) : !matchesTopic(r, words)) continue;
         const n = noticeOf(r);
         if (n && !found.has(n.id)) found.set(n.id, n);
       }
@@ -255,17 +334,34 @@ export async function searchTenders(input, { fetchImpl = fetch, now = Date.now()
     }
   }
 
-  const queue = windowsOf(from, now);
+  const queue = windowsOf(from, now, planned ? WINDOW_DAYS_PLANNED : WINDOW_DAYS);
   await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, async () => {
     while (queue.length) await readWindow(queue.shift());
   }));
 
   let notices = [...found.values()];
   if (stage === "tender") notices = notices.filter((n) => !n.deadline || Date.parse(n.deadline) > now);          // an open tender is one that can still be bid for
+  let moved = 0;
+  let unchecked = 0;
+  if (planned) {
+    // one purchase may be in the feed twice (two notices of one process): once
+    const seenProcess = new Set();
+    notices = notices.filter((n) => { if (!n.ocid) return true; if (seenProcess.has(n.ocid)) return false; seenProcess.add(n.ocid); return true; });
+    const kept = [];
+    for (const n of notices.slice(0, MAX_CHECKED)) {
+      const gone = await processMovedOn(n.ocid, fetchImpl);
+      if (gone === false) kept.push(n);
+      else if (gone === true) moved += 1;
+      else unchecked += 1;
+    }
+    unchecked += Math.max(0, notices.length - MAX_CHECKED);
+    notices = kept;
+  }
   notices.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const matched = notices.length;
+  const what = stage === "tender" ? "open tender" : stage === "planning" ? "planned purchase that is still only planned" : "awarded contract";
   const message = matched === 0
-    ? `No ${stage === "tender" ? "open tender" : "awarded contract"} from the last ${days} ${days === 1 ? "day" : "days"} is about clothing or textiles${capped ? " in the notices that could be read" : ""}.`
+    ? `No ${what} from the last ${days} ${days === 1 ? "day" : "days"} is about clothing or textiles${capped ? " in the notices that could be read" : ""}.${moved ? ` ${moved} that were about clothing had already gone to tender or been awarded, so they are left out.` : ""}${unchecked ? ` ${unchecked} could not be checked, so they are left out.` : ""}`
     : "";
-  return { stage, days, from: new Date(from).toISOString(), to: new Date(now).toISOString(), words, scanned, matched, capped, notices: notices.slice(0, MAX_NOTICES), message };
+  return { stage, days, from: new Date(from).toISOString(), to: new Date(now).toISOString(), words, scanned, matched, capped, notices: notices.slice(0, MAX_NOTICES), message, moved, unchecked };
 }

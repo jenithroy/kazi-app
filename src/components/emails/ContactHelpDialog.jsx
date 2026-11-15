@@ -5,7 +5,7 @@
  * "database" or "API". ("robots.txt" is the one name kept, because it is the name of the switch they will see in Sources.) It uses the page's own
  * words for what is on the screen (Find emails, Sources, UK tenders, Reddit posts, My list, eBay stores, Web search, Respect robots.txt, Run on this
  * computer, Add by hand, Stop, Do not email, Download CSV), so a person can match what they read to what they see. When a button on the page is
- * renamed, rename it here.
+ * renamed, rename it here. (The list's own words: Contacted, the copy button, the pencil.)
  */
 import Modal from "../Modal";
 
@@ -41,7 +41,7 @@ export default function ContactHelpDialog({ onClose }) {
           <h3>Sources: where it looks and how</h3>
           <ul>
             <li><b>UK tenders</b>: public bodies publish what they buy on a government website, Find a Tender. The companies that won clothing and textile contracts are looked up. Most give a phone number and no website, so the page finds the website from the name.</li>
-            <li><b>Reddit posts</b>: the websites written on posts in Reddit Leads that have no address saved yet.</li>
+            <li><b>Reddit posts</b>: the websites written on posts in Reddit Leads that have no address saved yet. A new post that names the poster's own website is read by itself the moment the page finds it, so this mostly picks up older posts.</li>
             <li><b>My list</b>: companies or websites you type in, one on each line.</li>
             <li><b>eBay stores</b>: eBay's rules do not allow programs to read its pages, and it shows them a security check, so a store's page is never opened. Type the store's link or its company name and the page looks for that company's own website. A store's real company name works best.</li>
             <li><b>Web search</b>: finds the websites of businesses by searching Bing, and DuckDuckGo if Bing says no, in the browser on your computer, a few seconds apart. Bing's rules ask programs not to use its search: this does it slowly and never tries to get past a check by itself. It needs the finder program running on your computer (see Run on this computer) and no key. If a search engine asks for a person to check, one window opens for you to answer it; if nobody does, searching stops for that run. Directories, marketplaces and review sites are left out of the results.</li>
@@ -69,9 +69,12 @@ export default function ContactHelpDialog({ onClose }) {
           <h3>Add by hand</h3>
           <p>
             <b>Add by hand</b> is for looking at one thing yourself. <b>A website</b>: type a brand's own website and look at what it shows; tick the
-            addresses you want and press Save. <b>UK tenders</b>: choose <b>Awarded contracts</b> (which companies won) or <b>Open tenders</b> (what
-            is being bought now and when it closes) and press <b>Search</b>. A buyer's address is not ticked for you: it is published so that suppliers
-            can ask about that one notice, so use it for that and not for a mailing list.
+            addresses you want and press Save. <b>UK tenders</b>: choose <b>Awarded contracts</b> (which companies won), <b>Open tenders</b> (what
+            is being bought now and when it closes) or <b>Planned (coming up)</b> (a buyer has said it will buy this later) and press <b>Search</b>.
+            On an award or an open tender a buyer's address is not ticked for you: it is published so that suppliers can ask about that one notice, so
+            use it for that and not for a mailing list. On a planned purchase the buyer's team mailbox (procurement@, tenders@) is ticked, because a short
+            message about that purchase is what it is for; a named person's address is not. Only planned purchases about clothing that have not gone to
+            tender or been awarded since are shown (it checks each one); there are very few.
           </p>
         </section>
 
@@ -79,7 +82,16 @@ export default function ContactHelpDialog({ onClose }) {
           <h3>The list</h3>
           <p>
             Every saved address, where it came from (a Reddit post, a tender notice, or the website it was read from), and the links to the company's
-            social pages. Addresses you save from a Reddit post's card land here too. <b>Do not email</b> is for anyone who asked to be left alone, or whom you decide not to write to.
+            social pages. Press a row to open, in a new tab, the page the address was found on (an address with no page of its own opens nothing; a
+            Reddit post's title opens the post). The copy button beside an address copies it, and the pencil opens its card, where you can write a
+            note, mark it Do not email or remove it.
+          </p>
+          <p>
+            <b>Contacted</b> is a tick the whole team shares: press it when you have written to that address, press it again to undo. Press the
+            column's heading to bring the addresses you have not written to yet to the top. On a phone the tick is in front of the address.
+          </p>
+          <p>
+            <b>Do not email</b> is for anyone who asked to be left alone, or whom you decide not to write to.
             Those addresses stay on the list, so nobody saves them again, but they are never put in the download. <b>Download CSV</b> makes a
             spreadsheet file for your email program, with a column for each social network. Gmail-type addresses (Gmail, Yahoo and so on) are left out unless you switch them on,
             because they are often a person, not a company.

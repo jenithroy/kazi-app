@@ -3,7 +3,7 @@
  * security drops a refused update without an error, so a write that is not checked looks like success (the same rule as lib/metaWrites.js).
  *
  *   a lead         its status, brand, website and notes (and the customer made from it): the only columns the database lets a person change
- *   the email list added from the finder, flagged do-not-email, annotated, removed
+ *   the email list added from the finder, flagged do-not-email, annotated, ticked as contacted, removed
  *   the settings   what to look for (never how the last check went: only the Worker writes that)
  *   a check        pulling new posts now (lib/redditApi.js)
  *   the finders    reading a website's contact pages, through the Worker (lib/emailFinderApi.js) or through the finder program on the person's own
@@ -265,6 +265,27 @@ export async function updateEmail(email, patch, base = null) {
     return { ok: true, row: saved };
   } catch (err) {
     console.error("Failed to change an email:", err);
+    return failure(err);
+  }
+}
+
+/**
+ * Tick an address as contacted (we have already written to it) or untick it. `done` true stamps the time now, false clears it. It writes that one
+ * column and nothing else, so ticking never carries a colleague's note or flag along with it. Read back like every write here: a refused update
+ * (row-level security) changes nothing and says nothing. The database needs migration 0072 for the column; without it the answer says so.
+ */
+export async function markContacted(email, done) {
+  const wanted = Boolean(done);
+  try {
+    const saved = await updateRow("lead_emails", email.id, { contactedAt: wanted ? new Date().toISOString() : null });
+    if (!saved) return { ok: false, gone: true, message: "That address is no longer on the list." };
+    if (Boolean(saved.contactedAt) !== wanted) return { ok: false, message: NO_PERMISSION };
+    return { ok: true, row: saved };
+  } catch (err) {
+    console.error("Failed to tick an address as contacted:", err);
+    if (err?.code === "PGRST204" || /contacted_at/i.test(String(err?.message || ""))) {
+      return { ok: false, message: "Not saved. The database has not been updated for the Contacted tick yet. Ask whoever looks after the website." };
+    }
     return failure(err);
   }
 }

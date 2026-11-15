@@ -3,12 +3,15 @@
  * addresses they give saved to the team's list.
  *
  * It asks the Worker (lib/emailFinderApi.js), which reads the service's official open data, never its website's pages (worker/lib/tenders.js).
- * Two kinds of notice: "Awarded contracts" (who bought, and which companies won: the winners are the ones to write to) and "Open tenders"
- * (who is buying now, and by when: a buyer's address is published for questions about that one notice). Nothing is saved until "Save", and an
- * address already on the list is shown as such and never overwritten (it may be marked do-not-email).
+ * Three kinds of notice: "Awarded contracts" (who bought, and which companies won: the winners are the ones to write to), "Open tenders"
+ * (who is buying now, and by when: a buyer's address is published for questions about that one notice) and "Planned" (a buyer has said it WILL buy,
+ * the pipeline notices: only about clothing, and only ones that have not gone to tender or been awarded since, which the Worker checks). Nothing is
+ * saved until "Save", and an address already on the list is shown as such and never overwritten (it may be marked do-not-email).
  *
- * Which addresses start ticked: a winner's own (a company address or a named one). A buyer's never does: it is a public body's mailbox for
- * questions about a notice, not a list to write to. A Gmail-type address starts unticked too (often a person). Any can be ticked.
+ * Which addresses start ticked: a winner's own (a company address or a named one), and on a PLANNED purchase the buyer's team mailbox (procurement@,
+ * tenders@: that address is published for suppliers to ask about that purchase, which is what a short message about it is). A buyer's address on an
+ * award or an open tender never does (a question about that notice, not a list to write to; on a live tender, contacting the buyer outside the
+ * process can get a bid thrown out), nor does a named person's, nor a Gmail-type one (often a person). Any can be ticked.
  *
  * What is honest to say: of the awards in a month roughly 1 in 60 to 90 is about clothing, and winners almost never give an email (they give a
  * phone number, sometimes a website). The winners are found automatically by the page's "Find emails" with the "UK tenders" source switched on
@@ -31,12 +34,20 @@ const money = (v) => (v ? `${v.currency === "GBP" ? "£" : `${v.currency} `}${Ma
 const ROLE = { buyer: "Buyer", supplier: "Winner" };
 const lookUp = (name) => `https://www.google.com/search?q=${encodeURIComponent(`"${name}" website`)}`;
 
-/** The addresses that start ticked: a winner's, unless it is Gmail-type, and not one already on the list. */
-const startTicked = (notices, have) => notices.flatMap((n) => n.contacts).filter((c) => c.role === "supplier" && c.kind !== "free" && !have.has(c.email)).map((c) => c.email);
+/**
+ * The addresses that start ticked, none of them Gmail-type and none already on the list: a winner's, and on a PLANNED purchase the buyer's team mailbox
+ * (never a named person's: that is personal data, left for a person to choose).
+ */
+const startTicked = (notices, have) => notices
+  .flatMap((n) => n.contacts.map((c) => ({ c, n })))
+  .filter(({ c, n }) => c.kind !== "free" && !have.has(c.email) && (c.role === "supplier" || (n.stage === "planning" && c.role === "buyer" && c.kind === "role")))
+  .map(({ c }) => c.email);
+
+const DAY_CHOICES = { planning: [["30", "30 days"], ["60", "60 days"], ["90", "90 days"]], other: [["7", "7 days"], ["14", "14 days"], ["30", "30 days"]] };
 
 export default function TenderFinder({ known, canEdit, onSaved }) {
   const id = useId();
-  const [stage, setStage] = useState("award");           // "award" (who won) or "tender" (open now)
+  const [stage, setStage] = useState("award");           // "award" (who won), "tender" (open now) or "planning" (a buyer says it will buy)
   const [days, setDays] = useState(30);
   const [words, setWords] = useState("");                // empty: the usual words (the Worker's list)
   const [busy, setBusy] = useState(false);
@@ -49,6 +60,14 @@ export default function TenderFinder({ known, canEdit, onSaved }) {
 
   const have = known || NO_KNOWN;
   const notices = found?.notices || [];
+  const planned = stage === "planning";
+
+  /** Another kind of notice: its own sensible period, and the last answer (about another kind) is put away. */
+  function chooseStage(next) {
+    setStage(next);
+    setDays(next === "planning" ? 90 : 30);
+    setFound(null); setReport(null); setError("");
+  }
 
   async function search() {
     if (run.current) return;
@@ -74,7 +93,9 @@ export default function TenderFinder({ known, canEdit, onSaved }) {
         seen.add(c.email);
         out.push({
           email: c.email, kind: c.kind, ownDomain: c.ownDomain, source: n.url, brand: c.party, website: c.website,
-          note: `Find a Tender: ${c.role === "supplier" ? "won" : "buyer on"} "${n.title}"`,
+          note: n.stage === "planning" && c.role === "buyer"
+            ? `Find a Tender, planned purchase: "${n.title}"${n.expected ? ` (tender notice due ${day(n.expected)})` : ""}`
+            : `Find a Tender: ${c.role === "supplier" ? "won" : "buyer on"} "${n.title}"`,
         });
       }
     }
@@ -95,16 +116,18 @@ export default function TenderFinder({ known, canEdit, onSaved }) {
     <div className="rdl-find rdl-tn">
       <div className="rdl-tn-form">
         <Field label="Looking for">
-          <Seg value={stage} onChange={setStage} label="Which notices" disabled={!canEdit || busy} options={[["award", "Awarded contracts"], ["tender", "Open tenders"]]} />
+          <Seg value={stage} onChange={chooseStage} label="Which notices" disabled={!canEdit || busy} options={[["award", "Awarded contracts"], ["tender", "Open tenders"], ["planning", "Planned (coming up)"]]} />
         </Field>
-        <Field label="Published in the last">
-          <Seg value={String(days)} onChange={(v) => setDays(Number(v))} label="How far back" disabled={!canEdit || busy} options={[["7", "7 days"], ["14", "14 days"], ["30", "30 days"]]} />
+        <Field label={planned ? "Updated in the last" : "Published in the last"}>
+          <Seg value={String(days)} onChange={(v) => setDays(Number(v))} label="How far back" disabled={!canEdit || busy} options={planned ? DAY_CHOICES.planning : DAY_CHOICES.other} />
         </Field>
       </div>
 
       <Field
         label="Words to look for (optional)" htmlFor={`${id}-words`}
-        hint="Notices about clothing and textiles are always kept, and so are ones that mention uniform, workwear, clothing, garment, textile, scrubs or hi-vis. Add other words to catch more, separated by commas."
+        hint={planned
+          ? "A planned purchase is kept only when its category or its title is about clothing (uniforms, workwear, scrubs, hi-vis…), and only while it has not gone to tender or been awarded. Add other words to catch more, separated by commas."
+          : "Notices about clothing and textiles are always kept, and so are ones that mention uniform, workwear, clothing, garment, textile, scrubs or hi-vis. Add other words to catch more, separated by commas."}
       >
         <div className="rdl-find-row">
           <input
@@ -125,10 +148,16 @@ export default function TenderFinder({ known, canEdit, onSaved }) {
         {found && !busy && (
           <>
             <p className="rdl-find-head">
-              <b>{num(found.matched)} {plural(found.matched, "notice")} about clothing or textiles</b>
+              <b>{num(found.matched)} {planned ? plural(found.matched, "planned purchase") : plural(found.matched, "notice")} about clothing{planned ? "" : " or textiles"}</b>
               <span>{num(found.scanned)} read · {day(found.from)} to {day(found.to)}</span>
             </p>
             {found.capped && <p className="rdl-find-msg">There were more notices than could be read in one go. Choose a shorter period to see the rest.</p>}
+            {planned && found.matched > 0 && (found.moved > 0 || found.unchecked > 0) && (
+              <p className="rdl-find-msg">
+                {found.moved > 0 && `${found.moved} about clothing ${plural(found.moved, "had", "had")} already gone to tender or been awarded, so ${plural(found.moved, "it is", "they are")} left out. `}
+                {found.unchecked > 0 && `${found.unchecked} could not be checked, so ${plural(found.unchecked, "it is", "they are")} left out.`}
+              </p>
+            )}
             {notices.length === 0 && <p className="rdl-find-msg">{found.message || "Nothing found."}</p>}
             {found.matched > notices.length && <p className="rdl-find-msg">Showing the newest {notices.length} of {num(found.matched)}.</p>}
 
@@ -141,7 +170,11 @@ export default function TenderFinder({ known, canEdit, onSaved }) {
                       {n.url && <a href={n.url} target="_blank" rel="noreferrer noopener">Read the notice</a>}
                     </p>
                     <p className="rdl-tn-meta">
-                      {[n.buyer, n.stage === "tender" ? (n.deadline ? `closes ${day(n.deadline)}` : "") : (n.date ? `awarded ${day(n.date)}` : ""), money(n.value), n.cpv?.description].filter(Boolean).join(" · ")}
+                      {[
+                        n.buyer,
+                        n.stage === "tender" ? (n.deadline ? `closes ${day(n.deadline)}` : "") : n.stage === "planning" ? (n.expected ? `tender notice due ${day(n.expected)}` : "planned, no date yet") : (n.date ? `awarded ${day(n.date)}` : ""),
+                        money(n.value), n.cpv?.description,
+                      ].filter(Boolean).join(" · ")}
                     </p>
 
                     {n.contacts.length > 0 && (
@@ -187,7 +220,9 @@ export default function TenderFinder({ known, canEdit, onSaved }) {
               </ul>
             )}
 
-            {anyBuyer && <p className="rdl-find-msg">A buyer's address is published so that suppliers can ask about that notice. Use it for that, not as a mailing list: it is not ticked for you.</p>}
+            {anyBuyer && (planned
+              ? <p className="rdl-find-msg">These buyers have said they will put this out to tender. Their address is published so that suppliers can ask about that purchase, so a short message about THAT purchase is what it is for: who you are, what you make, how to say no. A team mailbox is ticked for you; a named person's is not.</p>
+              : <p className="rdl-find-msg">A buyer's address is published so that suppliers can ask about that notice. Use it for that, not as a mailing list: it is not ticked for you.</p>)}
 
             {notices.some((n) => n.contacts.length > 0) && (
               <div className="rdl-find-save">

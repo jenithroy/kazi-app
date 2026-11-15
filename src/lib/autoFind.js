@@ -21,19 +21,14 @@
  * `runAuto` knows nothing of the page or the network: it is handed what to call (`deps`), so its rules can be tested on their own.
  */
 import { brandFromSite, normalizeWebsite } from "./redditLeads";
+// which addresses are worth saving by themselves: one list of rules, shared with the Reddit check's own reading of a new lead's website (the Worker)
+import { MAX_PER_COMPANY, NOT_FOR_SALES, chooseAddresses } from "../../worker/lib/addressPick.js";
 
+export { MAX_PER_COMPANY, NOT_FOR_SALES, chooseAddresses };
 export const MAX_COMPANIES = 100;
-export const MAX_PER_COMPANY = 3;
 // A website worked out from a name is only read, and its addresses only saved, by itself when the page was clearly that company's: a name made of
 // common words ("The Window Treatments Company") can be matched by another business that uses the same words. Below this it is shown, not used.
 export const MIN_CONFIDENCE = 0.9;
-
-// the part before the @ of an address that is for something other than selling to: work, help, rules, accounts
-export const NOT_FOR_SALES = new Set([
-  "job", "jobs", "career", "careers", "recruit", "recruiting", "recruitment", "hr", "vacancies", "apply", "applications",
-  "support", "help", "helpdesk", "privacy", "dpo", "gdpr", "legal", "abuse", "webmaster", "postmaster", "noreply", "no-reply", "donotreply",
-  "do-not-reply", "press", "media", "accounts", "billing", "invoices", "invoice", "payments", "unsubscribe",
-]);
 
 const SEARCH_STOPPED = "A search engine asked for a person to check and nobody answered, so the browser stopped searching for the rest of this run (company websites are still read). Try again in a while.";
 const SEARCH_USED_UP = "The hour's searches on this computer are used up, so the browser stopped searching for the rest of this run. Try again in a while.";
@@ -89,26 +84,7 @@ export const estimateMinutes = (targets, { local = false } = {}) => Math.max(1, 
 /** Whether a read is worth repeating in a real browser: it showed no address, or turned the reader away. Not a site that may not be read, one that asks robots to keep out, or one that could not be reached. */
 export const worthABrowser = (res) => Boolean(res) && !res.closed && !res.robotsBlocked && (res.blocked === true || (res.ok === true && (res.emails || []).length === 0));
 
-/**
- * Which of the addresses a website showed to save, and which to leave alone and why: { pick: [address…], left: [{ email, why, canSave }] }.
- * `have` is a Set of addresses already on the list. `canSave` marks the reasons a person may well disagree with. `people` also picks a person's
- * address on the company's own domain.
- */
-export function chooseAddresses(emails, have, { people = false } = {}) {
-  const pick = [];
-  const left = [];
-  for (const e of emails || []) {
-    const local = String(e.email).split("@")[0].toLowerCase();
-    if (have.has(e.email)) left.push({ email: e.email, why: "already on the list", canSave: false });
-    else if (e.kind === "free") left.push({ email: e.email, why: "a Gmail-type address", canSave: true, address: e });
-    else if (NOT_FOR_SALES.has(local)) left.push({ email: e.email, why: "not meant for sales", canSave: false });
-    else if (!e.ownDomain) left.push({ email: e.email, why: "on another website's domain", canSave: true, address: e });
-    else if (e.kind === "named" && !people) left.push({ email: e.email, why: "a person's address", canSave: true, address: e });
-    else if (pick.length >= MAX_PER_COMPANY) left.push({ email: e.email, why: `more than ${MAX_PER_COMPANY} for one company`, canSave: false });
-    else pick.push(e);
-  }
-  return { pick, left };
-}
+// `chooseAddresses(emails, have, { people })` (which addresses to save, which to leave and why) is in worker/lib/addressPick.js, re-exported above.
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

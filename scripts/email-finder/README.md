@@ -25,8 +25,8 @@ npm start
 It prints which browser it found and "is running". Leave that window open.
 
 Then, on the Contact Finder page, open **Sources**, turn on **Run on this computer** (it says whether it can reach this program), Save, and press
-**Find emails**. The choice is remembered in that browser. The same program also serves the tick under **Add by hand → A website** and the finder on a
-Reddit post's card. Chrome and Edge ask once whether the Kazi site may connect to apps on your computer: choose Allow. Stop the program with Ctrl+C.
+**Find emails**. The choice is remembered in that browser. The same program also serves the tick under **Add by hand → A website** (a Reddit post used
+to have a finder on its card too; that card is gone). Chrome and Edge ask once whether the Kazi site may connect to apps on your computer: choose Allow. Stop the program with Ctrl+C.
 
 If the program is not running (or this browser does not let the page reach it), the page says so and the server does the reading instead, so the
 switch never leaves anyone with nothing. If it stops part-way through a run, the server takes over for the rest.
