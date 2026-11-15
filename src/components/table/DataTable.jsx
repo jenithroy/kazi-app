@@ -26,11 +26,17 @@
  * `sort(row)` returns what to sort by (no `sort`,
  * not sortable); `width` is in px (the `grow` column is the one that takes what is left, between
  * `min` and `max`); `drop` is how soon it goes when the table is narrow (a bigger number goes first;
- * no `drop` means it is never dropped); `align: "end"` right-aligns it (numbers always are).
+ * no `drop` means it is never dropped); `align: "end"` right-aligns it (numbers always are). `dropCompact: true` drops a column
+ * whenever the table is a phone's list (under 520px wide), however much room is left; the name cell then finds its id in `dropped` and
+ * carries the control itself.
  *
  * The row's own button is one stretched, invisible `<button class="dt-hit">`; anything inside a cell
  * that has to be pressed on its own (a "Log" button) carries `className="dt-act"` so it sits above it.
  * Up / Down / Home / End move between rows.
+ *
+ * `rowHref(row)` makes a row a link instead of a button: the stretched `.dt-hit` is then an `<a>` that opens that address in a new tab
+ * (a row it returns nothing for, and that has no `onOpen`, is not pressable). For a list whose rows lead away from the app (Reddit Leads'
+ * posts); `onOpen` is for a card.
  *
  * `kindOf(row)` lets a list carry headings and sums: "group" (a heading across the row, text in
  * `row.label`), "sum" (a subtotal) and "total" are drawn as such and are never sorted or opened.
@@ -64,6 +70,7 @@ function compare(a, b) {
 export function fitColumns(columns, width) {
   if (!width) return columns;
   let cols = columns.slice();
+  if (width < COMPACT_BELOW) cols = cols.filter((c) => !c.dropCompact);
   const need = (list) => {
     const fixed = list.filter((c) => !c.grow).reduce((s, c) => s + (c.width ?? 96), 0);
     const grow = list.find((c) => c.grow);
@@ -80,7 +87,7 @@ export function fitColumns(columns, width) {
 }
 
 export default function DataTable({
-  label, rows, rowKey, columns, defaultSort, onOpen, rowLabel, activeKey, kindOf, empty, loading, className, skeletonRows = 6, limit, focusBody,
+  label, rows, rowKey, columns, defaultSort, onOpen, rowHref, rowLabel, activeKey, kindOf, empty, loading, className, skeletonRows = 6, limit, focusBody,
   entry, flashKey,
 }) {
   const rootRef = useRef(null);
@@ -228,7 +235,8 @@ export default function DataTable({
               </div>
             );
           }
-          const openable = Boolean(onOpen) && !kind;
+          const href = !kind && rowHref ? rowHref(row) : null;
+          const openable = (Boolean(onOpen) || Boolean(href)) && !kind;
           return (
             <div
               key={key}
@@ -239,9 +247,11 @@ export default function DataTable({
             >
               {visible.map((c, i) => (
                 <div key={c.id} role="cell" className={cn("dt-cell", c.align === "end" && "dt-end", c.className)}>
-                  {i === 0 && openable && (
+                  {i === 0 && openable && (href ? (
+                    <a className="dt-hit" href={href} target="_blank" rel="noopener noreferrer" aria-label={rowLabel ? rowLabel(row) : "Open"} />
+                  ) : (
                     <button type="button" className="dt-hit" aria-label={rowLabel ? rowLabel(row) : "Open"} onClick={() => onOpen(row)} />
-                  )}
+                  ))}
                   {c.render(row, cellProps)}
                 </div>
               ))}
