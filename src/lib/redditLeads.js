@@ -39,9 +39,9 @@ export function matchTier(score) {
 
 const DAY = 24 * 3600 * 1000;
 
-/** The four short tiles over the posts: new ones, the last day's, the ones being followed up, the ones that became customers. `now` is ms. */
+/** The short tiles over the posts: the last day's and the last week's. (The status counts stay: posts keep what was saved before the card went.) `now` is ms. */
 export function leadStats(leads, now = Date.now()) {
-  const stats = { total: leads.length, fresh: 0, lastDay: 0, following: 0, customers: 0 };
+  const stats = { total: leads.length, fresh: 0, lastDay: 0, lastWeek: 0, following: 0, customers: 0 };
   for (const l of leads) {
     const s = leadStatus(l);
     if (s === "new") stats.fresh += 1;
@@ -49,6 +49,7 @@ export function leadStats(leads, now = Date.now()) {
     if (s === "customer") stats.customers += 1;
     const at = Date.parse(l.postedAt);
     if (Number.isFinite(at) && now - at <= DAY && now - at >= -3600e3) stats.lastDay += 1;
+    if (Number.isFinite(at) && now - at <= 7 * DAY && now - at >= -3600e3) stats.lastWeek += 1;
   }
   return stats;
 }

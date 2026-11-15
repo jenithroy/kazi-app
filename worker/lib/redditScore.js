@@ -16,12 +16,17 @@
  */
 
 import { isPublicHostname } from "./contactFinder.js";
+import { ownSiteIn } from "./ownSite.js";
 
 export const MAX_STARS = 3;
 export const MAX_TEXT = 20000;
 
 export const STRONG_POINTS = 40;
 export const WEAK_POINTS = 10;
+// The score at which the page calls a post a "Strong" match (matchTier in src/lib/redditLeads.js and the phone's rules.ts say 70 too): very likely a real
+// buyer. Only such a post has its own website read by itself (worker/lib/redditLeads.js): of the posts that score as leads, some are a manufacturer's
+// advert, a software tool, a brand showing a new tee, and nobody should be written to because of one.
+export const STRONG_SCORE = 70;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   subreddits: ["ClothingStartups", "streetwearstartup", "clothingbrandstartup", "ClothingBrand", "manufacturing", "smallbusiness", "ecommerce"],
@@ -44,11 +49,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
   minScore: 30,
 });
 
-/** Sites a post links to that say nothing about the poster's own brand: pictures, video, other social networks, marketplaces. */
+/**
+ * Sites a post links to that cannot be the poster's own brand website, or that no contact address can be read from: pictures, video, other social
+ * networks, marketplaces, website builders and link shorteners, portfolios. (This is only the first test: see worker/lib/ownSite.js for the second,
+ * that the words around the link say it is the poster's own.)
+ */
 const NOT_A_BRAND_SITE = [
   "reddit.com", "redd.it", "redditmedia.com", "imgur.com", "youtube.com", "youtu.be", "giphy.com", "tenor.com", "discord.gg", "discord.com",
   "instagram.com", "facebook.com", "fb.com", "tiktok.com", "twitter.com", "x.com", "linkedin.com", "pinterest.com", "docs.google.com",
   "drive.google.com", "google.com", "wikipedia.org", "alibaba.com", "aliexpress.com", "amazon.com", "etsy.com", "ebay.com", "github.com", "medium.com",
+  "ebay.co.uk", "amazon.co.uk", "depop.com", "poshmark.com", "mercari.com", "redbubble.com", "teespring.com", "printful.com", "printify.com",
+  "shopify.com", "wix.com", "squarespace.com", "godaddy.com", "wordpress.com", "weebly.com", "canva.com", "notion.so", "notion.site", "linktr.ee",
+  "bit.ly", "t.co", "goo.gl", "tinyurl.com", "forms.gle", "behance.net", "dribbble.com", "kickstarter.com", "indiegogo.com", "patreon.com", "twitch.tv",
+  "substack.com", "threads.net", "snapchat.com", "whatsapp.com", "wa.me", "t.me", "telegram.me",
 ];
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -105,7 +118,6 @@ export function scorePost(post, settings = DEFAULT_SETTINGS) {
   return { score: strong.length * STRONG_POINTS + weak.length * WEAK_POINTS, hits: [...strong, ...weak], blockedBy: null };
 }
 
-const URL_RE = /https?:\/\/[^\s)\]>"'<]+/gi;
 const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; } };
 const siteIsNoise = (host) => !host || NOT_A_BRAND_SITE.some((s) => host === s || host.endsWith(`.${s}`));
 
@@ -120,14 +132,15 @@ function okWebsite(u) {
   } catch { return false; }
 }
 
-/** The first web address in a post that looks like the poster's own site (not Reddit, a picture host, another social network, nor anything the page would refuse to save), or "". */
+/**
+ * The poster's OWN website, or "": the first web address in the post's title or text that the words around it call theirs ("my brand: …", "our website
+ * …", "Website - …", see ownSite.js), and that is not Reddit, a picture host, another social network, a marketplace, nor anything the page would refuse
+ * to save. A link the post only mentions (a supplier somebody found, an article, a competitor) is not it, and neither is the address the post links
+ * to as its own link: with no word saying it is theirs there is no website, and then nothing is read for the lead.
+ */
 export function websiteOf(post) {
-  const urls = [...String(post?.selftext ?? "").slice(0, MAX_TEXT).matchAll(URL_RE)].map((m) => m[0]).concat(post?.url ? [String(post.url)] : []);
-  for (const u of urls) {
-    const clean = u.replace(/[.,;:!?)]+$/, "");
-    if (!siteIsNoise(hostOf(clean)) && okWebsite(clean)) return clean;
-  }
-  return "";
+  const text = `${post?.title ?? ""}\n${String(post?.selftext ?? "").slice(0, MAX_TEXT)}`;
+  return ownSiteIn(text, (u) => { const clean = u.replace(/[.,;:!?)]+$/, ""); return !siteIsNoise(hostOf(clean)) && okWebsite(clean); }).replace(/[.,;:!?)]+$/, "");
 }
 
 /** `s` cut to at most `n` characters, by WHOLE characters (never between the two halves of an emoji), with an ellipsis when it was cut. */

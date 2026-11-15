@@ -1,9 +1,9 @@
 /* ═════════════════════════════════════════════════════════════════
    REDDIT LEADS — the page's own parts (everything is `.rdl-*`)
 
-   The page is a bento frame (`.kb`, bento.css): a header, a bar with the two tabs, then a grid of four short number tiles over one pane that
-   holds a table. A post or an address opens in the shared EditCard; the settings and the email finder dialog are glass dialogs. This sheet
-   draws what the shared pieces leave to the page. Inside a tile everything reads the `--kb-*` tokens (inside a card or a dialog, which are
+   The page is a bento frame (`.kb`, bento.css): a header, then a grid of four short number tiles over one pane that holds a table. A post is
+   a link to Reddit (no card); an address (the Contact Finder's list) opens in the shared EditCard; the settings, the help and the finder dialogs
+   are glass dialogs. This sheet draws what the shared pieces leave to the page. Inside a tile everything reads the `--kb-*` tokens (inside a card or a dialog, which are
    portalled to the page's top level, the `--ink-*` ones), so light, dark and the solid fallback follow.
 
    Loaded after bento.css. The grid is written `.kb-grid.kb-grid--rdl` (one class more than bento's own `.kb-grid` rules) so it wins in every
@@ -22,9 +22,23 @@
     "main main main main main main main main main main main main";
 }
 
+/* Reddit Leads' Posts page (`layout="rdlp"`): two short tiles over the one pane. The Contact Finder's list keeps the four above (`rdl`). */
+.kb-grid.kb-grid--rdlp { grid-template-rows: clamp(84px, 10.5vh, 96px) repeat(3, minmax(0, 1fr)); }
+.kb-grid.kb-grid--rdlp {
+  grid-template-areas:
+    "k1 k1 k1 k1 k1 k1 k2 k2 k2 k2 k2 k2"
+    "main main main main main main main main main main main main"
+    "main main main main main main main main main main main main"
+    "main main main main main main main main main main main main";
+}
+
 /* Tablet: six columns, the pane taller; a window shorter than the stack scrolls in the shell rather than crushing the table. */
 @media (max-width: 1023px) {
   .kb.rdl-page { min-height: 1040px; }
+  .kb-grid.kb-grid--rdlp {
+    grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px repeat(4, minmax(0, 1fr));
+    grid-template-areas: "k1 k1 k1 k2 k2 k2" "main main main main main main" "main main main main main main" "main main main main main main" "main main main main main main";
+  }
   .kb-grid.kb-grid--rdl {
     grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 84px 84px repeat(4, minmax(0, 1fr));
     grid-template-areas: "k1 k1 k1 k2 k2 k2" "k3 k3 k3 k4 k4 k4" "main main main main main main" "main main main main main main" "main main main main main main" "main main main main main main";
@@ -37,6 +51,10 @@
   .kb-grid.kb-grid--rdl {
     grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
     grid-template-areas: "k1 k2" "k3 k4" "main main";
+  }
+  .kb-grid.kb-grid--rdlp {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto;
+    grid-template-areas: "k1 k2" "main main";
   }
 }
 
@@ -118,25 +136,13 @@
   --ec-well: rgba(255, 255, 255, .05);
 }
 
-.rdl-cardmsg { margin: 0; padding: 9px 12px; border-radius: 10px; background: var(--rdl-well); font-size: 12.5px; line-height: 1.5; color: var(--rdl-bad); }
-.rdl-post { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--rdl-well); font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }   /* at most 600 characters: the card itself scrolls, so there is no second scroll box a keyboard could not reach */
 /* the card's hints in the fields (the shared ink-4 is about 3:1): a step darker, still lighter than what is typed */
 .kmodal--reddit .ec-f input::placeholder, .kmodal--reddit .ec-f textarea::placeholder { color: var(--ink-3); }
-.rdl-act { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
-.rdl-act .ghost-button, .rdl-act a.ghost-button { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; text-decoration: none; }
-.rdl-hits { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
-.rdl-selfstart { align-self: flex-start; }
 .rdl-line { min-width: 0; font-size: 13px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
 .rdl-dim { color: var(--ink-3); }
 .kmodal--reddit .rdl-dim { color: var(--ink-3); }
 .rdl-side { display: grid; gap: 12px; align-content: start; min-width: 0; }
-.rdl-sidehead { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
 .rdl-side a, .rdl-find a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-.rdl-saved { margin: 0; padding: 0; list-style: none; display: grid; gap: 0; }
-.rdl-saved > li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
-.rdl-saved > li:first-child { border-top: 0; }
-.rdl-saved b { min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--ink); }
-.rdl-saved span { font-size: 12px; font-weight: 400; color: var(--ink-3); }
 
 /* the website finder (by hand) */
 .rdl-find { display: grid; gap: 12px; min-width: 0; }
@@ -257,7 +263,7 @@
   /* a half-width tile on the narrowest phones (320px: 146px wide) lets its line wrap rather than cut it (the tile grows with it) */
   .kb-tile.rdl-kpi .kb-sub { white-space: normal; overflow: visible; text-overflow: clip; }
   .kb-btn.rdl-check { height: 36px; }
-  .rdl-act .ghost-button, .rdl-act a.ghost-button, .rdl-pane .kb-btn, .rdl-empty-act .kb-btn { min-height: 40px; }
+  .rdl-pane .kb-btn, .rdl-empty-act .kb-btn { min-height: 40px; }
   .rdl-banner button { min-height: 36px; }
   .ec-f textarea, .ec-f input:not([type="checkbox"]):not([type="radio"]) { font-size: 16px; }   /* a field under 16px makes iOS zoom in on it */
   .rdl-find-row { flex-wrap: wrap; }
@@ -265,7 +271,7 @@
   .rdl-find-list input[type="checkbox"], .rdl-find-local input[type="checkbox"] { width: 22px; height: 22px; }
 }
 
-/* the status choice has five parts (New, Contacted, Replied, Not a fit, Customer): on a 320px card they would push it sideways */
+/* a choice of several parts (the Find dialog's tabs, the tender days) on a 320px card would push it sideways */
 @media (max-width: 380px) {
   .kmodal--reddit .ec-seg .kregion-seg-btn { padding-inline: 3px; font-size: 12px; }
 }

@@ -3,7 +3,8 @@
  *
  *   POST /api/reddit-leads/sync        "Check now": the same check the schedule runs (every 30 minutes, REDDIT_CRON)
  *
- * (Reading a business's contact pages is not Reddit's: it lives in worker/lib/emailFinder.js, with the Contact Finder page.)
+ * (Reading a business's contact pages on request is not Reddit's: it lives in worker/lib/emailFinder.js, with the Contact Finder page. The check
+ * itself reads only a NEW lead's own website, step 4 below.)
  *
  * Where the posts come from: Arctic Shift (arctic-shift.photon-reddit.com), a free public archive of Reddit that needs no key. Reddit's
  * own feeds refuse most automated readers (its JSON gives 403, its RSS answers 429 after a couple of requests in a second, and a cloud
@@ -19,11 +20,18 @@
  *   3. adds the new ones to `reddit_leads`. A post that is already there is left exactly as it is: what the team wrote on it (status,
  *      brand, website, notes) is never touched, and so is its score. A post the database refuses is skipped and named, it never stops the
  *      others.
+ *   4. for the NEW STRONG leads (a very likely buyer, score 70 or more) whose post names their own website (redditScore.js `websiteOf`: only a link the
+ *      words around it call the poster's own, never a link somebody else was mentioned with), reads that website's public contact pages by itself and puts the company addresses it
+ *      shows on the Contact Finder's list, each tied to its post (`readNewLeadSites`). Nobody has to press anything. This comes AFTER how the
+ *      check went has been written down, and whatever goes wrong in it (a site that is down, one that asks robots to keep out) is not the check's
+ *      failure: the check is reported as it was.
  * A subreddit the archive cannot answer for is skipped and named; the rest still go in. However a check ends, how it went is written down.
  */
 import { checkMarketingPermission, noEdit } from "./marketingAccess.js";
 import { patch, select, upsert } from "./supabaseRest.js";
-import { DEFAULT_SETTINGS, leadRow } from "./redditScore.js";
+import { chooseAddresses } from "./addressPick.js";
+import { FinderError, findContacts } from "./contactFinder.js";
+import { DEFAULT_SETTINGS, STRONG_SCORE, leadRow } from "./redditScore.js";
 
 export const REDDIT_CRON = "10,40 * * * *";
 
@@ -36,6 +44,8 @@ const PAGE = 100;
 const MAX_PAGES = 3;                    // 300 posts of one subreddit per check
 const SUB_OK = /^[A-Za-z0-9_]{2,21}$/;
 const MANUAL_GAP_MS = 45 * 1000;        // "Check now" again within this long of the last check says so instead of asking the archive again
+const SITES_MAX = 3;                    // the websites of new leads one check reads (the rest are left for Find emails on the Contact Finder page)
+const SITES_BUDGET_MS = 25 * 1000;      // after this long, no further website is started
 
 const isoSeconds = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 const oneLine = (s, n = 160) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
@@ -95,33 +105,98 @@ export function settingsFromRow(row) {
   };
 }
 
-/** Save rows, one request for the lot; if the database refuses the batch, one request per row, so a single bad post is named and skipped. */
+/**
+ * Save rows, one request for the lot; if the database refuses the batch, one request per row, so a single bad post is named and skipped.
+ * Resolves to { saved, added }: how many were new, and those rows as the database holds them (a post that was already there is not one of them).
+ */
 async function saveRows(env, rows, problems) {
   const into = (batch) => upsert(env, "reddit_leads", batch, { onConflict: "reddit_id", ignoreDuplicates: true, returning: true });
-  let saved = 0;
+  const added = [];
   for (let i = 0; i < rows.length; i += 200) {
     const batch = rows.slice(i, i + 200);
     try {
-      const added = await into(batch);
-      saved += Array.isArray(added) ? added.length : 0;
+      const got = await into(batch);
+      if (Array.isArray(got)) added.push(...got);
     } catch {
       for (const row of batch) {
         try {
-          const added = await into([row]);
-          saved += Array.isArray(added) ? added.length : 0;
+          const got = await into([row]);
+          if (Array.isArray(got)) added.push(...got);
         } catch (err) {
           problems.push(`post ${row.reddit_id} was not saved (${oneLine(err.message, 90)})`);
         }
       }
     }
   }
-  return saved;
+  return { saved: added.length, added };
+}
+
+/* ── A new lead's own website, read by itself ─────────────────── */
+
+const SECOND_LEVEL = new Set(["co", "com", "org", "net", "ac", "gov", "edu", "ltd", "plc"]);
+
+/** A brand name out of a web address ("https://www.acme-wear.co.uk/" gives "Acme wear"): what the list shows for an address nobody named. */
+export function brandFromHost(website) {
+  let host = "";
+  try { host = new URL(website).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length === 0) return "";
+  const at = labels.length >= 3 && labels[labels.length - 1].length === 2 && SECOND_LEVEL.has(labels[labels.length - 2]) ? labels.length - 3 : Math.max(0, labels.length - 2);
+  return (labels[at] || labels[0]).replace(/[-_]+/g, " ").replace(/^./, (c) => c.toUpperCase()).slice(0, 120);
 }
 
 /**
- * Run one check. Resolves to { ok, subreddits, fetched, matched, saved, errors, notes, throttled } where `ok` is false only when no
+ * The websites of NEW STRONG leads (rows just added to `reddit_leads`, each with an `id`, a `score`, a `website` and a `subreddit`; a weaker match is
+ * left alone: it may be a manufacturer's advert or a tool, and its website stays on the post for a person to decide), read the moment they are saved: each
+ * site's home page and up to two contact pages (worker/lib/contactFinder.js: robots.txt first, only public addresses, a pause between pages, an honest
+ * name), and the addresses worth writing to put on the list, tied to the post (`lead_id`) and saying where they came from. Which addresses are worth
+ * saving by themselves is worker/lib/addressPick.js, the same rules as the Contact Finder page's own run: a company's own address (sales@, info@), never a
+ * person's, never Gmail-type, never jobs@ or support@, at most three. An address already on the list is skipped by the database (one row per address).
+ *
+ * At most `maxSites` websites and about `budgetMs` of reading per check: a lead beyond that keeps its website and is read by Find emails on the
+ * Contact Finder page. A site that is down, closed to programs or shows no address saves nothing and is not an error. Resolves to
+ * { read, saved, skipped } and never throws.
+ */
+export async function readNewLeadSites(env, added, { fetchImpl = fetch, maxSites = SITES_MAX, budgetMs = SITES_BUDGET_MS, pause } = {}) {
+  const out = { read: 0, saved: 0, skipped: 0 };
+  const started = Date.now();
+  for (const lead of Array.isArray(added) ? added : []) {
+    if (!lead || !lead.id || typeof lead.website !== "string" || !lead.website) continue;
+    if (!(Number(lead.score) >= STRONG_SCORE)) continue;            // only a Strong match is read by itself
+    if (out.read >= maxSites || Date.now() - started > budgetMs) { out.skipped += 1; continue; }
+    out.read += 1;
+    try {
+      const res = await findContacts(lead.website, { fetchImpl, respectRobots: true, ...(pause === undefined ? {} : { pause }) });
+      if (!res || !res.ok || res.closed || res.robotsBlocked) continue;
+      const { pick } = chooseAddresses(res.emails, new Set(), { people: false });
+      if (pick.length === 0) continue;
+      const brand = brandFromHost(lead.website);
+      const rows = pick.map((e) => ({
+        email: String(e.email).toLowerCase(),
+        kind: e.kind,
+        same_domain: Boolean(e.ownDomain),
+        source_url: typeof e.source === "string" && e.source.length <= 400 ? e.source : null,
+        brand: brand || null,
+        website: lead.website,
+        lead_id: lead.id,
+        socials: res.socials && typeof res.socials === "object" ? res.socials : {},
+        note: `From a Reddit post (r/${lead.subreddit || "?"}), found automatically`.slice(0, 1000),
+      }));
+      const got = await upsert(env, "lead_emails", rows, { onConflict: "email", ignoreDuplicates: true, returning: true });
+      out.saved += Array.isArray(got) ? got.length : 0;
+    } catch (err) {
+      if (err instanceof FinderError) continue;                    // an address the reader may not fetch (a private one, a closed site): expected, nothing to report
+      console.error("Reddit leads: reading a new lead's website failed:", oneLine(err?.message, 120));
+    }
+  }
+  return out;
+}
+
+/**
+ * Run one check. Resolves to { ok, subreddits, fetched, matched, saved, errors, notes, sites, throttled } where `ok` is false only when no
  * subreddit could be read, `errors` names whatever could not be done and `notes` what is merely unfinished (a subreddit with more posts
- * than one check reads). Throws only when the settings cannot be read (the database is the one thing a check cannot do without).
+ * than one check reads), and `sites` is { read, saved, skipped }: the new leads' own websites read by itself and the addresses saved from them.
+ * Throws only when the settings cannot be read (the database is the one thing a check cannot do without).
  * `minGapMs` > 0 (the "Check now" button) answers from the last check when it was that recent.
  */
 export async function runRedditSync(env, { fetchImpl = fetch, now = Date.now(), minGapMs = 0 } = {}) {
@@ -139,6 +214,7 @@ export async function runRedditSync(env, { fetchImpl = fetch, now = Date.now(), 
   let saved = 0;
   let matched = 0;
   let outcome = null;
+  let added = [];                       // the leads this check added (not the ones that were already there)
 
   try {
     const found = new Map();
@@ -168,7 +244,9 @@ export async function runRedditSync(env, { fetchImpl = fetch, now = Date.now(), 
     }
     const rows = [...found.values()];
     matched = rows.length;
-    saved = await saveRows(env, rows, errors);
+    const got = await saveRows(env, rows, errors);
+    saved = got.saved;
+    added = got.added;
   } catch (err) {
     errors.push(oneLine(err?.message, 120) || "the check stopped unexpectedly");
   } finally {
@@ -190,7 +268,12 @@ export async function runRedditSync(env, { fetchImpl = fetch, now = Date.now(), 
       console.error("Reddit leads: could not record how the check went:", err?.message || err);
     }
   }
-  return { ok: !outcome.nothingRead, subreddits: settings.subreddits.length, fetched, matched, saved, errors, notes };
+  // after how the check went is written down: whatever happens to a lead's website is not the check's failure
+  let sites = { read: 0, saved: 0, skipped: 0 };
+  if (added.some((l) => l && l.website)) {
+    try { sites = await readNewLeadSites(env, added, { fetchImpl }); } catch (err) { console.error("Reddit leads: reading the new leads' websites failed:", oneLine(err?.message, 120)); }
+  }
+  return { ok: !outcome.nothingRead, subreddits: settings.subreddits.length, fetched, matched, saved, errors, notes, sites };
 }
 
 /* ── The route ────────────────────────────────────────────────── */

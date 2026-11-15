@@ -4,21 +4,21 @@
  *
  * What it is for: people on Reddit who say they are looking for a clothing manufacturer (or private label, or a first production run) are
  * leads. A check reads the subreddits on the team's list (every 30 minutes on the server, or "Check now"), keeps the posts that score as
- * somebody needing a maker, and adds them here. The team replies to them on Reddit, and, for the email marketing, can find a brand's public
- * contact address on its own website from the post's card. Those addresses go on the team's email list, which is the Contact Finder's page
- * (pages/ContactFinder.jsx): this page only counts a post's addresses. Nobody is emailed from here.
+ * somebody needing a maker, and adds them here. A post in the list is a link: pressing it opens the real post on Reddit, where the team
+ * replies. (It used to open a card to write a status, brand, website and notes on, and to find the brand's email; that card went on 2026-11-14.)
+ * Addresses are the Contact Finder's page (pages/ContactFinder.jsx): this page only counts the ones saved for a post. Nobody is emailed from here.
  *
  * (It used to hold the email list in a second tab, `?view=emails`; that address still works and forwards to the Contact Finder.)
  *
  * This file is the frame: the header (how the last check went, Settings, Check now), the notices, and the data the posts need (the posts, the
- * addresses saved for them, the settings). The posts view draws and writes its own parts (components/reddit/); every rule and sum is in
+ * addresses saved for them, the settings). The posts view draws its own parts (components/reddit/); every rule and sum is in
  * lib/redditLeads.js, every write in lib/redditWrites.js.
  *
- * No permission of its own: whoever has the Marketing section can see it, and edit (statuses, notes, the settings) with Edit
+ * No permission of its own: whoever has the Marketing section can see it, and press Check now and edit the settings with Edit
  * on Marketing. The server side, and what it does and does not touch, is worker/lib/redditLeads.js. Posts come from Arctic Shift, a free
  * archive of Reddit, which has no promise of uptime: the header says when the last check worked.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { sectionCanEdit } from "../utils/permissions";
@@ -51,7 +51,6 @@ async function loadAll() {
   };
 }
 const EMPTY = { leads: NONE, emails: NONE, settings: null, emailsLost: false, settingsLost: false };
-const NO_PATCH = { leads: {}, added: [] };
 const LOOK_AGAIN_MS = 5 * 60 * 1000;
 
 /** The old `?view=emails` address now belongs to the Contact Finder. */
@@ -64,7 +63,6 @@ export default function RedditLeads() {
 function RedditLeadsPage() {
   const { profile } = useAuth();
   const canEdit = sectionCanEdit(profile, "marketing");
-  const canAddCustomer = sectionCanEdit(profile, "customers");
 
   // the office's date and the clock, which move on without a reload
   const [today, setToday] = useState(() => kathmanduDate());
@@ -77,19 +75,8 @@ function RedditLeadsPage() {
   const [tick, setTick] = useState(0);                         // goes up after a check, so everything is read again
   const core = useMetaLoad(loadAll, `${tick}`, "", "Reddit Leads");
   const { reload } = core;
-  const { leads: readLeads, emails: readEmails, settings, emailsLost, settingsLost } = core.data || EMPTY;
+  const { leads, emails, settings, emailsLost, settingsLost } = core.data || EMPTY;
   const loading = core.status === "loading";
-
-  // What a save just changed, shown at once until the next read says the same. A fresh read replaces all of it.
-  const [patches, setPatches] = useState(NO_PATCH);
-  useEffect(() => { setPatches(NO_PATCH); }, [core.data]);
-  const leads = useMemo(() => readLeads.map((l) => patches.leads[l.id] || l), [readLeads, patches.leads]);
-  const emails = useMemo(() => {
-    const have = new Set(readEmails.map((e) => e.id));
-    return [...patches.added.filter((e) => !have.has(e.id)), ...readEmails];
-  }, [readEmails, patches]);
-  const onPatchLead = useCallback((row) => setPatches((p) => ({ ...p, leads: { ...p.leads, [row.id]: row } })), []);
-  const onSavedEmails = useCallback((rows) => { setPatches((p) => ({ ...p, added: [...rows, ...p.added] })); reload(); }, [reload]);
 
   // look again every few minutes and when the tab is come back to, so a check that ran on the server shows without a reload
   const lastLook = useRef(Date.now());
@@ -123,7 +110,10 @@ function RedditLeadsPage() {
       : `Read ${r.subreddits} ${plural(r.subreddits, "subreddit")}: ${r.fetched} ${plural(r.fetched, "post")} looked at, ${r.saved} new ${plural(r.saved, "lead")} added.`;
     const lost = r.errors?.length ? ` Could not finish: ${r.errors.join("; ")}.` : "";
     const more = r.notes?.length ? ` ${r.notes.join("; ")}.` : "";
-    setNotice({ tone: !r.ok ? "bad" : r.errors?.length || r.notes?.length ? "warn" : "info", text: said + lost + more });
+    // a new lead that names its own website has that website read by itself (worker/lib/redditLeads.js): say what it found, so nobody wonders
+    const s = r.sites;
+    const sites = s?.read ? ` Read ${s.read} new ${plural(s.read, "website")} named in the posts and saved ${s.saved} ${plural(s.saved, "address", "addresses")} on the Contact Finder list.${s.skipped ? ` ${s.skipped} more ${plural(s.skipped, "website")} left for Find emails on the Contact Finder page.` : ""}` : "";
+    setNotice({ tone: !r.ok ? "bad" : r.errors?.length || r.notes?.length ? "warn" : "info", text: said + sites + lost + more });
     setTick((t) => t + 1);
   }
 
@@ -133,7 +123,7 @@ function RedditLeadsPage() {
     return res;
   }
 
-  const props = { leads, emails, loading, canEdit, canAddCustomer, today, now, settings, checking, onCheck: check, onPatchLead, onSavedEmails, notify, reload };
+  const props = { leads, emails, loading, canEdit, today, now, settings, checking, onCheck: check, notify };
   const missing = core.status === "error" && tableMissing(core.error);
   const subs = settings?.subreddits?.length || 0;
 

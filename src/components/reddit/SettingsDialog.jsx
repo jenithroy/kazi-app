@@ -50,7 +50,7 @@ export default function SettingsDialog({ settings, canEdit, onSave, onClose }) {
         <div className="ec-f rdl-set-b">
           <label htmlFor={`${id}-strong`}>Strong phrases</label>
           <textarea id={`${id}-strong`} rows={7} value={draft.strong} onChange={set("strong")} disabled={!canEdit} spellCheck={false} />
-          <small className="ec-hint">One phrase per line. Each one a post contains is worth 40 points: one is enough.</small>
+          <small className="ec-hint">One phrase per line. Each one a post contains is worth 40 points: one is enough. A * stands for up to three words: “looking for a * manufacturer” also catches “looking for a high-end outerwear manufacturer”.</small>
         </div>
         <div className="ec-f rdl-set-c">
           <label htmlFor={`${id}-weak`}>Weak words</label>
@@ -60,7 +60,7 @@ export default function SettingsDialog({ settings, canEdit, onSave, onClose }) {
         <div className="ec-f rdl-set-d">
           <label htmlFor={`${id}-block`}>Rule a post out</label>
           <textarea id={`${id}-block`} rows={6} value={draft.block} onChange={set("block")} disabled={!canEdit} spellCheck={false} />
-          <small className="ec-hint">A post with any of these is dropped, whatever else it says: sellers advertising, jobs, careers.</small>
+          <small className="ec-hint">A post with any of these is dropped, whatever else it says: sellers advertising, jobs, careers. A * works here too.</small>
         </div>
         <div className="ec-f rdl-set-e">
           <label htmlFor={`${id}-min`}>Points a post needs</label>
