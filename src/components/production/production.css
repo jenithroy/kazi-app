@@ -362,6 +362,49 @@
 .pr-toast button:hover { text-decoration: underline; text-underline-offset: 2px; }
 .pr-toast button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; box-shadow: none; }
 
+/* ── Orders from the website ──────────────────────────────────── */
+
+/* The button right beside the Filters button: how many orders from the website nobody has opened yet. It is only there while the list holds
+   the team's own orders alone (they are hidden by default), and a press shows them. */
+.pr-webnew {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px 0 9px; border-radius: 999px;
+  border: 1px solid var(--kb-accent); background: var(--kb-chip); color: var(--kb-accent);
+  font: 600 12px/1 var(--font); white-space: nowrap; cursor: pointer; transition: background-color .15s, color .15s;
+}
+.pr-webnew > svg { flex: none; }
+.pr-webnew-n { font-variant-numeric: tabular-nums; }
+.pr-webnew:hover { background: var(--kb-well); color: var(--kb-ink); }
+.pr-webnew:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; box-shadow: none; border-radius: 999px; }
+:root[data-theme="dark"] .pr-webnew { color: color-mix(in srgb, var(--kb-accent) 72%, #fff); }
+:root[data-theme="dark"] .pr-webnew:hover { color: var(--kb-ink); }
+@container kb (max-width: 299px) { .pr-webnew-t { display: none; } }       /* a 320px phone: the globe and the number */
+
+/* The mark of an order from the website (WebMark.jsx): a globe where a person's picture would be. The round one stands in for the picture of
+   somebody nobody has assigned yet; the small one sits on the corner of the picture of somebody who has; the chip is beside the customer's
+   name, and only where the "who" cell is hidden (a narrow list, a phone), so the origin is never out of sight. */
+.pr-web {
+  flex: none; display: inline-grid; place-items: center; box-sizing: border-box; border-radius: 50%;
+  background: color-mix(in srgb, var(--kb-accent) 15%, transparent); color: var(--kb-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kb-accent) 38%, transparent);
+}
+:root[data-theme="dark"] .pr-web { color: color-mix(in srgb, var(--kb-accent) 72%, #fff); }
+.pr-web.is-press { cursor: pointer; }
+.pr-web--avatar, .pr-web--chip { position: relative; z-index: 2; }       /* above the row's own button, to take the pointer for the tooltip */
+.pr-web--chip { display: none; }
+.pr-web--badge {
+  position: absolute; right: -5px; bottom: -4px; pointer-events: none; background: var(--kb-surface); color: var(--kb-accent);
+  box-shadow: 0 0 0 1.5px var(--kb-surface), inset 0 0 0 1px color-mix(in srgb, var(--kb-accent) 45%, transparent);
+}
+@container kb (max-width: 939px) { .pr-web--chip { display: inline-grid; } }
+
+/* the customer's name with the chip and the "New" tag after it: the name gives way (an ellipsis), the two never do */
+.pr-c-main > b.pr-web-line { display: flex; align-items: center; gap: 6px; }
+.pr-web-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-newtag {
+  flex: none; display: inline-flex; align-items: center; height: 17px; padding: 0 7px; border-radius: 999px;
+  background: var(--kb-accent); color: var(--kb-on-accent); font: 700 10.5px/1 var(--font); letter-spacing: .02em;
+}
+
 /* ── Phone: the page scrolls, so lists show every row and fixed heights come back ── */
 
 @media (max-width: 768px) {
@@ -385,11 +428,12 @@
   .pr-search input { height: 32px; font-size: 16px; }
   .pr-bar .fn-find .pr-search { flex: 1 1 0; min-width: 0; }        /* the search and the Filters button take the bar's first row: the search grows */
   .pr-bar .fn-filterbtn { height: 32px; }
+  .pr-webnew { height: 32px; }
   .pr-sw-btn { height: 28px; }
   .pr-next { height: 34px; padding: 0 14px; }
   .pr-row { min-height: 60px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pr-cell, .pr-pill, .pr-sw-btn, .pr-nav, .pr-row, .pr-next, .pr-day-c, .pr-day-row, .pr-att-row { transition: none; }
+  .pr-cell, .pr-pill, .pr-sw-btn, .pr-nav, .pr-row, .pr-next, .pr-day-c, .pr-day-row, .pr-att-row, .pr-webnew { transition: none; }
 }

@@ -3,7 +3,9 @@ import { Money } from "../bento/Bento";
 import PersonLink from "../profile/PersonLink";
 import CustomerLink from "../customer-link/CustomerLink";
 import { StageBar, StageTag } from "./StageMark";
+import WebMark from "./WebMark";
 import { dueInfo, isOpen, nextStageOf } from "../../lib/production";
+import { isWebsiteOrder } from "../../lib/webOrders";
 
 /**
  * One order in the list. The whole row opens the order (a button laid over it); the one thing that
@@ -11,8 +13,12 @@ import { dueInfo, isOpen, nextStageOf } from "../../lib/production";
  *
  * What a row shows depends on the width of the tile it is in (production.css hides the less useful
  * cells first), so a phone gets the customer, the stage, the due date and the button.
+ *
+ * An order from the website carries a globe where a person's picture would be (WebMark: the round one in the "who" cell, with a small one
+ * on the picture of whoever has been given it), and the same globe beside the customer's name where that cell is hidden, so where it came
+ * from is never invisible. `isNew` (nobody has opened it yet) adds a "New" tag.
  */
-export default function OrderRow({ order, today, canEdit, busy, onOpen, onAdvance }) {
+export default function OrderRow({ order, today, canEdit, busy, isNew, onOpen, onAdvance }) {
   const due = dueInfo(order, today);
   const open = isOpen(order);
   const hold = order.status === "On Hold";
@@ -20,21 +26,32 @@ export default function OrderRow({ order, today, canEdit, busy, onOpen, onAdvanc
   const canMove = open && !hold && canEdit && Boolean(next);
   const qty = Number(order.quantity || 0);
   const what = [order.styleName, order.fabricType, order.colorway].filter(Boolean).join(" · ");
+  const web = isWebsiteOrder(order);
+  const openIt = () => onOpen(order);
+  const customer = order.customerName ? <CustomerLink className="cl-clip" customerId={order.customer_id} name={order.customerName}>{order.customerName}</CustomerLink> : "No customer";
 
   return (
-    <li className={cn("pr-row", !open && "is-closed", busy && "is-busy")}>
+    <li className={cn("pr-row", !open && "is-closed", busy && "is-busy", web && "is-web", web && isNew && "is-new")}>
       <button
         type="button"
         className="pr-hit"
-        onClick={() => onOpen(order)}
-        aria-label={`Open ${order.orderId}, ${order.customerName || "no customer"}, ${order.styleName || "no style"}, ${open ? order.stage : order.status}`}
+        onClick={openIt}
+        aria-label={`Open ${order.orderId}, ${order.customerName || "no customer"}, ${order.styleName || "no style"}, ${open ? order.stage : order.status}${web ? ", from the website" : ""}${web && isNew ? ", new" : ""}`}
       />
 
       <span className="pr-c-id">{order.orderId}</span>
 
       <span className="pr-c-main">
         {/* the customer's name opens their card (it sits above the row's own button, so the order does not open) */}
-        <b>{order.customerName ? <CustomerLink className="cl-clip" customerId={order.customer_id} name={order.customerName}>{order.customerName}</CustomerLink> : "No customer"}</b>
+        {web ? (
+          <b className="pr-web-line">
+            <span className="pr-web-name">{customer}</span>
+            <WebMark variant="chip" onClick={openIt} />
+            {isNew && <span className="pr-newtag">New</span>}
+          </b>
+        ) : (
+          <b>{customer}</b>
+        )}
         <span>{what || "No style yet"}</span>
       </span>
 
@@ -61,9 +78,10 @@ export default function OrderRow({ order, today, canEdit, busy, onOpen, onAdvanc
               <span title={order.assignedTo}><Avatar name={order.assignedTo} personId={order.assigned_to || undefined} hue={hueFromName(order.assignedTo)} size={26} /></span>
               {/* their profile: an empty button over the photo (production.css), so the photo's initials are not part of its name */}
               <PersonLink personId={order.assigned_to || undefined} name={order.assignedTo} label={`Assigned to ${order.assignedTo}`} title={order.assignedTo}><></></PersonLink>
+              {web && <WebMark variant="badge" />}
             </>
           )
-          : null}
+          : web ? <WebMark variant="avatar" onClick={openIt} /> : null}
       </span>
 
       <span className="pr-c-act">

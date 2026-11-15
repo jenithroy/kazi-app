@@ -47,10 +47,12 @@ import InvoiceDialog from "../components/production/InvoiceDialog";
 import { useTechPack } from "../components/techpack/TechPackProvider";
 import { DONE, orderFilters } from "../components/production/filters";
 import useProductionData from "../hooks/useProductionData";
+import useWebOrderSeen from "../hooks/useWebOrderSeen";
 import {
   LAST_STAGE, MATERIALS_STAGE, STAGES, STAGES_AWAITING_STOCK_DEDUCTION, attention, dueIn30, glance, inMonth,
-  invoiceOf, nextInvoiceNumber, nextOrderNumber, pipelineCounts, selectOrders, stageIndex,
+  invoiceOf, isOpen, nextInvoiceNumber, nextOrderNumber, pipelineCounts, selectOrders, stageIndex,
 } from "../lib/production";
+import { bySource, isUnseenWebsite, isWebsiteOrder, sourceCounts } from "../lib/webOrders";
 import "../components/production/production.css";
 import "../components/production/production-dialogs.css";
 
@@ -110,6 +112,13 @@ export default function Production() {
   // The quick views (overdue, due this week, no delivery date, on hold, stock not deducted) are the "Focus on" choice of the
   // Filters panel, which keeps it with the other filters; the two tiles beside the list set it through `focusOn` below.
 
+  // Where an order came from (lib/webOrders.js): "team" (the orders entered here: the default), "website" or "all". Like "This month" it
+  // scopes the whole page, so the strip, the four numbers and the lists never disagree; the Filters panel mirrors it and the bar draws its pill.
+  const [source, setSource] = useState("team");
+  const { seen, markSeen } = useWebOrderSeen();      // the website orders this browser has opened
+  const wroteSeen = useRef(new Set());               // the ones whose "opened" mark this page has written to the database
+  const [listFocus, setListFocus] = useState(0);     // changes when the "new from the website" button is pressed: the list takes the cursor
+
   /* ── dialogs, and what is being done ───────────────────── */
 
   const [cardId, setCardId] = useState(null);
@@ -145,9 +154,18 @@ export default function Production() {
      count and dropdown narrows to one arm of the business without any of them having to know that.
      Rows with no region set appear on both sides (see utils/region.js). The unfiltered rows stay in
      scope for the two jobs that must span both: numbering the next order and invoice, which has to
-     be unique across the company, and counting what is still untagged. */
+     be unique across the company, and counting what is still untagged (the team's own: the website's
+     orders carry no side until somebody gives them one, and are not what that hint is about).
+     The "Where from" choice narrows the same way, after the side: `regional` is this side's orders from
+     every source, and what the choice would show is counted from it. */
 
-  const orders = useMemo(() => filterByRegion(allOrders, region), [allOrders, region]);
+  const regional = useMemo(() => filterByRegion(allOrders, region), [allOrders, region]);
+  const sources = useMemo(() => sourceCounts(regional), [regional]);
+  const orders = useMemo(() => bySource(regional, source), [regional, source]);
+  const untaggedCount = useMemo(() => countUntagged(allOrders.filter((o) => !isWebsiteOrder(o))), [allOrders]);
+  // website orders nobody has opened yet, that are still open: what the "new from the website" button counts
+  const webNew = useMemo(() => regional.filter((o) => isOpen(o) && isUnseenWebsite(o, seen)).length, [regional, seen]);
+  const isNewWeb = useCallback((o) => isUnseenWebsite(o, seen), [seen]);
   const invoices = useMemo(() => filterByRegion(data.invoices, region), [data.invoices, region]);
   const challans = useMemo(() => filterByRegion(data.challans, region), [data.challans, region]);
   const quotations = useMemo(() => filterByRegion(data.quotations, region), [data.quotations, region]);
@@ -201,19 +219,27 @@ export default function Production() {
   const filterDefs = useMemo(
     () => orderFilters({
       orders, invoices: data.invoices, today, monthKey, canDeductStock, stockPending, counts,
-      view, stage, onStage: chooseStage, monthOnly, onMonthOnly: setMonthOnly,
+      view, stage, onStage: chooseStage, monthOnly, onMonthOnly: setMonthOnly, source, onSource: setSource, sources,
     }),
-    [orders, data.invoices, today, monthKey, canDeductStock, stockPending, counts, view, stage, chooseStage, monthOnly],
+    [orders, data.invoices, today, monthKey, canDeductStock, stockPending, counts, view, stage, chooseStage, monthOnly, source, sources],
   );
   const tf = useFilters(filterDefs, searched);
   const rows = tf.rows;
-  // "This month" scopes the whole page (the tiles follow it), so the page keeps it; the bar still shows it as a pill and clears it with the rest
-  const barFilters = useMemo(() => (monthOnly ? {
-    ...tf,
-    active: [...tf.active, { id: "month", text: "This month", clear: () => setMonthOnly(false) }],
-    count: tf.count + 1,
-    clear: () => { tf.clear(); setMonthOnly(false); },
-  } : tf), [tf, monthOnly]);
+  // "This month" and "Where from" scope the whole page (the tiles follow them), so the page keeps them; the bar still shows each as a pill and
+  // clears it with the rest. The default of "Where from" (the team's own orders) is no filter: it is no pill and does not count.
+  const barFilters = useMemo(() => {
+    const own = [
+      ...(source !== "team" ? [{ id: "source", text: source === "website" ? "Website orders" : "All orders", clear: () => setSource("team") }] : []),
+      ...(monthOnly ? [{ id: "month", text: "This month", clear: () => setMonthOnly(false) }] : []),
+    ];
+    if (!own.length) return tf;
+    return {
+      ...tf,
+      active: [...tf.active, ...own],
+      count: tf.count + own.length,
+      clear: () => { tf.clear(); setMonthOnly(false); setSource("team"); },
+    };
+  }, [tf, monthOnly, source]);
   const filtered = Boolean(query) || tf.count > 0;           // the list is narrower than the strip's choice ("This month" is not counted: the numbers beside the list follow it too)
 
   const cardOrder = cardId ? allOrders.find((o) => o.id === cardId) || null : null;
@@ -222,7 +248,14 @@ export default function Production() {
   const focusOn = (key) => tf.set("focus", key);
   const pickStage = (nextView, nextStage) => { setView(nextView); setStage(nextStage); focusOn(""); };
   const showQuick = (key) => { setView("open"); setStage(""); focusOn(key); setMode("list"); };
-  const clearAll = () => { setQuery(""); tf.clear(); setMonthOnly(false); };
+  const clearAll = () => { setQuery(""); tf.clear(); setMonthOnly(false); setSource("team"); };
+  // The "new from the website" button: show the website's orders, every open one (so none hides behind a stage, a search or a filter the
+  // person had set), and give the list the cursor.
+  const showWebsite = () => {
+    setQuery(""); tf.clear(); setMonthOnly(false);
+    setSource("website"); setView("open"); setStage(""); setMode("list");
+    setListFocus((n) => n + 1);
+  };
 
   /* ── writes ────────────────────────────────────────────── */
 
@@ -533,7 +566,18 @@ export default function Production() {
 
   /* ── opening and closing things ────────────────────────── */
 
-  const openCard = (order) => { setActionError(""); setCardId(order.id); };
+  // Opening a website order is how it stops being new: at once for this browser, and for everyone once the mark is written (only a person who
+  // may edit writes it, and once per order; a write that fails is not a failure of opening the card, and the browser's own mark holds).
+  function markWebSeen(order) {
+    if (!isWebsiteOrder(order)) return;
+    markSeen(order.id);
+    if (!canEdit || order.webSeenAt || wroteSeen.current.has(order.id)) return;
+    wroteSeen.current.add(order.id);
+    updateRow("orders", order.id, { webSeenAt: new Date().toISOString(), webSeenBy: profile?.name || "Unknown" })
+      .catch((err) => { wroteSeen.current.delete(order.id); console.warn("Could not mark the website order as opened:", err?.message || err); });
+  }
+
+  const openCard = (order) => { setActionError(""); setCardId(order.id); markWebSeen(order); };
   const closeCard = () => setCardId(null);
   const openNew = () => { if (status === "ready") setForm({ order: null, back: false }); };
   const openEdit = (order) => { setCardId(null); setForm({ order, back: true }); };
@@ -550,7 +594,7 @@ export default function Production() {
   // what is on screen, in words: the side of the business (and the month, when the page is scoped to it); their switches are in the Filters panel
   const sub = ready ? (
     <>
-      <span>{regionLabel}{monthOnly ? " · This month" : ""}</span>
+      <span>{regionLabel}{source === "website" ? " · Website orders" : source === "all" ? " · All orders" : ""}{monthOnly ? " · This month" : ""}</span>
       <span>{stats.open} open</span>
       {stats.units > 0 && <span>{stats.units.toLocaleString()} pcs</span>}
       {stats.overdue > 0 && <span className="kb-bad">{stats.overdue} late</span>}
@@ -601,10 +645,11 @@ export default function Production() {
           <GlanceTile stats={stats} onQuick={showQuick} loading={!ready} />
           <OrdersTile
             rows={rows} base={base} title={title} view={view} mode={mode} query={query} filters={barFilters} filtered={filtered}
-            untagged={countUntagged(allOrders)} today={today} canEdit={canEdit} busyIds={busy} hasOrders={scoped.length > 0}
+            untagged={untaggedCount} today={today} canEdit={canEdit} busyIds={busy} hasOrders={scoped.length > 0}
             loading={!ready} notice={notice}
+            source={source} webNew={webNew} isNewWeb={isNewWeb} listFocus={listFocus}
             onQuery={setQuery} onMode={setMode}
-            onOpen={openCard} onAdvance={advance} onClearAll={clearAll} onNoDate={() => showQuick("nodate")}
+            onOpen={openCard} onAdvance={advance} onClearAll={clearAll} onNoDate={() => showQuick("nodate")} onWebNew={showWebsite}
           />
           <AttentionTile items={attn} today={today} showStock={canDeductStock} onOpen={openCard} onQuick={showQuick} loading={!ready} />
         </BentoGrid>

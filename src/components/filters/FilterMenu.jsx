@@ -399,14 +399,16 @@ export function ActiveFilters({ filters, scope }) {
  * no search box (a statement has none) and the button stands alone. `search` is a search box of the page's own to draw in place of the shared
  * one (Tasks has a glass one). On a phone the pair takes the bar's whole first row (the search grows, the button stays its size): each page's
  * stylesheet says so for its own bar. A page with two of them (Sales: customers and orders) gives each a `name`, which a screen reader hears after
- * the button's own words ("Filters, customers"); the visible word stays "Filters".
+ * the button's own words ("Filters, customers"); the visible word stays "Filters". `after` is a control of the page's own that sits right
+ * beside the Filters button, on the same row (Production's "3 new from the website").
  */
-export function FindBar({ value, onChange, placeholder, label, filters, scope, search, name }) {
+export function FindBar({ value, onChange, placeholder, label, filters, scope, search, name, after }) {
   return (
     <>
       <span className="fn-find">
         {search || (onChange ? <SearchBox value={value} onChange={onChange} placeholder={placeholder} label={label} /> : null)}
         <FilterMenu filters={filters} scope={scope} name={name} />
+        {after}
       </span>
       <ActiveFilters filters={filters} scope={scope} />
     </>

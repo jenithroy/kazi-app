@@ -9,6 +9,7 @@ import {
 } from "./lib/metaLeads.js";
 import { REDDIT_CRON, handleRedditSync, runRedditSync } from "./lib/redditLeads.js";
 import { handleFindEmails, handleFindWebsite, handleTenderSearch, handleWebSearch } from "./lib/emailFinder.js";
+import { handleWebsiteOrders } from "./lib/websiteOrders.js";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -307,6 +308,12 @@ export default {
       } catch (err) {
         return errorResponse(err);
       }
+    }
+
+    // Orders from the website, and the logo lookup for "Create by design" (worker/lib/websiteOrders.js). Called from the public site, so it
+    // answers CORS itself and never throws.
+    if (url.pathname === "/api/website-orders" || url.pathname.startsWith("/api/website-orders/")) {
+      return handleWebsiteOrders(request, env);
     }
 
     return env.ASSETS.fetch(request);

@@ -1,10 +1,13 @@
 /**
  * What the Filters panel offers on the Production page (components/filters: the button, the panel and the engine).
  *
- * Two of the choices are the page's own and are only mirrored here (`controlled`), so the panel never disagrees with what the
+ * Three of the choices are the page's own and are only mirrored here (`controlled`), so the panel never disagrees with what the
  * strip and the tiles show:
  *   Stage      the pipeline strip's choice (a stage, all the open orders, or the finished ones): the page keeps `view` and `stage`
  *   This month the switch that scopes the whole page (the strip's counts, the four numbers and the attention list follow it)
+ *   Where from the orders the team entered (the default), the ones customers placed on the website, or both. It scopes the whole page like
+ *              "This month" (lib/webOrders.js), and is only offered once the website has sent an order, or while it is chosen, so a page that
+ *              has never had one is exactly what it was. The page draws its pill and clears it with the rest.
  * The quick views ("Focus on": overdue, due this week, no delivery date, on hold, stock not deducted) are the panel's own, so they
  * are a pill and carry counts like every filter; the glance and attention tiles start them by pressing the panel's choice
  * (Production.jsx `focusOn`), which is why the tiles and the panel cannot disagree either.
@@ -20,10 +23,13 @@ import {
 /** The "Stage" choice's value for the finished and cancelled orders (the others are a stage's own name, "" for all the open ones). */
 export const DONE = "__done";
 
-/** The filters, as the engine's definitions (components/filters/useFilters.js). `orders` are the ones on this side of the business. */
+/**
+ * The filters, as the engine's definitions (components/filters/useFilters.js). `orders` are the ones on this side of the business, in the
+ * "Where from" scope; `sources` is how many each "Where from" choice would show ({ team, website, all }).
+ */
 export function orderFilters({
   orders, invoices, today, monthKey, canDeductStock, stockPending, counts,
-  view, stage, onStage, monthOnly, onMonthOnly,
+  view, stage, onStage, monthOnly, onMonthOnly, source = "team", onSource, sources = { team: 0, website: 0, all: 0 },
 }) {
   const customers = foldNames(orders, (o) => o.customerName);
   const styles = foldNames(orders, (o) => o.styleName);
@@ -38,6 +44,15 @@ export function orderFilters({
   const tone = { overdue: "bad", hold: "warn", stock: "warn" };
 
   return [
+    ...(sources.website > 0 || source !== "team" ? [{
+      id: "source", label: "Where from", kind: "chips",
+      controlled: { value: source, set: onSource },
+      options: [
+        { value: "team", label: "Entered here", count: sources.team },
+        { value: "website", label: "Website", count: sources.website },
+        { value: "all", label: "Everything", count: sources.all },
+      ],
+    }] : []),
     {
       // what the two tiles beside the list set ("Due this week", "See in list"): one at a time, as they always were. An order that is
       // finished is never late, on hold or waiting on stock, so only the open ones pass.

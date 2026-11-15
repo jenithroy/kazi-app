@@ -9,9 +9,14 @@
  *
  * The labour rate is last month's production payroll divided by the pieces that passed QC that
  * month in the batch log, so a month with no batches has no rate.
+ *
+ * Website orders (migration 0071) are ordinary rows of `orders`: `fs_orders` returns them with every other order (`source: "website"`,
+ * lib/webOrders.js), so this hook reads them with the rest and the page decides what to show (its "Where from" choice hides them by
+ * default). The orders table is also watched: when anything changes an order, the orders are read again half a second later, so a new
+ * website order shows its button without waiting for the minute.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchAll } from "../lib/db";
+import { fetchAll, subscribe } from "../lib/db";
 import { PACK_LIST_COLUMNS } from "../lib/packColumns";
 
 const POLL_MS = 60000;
@@ -129,6 +134,22 @@ export default function useProductionData({ canDeductStock }) {
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Something changed an order (a colleague, the website's order desk, this very page): look again half a second later, once for a run of changes.
+  useEffect(() => {
+    let timer = 0;
+    const later = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { if (!document.hidden && ready.current) reloadOrders(); }, 500);
+    };
+    let stop = () => {};
+    try {
+      stop = subscribe("orders", later);
+    } catch (err) {
+      console.warn("Not watching the orders live:", err?.message || err);
+    }
+    return () => { clearTimeout(timer); stop(); };
+  }, [reloadOrders]);
 
   useEffect(() => {
     // Only while the page has loaded: a page showing "could not load" waits for Try again, which reads everything.

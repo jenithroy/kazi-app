@@ -950,7 +950,11 @@ export const SCHEMA_MAP = {
       "sampleId": "sample_id",
       "region": "region",
       "recipeId": "recipe_id",
-      "patternId": "pattern_id"
+      "patternId": "pattern_id",
+      "source": "source",
+      "webSeenAt": "web_seen_at",
+      "webSeenBy": "web_seen_by",
+      "web": "web_data"
     },
     "derived": [
       "assignedTo",
@@ -983,11 +987,17 @@ export const SCHEMA_MAP = {
       "region",
       "sample_id",
       "sample_name",
+      "source",
       "stage",
       "status",
       "style_name",
       "total_value_npr",
-      "updated_at"
+      "updated_at",
+      "web_data",
+      "web_ip_hash",
+      "web_ref",
+      "web_seen_at",
+      "web_seen_by"
     ]
   },
   "patterns": {

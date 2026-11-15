@@ -6,7 +6,10 @@
   "description": "Rehearses a database migration on a scratch Postgres (never the live database).",
   "scripts": {
     "test:0068": "node 0068.test.mjs",
-    "test:0072": "node 0072.test.mjs"
+    "test:0071": "node 0071.test.mjs",
+    "test:0072": "node 0072.test.mjs",
+    "test:link": "node website-orders-link.test.mjs",
+    "dev:website-orders": "node website-orders-dev.mjs"
   },
   "engines": {
     "node": ">=20"

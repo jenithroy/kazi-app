@@ -16,7 +16,7 @@
  * JWT"), so it goes on apikey alone and Supabase's gateway applies the
  * service role itself.
  */
-function serviceHeaders(env, extra = {}) {
+export function serviceHeaders(env, extra = {}) {
   const key = env.SUPABASE_SERVICE_KEY;
   return {
     apikey: key,
@@ -94,6 +94,23 @@ export async function upsert(env, table, rows, { onConflict, ignoreDuplicates = 
     throw new Error(`Supabase upsert into ${table} failed: ${res.status} ${await readErrorText(res)}`);
   }
   return returning ? res.json() : undefined;
+}
+
+/**
+ * Call a database function through PostgREST (worker/lib/websiteOrders.js). Unlike the helpers above it does NOT throw for an HTTP error:
+ * it resolves to { ok, status, body } so the caller can read what the function itself said (a function that raises SQLSTATE PT429 comes
+ * back as status 429, PT400 as 400). A network failure still throws.
+ */
+export async function rpc(env, name, args = {}) {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: serviceHeaders(env, { "Content-Type": "application/json" }),
+    body: JSON.stringify(args),
+  });
+  const text = await res.text().catch(() => "");
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  return { ok: res.ok, status: res.status, body };
 }
 
 /**

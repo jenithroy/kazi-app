@@ -12,6 +12,9 @@ import { useCurrency } from "../../context/CurrencyContext";
 import { regionLabel } from "../../utils/region";
 import NotesSection from "./NotesSection";
 import StageHistory from "./StageHistory";
+import WebOrderPanel from "./WebOrderPanel";
+import { WebGlobe } from "./WebMark";
+import { isWebsiteOrder } from "../../lib/webOrders";
 import {
   EMBELLISHMENT_TYPES, LAST_STAGE, PRIORITY_LABEL, STAGES, dueInfo, isOpen, nextStageOf, orderPnl, priorityOf, stageIndex,
 } from "../../lib/production";
@@ -33,6 +36,9 @@ function Fact({ label, children, wide }) {
  *
  * It only draws and asks. Every change goes back to the page through the `on…` callbacks, which
  * resolve to `{ ok, message }` where the card needs to know how it went.
+ *
+ * An order a customer placed on the website says so in the card's header ("Website order") and has a "From the website" section at the top of
+ * its Details pane (WebOrderPanel: who they are, what they sent, the files). On a phone it opens on the Details tab, where that is.
  */
 export default function OrderCard({
   order, today, canEdit, canDeductStock, stockState, costs, labourRatePerUnit, invoice, busy, error, profile,
@@ -41,7 +47,8 @@ export default function OrderCard({
   const uid = useId();
   const { fmt } = useCurrency();
   const { openSheet } = useTechPack();
-  const [tab, setTab] = useState("progress");          // on a phone: "progress" | "details"
+  const web = isWebsiteOrder(order);
+  const [tab, setTab] = useState(web ? "details" : "progress");          // on a phone: "progress" | "details"
   const [dates, setDates] = useState(null);            // the reschedule editor: { date, deliveryDate, saving, error } or null
   const [moneyOpen, setMoneyOpen] = useState(false);
   const [picked, setPicked] = useState(null);        // the stage whose dot was pressed; null = the one the order is at
@@ -121,6 +128,7 @@ export default function OrderCard({
       glass
       onClose={onClose}
       footer={footer}
+      headerExtra={web ? <span className="pr-tag pr-tag--info pr-web-tag"><WebGlobe size={12} /> Website order</span> : undefined}
     >
       {/* phones only: the two halves as tabs, so the sheet needs no scrolling */}
       <div className="pr-oc-tabs kregion-seg" role="tablist" aria-label="Order sections">
@@ -140,7 +148,7 @@ export default function OrderCard({
         ))}
       </div>
 
-      <div className="pr-oc">
+      <div className={cn("pr-oc", web && "is-web")}>
         {/* ── Progress ── */}
         <div className={cn("pr-oc-pane pr-oc-main", tab !== "progress" && "is-off")} id={fid("pane-progress")} role="tabpanel" aria-labelledby={fid("tab-progress")}>
           <div className="pr-now">
@@ -237,6 +245,7 @@ export default function OrderCard({
 
         {/* ── Details ── */}
         <div className={cn("pr-oc-pane pr-oc-side", tab !== "details" && "is-off")} id={fid("pane-details")} role="tabpanel" aria-labelledby={fid("tab-details")}>
+          {web && <WebOrderPanel order={order} />}
           <dl className="pr-facts">
             <Fact label="Order date">{order.date ? fmtField(order.date) : "—"}</Fact>
             <Fact label="Delivery date">

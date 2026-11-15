@@ -1,9 +1,11 @@
+import { useEffect, useRef } from "react";
 import { Icons, cn } from "../ui";
 import { EmptyNote, Tile } from "../bento/Bento";
 import { Undo } from "../bento/icons";
 import { FindBar } from "../filters/FilterMenu";
 import OrderRow from "./OrderRow";
 import CalendarView from "./CalendarView";
+import { WebGlobe } from "./WebMark";
 
 /**
  * The orders themselves: a list, or the same orders by delivery date on a calendar. What it shows
@@ -26,12 +28,43 @@ function onListKey(e) {
   hits[next].scrollIntoView({ block: "nearest" });
 }
 
-/** `filters` is the page's Filters (useFilters, with "This month" added to what is narrowing); `filtered` says the list is narrower than the strip's choice. */
+/**
+ * `filters` is the page's Filters (useFilters, with "This month" and "Where from" added to what is narrowing); `filtered` says the list is narrower
+ * than the strip's choice.
+ *
+ * Website orders (lib/webOrders.js): `source` is the "Where from" choice. `webNew` is how many website orders nobody has opened yet; while the
+ * list shows only the team's own, a button for them sits right beside the Filters button and `onWebNew` shows them. `isNewWeb(order)` says
+ * which rows carry the "New" tag. `listFocus` changes when the button is pressed: the cursor then goes to the first new order (or the list).
+ */
 export default function OrdersTile({
   rows, base, title, view, mode, query, filters, filtered, untagged, today, canEdit, busyIds, hasOrders, loading, notice,
-  onQuery, onMode, onOpen, onAdvance, onClearAll, onNoDate,
+  source = "team", webNew = 0, isNewWeb, listFocus = 0,
+  onQuery, onMode, onOpen, onAdvance, onClearAll, onNoDate, onWebNew,
 }) {
   const empty = rows.length === 0;
+  const listRef = useRef(null);
+
+  // The button for the new website orders was pressed: the list now shows them, so the cursor goes to the first one (the button is gone).
+  useEffect(() => {
+    if (!listFocus) return;
+    const list = listRef.current;
+    const target = list?.querySelector(".pr-row.is-new .pr-hit") || list?.querySelector(".pr-hit") || list;
+    target?.focus();
+  }, [listFocus]);
+
+  const webButton = webNew > 0 && source === "team" ? (
+    <button
+      type="button"
+      className="pr-webnew"
+      onClick={onWebNew}
+      aria-label={`${webNew} new ${webNew === 1 ? "order" : "orders"} from the website`}
+      title="Show the new orders from the website"
+    >
+      <WebGlobe size={13} />
+      <span className="pr-webnew-n">{webNew}</span>{" "}
+      <span className="pr-webnew-t">new</span>
+    </button>
+  ) : null;
 
   return (
     <Tile
@@ -47,6 +80,7 @@ export default function OrdersTile({
         <FindBar
           filters={filters}
           scope={{ region: { untagged } }}
+          after={webButton}
           search={(
             <label className="pr-search">
               <Icons.Search size={14} sw={1.9} aria-hidden="true" />
@@ -87,13 +121,15 @@ export default function OrdersTile({
           {empty ? (
             <EmptyNote icon={<Icons.Production size={22} sw={1.5} />}>
               {!hasOrders
-                ? <>No orders yet.{canEdit ? " Press New order to add the first one." : ""}</>
+                ? source === "website"
+                  ? <>No website orders yet. They show here when a customer orders on the website.</>
+                  : <>No orders yet.{canEdit ? " Press New order to add the first one." : ""}</>
                 : filtered || filters.count > 0
                   ? <>Nothing matches. <button type="button" className="pr-link" onClick={onClearAll}>Clear the filters</button></>
                   : view === "closed" ? "No finished orders yet." : "No orders at this stage right now."}
             </EmptyNote>
           ) : (
-            <ul className="pr-list kb-fill" tabIndex={0} aria-label="Orders" onKeyDown={onListKey}>
+            <ul ref={listRef} className="pr-list kb-fill" tabIndex={0} aria-label="Orders" onKeyDown={onListKey}>
               {rows.map((o) => (
                 <OrderRow
                   key={o.id}
@@ -101,6 +137,7 @@ export default function OrdersTile({
                   today={today}
                   canEdit={canEdit}
                   busy={busyIds.has(o.id)}
+                  isNew={isNewWeb ? isNewWeb(o) : false}
                   onOpen={onOpen}
                   onAdvance={onAdvance}
                 />
