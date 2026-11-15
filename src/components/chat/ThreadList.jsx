@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { Icons } from "../ui";
 import { SearchBox } from "../table/Bar";
 import { Menu, MenuDivider, MenuItem, ThreadAvatar } from "./ChatBits";
+import { KaziAvatar } from "./KaziThread";
 import {
   listTime,
   previewOf,
@@ -111,6 +112,33 @@ function ThreadRow({ thread, last, unread, active, onOpen, onSetRead, onSetFlag,
   );
 }
 
+/**
+ * Kazi, the assistant, pinned above the conversations. Not a conversation of the team chat (it has no members, no unread count and no
+ * menu): its own pane opens when it is chosen (KaziThread.jsx). Shown only to someone whose role has Kazi; `kazi` is null otherwise.
+ */
+function KaziRow({ active, onOpen }) {
+  return (
+    <div className={`kchat-row kz-row${active ? " kchat-row--active" : ""}`}>
+      <button
+        type="button"
+        className="kchat-row-hit"
+        onClick={onOpen}
+        aria-current={active || undefined}
+        aria-label="Kazi, the assistant. Ask about orders, stock, money and people"
+      />
+      <KaziAvatar size={40} />
+      <div className="kchat-row-body">
+        <div className="kchat-row-top">
+          <span className="kchat-row-name">Kazi<span className="kz-tag" aria-hidden="true">AI</span></span>
+        </div>
+        <div className="kchat-row-bottom">
+          <span className="kchat-row-preview">Ask about orders, stock, money and people</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ThreadList({
   threads,
   lastByThread,
@@ -119,6 +147,7 @@ export default function ThreadList({
   activeId,
   loading,
   canCompose,
+  kazi,
   onOpen,
   onCompose,
   onSetRead,
@@ -126,6 +155,9 @@ export default function ThreadList({
   onLeave,
 }) {
   const [query, setQuery] = useState("");
+  const asked = query.trim().toLowerCase();
+  // Kazi stays while what is typed is on its way to "kazi", "assistant" or "ai" (so "ka" keeps it), and for those words themselves.
+  const showKazi = Boolean(kazi) && (!asked || ["kazi", "assistant", "ai"].some((w) => w.startsWith(asked) || asked.includes(w)));
 
   /**
    * Search covers the name, the job title, everyone in a group, and the last
@@ -163,6 +195,7 @@ export default function ThreadList({
       <SearchBox value={query} onChange={setQuery} placeholder="Search people, groups or messages" label="Search conversations" />
 
       <div className="kchat-rows">
+        {showKazi && <KaziRow active={kazi.active} onOpen={kazi.onOpen} />}
         {loading ? (
           // Skeletons rather than a spinner: the list keeps its shape, so
           // nothing jumps when the real rows land.
@@ -175,7 +208,7 @@ export default function ThreadList({
               </div>
             </div>
           ))
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && showKazi && asked ? null : visible.length === 0 ? (        // (Kazi's own row is the match: no "nothing matches" beside it)
           <div className="kchat-empty kchat-empty--sm">
             <Icons.Message size={22} sw={1.4} />
             <p>{query ? `Nothing matches “${query}”.` : "No conversations yet."}</p>

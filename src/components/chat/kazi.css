@@ -1,0 +1,63 @@
+/* Kazi, the assistant in the chat list (KaziThread.jsx, and its pinned row in ThreadList.jsx).
+   It is drawn from the chat window's own rows, bubbles and message box (chat.css); only what belongs to Kazi is here.
+   Every colour is a token the chat window already uses, so light, dark and the solid fallback come with it. */
+
+/* Kazi's face */
+.kz-av {
+  display: inline-flex; flex: none; align-items: center; justify-content: center; border-radius: 50%;
+  background: linear-gradient(150deg, var(--kb-accent), color-mix(in srgb, var(--kb-accent) 68%, var(--kb-ink)));
+  color: var(--kb-on-accent);
+}
+
+/* its row in the list: the name, and a small AI mark beside it */
+.kz-tag {
+  flex: none; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--kb-chip);
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; color: color-mix(in srgb, var(--kb-accent) 80%, var(--kb-ink));
+}
+.kz-row .kchat-row-name { display: inline-flex; align-items: center; }
+
+/* what it looked at, under an answer */
+.kz-about { color: var(--kb-ink-3); }
+
+/* the empty conversation's suggestions */
+.kz-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 440px; margin-top: 12px; }
+.kz-chip {
+  padding: 7px 13px; border: 1px solid var(--kb-line-hi); border-radius: 999px; cursor: pointer;
+  background: color-mix(in srgb, var(--kb-surface) 55%, transparent); color: var(--kb-ink); font: inherit; font-size: 12.5px;
+  transition: background .12s, border-color .12s;
+}
+.kz-chip:hover { background: var(--kb-chip); border-color: var(--kb-accent); }
+.kz-chip:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
+
+/* while it works: three dots and the lookup in words */
+.kz-working { flex-direction: row; align-items: center; gap: 9px; color: var(--kb-ink-2); }
+.kz-dots { display: inline-flex; gap: 4px; }
+.kz-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--kb-accent); animation: kz-pulse 1.1s ease-in-out infinite; }
+.kz-dots i:nth-child(2) { animation-delay: .15s; }
+.kz-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes kz-pulse { 0%, 80%, 100% { opacity: .3; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .kz-dots i { animation: none; opacity: .7; } }
+
+/* read out by a screen reader, drawn nowhere (the answer, once the working bubble has gone) */
+.kz-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* a quiet line: Stop was pressed and the question is back in the box */
+.kz-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--kb-ink-2); }
+.kz-note--line { margin: 2px 0 10px 37px; }
+
+/* when it could not answer */
+.kz-error {
+  display: flex; align-items: center; gap: 8px; margin: 2px 0 10px 37px; padding: 8px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--kb-bad-fill) 14%, transparent); color: var(--kb-ink); font-size: 12.5px; line-height: 1.45;
+}
+.kz-error svg { flex: none; color: var(--kb-bad); }
+.kz-error span { min-width: 0; }
+.kz-retry {
+  flex: none; margin-left: auto; padding: 4px 11px; border: 1px solid var(--kb-line-hi); border-radius: 999px; cursor: pointer;
+  background: transparent; color: var(--kb-ink); font: inherit; font-size: 12px; font-weight: 600;
+}
+.kz-retry:hover { background: var(--kb-chip); }
+.kz-retry:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }

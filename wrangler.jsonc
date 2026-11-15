@@ -23,10 +23,12 @@
   // inside the public SPA bundle (src/supabase.js reads them from
   // VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, sourced here from .env).
   // Same precedent as bank-webhook-worker/wrangler.toml's own [vars] block.
-  // META_ACCESS_TOKEN and SUPABASE_SERVICE_KEY are real secrets and are
-  // deliberately NOT here — set them with:
+  // META_ACCESS_TOKEN, SUPABASE_SERVICE_KEY and ANTHROPIC_API_KEY are real
+  // secrets and are deliberately NOT here — set them with:
   //   wrangler secret put META_ACCESS_TOKEN
   //   wrangler secret put SUPABASE_SERVICE_KEY
+  //   wrangler secret put ANTHROPIC_API_KEY   (Kazi, worker/lib/kazi.js; without it Kazi answers "not switched on yet")
+  // Optional plain vars for Kazi, if ever wanted: KAZI_MODEL (default claude-opus-5-5), KAZI_FALLBACKS=off.
   "vars": {
     "SUPABASE_URL": "https://ydaoyjacqcmxpgpwrgwt.supabase.co",
     "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkYW95amFjcWNteHBncHdyZ3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNjk1MzQsImV4cCI6MjEwMzg0NTUzNH0.wYlH6-GA2nBGMH1cmHqkIYFqO994AZz-1CtU3baR6zA",

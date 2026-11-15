@@ -215,6 +215,7 @@ export const SECTION_LABEL = {
   admin: "Roles & Permissions",
   usage_analytics: "Usage & Activity",
   comms_record: "Conversation Record",
+  kazi: "Kazi (AI assistant)",
   directors: "Company Overview",
   bug_report: "Bug Report",
 };

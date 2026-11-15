@@ -32,9 +32,11 @@ import { useTeamChat } from "../../hooks/useTeamChat";
 import { useLeadsChat } from "../../hooks/useLeadsChat";
 import { uploadAttachment } from "../../lib/chat";
 import { threadTitle } from "../../lib/chatFormat";
-import { messengerTabAllowed, messengerTabCanEdit } from "../../utils/permissions";
+import { messengerTabAllowed, messengerTabCanEdit, sectionVisible } from "../../utils/permissions";
+import { KAZI_ID } from "../../lib/kazi";
 import ThreadList from "./ThreadList";
 import ThreadView from "./ThreadView";
+import KaziThread from "./KaziThread";
 import LeadsList from "../leads/LeadsList";
 import LeadsThread from "../leads/LeadsThread";
 import "./chat.css";
@@ -70,6 +72,9 @@ export default function ChatPopup({ request, onClose }) {
 
   const canViewLeads = messengerTabAllowed(profile, "leads");
   const canEditLeads = messengerTabCanEdit(profile, "leads");
+  // Kazi, the assistant: its row sits above the conversations and its pane opens like one (KaziThread.jsx). The `kazi` permission is
+  // the database's (migration 0070); until that is applied nobody has it and nothing here shows.
+  const canKazi = sectionVisible(profile, "kazi");
 
   const [tab, setTab] = useState("team");
   const [activeId, setActiveId] = useState(null);
@@ -107,6 +112,7 @@ export default function ChatPopup({ request, onClose }) {
     () => threads.find((t) => t.id === activeId) || null,
     [threads, activeId]
   );
+  const kaziOpen = canKazi && activeId === KAZI_ID;
 
   /**
    * Keep a thread selected on a desktop, where an empty right-hand pane is
@@ -116,9 +122,10 @@ export default function ChatPopup({ request, onClose }) {
   useEffect(() => {
     if (loading || !threads.length) return;
     if (activeId && threads.some((t) => t.id === activeId)) return;
+    if (activeId === KAZI_ID && canKazi) return;               // Kazi is not one of the threads: leave it open
     const wide = typeof window !== "undefined" && window.matchMedia("(min-width: 769px)").matches;
     if (wide) setActiveId(threads[0].id);
-  }, [loading, threads, activeId]);
+  }, [loading, threads, activeId, canKazi]);
 
   const openThread = useCallback((id) => {
     setActiveId(id);
@@ -307,6 +314,7 @@ export default function ChatPopup({ request, onClose }) {
                 activeId={activeId}
                 loading={loading}
                 canCompose={chat.canPost}
+                kazi={canKazi ? { active: kaziOpen, onOpen: () => openThread(KAZI_ID) } : null}
                 onOpen={openThread}
                 onCompose={() => setComposing(true)}
                 onSetRead={chat.markRead}
@@ -314,7 +322,9 @@ export default function ChatPopup({ request, onClose }) {
                 onLeave={askToLeave}
               />
 
-              {activeThread ? (
+              {kaziOpen ? (
+                <KaziThread onBack={() => setShowThreadOnMobile(false)} />
+              ) : activeThread ? (
                 <ThreadView
                   thread={activeThread}
                   messages={messages[activeThread.id] || []}

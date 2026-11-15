@@ -9,6 +9,7 @@ import {
 } from "./lib/metaLeads.js";
 import { REDDIT_CRON, handleRedditSync, runRedditSync } from "./lib/redditLeads.js";
 import { handleFindEmails, handleFindWebsite, handleTenderSearch, handleWebSearch } from "./lib/emailFinder.js";
+import { handleKaziChat } from "./lib/kazi.js";
 import { handleWebsiteOrders } from "./lib/websiteOrders.js";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // Discord webhook file limit (non-boosted server)
@@ -307,6 +308,16 @@ export default {
         return await handleWebSearch(request, env);
       } catch (err) {
         return errorResponse(err);
+      }
+    }
+
+    // Kazi, the assistant in the chat list (worker/lib/kazi.js): answers as a stream of JSON lines.
+    if (request.method === "POST" && url.pathname === "/api/kazi/chat") {
+      try {
+        return await handleKaziChat(request, env, ctx);
+      } catch (err) {
+        console.error("[kazi] route failed:", err?.message || err);
+        return Response.json({ error: "Kazi ran into a problem. Try again." }, { status: 500 });
       }
     }
 
