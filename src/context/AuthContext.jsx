@@ -8,6 +8,14 @@ import { initPushNotifications } from "../utils/native";
 const AuthContext = createContext(null);
 
 /**
+ * A request that never got a real answer from the database: the connection dropped, or a gateway in front of it timed out. A database "no" always
+ * carries an error code; these do not. Only these are worth asking again, and only these must never be read as "this person has no access".
+ */
+const isTransient = (err) => !!err && !err.code;
+const PROFILE_TRIES = 3;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
  * Legacy role names, derived from the position's tier.
  *
  * Pages still branch on strings like "nepal_admin". Those checks predate the
@@ -51,6 +59,12 @@ async function loadProfile() {
 
   const me = Array.isArray(meRes.data) ? meRes.data[0] : meRes.data;
   if (!me) return null;
+
+  // A failed read is not an answer. The lists below used to be read as empty when their request failed, which left a signed-in person with NO
+  // permissions (every page said "no access") until they reloaded. Permissions must arrive. The tab lists are optional only where the view does not
+  // exist (a database error code, as before), never because the request itself dropped.
+  if (permRes.error) throw permRes.error;
+  for (const r of [tabRes, msgTabRes, mktTabRes]) if (isTransient(r.error)) throw r.error;
 
   const permissions = {};
   const aliases = {};
@@ -126,6 +140,10 @@ export function AuthProvider({ children }) {
   // other must not then overwrite a good profile with null.
   const generation = useRef(0);
 
+  // What is on screen now, readable inside refresh() without making it depend on state.
+  const profileRef = useRef(null);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
+
   const refresh = useCallback(async (identity, { fresh = false } = {}) => {
     const gen = ++generation.current;
 
@@ -140,7 +158,19 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      const next = await (fresh ? loadProfile() : loadProfileShared(identity.id ?? identity.uid));
+      // A request that dropped is asked again (twice more, with a pause): one stalled connection at page load used to send a signed-in person back
+      // to the login screen. The screen keeps saying "Loading" meanwhile. A database "no" (an error code) is not asked again.
+      let next;
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          next = await (fresh ? loadProfile() : loadProfileShared(identity.id ?? identity.uid));
+          break;
+        } catch (err) {
+          if (attempt >= PROFILE_TRIES || !isTransient(err)) throw err;
+          await sleep(attempt * 700);
+          if (gen !== generation.current) return; // something newer took over while we waited
+        }
+      }
       if (gen !== generation.current) return; // superseded
 
       if (!next) {
@@ -185,6 +215,9 @@ export function AuthProvider({ children }) {
     } catch (err) {
       if (gen !== generation.current) return;
       console.error("AuthContext: failed to load profile:", err);
+      // Someone already signed in and working, and a refresh (token renewal, reloadProfile) could not reach the server: nothing about them has changed,
+      // so they keep what they have rather than being thrown out in the middle of their work.
+      if (isTransient(err) && profileRef.current) return;
       // Failing open here would be the whole bug: no profile must mean no
       // access, whether that is because there is no record or because the
       // lookup broke.
