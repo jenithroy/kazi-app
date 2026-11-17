@@ -47,18 +47,20 @@ import { processChains } from "./simplify.js";
 import { findCrossing, pullBack } from "./repair.js";
 import { renderTrace } from "./render.js";
 import { detectKind, kuwahara, restoreThin, thinLines } from "./photo.js";
-import { validRegions, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS } from "./regions.js";
+import { validRegions, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS, REGION_COUNT } from "./regions.js";
 import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
 import { rgbToLab, rgbFloatToLab, toHex, now } from "./color.js";
 import { limitsFor } from "./detail.js";
 import { findFineDetails } from "./fine.js";
+import { findLettering, summariseLettering } from "./lettering.js";
+import { REFINE, refineBoxes, relaxLettering, relaxEverything, confirmedBoxes } from "./refine.js";
 import { removeFrame } from "./frame.js";
 import { HAIRLINE } from "./hairlines.js";
 
 export { renderTrace };
 
 /** Internal: the first half of tracing (labels, palette, background). Exposed only so tests can look inside. */
-export const _internals = { analyse: (image, opts, maxSide) => analyse(image, normalizeOptions(opts), maxSide || normalizeOptions(opts).maxSide) };
+export const _internals = { analyse: (image, opts, maxSide) => analyse(image, normalizeOptions(opts), maxSide || normalizeOptions(opts).maxSide), traceOnce: (image, opts, relax) => traceOnce(image, opts, relax) };
 
 /** The defaults of every option (see the README of this folder for what they mean). */
 export const DEFAULT_OPTIONS = Object.freeze({
@@ -103,8 +105,21 @@ export const DEFAULT_OPTIONS = Object.freeze({
   regions: null, // a map of what each pixel is (background, hair, skin, clothes ...), see regions.js: the background is cut out and the person's colours are weighted by class
   regionPalette: true, // with a region map: every region (hair, skin, clothes ...) gets colours of its own and its pixels keep to them (regionPalette.js); false: one palette for the person, only weighted
   regionWeights: null, // how hard each class pulls on the palette (by class number); null = DEFAULT_REGION_WEIGHTS
+  regionAreaPower: null, // how the colours are shared out between regions: the gain of one more colour counts by the region's size to this power (null = REGION_AREA_POWER, see regionPalette.js)
+  regionMinColors: null, // the colours a region is given before the shares are made, by class number, e.g. { 3: 4 } (null = REGION_MIN_COLORS)
+  regionFeatureExtra: null, // the colours the eyes and lips may add on top of the palette (null = REGION_FEATURE_EXTRA)
+  regionAnchors: null, // colours measured on the picture that the person's palette must have, [{ rgb: [r, g, b], classes: [8] }]: the white of the eyes and of the teeth (digitizer/faces.js featureAnchors), which flat patches never find
   reserveColors: 1, // a person cut out of a photograph, fine details on: this many of the colours are kept back for the details' own threads (a dark brown for lids and lashes), see convert.js fineObjects
   details: false, // photographs and artwork: also find the fine lines (veins, twigs, lids, lashes) and small dots from the picture itself, to be sewn on top of the colours (details.js, fine.js); the colour layer is not changed
+  refineLettering: true, // a logo or artwork with lettering in it (5 letters or more, at most `letterMaxCapMm` tall) is traced a second time with the cleaning relaxed inside the lettering, see refine.js; false = never
+  letterMinFeatureMm: REFINE.minFeatureMm, // ... there nothing thinner than this is cleaned away or widened (the Detail setting's own limit is about 0.55)
+  letterMinAreaMm2: REFINE.minAreaMm2, // ... and no piece smaller than this is dropped
+  letterMaxCapMm: REFINE.maxCapMm, // ... lettering taller than this is left as the first tracing made it
+  letterMinLetters: REFINE.minLetters, // ... and a run of fewer letters than this is not taken for lettering here
+  letterShortLetters: 3, // a logo's short word (KAZI, Open, BMW) of this many letters or more is lettering too (lettering.js `shortLetters`; never in artwork) ...
+  letterShortMaxPieces: 24, // ... when the picture has at most this many letter-shaped pieces in all (a portrait taken for a logo has hundreds) ...
+  letterShortMaxShapes: 60, // ... and at most this many shapes
+  letterFinerMaxShapes: 100, // a logo is looked at for lettering on a finer tracing as well (refine.js `relaxEverything`) when its first tracing has at most this many shapes: a name and a few shapes; the thin outlines of a crest or a seal look like lettering on it
 });
 
 const num = (v, d, lo, hi) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -163,7 +178,35 @@ export function normalizeOptions(opts = {}) {
     regions: validRegions(opts.regions) ? opts.regions : null,
     regionWeights: Array.isArray(opts.regionWeights) ? opts.regionWeights : null,
     regionPalette: opts.regionPalette === undefined ? true : !!opts.regionPalette,
+    regionAreaPower: Number.isFinite(opts.regionAreaPower) ? Math.min(1, Math.max(0, opts.regionAreaPower)) : null,
+    regionMinColors: opts.regionMinColors && typeof opts.regionMinColors === "object" ? opts.regionMinColors : null,
+    regionFeatureExtra: Number.isFinite(opts.regionFeatureExtra) ? Math.min(6, Math.max(0, Math.round(opts.regionFeatureExtra))) : null,
+    regionAnchors: validAnchors(opts.regionAnchors),
+    refineLettering: opts.refineLettering === undefined ? DEFAULT_OPTIONS.refineLettering : !!opts.refineLettering,
+    letterMinFeatureMm: num(opts.letterMinFeatureMm, DEFAULT_OPTIONS.letterMinFeatureMm, 0.02, 5),
+    letterMinAreaMm2: num(opts.letterMinAreaMm2, DEFAULT_OPTIONS.letterMinAreaMm2, 0.001, 100),
+    letterMaxCapMm: num(opts.letterMaxCapMm, DEFAULT_OPTIONS.letterMaxCapMm, 0.5, 60),
+    letterMinLetters: Math.round(num(opts.letterMinLetters, DEFAULT_OPTIONS.letterMinLetters, 2, 200)),
+    letterShortLetters: Math.round(num(opts.letterShortLetters, DEFAULT_OPTIONS.letterShortLetters, 2, 99)),
+    letterShortMaxPieces: Math.round(num(opts.letterShortMaxPieces, DEFAULT_OPTIONS.letterShortMaxPieces, 1, 100000)),
+    letterShortMaxShapes: Math.round(num(opts.letterShortMaxShapes, DEFAULT_OPTIONS.letterShortMaxShapes, 1, 100000)),
+    letterFinerMaxShapes: Math.round(num(opts.letterFinerMaxShapes, DEFAULT_OPTIONS.letterFinerMaxShapes, 0, 100000)),
   };
+}
+
+/** The anchor colours that can be used: at most four, each with an sRGB colour and the classes (0..7) it belongs to; null when there are none. */
+function validAnchors(list) {
+  if (!Array.isArray(list)) return null;
+  const ok = [];
+  for (const a of list) {
+    if (!a || !Array.isArray(a.rgb) || a.rgb.length < 3 || !Array.isArray(a.classes)) continue;
+    const rgb = [0, 1, 2].map((i) => Math.round(num(a.rgb[i], NaN, 0, 255)));
+    const classes = a.classes.filter((c) => Number.isInteger(c) && c >= 1 && c < REGION_COUNT);
+    if (rgb.some((v) => !Number.isFinite(v)) || !classes.length) continue;
+    ok.push({ rgb, classes });
+    if (ok.length === 4) break;
+  }
+  return ok.length ? ok : null;
 }
 
 function checkImage(image) {
@@ -267,7 +310,7 @@ function analyse(image, o, maxSide) {
   const maxFg = Math.max(1, o.colors - (hasAlpha && !o.personClasses ? 1 : 0) - (bgColor ? 1 : 0) - reserve);
   // a person cut out of a photograph: each region gets the colours it earns, and its pixels keep to them (regionPalette.js)
   const regional = regionCls && kind === "photo" && o.regionPalette
-    ? buildRegionalPalette(rgbD, w, h, regionCls, { maxColors: maxFg, seed: o.seed, mergeDE: o.mergeDE || 6, crumbs: "strict", noiseTol: dn.tol, weightPower: 0.5, weights: o.regionWeights || DEFAULT_REGION_WEIGHTS, skip })
+    ? buildRegionalPalette(rgbD, w, h, regionCls, { maxColors: maxFg, seed: o.seed, mergeDE: o.mergeDE || 6, crumbs: "strict", noiseTol: dn.tol, weightPower: 0.5, weights: o.regionWeights || DEFAULT_REGION_WEIGHTS, skip, areaPower: o.regionAreaPower ?? undefined, minColors: o.regionMinColors || undefined, featureExtra: o.regionFeatureExtra ?? undefined, anchors: o.regionAnchors || undefined })
     : null;
   // The colours of a picture are its own, whatever size it is sewn at. When the picture is enlarged for tracing (above), its colours are still found on its own
   // pixels. On the enlarged copy the k-means centres shift a little with every change of size (the copy's size changes with it), so two colours near the merge
@@ -452,6 +495,9 @@ function analyse(image, o, maxSide) {
     };
   }
   const cleanCtx = { rgb: rgbD, palLab, K, soft, lab2 };
+  // (a second tracing of lettering, refine.js, puts the raw classification back inside the lettering's boxes and cleans it again with finer limits: kept for that)
+  const hasBoxes = !!(o.relaxBoxes && o.relaxBoxes.length);
+  const pre = hasBoxes || o.refineReady ? { labels: labels.slice(), soft: soft.slice(), lab2: lab2.slice() } : null;
   const cleaned = cleanLabels(labels, w, h, cleanCtx, minAreaPx, minFeaturePx, strokes);
   // A picture that is still thousands of pieces (feathers, foliage, bark, a fine engraving at full detail) is more than a machine can sew sensibly and
   // more than the stitch engine can work out in a minute: the size limits are raised in steps until it comes to about `maxShapes` pieces (the smallest, least
@@ -468,79 +514,96 @@ function analyse(image, o, maxSide) {
       cleaned.slivers += more.slivers;
     }
   }
+  const relaxNow = (L, S, L2, boxes) => relaxLettering(L, S, L2, pre, w, h, cleanCtx, boxes, wk.sx, wk.sy, o.letterMinAreaMm2 / (o.mmPerPx * o.mmPerPx) / (scale * scale), o.letterMinFeatureMm / o.mmPerPx / scale);
+  if (hasBoxes) relaxNow(labels, soft, lab2, o.relaxBoxes);
+  // the cleaned map, for the second tracing of lettering to start from (the rest of this function changes the labels in place)
+  const post = o.refineReady ? { labels: labels.slice(), soft: soft.slice(), lab2: lab2.slice() } : null;
   stages.clean = now() - t;
+
+  // everything from here on is done again for a second tracing of lettering (`a.redo`), from a copy of the cleaned map
+  const finish = (labels, soft, lab2) => {
   t = now();
 
   // which entries are the background colours
-  const bg = new Uint8Array(256);
-  const bgInfo = decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex, rgbD);
-  for (const k of bgInfo.indices) bg[k] = 1;
-  // "background" is only the part connected to the picture edge (or to see-through pixels): pixels of a background
-  // colour that are enclosed by other colours (white letters inside a navy disc on a white page) become a new palette
-  // entry with the same colour and background: false, so they come back as ordinary shapes
-  const parent = new Uint8Array(256);
-  for (let k = 0; k < 256; k++) parent[k] = k;
-  const Kn = splitEnclosedBackground(labels, w, h, bg, K, transIndex, parent);
-  const palRgbN = new Float64Array(Kn * 3);
-  const palLabN = new Float64Array(Kn * 3);
-  palRgbN.set(palRgb);
-  palLabN.set(palLab);
-  for (let k = K; k < Kn; k++) {
-    for (let j = 0; j < 3; j++) { palRgbN[k * 3 + j] = palRgb[parent[k] * 3 + j]; palLabN[k * 3 + j] = palLab[parent[k] * 3 + j]; }
-  }
-  stages.background = now() - t;
+    const bg = new Uint8Array(256);
+    const bgInfo = decideBackground(labels, w, h, K, palLab, o, hasAlpha, transIndex, bgColorIndex, rgbD);
+    for (const k of bgInfo.indices) bg[k] = 1;
+    // "background" is only the part connected to the picture edge (or to see-through pixels): pixels of a background
+    // colour that are enclosed by other colours (white letters inside a navy disc on a white page) become a new palette
+    // entry with the same colour and background: false, so they come back as ordinary shapes
+    const parent = new Uint8Array(256);
+    for (let k = 0; k < 256; k++) parent[k] = k;
+    const Kn = splitEnclosedBackground(labels, w, h, bg, K, transIndex, parent);
+    const palRgbN = new Float64Array(Kn * 3);
+    const palLabN = new Float64Array(Kn * 3);
+    palRgbN.set(palRgb);
+    palLabN.set(palLab);
+    for (let k = K; k < Kn; k++) {
+      for (let j = 0; j < 3; j++) { palRgbN[k * 3 + j] = palRgb[parent[k] * 3 + j]; palLabN[k * 3 + j] = palLab[parent[k] * 3 + j]; }
+    }
+    stages.background = now() - t;
 
-  // drop entries that no pixel uses any more, and renumber
-  const count = new Float64Array(Kn);
-  for (let i = 0; i < N; i++) count[labels[i]]++;
-  const remap = new Int16Array(256).fill(-1);
-  let K2 = 0;
-  for (let k = 0; k < Kn; k++) if (count[k] > 0) remap[k] = K2++;
-  if (K2 === 0) { remap[0] = 0; K2 = 1; count[0] = N; }
-  if (K2 !== Kn) {
-    for (let i = 0; i < N; i++) {
-      labels[i] = remap[labels[i]];
-      if (lab2[i] !== 255) lab2[i] = remap[lab2[i]] < 0 ? 255 : remap[lab2[i]];
+    // drop entries that no pixel uses any more, and renumber
+    const count = new Float64Array(Kn);
+    for (let i = 0; i < N; i++) count[labels[i]]++;
+    const remap = new Int16Array(256).fill(-1);
+    let K2 = 0;
+    for (let k = 0; k < Kn; k++) if (count[k] > 0) remap[k] = K2++;
+    if (K2 === 0) { remap[0] = 0; K2 = 1; count[0] = N; }
+    if (K2 !== Kn) {
+      for (let i = 0; i < N; i++) {
+        labels[i] = remap[labels[i]];
+        if (lab2[i] !== 255) lab2[i] = remap[lab2[i]] < 0 ? 255 : remap[lab2[i]];
+      }
     }
-  }
-  const pal2 = {
-    rgb: new Float64Array(K2 * 3),
-    lab: new Float64Array(K2 * 3),
-    count: new Float64Array(K2),
-    bg: new Uint8Array(K2),
-    transparent: new Uint8Array(K2),
-    enclosed: new Uint8Array(K2),
+    const pal2 = {
+      rgb: new Float64Array(K2 * 3),
+      lab: new Float64Array(K2 * 3),
+      count: new Float64Array(K2),
+      bg: new Uint8Array(K2),
+      transparent: new Uint8Array(K2),
+      enclosed: new Uint8Array(K2),
+      fixed: new Uint8Array(K2), // colours the caller measured (regionAnchors): kept as measured, not averaged with the pixels they came to cover
+    };
+    const anchorOf = regional && regional.anchor ? regional.anchor : null;
+    // colour class of every entry: an enclosed copy of a background colour and its parent are the same colour
+    const cls = new Uint8Array(256);
+    for (let k = 0; k < 256; k++) cls[k] = k;
+    // the entry of the palette this one started from (an enclosed copy of a background colour: that colour's): a second tracing of lettering names the colour it is to keep thin by it (refine.js)
+    const origin = new Int16Array(K2).fill(-1);
+    for (let k = 0; k < Kn; k++) {
+      const m = remap[k];
+      if (m < 0) continue;
+      origin[m] = k < K ? k : parent[k];
+      for (let j = 0; j < 3; j++) { pal2.rgb[m * 3 + j] = palRgbN[k * 3 + j]; pal2.lab[m * 3 + j] = palLabN[k * 3 + j]; }
+      pal2.count[m] = count[k];
+      pal2.bg[m] = bg[k];
+      pal2.transparent[m] = k === transIndex ? 1 : 0;
+      if (anchorOf && k < anchorOf.length && anchorOf[k]) pal2.fixed[m] = 1;
+      if (k >= K) {
+        pal2.enclosed[m] = 1;
+        if (remap[parent[k]] >= 0) cls[m] = remap[parent[k]];
+      }
+    }
+    // the real colours: mean of the pixels deep inside each region (the explicit background colour stays as given)
+    const transNew = hasAlpha ? remap[transIndex] : -1;
+    const means = clusterMeans(wk.rgb, w, h, labels, soft, K2, pal2.rgb, transNew);
+    for (let k = 0; k < K2; k++) {
+      if (k === transNew || pal2.fixed[k]) continue;
+      const fixedBg = bgColor && pal2.bg[k] && Math.abs(pal2.rgb[k * 3] - bgColor[0]) + Math.abs(pal2.rgb[k * 3 + 1] - bgColor[1]) + Math.abs(pal2.rgb[k * 3 + 2] - bgColor[2]) < 1e-6;
+      if (fixedBg) continue;
+      for (let j = 0; j < 3; j++) pal2.rgb[k * 3 + j] = means[k * 3 + j];
+    }
+    // an enclosed copy has exactly the colour of the background entry it came from
+    for (let k = 0; k < K2; k++) {
+      if (cls[k] !== k) for (let j = 0; j < 3; j++) pal2.rgb[k * 3 + j] = pal2.rgb[cls[k] * 3 + j];
+    }
+    for (let k = 0; k < K2; k++) rgbFloatToLab(pal2.rgb[k * 3], pal2.rgb[k * 3 + 1], pal2.rgb[k * 3 + 2], pal2.lab, k * 3);
+    return { wk, w, h, N, labels, lab2, soft, cls, pal: pal2, K: K2, origin, scale, minFeaturePx, minAreaPx, noise: dn, cleaned, stages, bgInfo, regionAlloc: regional ? regional.alloc : null, regionAnchored: regional ? regional.anchored : 0, regionCls };
   };
-  // colour class of every entry: an enclosed copy of a background colour and its parent are the same colour
-  const cls = new Uint8Array(256);
-  for (let k = 0; k < 256; k++) cls[k] = k;
-  for (let k = 0; k < Kn; k++) {
-    const m = remap[k];
-    if (m < 0) continue;
-    for (let j = 0; j < 3; j++) { pal2.rgb[m * 3 + j] = palRgbN[k * 3 + j]; pal2.lab[m * 3 + j] = palLabN[k * 3 + j]; }
-    pal2.count[m] = count[k];
-    pal2.bg[m] = bg[k];
-    pal2.transparent[m] = k === transIndex ? 1 : 0;
-    if (k >= K) {
-      pal2.enclosed[m] = 1;
-      if (remap[parent[k]] >= 0) cls[m] = remap[parent[k]];
-    }
-  }
-  // the real colours: mean of the pixels deep inside each region (the explicit background colour stays as given)
-  const transNew = hasAlpha ? remap[transIndex] : -1;
-  const means = clusterMeans(wk.rgb, w, h, labels, soft, K2, pal2.rgb, transNew);
-  for (let k = 0; k < K2; k++) {
-    if (k === transNew) continue;
-    const fixedBg = bgColor && pal2.bg[k] && Math.abs(pal2.rgb[k * 3] - bgColor[0]) + Math.abs(pal2.rgb[k * 3 + 1] - bgColor[1]) + Math.abs(pal2.rgb[k * 3 + 2] - bgColor[2]) < 1e-6;
-    if (fixedBg) continue;
-    for (let j = 0; j < 3; j++) pal2.rgb[k * 3 + j] = means[k * 3 + j];
-  }
-  // an enclosed copy has exactly the colour of the background entry it came from
-  for (let k = 0; k < K2; k++) {
-    if (cls[k] !== k) for (let j = 0; j < 3; j++) pal2.rgb[k * 3 + j] = pal2.rgb[cls[k] * 3 + j];
-  }
-  for (let k = 0; k < K2; k++) rgbFloatToLab(pal2.rgb[k * 3], pal2.rgb[k * 3 + 1], pal2.rgb[k * 3 + 2], pal2.lab, k * 3);
-  return { wk, w, h, N, labels, lab2, soft, cls, pal: pal2, K: K2, scale, minFeaturePx, minAreaPx, noise: dn, cleaned, stages, bgInfo, regionAlloc: regional ? regional.alloc : null, regionCls };
+  const a = finish(labels, soft, lab2);
+  if (post) Object.defineProperty(a, "redo", { value: (boxes, whole = false) => { const L = post.labels.slice(), S = post.soft.slice(), L2 = post.lab2.slice(); if (whole) relaxEverything(L, S, L2, pre, w, h, cleanCtx, o.letterMinAreaMm2 / (o.mmPerPx * o.mmPerPx) / (scale * scale), o.letterMinFeatureMm / o.mmPerPx / scale); else relaxNow(L, S, L2, boxes); return finish(L, S, L2); }, enumerable: false });
+  return a;
 }
 
 /**
@@ -836,8 +899,57 @@ function repairCrossings(loops, chains, pts) {
 /**
  * Trace a picture into clean vector regions. See the top of this file for the result and the conventions.
  * image = { width, height, data: Uint8ClampedArray RGBA (straight alpha) }. All options are optional.
+ *
+ * A logo or artwork with small lettering in it is traced again (refine.js): the first tracing finds the lettering, the second keeps its thin strokes and small pieces that the first
+ * cleaned away or widened, and is used for the blocks of lettering of which it finds the letters again (a third tracing, without the others, when some of them are not found again).
+ * Everything else comes out as the first tracing made it. `refineLettering: false` is the first tracing alone; `stats.refine` says what happened.
  */
 export function traceImage(image, opts = {}) {
+  const tStart = now();
+  const ctx = startTrace(image, opts, null);
+  const first = finishTrace(ctx, ctx.a);
+  const o = normalizeOptions(opts);
+  if (!o.refineLettering || !ctx.a.redo) return first;
+  const ropt = { maxCapMm: o.letterMaxCapMm, minLetters: o.letterMinLetters };
+  // Where is the lettering? On the first tracing when it is there; a simple logo (a name and a few shapes) is looked at on a finer tracing as well (the whole picture cleaned with the small limits, only to
+  // look): the first tracing fills in the gap between small letters, so a short word or a tight line of serif letters is two blobs in it. The finer one finds the lines whole, which also gives the boxes their
+  // right size. Not for a complex picture: the thin outlines of a crest or a seal break into letter-sized pieces on it, are taken for lettering, and come out as dashes.
+  let ref = first, refined = null;
+  if (first.stats.kind === "logo" && first.shapes.length <= o.letterFinerMaxShapes) {
+    try {
+      const fine = finishTrace(ctx, ctx.a.redo(null, true));
+      if (fine.lettering.blocks.length && fine.shapes.length <= 6 * first.shapes.length + 300) ref = fine; // (a noisy picture turns into thousands of specks on it: not to be trusted)
+    } catch (e) { ref = first; }
+  }
+  if (!ref.lettering.blocks.length) return first;
+  const boxes = refineBoxes(ref.lettering.blocks, { mmPerPx: o.mmPerPx, width: first.width, height: first.height, origin: ref._origin, options: ropt });
+  if (!boxes.length) return first;
+  const used = (res, list) => {
+    // the blocks the second tracing confirmed are marked: their letters are separated as far as the picture allows, so the finder's count of them can be trusted (the engine reads it for a short word)
+    for (const b of res.lettering.blocks) { const cx = (b.box[0] + b.box[2]) / 2, cy = (b.box[1] + b.box[3]) / 2; if (list.some(({ box: x }) => cx >= x[0] && cx <= x[2] && cy >= x[1] && cy <= x[3])) b.refined = true; }
+    res.stats.refine = { used: true, boxes: boxes.length, kept: list.length, firstMs: first.stats.ms, found: ref === first ? "first" : "finer" }; res.stats.ms = now() - tStart; return res;
+  };
+  try { // (a refinement that goes wrong must never cost the person their picture)
+    const second = finishTrace(ctx, ctx.a.redo(boxes));
+    const ok = confirmedBoxes(ref.lettering, second, boxes, { mmPerPx: o.mmPerPx, options: ropt });
+    if (ok.every(Boolean)) return used(second, boxes);
+    const kept = boxes.filter((_, i) => ok[i]);
+    if (kept.length) {
+      const third = finishTrace(ctx, ctx.a.redo(kept));
+      if (confirmedBoxes(ref.lettering, third, kept, { mmPerPx: o.mmPerPx, options: ropt }).every(Boolean)) return used(third, kept);
+    }
+    first.stats.refine = { used: false, boxes: boxes.length, why: "the second tracing did not find the letters again" };
+  } catch (e) {
+    first.stats.refine = { used: false, boxes: boxes.length, why: "error" };
+  }
+  return first;
+}
+
+/**
+ * The first half of a tracing: the picture read, its kind found, its colours found and its label map cleaned (`analyse`). `relax`: the boxes (picture pixels) inside which the cleaning is
+ * relaxed at once (refine.js), null for none; a first tracing of a logo or artwork instead keeps what `a.redo(boxes)` needs to do that later without starting over.
+ */
+function startTrace(image, opts, relax) {
   const tStart = now();
   checkImage(image);
   const o0 = normalizeOptions(opts);
@@ -850,8 +962,14 @@ export function traceImage(image, opts = {}) {
   const { kind, info } = cut && o0.mode === "auto" ? { kind: "photo", info: null } : resolveKind(pic, o0);
   // (a person's small shapes are the eyes, brows and wrinkles: read half a step higher up the Detail slider than a logo, as detail.js does for a portrait; measured on 8
   // portraits with the person cut out: 24 % more shapes, 3 % more stitches, the face's structure match 0.691 to 0.698, colour error 8.40 to 8.35)
-  const o = { ...withKind(cut && o0.detail === null ? { ...o0, detail: o0.fineDetail } : o0, kind), personClasses: cut ? cut.classes : null, personSize: cut ? [pic.width, pic.height] : null };
+  const o = { ...withKind(cut && o0.detail === null ? { ...o0, detail: o0.fineDetail } : o0, kind), personClasses: cut ? cut.classes : null, personSize: cut ? [pic.width, pic.height] : null, relaxBoxes: relax, refineReady: !relax && o0.refineLettering && (kind === "logo" || kind === "art") };
   const a = analyse(pic, o, workSide(pic, o));
+  return { tStart, image, opts, o, pic, cut, unframed, kind, info, a };
+}
+
+/** The second half: outlines, shapes, fine details and lettering of the analysis `a` (the one `startTrace` made, or a `redo` of it). */
+function finishTrace(ctx, a) {
+  const { tStart, image, opts, o, pic, cut, unframed, kind, info } = ctx;
   const { w, h, labels, lab2, soft, K } = a;
   let t = now();
 
@@ -995,12 +1113,22 @@ export function traceImage(image, opts = {}) {
   const details = o.details && kind !== "logo" ? findFineDetails(pic, o, kind, a, shapes, hairlines) : null;
   const fineMs = now() - tFine;
 
-  return {
+  // runs of lettering among the shapes (a logo or artwork: a photograph is all small patches and has none): the converter marks the letters, the page says how big they are
+  const tLet = now();
+  let lettering = [], letteringSummary = null;
+  try { // (a guess that goes wrong must never cost the person their picture)
+    if (kind === "logo" || kind === "art") lettering = findLettering(shapes, { mmPerPx: o.mmPerPx, options: kind === "art" ? { minLetters: 9 } : { minLetters: 5, shortLetters: o.letterShortLetters, shortMaxPieces: o.letterShortMaxPieces, shortMaxShapes: o.letterShortMaxShapes } });
+    if (lettering.length) letteringSummary = summariseLettering(lettering, { shapes, mmPerPx: o.mmPerPx });
+  } catch (e) { lettering = []; letteringSummary = null; }
+  const letteringMs = now() - tLet;
+
+  const result = {
     width: W0,
     height: H0,
     palette,
     shapes,
     order,
+    lettering: { mmPerPx: o.mmPerPx, blocks: lettering },
     look: opts.look || null, // how the shapes are to be sewn (rows' angles, edge lines): carried along for the digitizer's converter, not used here
     ...(o.details ? { details, hairlines } : {}),
     stats: {
@@ -1020,11 +1148,25 @@ export function traceImage(image, opts = {}) {
       strokeCount: a.cleaned.strokeCount || 0,
       strokeMedianMm: (a.cleaned.strokeMedian || 0) * a.scale * o.mmPerPx,
       kind,
+      backgroundOff: o.background === "none", // the person asked for the whole picture: nothing is left out as background, and the converter does not leave out colours that match the cloth either
       frame: unframed ? unframed.px : 0, // the thickness (pixels) of a frame that was painted over, else 0
       kindInfo: info,
       regionColours: a.regionAlloc || null, // [class, colours asked for] for each region that got colours of its own (regionPalette.js)
+      regionAnchored: a.regionAnchored || 0, // how many of the colours handed over as `regionAnchors` (a face's whites) the palette took
       person: cut ? +cut.share.toFixed(3) : null, // the share of the picture that is a person, when a region map cut one out (regions.js)
+      // what lettering.js found: how many letters in how many blocks, the smallest block's letter height and the stroke of the block that has it (mm), 0 when none
+      lettering: letteringSummary,
+      letteringMs,
       stages: a.stages,
     },
   };
+  // (which palette entry each final entry started from: a second tracing of lettering names its colour by it, refine.js; not part of the result a caller is given to keep)
+  Object.defineProperty(result, "_origin", { value: a.origin, enumerable: false });
+  return result;
+}
+
+/** One whole tracing (the two halves). `relax`: the boxes inside which the cleaning is relaxed (refine.js), null for none. */
+function traceOnce(image, opts, relax) {
+  const ctx = startTrace(image, opts, relax);
+  return finishTrace(ctx, ctx.a);
 }

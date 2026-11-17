@@ -132,22 +132,66 @@ export function tatamiFill(rings, o = {}) {
   // Rows sit at the middle of equal strips so the edges are covered evenly.
   const n = Math.max(1, Math.round(height / opt.spacing));
   const rowStep = height / n;
-  const yOf = (k) => box[1] + (k + 0.5) * rowStep;
+  let phase = 0.5; // where in its strip a row sits (0.5 = the middle)
+  const yOf = (k) => box[1] + (k + phase) * rowStep;
 
-  // Where every ring crosses every row.
-  const xs = Array.from({ length: n }, () => []);
-  for (const ring of rot) {
-    for (let i = 0, m = ring.length; i < m; i++) {
-      const p = ring[i], q = ring[(i + 1) % m];
-      if (p[1] === q[1]) continue;
-      const [lo, hi] = p[1] < q[1] ? [p, q] : [q, p];
-      const k0 = Math.max(0, Math.floor((lo[1] - box[1]) / rowStep - 0.5) - 1);
-      const k1 = Math.min(n - 1, Math.ceil((hi[1] - box[1]) / rowStep - 0.5) + 1);
-      for (let k = k0; k <= k1; k++) {
-        const y = yOf(k);
-        // Half-open test, the same for both edges that share a corner, so a corner is never counted twice.
-        if ((p[1] <= y) !== (q[1] <= y)) xs[k].push(p[0] + ((q[0] - p[0]) * (y - p[1])) / (q[1] - p[1]));
+  // Where every ring crosses `count` evenly spaced lines (line k at yAt(k), about y0 + k * dy), the crossings of each line sorted.
+  const crossLines = (count, y0, dy, yAt) => {
+    const lines = Array.from({ length: count }, () => []);
+    for (const ring of rot) {
+      for (let i = 0, m = ring.length; i < m; i++) {
+        const p = ring[i], q = ring[(i + 1) % m];
+        if (p[1] === q[1]) continue;
+        const [lo, hi] = p[1] < q[1] ? [p, q] : [q, p];
+        const k0 = Math.max(0, Math.floor((lo[1] - y0) / dy) - 1);
+        const k1 = Math.min(count - 1, Math.ceil((hi[1] - y0) / dy) + 1);
+        for (let k = k0; k <= k1; k++) {
+          const y = yAt(k);
+          // Half-open test, the same for both edges that share a corner, so a corner is never counted twice.
+          if ((p[1] <= y) !== (q[1] <= y)) lines[k].push(p[0] + ((q[0] - p[0]) * (y - p[1])) / (q[1] - p[1]));
+        }
       }
+    }
+    for (const l of lines) l.sort((a, b) => a - b);
+    return lines;
+  };
+  const rowsAt = (ph) => crossLines(n, box[1] + ph * rowStep, rowStep, (k) => box[1] + (k + ph) * rowStep);
+  let xs = rowsAt(0.5);
+
+  // A stroke narrower than the row spacing is crossed by a row only if one happens to fall inside it, and rows in the middle of equal strips fall
+  // symmetrically: the stem of an I, an l, a T (the shape is as wide on both sides of it) sits exactly between two rows and is not sewn at all.
+  // With `rowPhases` (fractions of a row step) this is looked for (`strokeMissed`: the length, at the lines half way between two rows, that neither
+  // the row above nor the row below crosses) and, when at least `phaseMissed` mm is missed, the grid is tried shifted and the shift that misses
+  // least is taken if it misses at most half as much. A shape with no such stroke keeps its rows where they were.
+  if (Array.isArray(opt.rowPhases) && opt.rowPhases.length) {
+    const strokeMissed = (ph) => {
+      const y0 = box[1] + (ph - 0.5) * rowStep, dy = rowStep / 2; // rows are the odd lines, the even ones are half way between
+      const fine = crossLines(2 * n + 1, y0, dy, (f) => y0 + f * dy);
+      let missed = 0;
+      for (let f = 0; f <= 2 * n; f += 2) {
+        const mid = fine[f];
+        for (let i = 0; i + 1 < mid.length; i += 2) {
+          const a = mid[i], b = mid[i + 1];
+          if (b - a < opt.minRow) continue;
+          const over = [];
+          for (const nb of [fine[f - 1], fine[f + 1]]) {
+            if (!nb) continue;
+            for (let j = 0; j + 1 < nb.length; j += 2) { const lo = Math.max(a, nb[j]), hi = Math.min(b, nb[j + 1]); if (hi > lo) over.push([lo, hi]); }
+          }
+          over.sort((u, v) => u[0] - v[0]);
+          let covered = 0, cur = null;
+          for (const [lo, hi] of over) { if (cur && lo <= cur[1]) cur[1] = Math.max(cur[1], hi); else { if (cur) covered += cur[1] - cur[0]; cur = [lo, hi]; } }
+          if (cur) covered += cur[1] - cur[0];
+          missed += b - a - covered;
+        }
+      }
+      return missed;
+    };
+    const base = strokeMissed(0.5);
+    if (base >= (opt.phaseMissed ?? 0.5)) {
+      let bestPhase = 0.5, best = base;
+      for (const ph of opt.rowPhases) { const m = strokeMissed(ph); if (m < best) { best = m; bestPhase = ph; } }
+      if (bestPhase !== 0.5 && best <= base * 0.5) { phase = bestPhase; xs = rowsAt(bestPhase); }
     }
   }
 

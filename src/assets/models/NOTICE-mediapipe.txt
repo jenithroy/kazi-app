@@ -1,0 +1,35 @@
+Third-party files used by the embroidery digitizer's "find the person in a photo" step
+======================================================================================
+
+selfie_multiclass_256x256.tflite
+  Google MediaPipe "selfie multiclass" image-segmentation model (256 x 256 input; classes:
+  background, hair, body skin, face skin, clothes, others).
+  Source:  https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite
+  Licence: Apache License, Version 2.0 - https://www.apache.org/licenses/LICENSE-2.0
+  The model card says it is not meant for decisions that put lives at risk or where a pixel-perfect mask
+  is needed, and that surveillance and identity recognition are out of scope. Here it only decides which
+  colours a stitched picture gets. It runs in the visitor's browser; no picture is uploaded.
+
+face_landmarker.task
+  Google MediaPipe "Face Landmarker" model bundle (a face detector, the 478-point face mesh and its
+  blendshape model, which is not used here). 478 landmarks a face: eyes, brows, irises, lips, outline.
+  Source:  https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+  Model cards: https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker (links under "Model bundle")
+  Licence: Apache License, Version 2.0 - https://www.apache.org/licenses/LICENSE-2.0, the licence of the MediaPipe
+  project. Third-party catalogues of the model say the same; the text of Google's model cards could not be read
+  automatically when this file was added (2026-11-14), so confirm it against the cards before using the file
+  anywhere but this website.
+  Here it only says where the eyes, brows and lips are, so that they get thread colours of their own, and how
+  big the face will be on the cloth. It does not identify anyone or read expressions. It runs in the visitor's
+  browser (lib/digitizer/faceFinder.js), only for a picture the person finder found a person in; no picture is
+  uploaded.
+
+wasm/vision_wasm_internal.js and wasm/vision_wasm_internal.wasm
+  The WebAssembly runtime of @mediapipe/tasks-vision (version 1.2.2), copied unchanged from the npm package
+  (node_modules/@mediapipe/tasks-vision/wasm). This is the classic-worker flavour: Next's bundler runs the
+  digitizer's worker as a classic worker (see lib/digitizer/segment.worker.js).
+  Source:  https://www.npmjs.com/package/@mediapipe/tasks-vision
+  Licence: Apache License, Version 2.0 - https://www.apache.org/licenses/LICENSE-2.0
+  Copyright Google LLC.
+  To update: install the new version of the package, copy the two files again, and keep the package version
+  in package.json the same as the one these files came from (the JavaScript and the wasm must match).

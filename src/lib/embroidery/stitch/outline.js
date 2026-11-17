@@ -4,7 +4,7 @@
  */
 import { islandsOf, ringArea } from "../geometry/poly.js";
 import { offsetRings } from "../geometry/clip.js";
-import { runAlong, beanAlong, satinAlong } from "./path.js";
+import { runAlong, beanAlong, satinAlong, curveRun, densify } from "./path.js";
 
 /** The ring rotated to begin at the vertex nearest `from`. */
 function startNear(ring, from) {
@@ -34,6 +34,7 @@ export const OUTLINE_DEFAULTS = {
   spacing: 0.3, // satin: as for a satin fill, the holes on one edge are twice this apart
   pullComp: 0.25,
   underlay: true,
+  dev: 0.08, // running and bean lines: how far (mm) a stitch may cut across a curve. A fixed stitch length makes a small circle a polygon (3 mm stitches round a 4 mm disc are a hexagon); this puts the needle holes closer on a tight curve and keeps long stitches on a straight edge. 0 = fixed length, as before.
 };
 
 /**
@@ -62,12 +63,13 @@ export function outlineRuns(rings, s = {}) {
       if (ring0.length < 3 || ringArea(ring0) < 0.2) continue;
       const ring = startNear(ring0, at);
       let pts;
-      if (o.type === "bean") pts = beanAlong(ring, { len: o.len, closed: true }).concat([ring[0]]);
+      const dev = Number.isFinite(o.dev) && o.dev > 0 ? Math.min(0.5, o.dev) : 0;
+      if (o.type === "bean") pts = beanAlong(ring, { len: o.len, dev, closed: true }).concat([ring[0]]);
       else if (o.type === "satin") {
         const under = o.underlay && o.width >= 1.2 ? runAlong(ring, { len: 2.5, closed: true }).concat([ring[0]]) : [];
         const sat = satinAlong(ring, { spacing: o.spacing, closed: true, half: o.width / 2, pullComp: o.pullComp });
         pts = [...under, ...sat];
-      } else pts = runAlong(ring, { len: o.len, closed: true }).concat([ring[0]]);
+      } else pts = (dev > 0 ? curveRun(densify(ring, 0.25, true), { len: o.len, dev, closed: true }) : runAlong(ring, { len: o.len, closed: true })).concat([ring[0]]);
       if (pts.length >= 2) { runs.push(pts); at = pts[pts.length - 1]; }
     }
   }

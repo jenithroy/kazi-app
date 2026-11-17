@@ -7,6 +7,7 @@ import { nearestThread, rgbToHex, threadName, toLab, hexToRgb } from "../embroid
 import { offsetRings, intersectRings, unionShapes, differenceRings } from "../embroidery/geometry/clip.js";
 import { bboxOf, islandsOf, ringPerimeter } from "../embroidery/geometry/poly.js";
 import { detailLimits } from "../embroidery/trace/detail.js";
+import { findLettering } from "../embroidery/trace/lettering.js";
 import { applyLook, lookOptions } from "./look.js";
 
 export { detailLimits };
@@ -22,10 +23,27 @@ export const CLOTH_MATCH = 14;
  */
 export const CLOTH_MATCH_PHOTO = 7;
 
+/**
+ * Whether a picture colour like the cloth is left unstitched (the cloth showing through). OFF: the cloth is only how the design is shown (its
+ * colour on the canvas), and every colour of the picture is stitched, white on a white cloth as well: tone on tone is real embroidery. What a
+ * person does not want sewn they delete (the Objects list) or switch off (the colour list under "Colours found"); the page's own colour is
+ * still left out by "Leave out the background". The rules below (CLOTH_MATCH and what hangs on it) are kept as they were, switched off by this flag.
+ */
+export const CLOTH_SKIPS = false;
+
 /** How near (CIELAB distance) a colour must be to the cloth `fabric` (a hex colour) to be left unstitched, for this kind of picture (0: never). */
 export function clothMatch(kind, fabric = null) {
+  if (!CLOTH_SKIPS) return 0;
   if (kind !== "photo") return CLOTH_MATCH;
   return fabric && String(fabric).toLowerCase() === String(DEFAULT_CLOTH).toLowerCase() ? 0 : CLOTH_MATCH_PHOTO;
+}
+
+/**
+ * The same for a traced picture. When the person has switched "Leave out the background" OFF the whole picture is stitched: white and every other colour, whether or not
+ * it is like the cloth (before, a white page or a white part of a logo was still left out as "the cloth showing through", which is leaving out the background by another door).
+ */
+export function clothMatchOf(traced, fabric = null) {
+  return traced.stats?.backgroundOff ? 0 : clothMatch(traced.stats?.kind, fabric);
 }
 
 /**
@@ -59,7 +77,46 @@ export function shapeWidthMm(shape, mmPerPx) {
  * lines and lettering are kept and widened to something a needle can follow. Detail 0.75 is the starting point: on 95 test pictures each step up the slider
  * (0.25, 0.5, 0.75, 1) kept more of the small things and made the stitched picture closer to the source, at a few per cent more stitches.
  */
-export const CONVERT_DEFAULTS = { colors: "auto", maxColors: 12, detail: 0.75, background: "auto", snap: false, kind: "auto", details: true, detailThick: false, people: true };
+export const CONVERT_DEFAULTS = { colors: "auto", maxColors: 12, detail: 0.75, background: "auto", snap: false, kind: "auto", details: true, detailThick: false, people: true, threads: [], useThreads: true };
+
+/**
+ * The threads the person has, as the list `snap` can be: the settings' `threads` (hex colours) while "use only my threads" is on and there is
+ * at least one, else the plain `snap` switch (false: the picture's own colours; true: the nearest thread of the chart).
+ */
+export function snapOf(settings) {
+  const mine = settings && settings.useThreads !== false && Array.isArray(settings.threads) ? settings.threads.filter((h) => /^#[0-9a-f]{6}$/i.test(h)) : [];
+  return mine.length ? mine : !!(settings && settings.snap);
+}
+
+/**
+ * How the colours of a picture become thread colours. `snap` is false (kept as the picture has them: the nearest thread is only a name on the
+ * sheet), true (each moved to the nearest thread of the chart) or a list of hex colours, the threads the person has (each moved to the nearest of
+ * those by CIELAB distance, so the design is sewn with what is in their box; two colours of the picture may end up in one thread).
+ * Returns a function (r, g, b) -> hex.
+ */
+export function threadPicker(snap) {
+  if (Array.isArray(snap) && snap.length) {
+    const pool = [];
+    for (const h of snap) {
+      if (!/^#[0-9a-f]{6}$/i.test(h)) continue;
+      const { r, g, b } = hexToRgb(h);
+      pool.push({ hex: h.toLowerCase(), lab: toLab(r, g, b) });
+    }
+    if (pool.length) {
+      return (r, g, b) => {
+        const lab = toLab(r, g, b);
+        let best = pool[0], bd = Infinity;
+        for (const c of pool) {
+          const d = (lab[0] - c.lab[0]) ** 2 + (lab[1] - c.lab[1]) ** 2 + (lab[2] - c.lab[2]) ** 2;
+          if (d < bd) { bd = d; best = c; }
+        }
+        return best.hex;
+      };
+    }
+  }
+  // (an empty list is no list: the picture's own colours, not the chart)
+  return snap && !Array.isArray(snap) ? (r, g, b) => nearestThread(r, g, b).hex : (r, g, b) => rgbToHex(r, g, b);
+}
 
 /**
  * Whether a portrait, artwork or a photograph is read half a step further up the Detail slider than a logo (`trace/detail.js`: its small shapes are the
@@ -79,6 +136,7 @@ export function traceOptions(settings, mmPerPx) {
     maxColors: s.maxColors,
     mmPerPx,
     background: s.background === "none" ? "none" : "auto",
+    ...(s.background === "none" ? { trimFrame: false } : {}), // the whole picture: a frame round it is part of it, not painted over
     mode: s.kind === "logo" || s.kind === "art" || s.kind === "photo" ? s.kind : "auto",
     thicken: true,
     ...detailLimits(s.detail), // what a logo gets
@@ -246,10 +304,11 @@ export const DETAIL_LINE_MM = 0.45;
 export const DETAIL_THICK_MM = 0.7;
 
 /**
- * How much a detail counts, by the region of a person it lies in (regions.js: background, hair, body skin, face skin, clothes, other): the lids and lashes of a face
- * come before the pattern on a tie when threads and stitches are shared out. Details of a picture without a region map count the same.
+ * How much a detail counts, by the region of a person it lies in (regions.js: background, hair, body skin, face skin, clothes, other, eyes and brows, lips, the white of
+ * the eye, the open mouth): the lids and lashes of a face come before the pattern on a tie when threads and stitches are shared out. Details of a picture without a
+ * region map count the same.
  */
-export const DETAIL_REGION_WEIGHTS = Object.freeze([0, 2, 1.5, 4, 0.5, 1]);
+export const DETAIL_REGION_WEIGHTS = Object.freeze([0, 2, 1.5, 4, 0.5, 1, 6, 3, 6, 3]);
 
 /** The numbers above as one set, so a caller (a test, a sweep) can try others: `objectsFromTrace(..., { detailTune: { visibleDE: 8 } })`. */
 export const DETAIL_TUNE = Object.freeze({
@@ -271,6 +330,7 @@ export const DETAIL_TUNE = Object.freeze({
  */
 function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, maxColors, thick, shapes, tune = null }) {
   const t = { ...DETAIL_TUNE, ...(tune || {}) };
+  const pick = threadPicker(snap);
   const det = traced.details || { lines: [], spots: [], stats: {} };
   const hair = traced.hairlines || [];
   if (!det.lines.length && !det.spots.length && !hair.length) return null;
@@ -303,7 +363,7 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
     }
     for (const g of groups.filter((q) => q.w >= DETAIL_NEW_MIN).sort((a, b) => b.w - a.w).slice(0, room)) {
       const r = Math.round(g.r / g.w), gg = Math.round(g.g / g.w), b = Math.round(g.b / g.w);
-      const hex = snap ? nearestThread(r, gg, b).hex : rgbToHex(r, gg, b);
+      const hex = pick(r, gg, b);
       if (!seen.has(hex)) { seen.add(hex); fresh.push({ hex, lab: labOfHex(hex) }); }
     }
   }
@@ -397,20 +457,50 @@ function fineObjects(traced, { palette, cloth, originX, originY, mmPerPx, snap, 
 }
 
 /**
+ * Mark the objects that are letters of a run of lettering with `letters: { block, stroke, cap, n }` (the block's number, the typical stroke width and the letter height in
+ * millimetres, how many letters the finder reckons the block holds, and `refined` when the second tracing of lettering (trace/refine.js) confirmed the block: letters that touch are one object, so a word of four letters may be two objects, and only a refined block's count is trusted for that). The engine sews the letters of a thin run (typical stroke under `pictureLineBelow`) as one text. Only logos and artwork are looked at: a photograph is all small
+ * patches, and nothing in it is text worth the name. Done on the objects in place.
+ */
+function tagLettering(objects, shapes, traced, mmPerPx, options = null) {
+  const kind = traced.stats?.kind;
+  if (kind !== "logo" && kind !== "art") return;
+  // artwork is full of small patches that look like letters by chance: it needs a long line of them (a logo, four or five letters)
+  // (the answer is kept with the trace, for the size it was found at: every change of the colour list asks again)
+  try { // (a guess that goes wrong must never cost the person their picture: without the marks the shapes are sewn as they always were)
+    let blocks = !options && traced.lettering && traced.lettering.mmPerPx === mmPerPx ? traced.lettering.blocks : null;
+    if (!blocks) {
+      // (the caller's own options are used as they are; asked for none, a logo also gets its short words, as the tracer does)
+      blocks = findLettering(traced.shapes, { mmPerPx, options: options ? { minLetters: kind === "art" ? 9 : 5, ...options } : kind === "art" ? { minLetters: 9 } : { minLetters: 5, shortLetters: 3, shortMaxPieces: 24, shortMaxShapes: 60 } });
+      if (!options) traced.lettering = { mmPerPx, blocks };
+    }
+    if (!blocks.length) return;
+    const blockOf = new Map();
+    for (const b of blocks) for (const id of b.shapes) blockOf.set(id, b);
+    shapes.forEach((s, k) => {
+      const b = blockOf.get(s.id);
+      if (b) objects[k].letters = { block: b.id, stroke: +b.strokeMm.toFixed(3), cap: +b.capMm.toFixed(2), n: Number.isFinite(b.letters) ? +b.letters.toFixed(1) : b.count, ...(b.refined ? { refined: 1 } : {}) };
+    });
+  } catch (e) {
+    for (const o of objects) delete o.letters;
+  }
+}
+
+/**
  * @param {object} traced  the tracer's result (palette, shapes, order)
  * @param {object} o  originX, originY (hoop mm of the traced image's top-left corner), mmPerPx (mm per traced-image pixel),
  *   skip (Set of palette indexes the person turned off), include (Set of indexes turned ON although they match the cloth),
  *   fabric (the cloth's colour as hex: a picture colour close to it is the cloth showing through, so it is not stitched),
- *   snap (move each colour to the nearest thread of the chart)
+ *   snap (move each colour to the nearest thread: false, true for the chart's, or a list of hex colours, the person's own threads: see threadPicker)
  * @returns {{ objects: object[], palette: {index, hex, name, fraction, background, enclosed, skipped, sameAsCloth, fineOnly}[], rank: Map }}
  *   `enclosed` marks the page colour that sits inside the design (white letters in a navy disc, the hole of an O): it is its own entry.
  *   `fineOnly` marks a colour like the cloth of which only the fine shapes that are ink (narrower than CLOTH_FINE_MM and in a hole of a wide shape, see
  *   CLOTH_FIELD_MM) are stitched: they are not `skipped`.
  *   Every object carries `pal`, the palette entry it was made for, and `rank` says where each entry comes in the sewing order.
  */
-export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new Set(), include = new Set(), fabric = null, snap = false, bleed = 0.4, before = null, maxColors = 12, detailThick = false, detailTune = null }) {
+export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new Set(), include = new Set(), fabric = null, snap = false, bleed = 0.4, before = null, maxColors = 12, detailThick = false, detailTune = null, letteringOptions = null }) {
   const cloth = fabric ? toLab(...Object.values(hexToRgb(fabric))) : null;
-  const matchDE = clothMatch(traced.stats?.kind, fabric);
+  const matchDE = clothMatchOf(traced, fabric);
+  const pick = threadPicker(snap);
   // Which shapes have a hole that another shape sits in? Touching shapes share exactly the same boundary points, so a shape sits in the hole of
   // any shape whose hole outline has one of its own outline's points. Built (and widths measured) only when a colour like the cloth has narrow shapes.
   const indexOf = new Map(traced.shapes.map((sh, k) => [sh, k]));
@@ -451,7 +541,7 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
     return fine.get(s);
   };
   const palette = traced.palette.map((p, index) => {
-    const hex = snap ? nearestThread(p.r, p.g, p.b).hex : rgbToHex(p.r, p.g, p.b);
+    const hex = pick(p.r, p.g, p.b);
     const lab = toLab(p.r, p.g, p.b);
     const sameAsCloth = !p.background && !!cloth && matchDE > 0 && Math.hypot(lab[0] - cloth[0], lab[1] - cloth[1], lab[2] - cloth[2]) <= matchDE;
     // a colour like the cloth is not stitched, except for its fine shapes (lettering, thin lines) unless the person asked for none of it
@@ -489,6 +579,8 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
       pal: s.color,
     };
   });
+  // The letters of a run of lettering in the picture are marked, so the engine sews them as one text (see trace/lettering.js and engine.js `textLineBelow`).
+  tagLettering(objects, shapes, traced, mmPerPx, letteringOptions);
   // The fine lines and dots found on the picture itself go on top of everything the colour layer made (and of its angles and edge lines), last in the design.
   const onTop = traced.details || (traced.hairlines && traced.hairlines.length) ? fineObjects(traced, { palette, cloth: cloth || toLab(...Object.values(hexToRgb(DEFAULT_CLOTH))), originX, originY, mmPerPx, snap, maxColors, thick: detailThick, shapes, tune: detailTune }) : null;
   const looked = applyLook(objects, shapes, traced, mmPerPx); // (the colour layer's objects only: the look is worked out shape by shape)
@@ -501,7 +593,7 @@ export function objectsFromTrace(traced, { originX, originY, mmPerPx, skip = new
  */
 export function contentBox(traced, { originX, originY, mmPerPx, fabric = null }) {
   const cloth = fabric ? toLab(...Object.values(hexToRgb(fabric))) : null;
-  const matchDE = clothMatch(traced.stats?.kind, fabric);
+  const matchDE = clothMatchOf(traced, fabric);
   const counts = traced.palette.map((p) => {
     if (p.background) return false;
     if (!cloth || matchDE <= 0) return true;
@@ -575,3 +667,5 @@ export function mergeTraceObjects(current, made, { fresh = false, before = null,
   }
   return list;
 }
+
+

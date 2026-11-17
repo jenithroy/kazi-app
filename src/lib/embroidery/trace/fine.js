@@ -10,6 +10,7 @@
 import { prepare } from "./prep.js";
 import { extractDetails, detailParams } from "./details.js";
 import { rgbToLab } from "./color.js";
+import { REGION_COUNT, ZONE_PARENT } from "./regions.js";
 
 /** A line shorter than this (mm) is never kept, whatever its strength (a stitch of a bean line is 2 mm). */
 export const MIN_LINE_MM = 1.5;
@@ -161,15 +162,16 @@ export function findFineDetails(image, o, kind, a, shapes, hairlines = null) {
   const classes = a.regionCls || null;
   const regionOf = (pts) => {
     if (!classes) return 0;
-    const votes = new Uint8Array(8);
+    const votes = new Uint8Array(REGION_COUNT);
     const n = pts.length;
     for (const t of [0, 0.25, 0.5, 0.75, 1]) {
       const p = pts[Math.min(n - 1, Math.round(t * (n - 1)))];
       const x = Math.min(lw - 1, Math.max(0, Math.floor(p[0] / sx))), y = Math.min(lh - 1, Math.max(0, Math.floor(p[1] / sy)));
-      votes[classes[y * lw + x] & 7]++;
+      const c = classes[y * lw + x];
+      votes[ZONE_PARENT[c] ?? Math.min(c, REGION_COUNT - 1)]++; // (the white of the eye counts as the eyes, the open mouth as the lips)
     }
     let best = 0;
-    for (let c = 1; c < 8; c++) if (votes[c] > votes[best]) best = c;
+    for (let c = 1; c < REGION_COUNT; c++) if (votes[c] > votes[best]) best = c;
     return best;
   };
 

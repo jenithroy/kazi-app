@@ -7,7 +7,8 @@
 import { generate } from "./engine.js";
 import { tatamiFillShape } from "./fill.js";
 import { satinIsland, lineIsland } from "./satin.js";
-import { curveRun } from "./path.js";
+import { curveRun, densify } from "./path.js";
+import { outlineRuns } from "./outline.js";
 import { coverageOf } from "./quality.js";
 import { CMD, patternStats } from "../pattern.js";
 import { unionShapes, intersectRings, offsetRings, prepareShape, intersectPrepared } from "../geometry/clip.js";
@@ -342,6 +343,20 @@ check("odd shapes give finite numbers", !odds || odds.pattern.stitches.every((s)
   // damaged input does not crash or make NaN; an open object with no stroke is left alone
   const bad = generate({ objects: [fine("nan", [[[0, 0], [NaN, 3]], [[0, 5], [4, 5]]], "#000000"), { id: "nostroke", open: true, rings: [[[0, 0], [3, 3]]], fill: { type: "none", color: "#000000" } }, fine("empty", [], "#000000"), fine("one", [[[1, 1]]], "#000000")] }, {});
   check("open lines: damaged ones are left out with a warning, no NaN", bad.pattern.stitches.every((s) => s.every(Number.isFinite)) && bad.warnings.some((w) => w.kind === "far"), JSON.stringify(bad.warnings));
+}
+
+// 5b. An edge line follows a curve: a small circle stays round (3 mm stitches round a 4 mm disc made a hexagon).
+{
+  const disc = (r, n = 96) => Array.from({ length: n }, (_, i) => [r * Math.cos((2 * Math.PI * i) / n), r * Math.sin((2 * Math.PI * i) / n)]);
+  const sag = (pts, r) => { let w = 0; for (let i = 1; i < pts.length; i++) { const mx = (pts[i][0] + pts[i - 1][0]) / 2, my = (pts[i][1] + pts[i - 1][1]) / 2; w = Math.max(w, r - Math.hypot(mx, my)); } return w; };
+  const fixed = outlineRuns([disc(2)], { type: "run", len: 3, dev: 0 })[0];
+  const curved = outlineRuns([disc(2)], { type: "run", len: 3 })[0];
+  check("a fixed 3 mm stitch round a 4 mm disc cuts 0.5 mm into it (the old hexagon)", sag(fixed, 2) > 0.4, String(sag(fixed, 2)));
+  check("the default edge line stays within 0.1 mm of the circle", sag(curved, 2) <= 0.1, String(sag(curved, 2)));
+  const sq = outlineRuns([[[0, 0], [20, 0], [20, 20], [0, 20]]], { type: "run", len: 3 })[0];
+  const lens = sq.slice(1).map((q, i) => Math.hypot(q[0] - sq[i][0], q[1] - sq[i][1])).filter((d) => d > 1e-6);
+  check("on a straight 20 mm edge the stitches stay 3 mm long, and the corners are kept", Math.max(...lens) <= 3.001 && lens.filter((d) => d > 2.5).length >= 20 && sq.some((q) => q[0] === 20 && q[1] === 20));
+  check("densify keeps the points it was given and adds some to a long stretch", densify([[0, 0], [1, 0]], 0.25).length === 5 && densify([[0, 0], [0.1, 0]], 0.25).length === 2);
 }
 
 // 6. Same input, same stitches.

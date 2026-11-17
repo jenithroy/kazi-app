@@ -4,7 +4,7 @@
  * has transparency of its own (a cut-out sticker: the colours behind its see-through part mean nothing), or the finder could not run (offline, no Worker,
  * a blocked file): the picture is then traced as it is, so this never makes a conversion fail.
  *
- * The first call loads about 30 MB (the model and the wasm; the browser keeps them for a year) and takes several seconds; later ones about three.
+ * The first call loads about 35 MB (the person model, the face landmarker and the wasm; the browser keeps them for a year) and takes several seconds; later ones about three.
  * One picture at a time, in the order asked. A picture that takes over a minute (three on the first load) is given up on and the worker is started afresh.
  */
 const FIRST_LIMIT_MS = 180000;
@@ -62,7 +62,7 @@ function run(image) {
 
 /**
  * @param {{ width, height, data }} image  RGBA, up to 1600 px on its long side. Its pixels are handed to the worker (the caller must not use them afterwards).
- * @returns {Promise<null | { regions: { width, height, data: Uint8Array }, share: object, faceBox: number[] | null, ms: object }>}
+ * @returns {Promise<null | { regions: { width, height, data: Uint8Array }, share: object, faceBox: number[] | null, faces: Float32Array[], anchors: object[], ms: object }>}
  */
 export function findPerson(image) {
   if (typeof Worker === "undefined" || globalThis.__DIGITIZER_INLINE__ === true) return Promise.resolve(null);
@@ -72,7 +72,9 @@ export function findPerson(image) {
   return job.then((out) => {
     if (!out || out.error || !out.result || !out.result.person) return null;
     loaded = true;
-    return { regions: { width: out.result.width, height: out.result.height, data: new Uint8Array(out.classes) }, share: out.result.share, faceBox: out.result.faceBox, ms: out.result.ms };
+    // `faces`: the face landmarks (faceFinder.js), one Float32Array of 478 x 3 numbers a face, [] when the finder found none or could not run
+    // `anchors`: the white of the eyes and of the teeth measured on the picture (faces.js featureAnchors), [] when there are none to speak of
+    return { regions: { width: out.result.width, height: out.result.height, data: new Uint8Array(out.classes) }, share: out.result.share, faceBox: out.result.faceBox, faces: out.faces || [], anchors: out.anchors || [], ms: out.result.ms };
   });
 }
 

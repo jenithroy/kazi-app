@@ -73,6 +73,25 @@ export function runAlong(line, { len = 2.5, closed = false, cornerDeg = 25, minG
 }
 
 /**
+ * The polyline with a point at least every `step` mm: a long straight stretch is split into equal parts, the points it had stay. A line that has few points
+ * (the edge of a square, a long run of a traced outline) can then be given to `curveRun`, which can only put a needle hole where the line has a point.
+ */
+export function densify(line, step = 0.25, closed = false) {
+  const n = line.length;
+  if (n < 2) return line.slice();
+  const out = [];
+  const last = closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const p = line[i], q = line[(i + 1) % n];
+    const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    const k = Math.max(1, Math.ceil(d / step - 1e-9));
+    for (let s = 0; s < k; s++) out.push([p[0] + ((q[0] - p[0]) * s) / k, p[1] + ((q[1] - p[1]) * s) / k]);
+  }
+  if (!closed) out.push(line[n - 1]);
+  return out;
+}
+
+/**
  * A running stitch that follows the curves of a polyline: a needle hole wherever the next stretch would be longer than `len`, or
  * would cut across the line by more than `dev` mm. A straight line gets long stitches and a tight curve short ones, so a small
  * circle stays round (stitches of a fixed length would make it a polygon). `line` should have its points close together (a
@@ -111,7 +130,7 @@ export function curveRun(line, { len = 2.0, dev = 0.07, closed = false } = {}) {
  * a fixed length.
  */
 export function beanAlong(line, { len = 2.0, closed = false, dev = 0 } = {}) {
-  const pts = dev > 0 ? curveRun(line, { len, dev, closed }) : runAlong(line, { len, closed });
+  const pts = dev > 0 ? curveRun(densify(line, 0.25, closed), { len, dev, closed }) : runAlong(line, { len, closed });
   if (pts.length < 2) return pts;
   const out = [pts[0]];
   for (let i = 1; i < pts.length; i++) out.push(pts[i], pts[i - 1], pts[i]);

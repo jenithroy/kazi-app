@@ -16,8 +16,8 @@ export const EDGE_DEFAULTS = {
   inset: 0.2, // how far inside the true edge the middle of the line runs (half the thread, so its outer side is the edge)
   len: 3, // mm, the stitch length of the line (2 mm gave a little more, for 1.7 % more stitches)
   kinds: ["logo", "art"], // the kinds of picture that get it
-  minWidthMm: 3, // a shape whose mean width is less than this has short edges and little to gain (and under 1.5 mm it is a line of thread already)
-  minAreaMm2: 10, // and one this small has no teeth worth the trouble: measured, the big shapes get most of the gain for half the cost
+  minWidthMm: 1.6, // a shape whose mean width is less than this has short edges and little to gain (and under 1.5 mm it is a line of thread already; 3 left every dot, small badge and thin bar with ragged row ends)
+  minAreaMm2: 4, // and one this small has no teeth worth the trouble (a 2.2 mm dot is 3.8 mm2; the row ends round a small shape are the whole of its edge)
   maxRatio: 3.5, // a shape this many times longer than wide may be sewn as satin (smooth already): no border
   fillInset: 0.3, // mm: the fill's rows stop this far short of the edge, under the line (its row ends are round and 0.4 mm wide, and would stick out past it)
 };
@@ -33,6 +33,7 @@ export function edgeLook(shape, ctx, o = {}) {
   if (ctx.widthMm < P.minWidthMm) return null;
   if (shape.area * ctx.mmPerPx * ctx.mmPerPx < P.minAreaMm2) return null;
   const e = elongationOf(shape.contours[0]);
-  if (e && e.ratio >= P.maxRatio && ctx.widthMm < 5) return null; // a stroke the engine may sew as satin
+  // a stroke the engine may sew as satin (smooth already). A shape with holes is not one: a bar with holes in it is a fill, and its row ends show.
+  if (e && e.ratio >= P.maxRatio && ctx.widthMm < 5 && shape.contours.length === 1) return null;
   return { stroke: { type: P.type, color: ctx.color, width: P.width, len: P.len, position: "center", inset: P.inset }, fillInset: P.fillInset };
 }

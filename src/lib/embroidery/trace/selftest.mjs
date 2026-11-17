@@ -6,12 +6,15 @@
  *
  * Exit code 0 when every check passes, 1 otherwise.
  */
-import { traceImage, renderTrace, quantize, detectBackground } from "./index.js";
+import { traceImage, renderTrace, quantize, detectBackground, normalizeOptions } from "./index.js";
 import { detailLimits, limitsFor } from "./detail.js";
-import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, clothFromTrace, clothMatch, CLOTH_MATCH, CLOTH_MATCH_PHOTO, CLOTH_FINE_MM, CLOTH_FIELD_MM } from "../../digitizer/convert.js";
-import { REGION, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS } from "./regions.js";
+import { contentBox, fillScale, objectsFromTrace, mergeTraceObjects, changedColours, bleedUnder, clothFromTrace, clothMatch, CLOTH_MATCH, CLOTH_MATCH_PHOTO, CLOTH_FINE_MM, CLOTH_FIELD_MM, CLOTH_SKIPS } from "../../digitizer/convert.js";
+import { REGION, REGION_COUNT, cutOutPerson, resampleClasses, importanceMap, DEFAULT_REGION_WEIGHTS } from "./regions.js";
 import { buildRegionalPalette, classifyByRegion } from "./regionPalette.js";
+import { rgbToLab } from "./color.js";
 import { removeFrame } from "./frame.js";
+import { findLettering, describePiece, summariseLettering } from "./lettering.js";
+import { refineBoxes, confirmedBoxes } from "./refine.js";
 import { HALO_RATIO } from "./details.js";
 import { buildPalette, missingNeutral, NEUTRAL_FAR, NEUTRAL_MIN_SHARE } from "./quantize.js";
 import { extractHairlines, HAIRLINE } from "./hairlines.js";
@@ -526,27 +529,42 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
     const box = contentBox(res, { originX: -10, originY: -5, mmPerPx: 0.1, fabric: "#f4f1ea" });
     check("contentBox is the stitched part in hoop millimetres (not the page round it)", box && Math.abs(box.x0 - (-10 + 50.2 * 0.1)) < 0.2 && Math.abs(box.x1 - (-10 + 150.2 * 0.1)) < 0.2, JSON.stringify(box));
     const hidden = contentBox(res, { originX: 0, originY: 0, mmPerPx: 0.1, fabric: "#c82228" });
-    check("a colour like the cloth is not part of it", hidden === null, JSON.stringify(hidden));
+    if (CLOTH_SKIPS) check("a colour like the cloth is not part of it", hidden === null, JSON.stringify(hidden));
+    else check("the cloth is only how the design is shown: a colour like it is part of what is stitched", !!hidden && Math.abs(hidden.x0 - 5.02) < 0.2 && Math.abs(hidden.x1 - 15.02) < 0.2, JSON.stringify(hidden));
   }
 
   // A narrow shape of the cloth's colour is stitched only where it is ink: in a hole of a WIDE shape (white lettering on a badge). The white inside a
   // letter (its counter: the hole of an o, a, e, B, D) sits in the hole of a narrow shape and is left as cloth, and so is a white outline round the
   // whole design, which sits in no hole at all (hatching the counters of every letter in white thread was a real mistake).
+  // (These rules hold while CLOTH_SKIPS is on. With it off, as it is, nothing is "like the cloth": the white is a colour like any other, stitched
+  // unless the colour list switches it off, and only the page round the design is left out.)
   {
     const opts = { originX: 0, originY: 0, mmPerPx: 0.2, fabric: "#f4f1ea" };
     const rings = makeImage(300, 120);
     for (let i = 0; i < 4; i++) { paint(rings, [circle(45.2 + i * 70, 60.4, 16, 360)], NAVY); paint(rings, [circle(45.2 + i * 70, 60.4, 6, 180)], WHITE); } // four letter Os, 2 mm strokes, 2.4 mm counters
-    const o = objectsFromTrace(traceImage(rings, { ...page, mmPerPx: 0.2 }), opts);
+    const tracedRings = traceImage(rings, { ...page, mmPerPx: 0.2 });
+    const o = objectsFromTrace(tracedRings, opts);
     const white = o.palette.filter((p) => p.sameAsCloth && !p.background);
-    check(`the white inside four narrow letter Os (strokes under ${CLOTH_FIELD_MM} mm) is left as cloth: no white objects, the white is not stitched`, white.length >= 1 && white.every((p) => p.skipped && !p.fineOnly) && o.objects.every((ob) => !o.palette[ob.pal].sameAsCloth), JSON.stringify(white.map((p) => ({ skipped: p.skipped, fineOnly: p.fineOnly }))));
-    check("and the four letters themselves are stitched", o.objects.length === 4, `${o.objects.length} objects`);
+    if (CLOTH_SKIPS) {
+      check(`the white inside four narrow letter Os (strokes under ${CLOTH_FIELD_MM} mm) is left as cloth: no white objects, the white is not stitched`, white.length >= 1 && white.every((p) => p.skipped && !p.fineOnly) && o.objects.every((ob) => !o.palette[ob.pal].sameAsCloth), JSON.stringify(white.map((p) => ({ skipped: p.skipped, fineOnly: p.fineOnly }))));
+      check("and the four letters themselves are stitched", o.objects.length === 4, `${o.objects.length} objects`);
+    } else {
+      const inside = o.palette.filter((p) => p.enclosed && !p.background).map((p) => p.index);
+      check("the cloth is only how the design is shown: the white inside four letter Os is stitched like any colour, the page round them is not", o.palette.every((p) => !p.sameAsCloth && !p.fineOnly) && inside.length === 1 && o.objects.length === 8 && o.palette.some((p) => p.background && p.skipped), JSON.stringify(o.palette.map((p) => [p.hex, p.background, p.enclosed, p.skipped])));
+      const off = objectsFromTrace(tracedRings, { ...opts, skip: new Set(inside) });
+      check("and unticked in the colour list the white is left out: the four letters remain", off.objects.length === 4 && off.palette[inside[0]].skipped, `${off.objects.length} objects`);
+    }
 
     const halo = makeImage(300, 300);
     paint(halo, [circle(150.2, 150.4, 120, 720)], WHITE); // a thin white outline round a navy disc, on a see-through page
     paint(halo, [circle(150.2, 150.4, 114, 720)], NAVY);
     for (let y = 0; y < 300; y++) for (let x = 0; x < 300; x++) if (Math.hypot(x + 0.5 - 150.2, y + 0.5 - 150.4) > 121) halo.data[(y * 300 + x) * 4 + 3] = 0;
     const h = objectsFromTrace(traceImage(halo, { ...page, mmPerPx: 0.2 }), opts);
-    check("a thin white outline round the whole design (in no shape's hole) is the cloth: not stitched", h.palette.filter((p) => p.sameAsCloth && !p.background).every((p) => !p.fineOnly) && h.objects.every((ob) => !h.palette[ob.pal].sameAsCloth), JSON.stringify(h.palette.map((p) => [p.hex, p.sameAsCloth, p.skipped, p.fineOnly])));
+    if (CLOTH_SKIPS) {
+      check("a thin white outline round the whole design (in no shape's hole) is the cloth: not stitched", h.palette.filter((p) => p.sameAsCloth && !p.background).every((p) => !p.fineOnly) && h.objects.every((ob) => !h.palette[ob.pal].sameAsCloth), JSON.stringify(h.palette.map((p) => [p.hex, p.sameAsCloth, p.skipped, p.fineOnly])));
+    } else {
+      check("a thin white outline round the whole design is part of the picture: stitched with the disc, the page round it is not", h.objects.length === 2 && h.objects.some((ob) => h.palette[ob.pal].hex === "#ffffff") && h.palette.every((p) => !p.sameAsCloth), JSON.stringify(h.palette.map((p) => [p.hex, p.sameAsCloth, p.skipped, p.background])));
+    }
   }
 
   // The overlap under later shapes, done the fast way, comes out the same as the slow way (every later shape in reach united, then cut).
@@ -580,6 +598,7 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
 
   // White inside a navy disc, on a pale cloth: the white is "like the cloth". A wide white area is left as bare cloth, but narrow white
   // strokes (lettering, a thin ring) are stitched in white over the navy round them: a gap that narrow cannot be kept clean in a fill.
+  // (While CLOTH_SKIPS is on. With it off all of the white is stitched, and the colour of the cloth changes nothing that is stitched.)
   {
     const img = makeImage(300, 300);
     paint(img, [circle(150.2, 150.4, 130, 720)], NAVY);
@@ -591,32 +610,44 @@ log("8. thin lines and lettering are kept, widened, and keep their colour; kinds
     const white = made.palette.filter((p) => p.sameAsCloth && !p.background);
     const whiteObjects = (m, idx) => m.objects.filter((o) => idx.includes(o.pal)).length;
     const idx = white.map((p) => p.index);
-    check("white like the cloth is a colour of its own, with only its fine parts stitched", white.length === 1 && white[0].fineOnly && !white[0].skipped, JSON.stringify(white));
-    check(`the five narrow bars (narrower than ${CLOTH_FINE_MM} mm) are stitched, the wide patch is left as cloth`, whiteObjects(made, idx) === 5, `${whiteObjects(made, idx)} white objects`);
-    check("the navy is stitched as before", made.objects.some((o) => made.palette[o.pal].hex === "#16255c" || !made.palette[o.pal].sameAsCloth));
-    const all = objectsFromTrace(res, { ...opts, include: new Set(idx) });
-    check("ticking the colour stitches all of it, the wide patch too", whiteObjects(all, idx) === 6 && !all.palette[idx[0]].fineOnly, `${whiteObjects(all, idx)}`);
-    const none = objectsFromTrace(res, { ...opts, skip: new Set(idx) });
-    check("unticking it leaves all of it out", whiteObjects(none, idx) === 0 && none.palette[idx[0]].skipped);
-    // changing the cloth colour changes which parts of the white are stitched: the design is updated for that colour only
-    {
-      const next = objectsFromTrace(res, { ...opts, fabric: "#16255c", before: made.palette });
-      const merged = mergeTraceObjects(made.objects, next.objects, { before: made.palette, after: next.palette, rank: next.rank });
-      check("on a change of cloth colour the shapes that now need stitching are added (white: fine parts only, then all of it)", whiteObjects({ objects: merged }, idx) === 6, `${whiteObjects({ objects: merged }, idx)} white objects`);
-      const back = objectsFromTrace(res, { ...opts, before: next.palette });
-      const again = mergeTraceObjects(merged, back.objects, { before: next.palette, after: back.palette, rank: back.rank });
-      check("and taken away again when the cloth goes back to pale", whiteObjects({ objects: again }, idx) === 5, `${whiteObjects({ objects: again }, idx)} white objects`);
-      // The page asks the worker (digitizer/engineCore.js) for the shapes of the colours that CHANGED. The white went from "fine parts only" to all of it, which is a change although
-      // it was never switched off: the worker has to send its shapes too (looking only at on and off, it sent none and the white was gone from the design after a cloth change).
-      check("the white is among the colours the change of cloth changed", idx.every((i) => changedColours(next.palette, made.palette).has(i)));
-      const core = await import("../../digitizer/engineCore.js");
-      core.run("trace", { image: img, options: { ...page, mmPerPx: 0.2 }, keep: 1 });
-      const sent = core.run("shapes", { token: 1, originX: -30, originY: -30, mmPerPx: 0.2, skip: [], include: [], fabric: "#16255c", snap: false, before: made.palette, fresh: false }).result;
-      const whiteSent = sent.packed.meta.filter((o) => idx.includes(o.pal)).length;
-      check("and the worker sends the shapes of the white (all six) when asked for them", whiteSent === 6, `${whiteSent} white shapes sent`);
+    if (CLOTH_SKIPS) {
+      check("white like the cloth is a colour of its own, with only its fine parts stitched", white.length === 1 && white[0].fineOnly && !white[0].skipped, JSON.stringify(white));
+      check(`the five narrow bars (narrower than ${CLOTH_FINE_MM} mm) are stitched, the wide patch is left as cloth`, whiteObjects(made, idx) === 5, `${whiteObjects(made, idx)} white objects`);
+      check("the navy is stitched as before", made.objects.some((o) => made.palette[o.pal].hex === "#16255c" || !made.palette[o.pal].sameAsCloth));
+      const all = objectsFromTrace(res, { ...opts, include: new Set(idx) });
+      check("ticking the colour stitches all of it, the wide patch too", whiteObjects(all, idx) === 6 && !all.palette[idx[0]].fineOnly, `${whiteObjects(all, idx)}`);
+      const none = objectsFromTrace(res, { ...opts, skip: new Set(idx) });
+      check("unticking it leaves all of it out", whiteObjects(none, idx) === 0 && none.palette[idx[0]].skipped);
+      // changing the cloth colour changes which parts of the white are stitched: the design is updated for that colour only
+      {
+        const next = objectsFromTrace(res, { ...opts, fabric: "#16255c", before: made.palette });
+        const merged = mergeTraceObjects(made.objects, next.objects, { before: made.palette, after: next.palette, rank: next.rank });
+        check("on a change of cloth colour the shapes that now need stitching are added (white: fine parts only, then all of it)", whiteObjects({ objects: merged }, idx) === 6, `${whiteObjects({ objects: merged }, idx)} white objects`);
+        const back = objectsFromTrace(res, { ...opts, before: next.palette });
+        const again = mergeTraceObjects(merged, back.objects, { before: next.palette, after: back.palette, rank: back.rank });
+        check("and taken away again when the cloth goes back to pale", whiteObjects({ objects: again }, idx) === 5, `${whiteObjects({ objects: again }, idx)} white objects`);
+        // The page asks the worker (digitizer/engineCore.js) for the shapes of the colours that CHANGED. The white went from "fine parts only" to all of it, which is a change although
+        // it was never switched off: the worker has to send its shapes too (looking only at on and off, it sent none and the white was gone from the design after a cloth change).
+        check("the white is among the colours the change of cloth changed", idx.every((i) => changedColours(next.palette, made.palette).has(i)));
+        const core = await import("../../digitizer/engineCore.js");
+        core.run("trace", { image: img, options: { ...page, mmPerPx: 0.2 }, keep: 1 });
+        const sent = core.run("shapes", { token: 1, originX: -30, originY: -30, mmPerPx: 0.2, skip: [], include: [], fabric: "#16255c", snap: false, before: made.palette, fresh: false }).result;
+        const whiteSent = sent.packed.meta.filter((o) => idx.includes(o.pal)).length;
+        check("and the worker sends the shapes of the white (all six) when asked for them", whiteSent === 6, `${whiteSent} white shapes sent`);
+      }
+      const dark = objectsFromTrace(res, { ...opts, fabric: "#16255c" });
+      check("on a navy cloth the white is stitched whole and the navy is the cloth", whiteObjects(dark, idx) === 6 && dark.palette.some((p) => p.sameAsCloth && p.skipped && p.hex !== "#ffffff"));
+    } else {
+      const inside = made.palette.filter((p) => p.enclosed && !p.background).map((p) => p.index);
+      const whiteN = (m) => m.objects.filter((o) => inside.includes(o.pal)).length;
+      check("the cloth is only how the design is shown: the five bars and the wide patch are all stitched, and nothing is 'like the cloth'", inside.length === 1 && whiteN(made) === 6 && made.palette.every((p) => !p.sameAsCloth && !p.fineOnly), JSON.stringify(made.palette.map((p) => [p.hex, p.background, p.enclosed, p.skipped])));
+      check("the navy is stitched as before", made.objects.some((o) => !inside.includes(o.pal) && !made.palette[o.pal].background));
+      const none = objectsFromTrace(res, { ...opts, skip: new Set(inside) });
+      check("unticking the white leaves all of it out", whiteN(none) === 0 && none.palette[inside[0]].skipped);
+      const dark = objectsFromTrace(res, { ...opts, fabric: "#16255c" });
+      check("a navy cloth changes nothing that is stitched: the same shapes, the white whole, the navy not left out", dark.objects.length === made.objects.length && whiteN(dark) === 6 && dark.palette.every((p) => !p.sameAsCloth && (!p.skipped || p.background)));
+      check("and no colour counts as changed by it (the worker has nothing to send again)", changedColours(dark.palette, made.palette).size === 0);
     }
-    const dark = objectsFromTrace(res, { ...opts, fabric: "#16255c" });
-    check("on a navy cloth the white is stitched whole and the navy is the cloth", whiteObjects(dark, idx) === 6 && dark.palette.some((p) => p.sameAsCloth && p.skipped && p.hex !== "#ffffff"));
   }
 }
 
@@ -854,10 +885,15 @@ log("N. a portrait: light hair against a light wall, and a person cut out of the
   const cream = objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#f4f1ea" });
   check("on the default cream cloth nothing of a photograph is left bare as 'like the cloth' (the white of hair stays)", cream.palette.every((p) => !p.sameAsCloth), JSON.stringify(cream.palette.map((p) => [p.hex, p.sameAsCloth, p.background])));
   const sameHair = objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#e1e1e1" });
-  check("on a cloth that means something (here exactly the hair's colour) a photograph colour that is the cloth is left to it", sameHair.palette.some((p) => p.sameAsCloth && !p.background));
+  if (CLOTH_SKIPS) check("on a cloth that means something (here exactly the hair's colour) a photograph colour that is the cloth is left to it", sameHair.palette.some((p) => p.sameAsCloth && !p.background));
+  else check("the cloth is only how the design is shown: even a cloth exactly the hair's colour leaves nothing of the photograph out", sameHair.palette.every((p) => !p.sameAsCloth) && sameHair.objects.length === cream.objects.length, `${sameHair.objects.length} objects against ${cream.objects.length}`);
   const wallCloth = objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: 0.25, fabric: "#c8cdd2" });
   check("... but the hair 8 to 9 steps from a wall-coloured cloth is not taken for the cloth", wallCloth.palette.every((p) => !(p.sameAsCloth && p.r > 200)), JSON.stringify(wallCloth.palette.map((p) => [p.hex, p.sameAsCloth])));
-  check("cloth match by kind: logo and artwork 14; photograph 0 on the default cream, 7 on any other cloth", clothMatch("logo", "#ffffff") === CLOTH_MATCH && clothMatch("art", "#f4f1ea") === CLOTH_MATCH && clothMatch("photo", "#F4F1EA") === 0 && clothMatch("photo", "#202020") === CLOTH_MATCH_PHOTO && CLOTH_MATCH_PHOTO < CLOTH_MATCH);
+  if (CLOTH_SKIPS) {
+    check("cloth match by kind: logo and artwork 14; photograph 0 on the default cream, 7 on any other cloth", clothMatch("logo", "#ffffff") === CLOTH_MATCH && clothMatch("art", "#f4f1ea") === CLOTH_MATCH && clothMatch("photo", "#F4F1EA") === 0 && clothMatch("photo", "#202020") === CLOTH_MATCH_PHOTO && CLOTH_MATCH_PHOTO < CLOTH_MATCH);
+  } else {
+    check("cloth match by kind: 0 whatever the kind and the cloth while CLOTH_SKIPS is off (the limits, 14 and 7, are kept for when it is on)", [["logo", "#ffffff"], ["art", "#f4f1ea"], ["photo", "#F4F1EA"], ["photo", "#202020"]].every(([kind, f]) => clothMatch(kind, f) === 0) && CLOTH_MATCH_PHOTO < CLOTH_MATCH);
+  }
   const wall = { stats: { kind: "photo" }, palette: [{ background: true, r: 150, g: 160, b: 168 }] };
   check("a plain backdrop darker than L 75 sets the cloth, in a photograph as in a logo", clothFromTrace(wall) !== null && clothFromTrace({ stats: { kind: "logo" }, palette: wall.palette }) !== null);
 
@@ -900,6 +936,128 @@ log("N. a portrait: light hair against a light wall, and a person cut out of the
       if (!(rp.classMask[labels[i]] & (1 << REGION.CLOTHES))) leaks++;
     }
     check("regional palette: a pixel deep inside a region takes only colours that region owns", n > 1000 && leaks === 0, `${leaks} of ${n} pixels took another region's colour`);
+  }
+  // a SMALL many-toned face next to big, many-toned regions: counting error in pixels gave the suit and the helmet the colours and the face ONE (a flat patch with no eyes)
+  {
+    const W2 = 240, H2 = 240;
+    const rgb2 = new Uint8ClampedArray(W2 * H2 * 3), cls2 = new Uint8Array(W2 * H2);
+    const set = (x, y, c, v) => { const i = y * W2 + x; cls2[i] = c; rgb2[i * 3] = v[0]; rgb2[i * 3 + 1] = v[1]; rgb2[i * 3 + 2] = v[2]; };
+    const suit = [[240, 240, 242], [205, 210, 220], [165, 172, 192], [115, 124, 152], [62, 72, 110]];
+    const helmet = [[150, 60, 30], [110, 40, 20], [70, 25, 15], [200, 120, 70]];
+    const hair = [[40, 30, 25], [75, 55, 40], [110, 85, 60]];
+    const skin = [[225, 170, 150], [200, 140, 120], [170, 110, 90], [235, 195, 175]];
+    for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+      if (y >= 110 && x < 120) set(x, y, REGION.CLOTHES, suit[Math.floor(x / 24)]); // a big suit, five tones
+      else if (y >= 110) set(x, y, REGION.OTHER, helmet[Math.floor((x - 120) / 30)]); // a big helmet, four tones
+      else if (y < 40 && x > 70 && x < 170) set(x, y, REGION.HAIR, hair[Math.floor((x - 70) / 34) % 3]);
+      else if ((x - 120) ** 2 + (y - 75) ** 2 <= 24 * 24) set(x, y, REGION.FACE_SKIN, skin[Math.floor((x - 96) / 12) % 4]); // a small face (area about 1800 px), four tones
+    }
+    const base = { maxColors: 10, seed: 1, mergeDE: 6, crumbs: "strict", noiseTol: 6, weights: DEFAULT_REGION_WEIGHTS };
+    const asked = (rp, c) => (rp.alloc.find((a) => a[0] === c) || [0, 0])[1];
+    const oldRule = buildRegionalPalette(rgb2, W2, H2, cls2, { ...base, areaPower: 1, minColors: {} });
+    const newRule = buildRegionalPalette(rgb2, W2, H2, cls2, base);
+    check("(control) counting error by the pixel starves a small face next to big many-toned regions", !!oldRule && asked(oldRule, REGION.FACE_SKIN) <= 2, JSON.stringify(oldRule && oldRule.alloc));
+    check("the face is given colours before the shares are made: at least three, as far as it has tones", !!newRule && asked(newRule, REGION.FACE_SKIN) >= 3 && asked(newRule, REGION.FACE_SKIN) > asked(oldRule, REGION.FACE_SKIN), JSON.stringify(newRule && newRule.alloc));
+    check("... and the palette never holds more colours than were asked for", newRule.n <= base.maxColors, `${newRule.n} colours`);
+    const small = buildRegionalPalette(rgb2, W2, H2, cls2, { ...base, maxColors: 5 });
+    check("a small palette is the person's own choice: no minimums are made out of it", asked(small, REGION.FACE_SKIN) <= 2 || small.n <= 5, JSON.stringify(small.alloc));
+  }
+  // the eyes and lips (classes 6 and 7, painted by the face finder) have colours of their own from a few dozen pixels, and the palette still keeps to the colours asked for
+  {
+    const W2 = 200, H2 = 200;
+    const rgb2 = new Uint8ClampedArray(W2 * H2 * 3), cls2 = new Uint8Array(W2 * H2);
+    const set = (x, y, c, v) => { const i = y * W2 + x; cls2[i] = c; rgb2[i * 3] = v[0]; rgb2[i * 3 + 1] = v[1]; rgb2[i * 3 + 2] = v[2]; };
+    for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+      if (y >= 120) set(x, y, REGION.CLOTHES, [[40, 50, 90], [60, 75, 130]][x < 100 ? 0 : 1]);
+      else if ((x - 100) ** 2 + (y - 70) ** 2 <= 45 * 45) {
+        const eye = (x - 82) ** 2 + (y - 62) ** 2 <= 7 * 7 || (x - 118) ** 2 + (y - 62) ** 2 <= 7 * 7;
+        const lips = ((x - 100) / 15) ** 2 + ((y - 92) / 5) ** 2 <= 1;
+        if (eye) set(x, y, REGION.FEATURES, [50, 32, 22]);
+        else if (lips) set(x, y, REGION.LIPS, [190, 60, 72]);
+        else set(x, y, REGION.FACE_SKIN, [[225, 170, 150], [205, 150, 130], [235, 190, 170]][Math.floor((x - 55) / 30) % 3]);
+      }
+    }
+    const rp = buildRegionalPalette(rgb2, W2, H2, cls2, { maxColors: 9, seed: 1, mergeDE: 6, crumbs: "strict", noiseTol: 6, weights: DEFAULT_REGION_WEIGHTS });
+    const has = (c, test) => { for (let k = 0; k < rp.n; k++) if ((rp.classMask[k] & (1 << c)) && test(rp.rgb[k * 3], rp.rgb[k * 3 + 1], rp.rgb[k * 3 + 2])) return true; return false; };
+    check("the eyes (about 150 pixels each) and the lips are regions of their own", rp.live.includes(REGION.FEATURES) && rp.live.includes(REGION.LIPS), JSON.stringify(rp.live));
+    check("the eyes get their dark thread and the lips their red", has(REGION.FEATURES, (r, g, b) => r < 90 && g < 70 && b < 60) && has(REGION.LIPS, (r, g, b) => r > 150 && r > g + 80), JSON.stringify(Array.from(rp.rgb).map(Math.round)));
+    check("with the eyes and lips added the palette is still within the colours asked for", rp.n <= 9, `${rp.n} colours`);
+    check("the weights cover all ten classes (the eyes and the lips are the most read)", DEFAULT_REGION_WEIGHTS.length === REGION_COUNT && REGION_COUNT === 10 && DEFAULT_REGION_WEIGHTS[REGION.FEATURES] > DEFAULT_REGION_WEIGHTS[REGION.FACE_SKIN] && DEFAULT_REGION_WEIGHTS[REGION.LIPS] > DEFAULT_REGION_WEIGHTS[REGION.CLOTHES]);
+  }
+  // The white of the eye (class 8) and the open mouth (class 9) are ZONES inside the eyes (6) and the lips (7): no palette of their own, they only say where a white that was
+  // measured on the picture (`anchors`) may be used. Without an anchor they change nothing; with one the white is a thread of the palette, kept exactly as measured.
+  {
+    const W2 = 200, H2 = 200;
+    const rgb2 = new Uint8ClampedArray(W2 * H2 * 3), cls2 = new Uint8Array(W2 * H2);
+    const set = (x, y, c, v) => { const i = y * W2 + x; cls2[i] = c; rgb2[i * 3] = v[0]; rgb2[i * 3 + 1] = v[1]; rgb2[i * 3 + 2] = v[2]; };
+    const WHITE_EYE = [236, 233, 229], TEETH = [240, 236, 230], SHINE = [246, 242, 238];
+    // (the whites are drawn as two close colours side by side: not a flat patch, so the palette finds no colour of its own in them, as in a real picture where a white is a few blurred pixels)
+    const speckle = (x, y, a) => ((x + y) % 2 ? a : a.map((v) => v - 22));
+    const draw = (zones) => {
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        if (y >= 130) { set(x, y, REGION.CLOTHES, [[40, 50, 90], [60, 75, 130]][x < 100 ? 0 : 1]); continue; }
+        if ((x - 100) ** 2 + (y - 70) ** 2 > 50 * 50) continue;
+        set(x, y, REGION.FACE_SKIN, [[225, 170, 150], [205, 150, 130], [235, 190, 170]][Math.floor((x - 50) / 33) % 3]);
+        for (const ex of [78, 122]) {
+          const d = Math.hypot(x - ex, y - 58);
+          if (d <= 5) set(x, y, REGION.FEATURES, [50, 32, 22]); // the iris
+          else if (d <= 10) set(x, y, zones ? REGION.EYE_WHITE : REGION.FEATURES, speckle(x, y, WHITE_EYE)); // the white round it
+          else if (d <= 12) set(x, y, REGION.FEATURES, [95, 65, 50]); // the lid
+        }
+        const m = ((x - 100) / 22) ** 2 + ((y - 98) / 11) ** 2, o = ((x - 100) / 12) ** 2 + ((y - 98) / 5) ** 2;
+        if (m <= 1) {
+          if (o <= 1) set(x, y, zones ? REGION.MOUTH : REGION.LIPS, y < 98 ? speckle(x, y, TEETH) : [60, 25, 30]); // an open mouth: teeth above, the dark behind them below
+          else set(x, y, REGION.LIPS, [190, 60, 72]);
+        }
+        if (Math.abs(x - 82) <= 1 && Math.abs(y - 98) <= 1) set(x, y, REGION.LIPS, SHINE); // a shine on the lip, as white as the teeth but not in the mouth
+        if (y >= 40 && y <= 44 && x >= 60 && x <= 96) set(x, y, REGION.FEATURES, Math.abs(x - 80) <= 1 && y === 42 ? SHINE : [95, 65, 50]); // a brow, with a shine on it
+      }
+    };
+    const base = { maxColors: 10, seed: 1, mergeDE: 6, crumbs: "strict", noiseTol: 6, weights: DEFAULT_REGION_WEIGHTS };
+    draw(true);
+    const zoned = { rgb: rgb2.slice(), cls: cls2.slice() };
+    draw(false);
+    const folded = { rgb: rgb2.slice(), cls: cls2.slice() };
+    const plainZ = buildRegionalPalette(zoned.rgb, W2, H2, zoned.cls, base), plainF = buildRegionalPalette(folded.rgb, W2, H2, folded.cls, base);
+    check("zones without a measured white change nothing: the palette is the one the eyes and lips alone give", !!plainZ && plainZ.n === plainF.n && Array.from(plainZ.rgb).every((v, k) => Math.abs(v - plainF.rgb[k]) < 1e-9) && !plainZ.live.includes(REGION.EYE_WHITE) && !plainZ.live.includes(REGION.MOUTH), JSON.stringify([plainZ.n, plainF.n, plainZ.live]));
+    const lab0 = classifyByRegion(zoned.rgb, W2 * H2, W2, H2, plainZ.lab, plainZ.n, zoned.cls, plainZ, 2);
+    const lab1 = classifyByRegion(folded.rgb, W2 * H2, W2, H2, plainF.lab, plainF.n, folded.cls, plainF, 2);
+    check("... and neither do they in the labelling of the pixels", lab0.every((v, i) => v === lab1[i]));
+    const white = { rgb: [250, 246, 240], classes: [REGION.EYE_WHITE] }; // (not the colour of the white in the picture: it must be kept as given)
+    const one = buildRegionalPalette(zoned.rgb, W2, H2, zoned.cls, { ...base, anchors: [white] });
+    const entryOf = (rp, rgb) => { for (let k = 0; k < rp.n; k++) if (Math.abs(rp.rgb[k * 3] - rgb[0]) < 1e-6 && Math.abs(rp.rgb[k * 3 + 1] - rgb[1]) < 1e-6 && Math.abs(rp.rgb[k * 3 + 2] - rgb[2]) < 1e-6) return k; return -1; };
+    const ka = entryOf(one, white.rgb);
+    check("a measured white is a colour of the palette, exactly as measured, for the zone it belongs to", ka >= 0 && one.anchor[ka] === 1 && (one.classMask[ka] & (1 << REGION.EYE_WHITE)) !== 0 && one.live.includes(REGION.EYE_WHITE) && one.anchored === 1, JSON.stringify([ka, one.anchored, one.live]));
+    check("... and still within the colours asked for", one.n <= base.maxColors && plainF.n <= base.maxColors, `${one.n} colours`);
+    const mouthAnchor = { rgb: TEETH.slice(), classes: [REGION.MOUTH] };
+    const both = buildRegionalPalette(zoned.rgb, W2, H2, zoned.cls, { ...base, anchors: [{ rgb: WHITE_EYE.slice(), classes: [REGION.EYE_WHITE] }, mouthAnchor] });
+    check("two whites that are alike are one thread (it serves both zones), and the palette stays within its colours", both.n <= base.maxColors && both.anchored === 2 && Array.from({ length: both.n }, (_, k) => k).some((k) => (both.classMask[k] & (1 << REGION.EYE_WHITE)) && (both.classMask[k] & (1 << REGION.MOUTH))), JSON.stringify([both.n, both.anchored]));
+    // where the white is used: the labelling with a palette made by hand (skin, two eye colours, the lips' red and the dark of the mouth, and the white of the eye and the teeth)
+    {
+      const hand = [[225, 170, 150], [50, 32, 22], [95, 65, 50], [190, 60, 72], [60, 25, 30], [240, 236, 230]];
+      const labH = new Float64Array(hand.length * 3);
+      hand.forEach((c, k) => rgbToLab(c[0], c[1], c[2], labH, k * 3));
+      const palH = { n: 6, live: [3, 6, 7, 8, 9], classMask: Uint16Array.from([1 << 3, 1 << 6, 1 << 6, 1 << 7, 1 << 7, (1 << 8) | (1 << 9)]) };
+      const labels = classifyByRegion(zoned.rgb, W2 * H2, W2, H2, labH, 6, zoned.cls, palH, 2);
+      let ring = 0, ringWhite = 0;
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        const d = Math.min(Math.hypot(x - 78, y - 58), Math.hypot(x - 122, y - 58));
+        if (zoned.cls[y * W2 + x] === REGION.EYE_WHITE && d > 6.5 && d < 8.5) { ring++; if (labels[y * W2 + x] === 5) ringWhite++; }
+      }
+      check("the white takes the white of the eye (the middle of the ring), the teeth and nothing else", ring > 100 && ringWhite === ring && labels[93 * W2 + 100] === 5 && labels[96 * W2 + 96] === 5, `${ringWhite} of ${ring} in the ring`);
+      check("the dark behind the teeth keeps its own dark", labels[101 * W2 + 100] === 4 && labels[100 * W2 + 96] === 4, `colours ${labels[101 * W2 + 100]} and ${labels[100 * W2 + 96]}`);
+      check("a shine on the lip, as white as the teeth, is not sewn in the white: it is not in the mouth", labels[98 * W2 + 82] !== 5 && labels[97 * W2 + 83] !== 5, `colour ${labels[98 * W2 + 82]}`);
+      check("nor is a shine on the brow, which is in the eyes' class but not in the white of the eye", labels[42 * W2 + 80] !== 5 && labels[42 * W2 + 79] !== 5 && labels[42 * W2 + 81] !== 5, `colour ${labels[42 * W2 + 80]}`);
+      const noWhite = classifyByRegion(zoned.rgb, W2 * H2, W2, H2, labH, 6, zoned.cls, { ...palH, live: [3, 6, 7], classMask: Uint16Array.from([1 << 3, 1 << 6, 1 << 6, 1 << 7, 1 << 7, 0]) }, 2);
+      let any = 0;
+      for (let i = 0; i < W2 * H2; i++) if (noWhite[i] === 5) any++;
+      check("a zone with no white measured for it is read as the eyes and the lips it lies in", any === 0 && noWhite[58 * W2 + 78 + 8] !== 5);
+    }
+    const tiny = buildRegionalPalette(zoned.rgb, W2, H2, zoned.cls, { ...base, anchors: [{ rgb: [250, 246, 240], classes: [REGION.MOUTH] }] });
+    check("an anchor for a zone with no pixels to speak of is left out", (() => { const none = new Uint8Array(W2 * H2).map((_, i) => (zoned.cls[i] === REGION.MOUTH || zoned.cls[i] === REGION.EYE_WHITE ? REGION.FACE_SKIN : zoned.cls[i])); const r = buildRegionalPalette(zoned.rgb, W2, H2, none, { ...base, anchors: [white] }); return r.anchored === 0 && !r.live.includes(REGION.EYE_WHITE); })() && tiny.anchored === 1, "");
+    check("damaged anchors are ignored (no colour, no classes, classes that do not exist)", (() => { const r = buildRegionalPalette(zoned.rgb, W2, H2, zoned.cls, { ...base, anchors: [null, {}, { rgb: [1, 2], classes: [8] }, { rgb: [1, NaN, 3], classes: [8] }, { rgb: [250, 246, 240], classes: [] }, { rgb: [250, 246, 240], classes: [99] }] }); return r.anchored === 0 && r.n === plainZ.n; })());
+    // ... and through the tracer: the option is checked, the colour is kept as measured, and a picture without anchors is traced as before
+    check("regionAnchors is checked: at most four, each with a colour and real classes", (() => { const o = normalizeOptions({ regionAnchors: [{ rgb: [1, 2, 3], classes: [8] }, { rgb: [1, 2], classes: [8] }, { rgb: [9, 9, 9], classes: [99] }, { rgb: [300, -5, 7.4], classes: [9, 99] }, null, { rgb: [5, 5, 5], classes: [6] }, { rgb: [6, 6, 6], classes: [6] }, { rgb: [7, 7, 7], classes: [6] }] }).regionAnchors; return !!o && o.length === 4 && o[1].rgb.join() === "255,0,7" && o[1].classes.join() === "9"; })() && normalizeOptions({}).regionAnchors === null && normalizeOptions({ regionAnchors: [] }).regionAnchors === null);
   }
   const auto = traceImage(img, { mode: "auto", mmPerPx: 0.25, regions });
   check("a picture with a person cut out is traced as a photograph when the kind is left to the tracer", auto.stats.kind === "photo");
@@ -947,6 +1105,182 @@ log("10. the colours of a picture do not change with the size it is sewn at");
   check("a picture that is not enlarged traces the same twice (nothing random, nothing kept between runs)", JSON.stringify(a.palette) === JSON.stringify(b.palette) && a.shapes.length === b.shapes.length);
 }
 
+log("11. lettering: runs of letter-shaped pieces are found, and patterns, blobs and clouds are not");
+{
+  const mm = 0.1; // 10 pixels to the millimetre: the letters below are 5 mm tall with strokes of 1 mm
+  const S = 50, T = 10;
+  const shapeOf = (id, color, rings) => {
+    const outer = rings[0];
+    let a = Math.abs(area(outer));
+    for (const h of rings.slice(1)) a -= Math.abs(area(h));
+    const xs = outer.map((p) => p[0]), ys = outer.map((p) => p[1]);
+    return { id, color, contours: rings, area: a, bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
+  };
+  const E = (x, y) => [[[x, y], [x + 32, y], [x + 32, y + T], [x + T, y + T], [x + T, y + 20], [x + 28, y + 20], [x + 28, y + 30], [x + T, y + 30], [x + T, y + S - T], [x + 32, y + S - T], [x + 32, y + S], [x, y + S]]];
+  const L = (x, y) => [[[x, y], [x + T, y], [x + T, y + S - T], [x + 30, y + S - T], [x + 30, y + S], [x, y + S]]];
+  const Tt = (x, y) => [[[x, y], [x + 36, y], [x + 36, y + T], [x + 23, y + T], [x + 23, y + S], [x + 13, y + S], [x + 13, y + T], [x, y + T]]];
+  const H = (x, y) => [[[x, y], [x + T, y], [x + T, y + 20], [x + 26, y + 20], [x + 26, y], [x + 36, y], [x + 36, y + S], [x + 26, y + S], [x + 26, y + 30], [x + T, y + 30], [x + T, y + S], [x, y + S]]];
+  const I = (x, y) => [rect(x, y, T, S)];
+  const O = (x, y) => [circle(x + 22, y + 25, 25, 48), circle(x + 22, y + 25, 15, 48).reverse()];
+  const A_ = (x, y) => [[[x + 17, y], [x + 27, y], [x + 44, y + S], [x + 34, y + S], [x + 30, y + 38], [x + 14, y + 38], [x + 10, y + S], [x, y + S]], [[x + 17, y + 29], [x + 27, y + 29], [x + 22, y + 11]].reverse()];
+  const LETTERS = [E, L, Tt, H, I, O, A_];
+  /** a row of letters, `gap` pixels apart, starting at (x, y); `from` is the index into LETTERS to begin at */
+  const row = (x, y, n, { gap = 12, color = 0, id0 = 0, from = 0 } = {}) => {
+    const out = [];
+    let cx = x;
+    for (let i = 0; i < n; i++) {
+      const f = LETTERS[(from + i) % LETTERS.length];
+      const rings = f(cx, y);
+      out.push(shapeOf(id0 + i, typeof color === "function" ? color(i) : color, rings));
+      cx += Math.max(...rings[0].map((p) => p[0])) - cx + gap;
+    }
+    return out;
+  };
+  const find = (shapes, o) => findLettering(shapes, { mmPerPx: mm, options: o });
+  const word = row(100, 200, 6);
+  const found = find(word);
+  check("six different block letters in a row are one block of lettering", found.length === 1 && found[0].shapes.length === 6 && found[0].lines === 1, `${found.length} block(s), ${found[0] && found[0].shapes.length} shapes`);
+  check("its letter height (5 mm) and its stroke (about a millimetre) are measured", !!found[0] && Math.abs(found[0].capMm - 5) < 0.3 && found[0].strokeMm > 0.7 && found[0].strokeMm < 1.3, found[0] && `${found[0].capMm.toFixed(2)} mm tall, stroke ${found[0].strokeMm.toFixed(2)} mm`);
+  const sum = summariseLettering(found);
+  check("summariseLettering says how many letters in how many blocks and how small they are", !!sum && sum.blocks === 1 && sum.letters === 6 && Math.abs(sum.capMm - 5) < 0.3 && summariseLettering([]) === null);
+  check("letters of two colours alternating are not a run (three of each: under the four a line needs)", find(row(100, 200, 6, { color: (i) => i % 2 })).length === 0);
+  const bars = Array.from({ length: 8 }, (_, i) => shapeOf(i, 0, [rect(100 + i * 22, 200, T, S)]));
+  check("a row of eight identical bars is a pattern, not text (bar code, fence, stripes)", find(bars).length === 0);
+  const discs = Array.from({ length: 8 }, (_, i) => shapeOf(i, 0, [circle(120 + i * 60, 220, 20, 48)]));
+  check("a row of discs is not text: a blob is not a stroke", find(discs).length === 0);
+  const stars = Array.from({ length: 7 }, (_, i) => { const cx = 120 + i * 70, cy = 220; return shapeOf(i, 0, [Array.from({ length: 10 }, (_, k) => { const a = -Math.PI / 2 + (k * Math.PI) / 5, r = k % 2 ? 11 : 26; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; })]); });
+  check("a row of stars (the same piece seven times) is a pattern, not text", find(stars).length === 0);
+  let seed = 7;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const cloud = Array.from({ length: 7 }, (_, i) => shapeOf(i, 0, LETTERS[i % LETTERS.length](200 + rnd() * 1500, 200 + rnd() * 1500)));
+  check("the same letters thrown about the page, far apart, are not a run", find(cloud).length === 0);
+  const two = [...row(100, 200, 6), ...row(100, 285, 6, { id0: 100, from: 3 })];
+  const f2 = find(two);
+  check("two lines of one text (alike in height and weight, close) are ONE block, so they are sewn alike", f2.length === 1 && f2[0].lines === 2 && f2[0].shapes.length === 12, `${f2.length} block(s), ${f2[0] && f2[0].lines} lines`);
+  // text round a badge: each letter turned to stand on a circle
+  const turn = (rings, ang, cx, cy) => rings.map((r) => r.map(([x, y]) => [cx + (x - cx) * Math.cos(ang) - (y - cy) * Math.sin(ang), cy + (x - cx) * Math.sin(ang) + (y - cy) * Math.cos(ang)]));
+  const ring = [];
+  for (let i = 0; i < 7; i++) {
+    const a = -Math.PI * 0.75 + i * 0.3, R = 250, px = 600 + R * Math.cos(a), py = 600 + R * Math.sin(a);
+    const f = LETTERS[i % LETTERS.length](px - 20, py - 25);
+    ring.push(shapeOf(i, 0, turn(f, a + Math.PI / 2, px, py)));
+  }
+  const fr = find(ring);
+  check("letters set round a circle (a seal's words) are a run too: the line bends smoothly", fr.length === 1 && fr[0].shapes.length === 7, `${fr.length} block(s), ${fr[0] && fr[0].shapes.length} shapes`);
+  // describePiece: why a piece is or is not letter-shaped
+  const dp = (rings) => describePiece(shapeOf(0, 0, rings), mm);
+  check("describePiece: a letter is letter-shaped, a speck, a disc and a big blob are not, and say why", dp(E(0, 0)).ok && dp([rect(0, 0, 3, 3)]).why === "speck" && dp([circle(30, 30, 25, 48)]).why === "blob (stroke / size)" && dp([rect(0, 0, 200, 200)]).why === "too big");
+  // a word whose letters touch is one shape to the tracer: it counts as the letters it has room for
+  const touching = makeImage(560, 120);
+  { let x = 20; for (let i = 0; i < 8; i++) { const rings = LETTERS[i % LETTERS.length](x, 35); paint(touching, rings, BLACK); x += Math.max(...rings[0].map((p) => p[0])) - x - 6; } }
+  const tt = traceImage(touching, { mmPerPx: mm, refineLettering: false }); // (the first tracing: the second would separate some of the letters, which is another test)
+  const tw = findLettering(tt.shapes, { mmPerPx: mm, options: { minLetters: 5 } });
+  const blackShapes = tt.shapes.filter((q) => tt.palette[q.color].r < 10);
+  check("a word whose letters touch (the tracer found only a shape or two for eight letters) is still lettering: a shape counts as the letters it has room for", blackShapes.length <= 3 && tw.length === 1 && tw[0].letters >= 5, `${blackShapes.length} black shape(s) -> ${tw.length} block(s), ${tw[0] && tw[0].letters} letters`);
+  check("a single plain smooth bar is not a word, however long", find([shapeOf(0, 0, [rect(100, 200, 700, 14)])], { minLetters: 4 }).length === 0);
+  // from a traced picture to the Digitizer's objects: the letters carry the run's numbers, the rest of the picture carries nothing
+  const logo = makeImage(700, 300);
+  paint(logo, [circle(120, 150, 90, 360)], NAVY);
+  for (const s of row(260, 120, 6)) for (const part of [s.contours]) paint(logo, part, BLACK);
+  const tl = traceImage(logo, { mmPerPx: mm, mode: "logo" });
+  const made = objectsFromTrace(tl, { originX: 0, originY: 0, mmPerPx: mm, fabric: "#ffffff" }).objects;
+  const marked = made.filter((o) => o.letters);
+  check("objectsFromTrace marks the six letters of the lettering and nothing else (not the disc)", marked.length === 6 && made.length > 6, `${marked.length} of ${made.length} objects marked`);
+  check("each mark carries the run's stroke and letter height (the same for every letter of the run)", marked.every((o) => Math.abs(o.letters.stroke - marked[0].letters.stroke) < 1e-9 && o.letters.stroke > 0.7 && o.letters.stroke < 1.3 && Math.abs(o.letters.cap - 5) < 0.3), JSON.stringify(marked[0] && marked[0].letters));
+  check("the trace itself reports the lettering (for the notes in the picture panel) and keeps it for the size it was found at", !!tl.stats.lettering && tl.stats.lettering.letters === 6 && !!tl.lettering && tl.lettering.mmPerPx === mm, JSON.stringify(tl.stats.lettering));
+  const plain = traceImage((() => { const im = makeImage(700, 300); for (let i = 0; i < 8; i++) paint(im, [rect(60 + i * 75, 100, 30, 120)], BLACK); return im; })(), { mmPerPx: mm, mode: "logo" });
+  check("a picture of eight bars has no lettering: none is found, none is marked", !plain.stats.lettering && !objectsFromTrace(plain, { originX: 0, originY: 0, mmPerPx: mm, fabric: "#ffffff" }).objects.some((o) => o.letters));
+  const photoLike = { ...tl, stats: { ...tl.stats, kind: "photo" }, lettering: undefined };
+  check("a photograph is never looked at (nothing in it is lettering worth the name)", !objectsFromTrace(photoLike, { originX: 0, originY: 0, mmPerPx: mm, fabric: "#ffffff" }).objects.some((o) => o.letters));
+  check("the finder's options can be changed by the caller (a longer line is asked for: nothing found)", objectsFromTrace(tl, { originX: 0, originY: 0, mmPerPx: mm, fabric: "#ffffff", letteringOptions: { minLetters: 12 } }).objects.every((o) => !o.letters));
+}
+
+log("12. lettering is traced a second time, finer: the thin strokes and the narrow gaps between small letters survive (refine.js)");
+{
+  const mm = 0.1; // 10 pixels to the millimetre: letters 3 mm tall with strokes of 0.4 mm and 0.3 mm between them (the Detail setting's own limit is 0.55 mm)
+  const page = { mmPerPx: mm, mode: "logo", thicken: true, ...detailLimits(0.75) }; // the tracer's options as the page sets them (convert.js traceOptions, the Detail slider at 0.75)
+  const shapes12 = {
+    I: [rect(0, 0, 4, 30)],
+    L: [[[0, 0], [4, 0], [4, 26], [18, 26], [18, 30], [0, 30]]],
+    T: [[[0, 0], [20, 0], [20, 4], [12, 4], [12, 30], [8, 30], [8, 4], [0, 4]]],
+    H: [[[0, 0], [4, 0], [4, 13], [16, 13], [16, 0], [20, 0], [20, 30], [16, 30], [16, 17], [4, 17], [4, 30], [0, 30]]],
+    E: [[[0, 0], [18, 0], [18, 4], [4, 4], [4, 13], [16, 13], [16, 17], [4, 17], [4, 26], [18, 26], [18, 30], [0, 30]]],
+    O: [circle(15, 15, 15, 96), circle(15, 15, 11, 96).reverse()],
+    A: [[[8, 0], [12, 0], [20, 30], [16, 30], [14, 22], [6, 22], [4, 30], [0, 30]], [[7, 18], [13, 18], [10, 7]].reverse()],
+  };
+  const FONT = ["E", "L", "T", "H", "I", "O", "A"].map((k) => shapes12[k]);
+  const place = (rings, x, y, k) => rings.map((r) => r.map(([px, py]) => [x + px * k, y + py * k]));
+  /** a word of `n` letters painted into `img`; returns the ink the drawing has (mm2) */
+  const word = (img, n, { x = 20, y = 35, gap = 3, k = 1, color = NAVY } = {}) => {
+    let cx = x, ink = 0;
+    for (let i = 0; i < n; i++) {
+      const rings = place(FONT[i % FONT.length], cx, y, k);
+      paint(img, rings, color);
+      ink += rings.reduce((t, r, j) => t + (j === 0 ? 1 : -1) * Math.abs(area(r)), 0);
+      cx = Math.max(...rings[0].map((p) => p[0])) + gap * k;
+    }
+    return ink * mm * mm;
+  };
+  const inkOf = (t, pred = (p) => p.r < 100) => t.shapes.filter((q) => { const p = t.palette[q.color]; return !p.background && pred(p); });
+  const sumArea = (list) => list.reduce((t, q) => t + q.area, 0) * mm * mm;
+  const img = makeImage(380, 100);
+  const trueInk = word(img, 12);
+  const off = traceImage(img, { ...page, refineLettering: false });
+  const on = traceImage(img, page);
+  const inkOff = inkOf(off), inkOn = inkOf(on);
+  check("the first tracing fills in the 0.3 mm gaps between 3 mm letters: the letters run together and the ink is over 1.4 times the drawing's", inkOff.length < 12 && sumArea(inkOff) > 1.4 * trueInk, `${inkOff.length} shapes, ${(sumArea(inkOff) / trueInk).toFixed(2)} times the ink`);
+  check("with the second tracing each of the 12 letters is a shape of its own and the ink is the drawing's (within a tenth)", inkOn.length === 12 && Math.abs(sumArea(inkOn) / trueInk - 1) < 0.1, `${inkOn.length} shapes, ${(sumArea(inkOn) / trueInk).toFixed(2)} times the ink`);
+  check("the finder finds the twelve letters in it, and the trace says what it did", on.lettering.blocks.length === 1 && on.lettering.blocks[0].letters === 12 && !!on.stats.refine && on.stats.refine.used === true && on.stats.refine.kept === 1, JSON.stringify(on.stats.refine));
+  check("refineLettering: false is the first tracing alone: it says nothing about a second one", !off.stats.refine);
+  // the counter of an O stays open: the hole is there
+  const oShape = inkOn.find((q) => q.contours.length === 2);
+  check("the counter of the O (0.8 mm across) is a hole in its shape, not filled in", !!oShape && Math.abs(ringArea(oShape.contours[1])) * mm * mm > 0.3, oShape ? `${(Math.abs(ringArea(oShape.contours[1])) * mm * mm).toFixed(2)} mm2` : "no shape with a hole");
+  // only the lettering's colour is touched: a red line beside it comes out as before
+  const withLine = makeImage(380, 100);
+  word(withLine, 12);
+  paint(withLine, [rect(20, 12, 340, 6)], RED);
+  const redOf = (t) => JSON.stringify(inkOf(t, (p) => p.r > 150 && p.g < 100).map((q) => q.contours));
+  const lOn = traceImage(withLine, page), lOff = traceImage(withLine, { ...page, refineLettering: false });
+  check("a red line close to the lettering comes out exactly as in the first tracing (only the lettering's own colour is relaxed)", !!lOn.stats.refine && lOn.stats.refine.used === true && redOf(lOn) === redOf(lOff) && redOf(lOn).length > 10, `${lOn.stats.refine && lOn.stats.refine.used}, ${redOf(lOn).length} characters of red outline`);
+  // a picture without lettering, and lettering taller than 8 mm, are left exactly as they were
+  const bars = makeImage(700, 300);
+  for (let i = 0; i < 8; i++) paint(bars, [rect(60 + i * 75, 100, 30, 120)], BLACK);
+  check("a picture without lettering comes out exactly as it did", JSON.stringify(traceImage(bars, page).shapes) === JSON.stringify(traceImage(bars, { ...page, refineLettering: false }).shapes));
+  const tall = makeImage(800, 200);
+  word(tall, 7, { x: 20, y: 40, k: 3 });
+  const tOn = traceImage(tall, page), tOff = traceImage(tall, { ...page, refineLettering: false });
+  check("lettering taller than 8 mm is left as the first tracing made it (it is found, and not refined)", tOn.lettering.blocks.length === 1 && tOn.lettering.blocks[0].capMm > 8 && !tOn.stats.refine && JSON.stringify(tOn.shapes) === JSON.stringify(tOff.shapes), `cap ${tOn.lettering.blocks[0] && tOn.lettering.blocks[0].capMm.toFixed(1)} mm, ${JSON.stringify(tOn.stats.refine)}`);
+  // a short word (KAZI, Open, BMW): lettering too, but only in a picture that is almost nothing else
+  const shortImg = makeImage(200, 100);
+  const shortInk = word(shortImg, 4);
+  const sOn = traceImage(shortImg, page), sOff = traceImage(shortImg, { ...page, letterShortLetters: 99 });
+  check("a short word (four letters, 3 mm tall, 0.3 mm apart) is lettering too: the finder finds it, the second tracing separates its letters and keeps their ink", sOn.lettering.blocks.length === 1 && sOn.lettering.blocks[0].letters === 4 && inkOf(sOn).length === 4 && Math.abs(sumArea(inkOf(sOn)) / shortInk - 1) < 0.1 && !!sOn.stats.refine && sOn.stats.refine.used === true, `${sOn.lettering.blocks.length} block(s), ${inkOf(sOn).length} pieces, ${(sumArea(inkOf(sOn)) / shortInk).toFixed(2)} times the ink, ${JSON.stringify(sOn.stats.refine)}`);
+  check("the word was found on the finer tracing (the first one has it as two blobs) and its block is marked as confirmed by the second tracing", !!sOn.stats.refine && sOn.stats.refine.found === "finer" && sOn.lettering.blocks[0].refined === true, JSON.stringify(sOn.stats.refine));
+  check("with letterShortLetters 99 (short words off) the same picture has no lettering and its letters run together, as before", sOff.lettering.blocks.length === 0 && inkOf(sOff).length < 4 && !sOff.stats.refine, `${sOff.lettering.blocks.length} block(s), ${inkOf(sOff).length} pieces`);
+  const fshort = (shapes, o) => findLettering(shapes, { mmPerPx: mm, options: o });
+  check("the finer tracing is only for a simple picture: with letterFinerMaxShapes 0 (a crest or a seal has hundreds of shapes) the word whose letters the first tracing runs together is not found", (() => { const t0 = traceImage(shortImg, { ...page, letterFinerMaxShapes: 0 }); return t0.lettering.blocks.length === 0 && !t0.stats.refine; })());
+  check("the finder asks for a short word only when told to, and at most shortMaxPieces letter-shaped pieces in all", fshort(sOn.shapes, { minLetters: 5 }).length === 0 && fshort(sOn.shapes, { minLetters: 5, shortLetters: 3 }).length === 1 && fshort(sOn.shapes, { minLetters: 5, shortLetters: 3, shortMaxPieces: 3 }).length === 0);
+  const crowd = makeImage(700, 300);
+  word(crowd, 4, { x: 20, y: 10 });
+  for (let i = 0; i < 30; i++) paint(crowd, [rect(20 + (i % 10) * 60, 100 + Math.floor(i / 10) * 60, 4, 30)], NAVY);
+  const cOn = traceImage(crowd, page);
+  check("the same word among thirty more letter-shaped pieces (a portrait taken for a logo, a drawing) is not taken for lettering", cOn.lettering.blocks.length === 0 && !cOn.stats.refine, `${cOn.lettering.blocks.length} block(s)`);
+  check("artwork never gets short words: a word of four letters in a picture read as artwork is not lettering (it needs nine)", (() => { const t = traceImage(shortImg, { ...page, mode: "art" }); return t.lettering.blocks.length === 0; })());
+  // refineBoxes and confirmedBoxes on their own
+  const blk = (letters, cap, box, colors = [2]) => ({ letters, count: letters, capMm: cap, box, colors });
+  const rb = refineBoxes([blk(12, 3, [100, 100, 300, 130]), blk(12, 9, [100, 300, 400, 380]), blk(3, 3, [100, 350, 150, 380]), blk(8, 4, [0, 0, 50, 40], [0])], { mmPerPx: 0.1, width: 400, height: 400, origin: [5, 6, 7] });
+  check("refineBoxes: lettering of 3 letters or more (a short word) and at most 8 mm tall only, a box a letter or so bigger than the lettering, named by the colour the tracer started from", rb.length === 3 && rb[0].block === 0 && rb[0].color === 7 && Math.abs(rb[0].box[0] - 76) < 1e-9 && Math.abs(rb[0].box[3] - 154) < 1e-9 && rb[1].block === 2 && rb[2].block === 3 && rb[2].color === 5 && rb[2].box[0] === 0, JSON.stringify(rb));
+  const first = { blocks: [blk(12, 3, [100, 100, 300, 130])] };
+  const second = (blocks, n, color = 2) => ({ lettering: { blocks }, shapes: Array.from({ length: n }, (_, i) => ({ color, bbox: [110 + (i % 40) * 4, 105 + Math.floor(i / 40) * 20, 113 + (i % 40) * 4, 115 + Math.floor(i / 40) * 20] })), _origin: [5, 6, 7] });
+  const conf = (sec) => confirmedBoxes(first, sec, rb.slice(0, 1), { mmPerPx: 0.1 })[0];
+  check("refineBoxes: a run of two letters is not lettering to refine, and the least asked for can be changed", refineBoxes([blk(2, 3, [100, 100, 200, 130])], { mmPerPx: 0.1, width: 400, height: 400, origin: [5, 6, 7] }).length === 0 && refineBoxes([blk(4, 3, [100, 100, 200, 130])], { mmPerPx: 0.1, width: 400, height: 400, origin: [5, 6, 7], options: { minLetters: 5 } }).length === 0);
+  check("confirmedBoxes: a block is confirmed when the second tracing finds its letters again", conf(second([blk(12, 3, [101, 101, 299, 129])], 12)) === true);
+  check("... and when it finds ten of the twelve (four fifths)", conf(second([blk(10, 3, [101, 101, 299, 129])], 10)) === true);
+  check("... not when it finds too few of them", conf(second([blk(6, 3, [101, 101, 299, 129])], 6)) === false);
+  check("... not when it finds none (the block is not lettering any more)", conf(second([], 12)) === false);
+  check("... not when the lettering's colour has turned into a crowd of pieces in its box (a noisy picture, a crown taken for lettering)", conf(second([blk(12, 3, [101, 101, 299, 129])], 80)) === false);
+}
+
 if (process.argv.includes("--perf")) {
   log("9. speed");
   const logo = (size) => {
@@ -985,3 +1319,7 @@ log("numbers (palette entries incl. background, shapes, share of the picture the
 for (const [n, p, s, c, a] of numbers) log(`  ${n.padEnd(26)} ${String(p).padStart(2)} colours  ${String(s).padStart(2)} shapes  ${(c * 100).toFixed(1).padStart(5)} % covered  ${(a * 100).toFixed(2)} % agree`);
 log(failures ? `\n${failures} of ${checks} checks FAILED` : `\nall ${checks} checks passed`);
 process.exit(failures ? 1 : 0);
+
+
+
+

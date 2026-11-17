@@ -11,3 +11,6 @@ split into layers before it is turned into stitches.
   recognition are out of scope. Here it only decides which colours a stitched picture gets.
 - It is hosted with the app (not fetched from Google's bucket at run time) so it works offline and cannot change under us. The file keeps its name: the
   code checks the model's six labels when it loads.
+
+`face_landmarker.task` is MediaPipe's **face landmarker** (Apache-2.0, 3.8 MB): 478 points a face. `src/lib/digitizer/faceFinder.js` runs it in the person
+finder's worker, only for a picture that has a person in it, so the eyes, brows and lips of a portrait are kept as their own parts. See NOTICE-mediapipe.txt.

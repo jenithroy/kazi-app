@@ -4,6 +4,9 @@
  *
  * A region map is `{ width, height, data }`, `data` a Uint8Array of one class per pixel:
  *   0 background  1 hair  2 body skin  3 face skin  4 clothes  5 other (glasses, a hat, a hand-held thing)
+ *   6 eyes and brows  7 lips   (only when the face landmarker found a face: digitizer/faces.js paints them over the face skin, so the eyes get their own colours)
+ *   8 the white of an eye (inside the eye's outline, outside the iris)  9 the opening of an open mouth (teeth, tongue, the dark behind them)
+ *     (also only with a face: the whites of a face are measured on the picture and belong to these two classes alone, so a thread of the white cannot spread to the lids, the brows or the lips)
  * It need not be as big as the picture: it is read at the nearest pixel.
  *
  * What the tracer does with it:
@@ -12,13 +15,24 @@
  *   importance every other class pulls on the palette by its weight, so the face gets more of the colours than the clothes (`importanceMap`).
  */
 
-export const REGION = Object.freeze({ BACKGROUND: 0, HAIR: 1, BODY_SKIN: 2, FACE_SKIN: 3, CLOTHES: 4, OTHER: 5 });
+export const REGION = Object.freeze({ BACKGROUND: 0, HAIR: 1, BODY_SKIN: 2, FACE_SKIN: 3, CLOTHES: 4, OTHER: 5, FEATURES: 6, LIPS: 7, EYE_WHITE: 8, MOUTH: 9 });
+
+/** How many classes there are (0 .. REGION_COUNT - 1). */
+export const REGION_COUNT = 10;
+
+/**
+ * The classes that are ZONES inside another class, and the class each lies in: the white of the eye is part of the eyes, the opening of the mouth part of the lips.
+ * A zone has no colours of its own; it only says where a white measured on the picture may be used (regionPalette.js). Whatever else reads classes (the details'
+ * region, the weights) reads a zone as the class it lies in.
+ */
+export const ZONE_PARENT = Object.freeze({ [REGION.EYE_WHITE]: REGION.FEATURES, [REGION.MOUTH]: REGION.LIPS });
 
 /**
  * How hard each class pulls on the palette (by class number). The face is what a viewer reads first, then the hair; clothes are big and
- * plain and need few colours. 0 for the background: it is not in the palette at all.
+ * plain and need few colours. 0 for the background: it is not in the palette at all. The eyes and the lips (6, 7) are the smallest and the most read,
+ * and so are the white of the eye and the opening of the mouth (8, 9) that lie inside them.
  */
-export const DEFAULT_REGION_WEIGHTS = Object.freeze([0, 1.6, 1.3, 2.4, 1, 0.8]);
+export const DEFAULT_REGION_WEIGHTS = Object.freeze([0, 1.6, 1.3, 2.4, 1, 0.8, 3, 2, 3, 2]);
 
 /** A picture is cut out only when this share of it is person: a map that finds a few stray pixels in a flower is no portrait. */
 export const MIN_PERSON_SHARE = 0.02;

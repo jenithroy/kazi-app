@@ -5,17 +5,18 @@
  */
 import { centreRings } from "./model.js";
 
+// A font name from the visitor's own device comes first; "Kazi ..." are small look-alikes the page carries itself (public/fonts/digitizer, SIL Open Font License, see digitizer.css),
+// used only where the first is missing. Without them a phone or a Linux computer drew Arial Black, Impact, Brush Script and Comic Sans all as the same plain sans.
 export const FONTS = [
   { id: "sans", label: "Sans", css: "Arial, Helvetica, sans-serif" },
-  { id: "black", label: "Sans heavy", css: '"Arial Black", Arial, sans-serif' },
-  { id: "condensed", label: "Condensed", css: 'Impact, "Arial Narrow", sans-serif' },
-  { id: "geist", label: "Geist", css: 'Geist, "Segoe UI", sans-serif' },
+  { id: "black", label: "Sans heavy", css: '"Arial Black", "Kazi Heavy", Arial, sans-serif' },
+  { id: "condensed", label: "Condensed", css: 'Impact, "Kazi Condensed", "Arial Narrow", sans-serif' },
   { id: "humanist", label: "Humanist", css: '"Trebuchet MS", "Segoe UI", sans-serif' },
   { id: "serif", label: "Serif", css: 'Georgia, "Times New Roman", serif' },
   { id: "times", label: "Times", css: '"Times New Roman", Times, serif' },
   { id: "mono", label: "Typewriter", css: '"Courier New", Courier, monospace' },
-  { id: "script", label: "Script", css: '"Brush Script MT", "Segoe Script", cursive' },
-  { id: "round", label: "Rounded", css: '"Comic Sans MS", "Chalkboard SE", sans-serif' },
+  { id: "script", label: "Script", css: '"Brush Script MT", "Segoe Script", "Kazi Script", cursive' },
+  { id: "round", label: "Rounded", css: '"Comic Sans MS", "Chalkboard SE", "Kazi Round", sans-serif' },
 ];
 
 export const DEFAULT_TEXT = { value: "Text", font: "sans", size: 12, bold: true, italic: false, spacing: 0, lineHeight: 1.15, align: "center" };

@@ -396,7 +396,17 @@ function makeObjectDefaults(o, i = 0) {
     stroke: { ...DEFAULT_STROKE, ...plain(o.stroke) },
     // A file does not keep the picture, so a shape traced over it has nothing to follow any more.
     source: o.source === "image" ? "image" : undefined,
+    letters: validLetters(o.letters),
   };
+}
+
+/** The mark of a letter found in a picture (convert.js `tagLettering`) as a file gives it back: numbers in a sane range, or nothing. */
+function validLetters(l) {
+  if (!l || typeof l !== "object") return undefined;
+  const stroke = Number(l.stroke), cap = Number(l.cap);
+  if (!(stroke > 0 && stroke <= 10)) return undefined;
+  const n = Number(l.n);
+  return { block: Number.isFinite(Number(l.block)) ? Number(l.block) : 0, stroke, cap: cap > 0 && cap <= 200 ? cap : 0, ...(n > 0 && n <= 5000 ? { n } : {}), ...(l.refined ? { refined: 1 } : {}) };
 }
 
 /** Stitches need the object's rings in the hoop: the design in the shape the engine reads. */
@@ -406,7 +416,7 @@ export function engineDesign(design) {
     settings: { ...(design.settings || {}), fabric: design.fabric },
     objects: design.objects
       .filter((o) => o.visible)
-      .map((o) => ({ id: o.id, name: o.name, kind: o.kind, visible: true, rings: o.rings, transform: o.transform, fill: o.fill, stroke: o.stroke, open: o.open, layer: o.layer, source: o.source })), // (kind: the engine sews typed lettering with its own satin limit; open and layer: the fine lines of a picture; source: only shapes made from a picture get the wider thin-line limit)
+      .map((o) => ({ id: o.id, name: o.name, kind: o.kind, visible: true, rings: o.rings, transform: o.transform, fill: o.fill, stroke: o.stroke, open: o.open, layer: o.layer, source: o.source, letters: o.letters })), // (kind: the engine sews typed lettering with its own satin limit; open and layer: the fine lines of a picture; source: only shapes made from a picture get the wider thin-line limit; letters: a letter of a run of lettering found in a picture is sewn like typed lettering)
   };
 }
 

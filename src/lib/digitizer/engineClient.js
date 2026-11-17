@@ -25,7 +25,7 @@ export function createEngine({ limitMs = JOB_LIMIT_MS } = {}) {
   const lanes = new Map(); // key -> { busy, next, side } : whether a worker has a job of this key, and the one job waiting behind it
   let inline = null;
 
-  const useInline = () => typeof Worker === "undefined" || globalThis.__DIGITIZER_INLINE__ === true;
+  const runsInline = () => typeof Worker === "undefined" || globalThis.__DIGITIZER_INLINE__ === true;
   const stale = () => Object.assign(new Error("A newer job replaced this one."), { stale: true });
 
   /** Which of the two workers does this kind of job go to? */
@@ -114,7 +114,7 @@ export function createEngine({ limitMs = JOB_LIMIT_MS } = {}) {
     };
     const settle = (value) => (overtaken() ? Promise.reject(stale()) : Promise.resolve(value));
 
-    if (useInline()) {
+    if (runsInline()) {
       inline = inline || import("./engineCore.js");
       return inline.then((core) => settle(core.run(type, payload).result));
     }

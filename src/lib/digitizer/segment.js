@@ -14,7 +14,7 @@
 //         { person: false, classes: all 0, error: "why", ... }. When person is false the class map means nothing: ignore it.
 //
 // Files : the wasm loader + binary of tasks-vision and the .tflite model are NOT bundled; give their URLs, either as
-//         wasmLoaderUrl + wasmBinaryUrl (Vite: `import u from "@mediapipe/tasks-vision/vision_wasm_internal.js?url"`)
+//         wasmLoaderUrl + wasmBinaryUrl (the app's own copies, see segment.worker.js: Vite `?url` imports of @mediapipe/tasks-vision)
 //         or as wasmBase (a folder holding vision_wasm_internal.* and vision_wasm_module_internal.*). See REPORT.md.
 //
 // Workers: runs on the main thread, in a classic worker and in a module worker (tested, same output). The wasm loader must match
@@ -69,7 +69,6 @@ function inWorker() {
 export function isModuleWorker() {
   if (!inWorker()) return false;
   try {
-    // eslint-disable-next-line no-undef
     importScripts();
     return false;
   } catch (e) {
@@ -163,7 +162,7 @@ async function load(f) {
     modelBytes: model.bytes.length,
     moduleLoader: !!useModule,
   };
-  engine = { seg, vision, info };
+  engine = { seg, vision, info, fileset };
   if (f.warm) {
     const tw = now();
     runModel(new Uint8ClampedArray(256 * 256 * 4).fill(128)); // flat grey picture
@@ -183,6 +182,11 @@ export function ready(options = {}) {
     });
   }
   return loading;
+}
+
+/** The MediaPipe module and wasm files the person model was loaded with, so another task (the face landmarker, faceFinder.js) runs on the same runtime. null before ready(). */
+export function visionAssets() {
+  return engine ? { vision: engine.vision, fileset: engine.fileset } : null;
 }
 
 /** Frees the wasm instance. The next call to ready()/segmentPicture() loads it again. */
