@@ -20,9 +20,9 @@ export function Row({ label, children, hint, wide }) {
   );
 }
 
-export function Group({ title, children, action }) {
+export function Group({ title, children, action, ...rest }) {
   return (
-    <section className="dz-group">
+    <section className="dz-group" {...rest}>
       <header><h3>{title}</h3>{action}</header>
       {children}
     </section>
@@ -99,10 +99,10 @@ export function Segmented({ value, onChange, options, label, size }) {
   );
 }
 
-export function Toggle({ checked, onChange, children, disabled }) {
+export function Toggle({ checked, onChange, children, disabled, title }) {
   const id = useId();
   return (
-    <label className={`dz-toggle${disabled ? " is-off" : ""}`} htmlFor={id}>
+    <label className={`dz-toggle${disabled ? " is-off" : ""}`} htmlFor={id} title={title}>
       <input id={id} type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="dz-toggle-box" aria-hidden="true" />
       <span>{children}</span>
@@ -110,28 +110,16 @@ export function Toggle({ checked, onChange, children, disabled }) {
   );
 }
 
-/** A thread colour: a swatch that opens the chart (and a box for any colour). `used` lists the colours already in the design. */
-export function ColorField({ value, onChange, onChangeEnd, used = [], label = "Colour", disabled }) {
-  const [open, setOpen] = useState(false);
-  const trigger = useRef(null);
-  const pop = useRef(null);
-  const { pos } = useAnchoredPopover({ open, triggerRef: trigger, popRef: pop, onDismiss: () => setOpen(false), estimate: 330, exactWidth: 252, maxHeight: 420 });
-  const [hex, setHex] = useState(value);
-  useEffect(() => setHex(value), [value]);
-  const take = (c) => { onChange(c); };
-  const shown = open && !!pos;
-  // The chart is a dialog: when it opens, keyboard focus goes into it.
-  useEffect(() => {
-    if (!shown) return;
-    pop.current?.querySelector(".dz-swatch.is-on, .dz-swatch, input")?.focus();
-  }, [shown]);
-  const close = () => { setOpen(false); trigger.current?.focus(); };
-  const onPopKey = (e) => {
-    const root = pop.current;
+/**
+ * The keys of a colour pop-up (the colour chart, the thread picker): Escape closes it, Tab stays inside it (from the last control it goes to the
+ * first, and back), the arrow keys move between the swatches (the nearest one in that direction). Give it to the pop-up's `onKeyDown`.
+ */
+export function popoverKeys(popRef, close) {
+  return (e) => {
+    const root = popRef.current;
     if (!root) return;
     if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); close(); return; }
     if (e.key === "Tab") {
-      // Keep Tab inside the chart: from the last control it goes to the first, and back.
       const items = [...root.querySelectorAll("button:not([disabled]), input:not([disabled])")];
       if (!items.length) return;
       const first = items[0], last = items[items.length - 1];
@@ -140,7 +128,6 @@ export function ColorField({ value, onChange, onChangeEnd, used = [], label = "C
       return;
     }
     if (e.key.startsWith("Arrow") && document.activeElement?.classList?.contains("dz-swatch")) {
-      // Arrow keys move between the swatches (the nearest one in that direction).
       const all = [...root.querySelectorAll(".dz-swatch")];
       const cur = document.activeElement.getBoundingClientRect();
       const cx = cur.left + cur.width / 2, cy = cur.top + cur.height / 2;
@@ -157,6 +144,25 @@ export function ColorField({ value, onChange, onChangeEnd, used = [], label = "C
       if (best) { e.preventDefault(); best.focus(); }
     }
   };
+}
+
+/** A thread colour: a swatch that opens the chart (and a box for any colour). `used` lists the colours already in the design; `mine` the threads the person has (shown first). */
+export function ColorField({ value, onChange, onChangeEnd, used = [], mine = [], label = "Colour", disabled }) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef(null);
+  const pop = useRef(null);
+  const { pos } = useAnchoredPopover({ open, triggerRef: trigger, popRef: pop, onDismiss: () => setOpen(false), estimate: 330, exactWidth: 252, maxHeight: 420 });
+  const [hex, setHex] = useState(value);
+  useEffect(() => setHex(value), [value]);
+  const take = (c) => { onChange(c); };
+  const shown = open && !!pos;
+  // The chart is a dialog: when it opens, keyboard focus goes into it.
+  useEffect(() => {
+    if (!shown) return;
+    pop.current?.querySelector(".dz-swatch.is-on, .dz-swatch, input")?.focus();
+  }, [shown]);
+  const close = () => { setOpen(false); trigger.current?.focus(); };
+  const onPopKey = popoverKeys(pop, close);
   return (
     <>
       <button type="button" ref={trigger} className="dz-color" aria-label={`${label}: ${value}`} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => setOpen((o) => !o)}>
@@ -165,6 +171,16 @@ export function ColorField({ value, onChange, onChangeEnd, used = [], label = "C
       </button>
       {open && pos && createPortal(
         <div ref={pop} className="dz-pop dz-chart" role="dialog" aria-label="Thread colours" onKeyDown={onPopKey} style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width, maxHeight: pos.maxH }}>
+          {mine.length > 0 && (
+            <>
+              <p className="dz-pop-h">My threads</p>
+              <div className="dz-swatches">
+                {mine.map((c) => (
+                  <button key={c} type="button" className={`dz-swatch${c === value ? " is-on" : ""}`} style={{ background: c }} title={c} aria-label={c} onClick={() => { take(c); onChangeEnd?.(); setOpen(false); }} />
+                ))}
+              </div>
+            </>
+          )}
           {used.length > 0 && (
             <>
               <p className="dz-pop-h">In this design</p>

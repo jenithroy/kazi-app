@@ -36,7 +36,7 @@ export default function StitchPanel({ api }) {
             <div><dt>Stitches</dt><dd>{n(summary.stitches)}</dd></div>
             <div><dt>Colours</dt><dd>{summary.colours ?? summary.blocks.length}{summary.blocks.length > (summary.colours ?? summary.blocks.length) ? ` · ${summary.blocks.length - 1} changes` : ""}</dd></div>
             <div><dt>Size</dt><dd>{summary.widthMm.toFixed(1)} × {summary.heightMm.toFixed(1)} mm</dd></div>
-            <div><dt>Time</dt><dd>{formatMinutes(summary.minutes)}</dd></div>
+            <div title={`A guess, for one machine head at ${n(700)} stitches a minute`}><dt>Time</dt><dd>{formatMinutes(summary.minutes)}</dd></div>
             <div><dt>Trims</dt><dd>{summary.trims}</dd></div>
             <div><dt>Thread</dt><dd>~{summary.threadMetres.toFixed(1)} m</dd></div>
           </dl>
@@ -51,7 +51,6 @@ export default function StitchPanel({ api }) {
           </div>
         )}
         {warnings.map((w, i) => <p key={i} className="dz-warn">{w.message}</p>)}
-        <p className="dz-hint">Time is a guess for one machine head at {n(700)} stitches a minute.</p>
       </Group>
 
       {summary && (
@@ -73,7 +72,7 @@ export default function StitchPanel({ api }) {
       )}
 
       <Group title="Machine settings">
-        <Row label="Cut thread on jumps over" hint="A jump longer than this is trimmed. Shorter ones are not. A bigger number means fewer cuts and a shorter sew (7 mm roughly halves them), but loose thread lies between the pieces for you to cut.">
+        <Row label="Cut thread on jumps over">
           <NumberField label="Trim distance in millimetres" value={trimOver} min={0.5} max={30} digits={1} step={0.5} unit="mm" onChange={(v) => setSettings({ trimOver: v })} />
         </Row>
         <Toggle checked={lock} onChange={(v) => setSettings({ lock: v })}>Add tie stitches at every start and cut</Toggle>
@@ -94,7 +93,6 @@ export default function StitchPanel({ api }) {
           <button type="button" className="kb-btn kb-btn--ghost" disabled={!ready} onClick={() => api.exportPreview()}>Save a picture</button>
           <button type="button" className="kb-btn kb-btn--ghost" disabled={!ready} onClick={() => api.printProduction(["DST"])}>Print the sheet</button>
         </div>
-        <p className="dz-hint">{centre ? "The file has the design centred on the middle of the hoop." : "The file keeps the design where you placed it in the hoop."} Wings XP and most machines open DST and PES.</p>
       </Group>
     </>
   );

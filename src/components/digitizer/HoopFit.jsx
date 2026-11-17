@@ -26,10 +26,9 @@ export default function HoopFit({ api }) {
           ? `The design is ${size}, bigger than this ${w} × ${h} mm hoop.`
           : `The design is ${size}: it fills only ${Math.round(use * 100)}% of this ${w} × ${h} mm hoop. A bigger design keeps more detail.`}
       </p>
-      <button type="button" className="kb-btn kb-btn--primary" disabled={converting} onClick={api.fitToHoop}>
+      <button type="button" className="kb-btn kb-btn--primary" disabled={converting} onClick={api.fitToHoop} title="The picture is read again at the new size, so changes you made to its shapes are replaced (Undo brings them back)">
         {converting ? "Working…" : over ? "Make it fit the hoop" : "Make it fill the hoop"}
       </button>
-      <p className="dz-fit-sub">The picture is read again at the new size, so changes you made to its shapes are replaced (Undo brings them back).</p>
     </div>
   );
 }

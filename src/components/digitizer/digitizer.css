@@ -1,338 +1,593 @@
 /* ══════════════════════════════════════════════════════════════════
-   EMBROIDERY DIGITIZER — the page's own parts (everything is `.dz-*`)
+   EMBROIDERY DIGITIZER: a full-screen workspace (everything is `.dz-*`)
 
-   The page is a bento frame (`.kb`, bento.css): a header and three panes of glass on one screen:
+   Laid out as on the Kazi website's digitizer (jenithroy/kazi-platform, app/components/Digitizer), in this app's own look: frosted
+   glass, the `--kb-*` tokens of the bento frame (bento.css), so light, dark and the other themes follow.
 
-     left    the objects, in the order they are sewn
-     stage   the toolbar, the canvas (the hoop, the shapes, the stitches) and, for the Stitches step, the player
-     right   what can be changed: the picture, the selected shapes, or the stitches and the files
+   The canvas fills the page under the top bar. Everything else is small and floats over its edges:
 
-   Inside a pane everything reads the `--kb-*` tokens, so light, dark and the solid fallback follow. The grid is written
-   `.kb-grid.kb-grid--digitizer` (one class more than bento's own rules) so it wins at every size. On a laptop the page does not
-   scroll (each pane scrolls inside itself); on a phone the panes stack and the page scrolls.
+     left     a slim rail (the tools, undo and redo, the file buttons, the Objects switch) with the Objects list beside it
+     right    one panel: the three steps (Picture, Design, Stitches), what can be changed in each, and the two main buttons
+     bottom   the zoom chip, and while the stitches are on show, the player
+
+   `--dz-inset-l` / `--dz-inset-r` are set by pages/Digitizer.jsx to how much of the canvas's left and right edges the floating
+   columns cover, so what is centred "on the canvas" (notes, the empty-state card, the player) is centred in the room between them.
+
+   On a phone nothing floats: the canvas comes first and the rail, the panel and the Objects list stack around it.
 ══════════════════════════════════════════════════════════════════ */
 
-.kb-grid.kb-grid--digitizer {
-  grid-template-columns: clamp(210px, 17vw, 262px) minmax(0, 1fr) clamp(290px, 24vw, 350px);
-  grid-template-rows: minmax(0, 1fr);
-  grid-template-areas: "left stage right";
+/* The pop-ups (colour chart, right-click menu, tour) live in <body>, outside `.kb`, so they carry the tokens themselves. */
+.dz-menu, .dz-pop, .dz-tour {
+  --kb-surface: var(--card, #fff);
+  --kb-well: rgba(15, 46, 34, .06);
+  --kb-line: var(--line, rgba(15, 46, 34, .1));
+  --kb-line-hi: var(--line-strong, rgba(15, 46, 34, .18));
+  --kb-ink: var(--ink, #0a1c14);
+  --kb-ink-2: var(--ink-2, #2e4038);
+  --kb-ink-3: #526159;
+  --kb-accent: var(--mint-deep, #1f6e4c);
+  --kb-on-accent: #fff;
+  --kb-chip: var(--mint-soft, #e3f3ea);
+  --kb-bad: #a8442c;
+  --kb-shadow-hi: var(--shadow-pop, 0 16px 48px -12px rgba(15, 46, 34, .25));
 }
-.dz-left { grid-area: left; }
-.dz-stage { grid-area: stage; }
-.dz-right { grid-area: right; }
-
-@media (max-width: 1100px) {
-  .kb-grid.kb-grid--digitizer { grid-template-columns: minmax(0, 1fr) clamp(280px, 34vw, 340px); grid-template-areas: "stage right" "left right"; grid-template-rows: minmax(0, 1fr) 190px; }
+:root[data-theme="dark"] .dz-menu, :root[data-theme="dark"] .dz-pop, :root[data-theme="dark"] .dz-tour {
+  --kb-surface: #18211d;
+  --kb-well: rgba(255, 255, 255, .07);
+  --kb-line: rgba(255, 255, 255, .09);
+  --kb-line-hi: rgba(255, 255, 255, .17);
+  --kb-ink: #edf1ef;
+  --kb-ink-2: #c8d0cc;
+  --kb-ink-3: #aab5b0;
+  --kb-accent: var(--mint, #7dd3a8);
+  --kb-on-accent: #0b100e;
+  --kb-chip: rgba(125, 211, 168, .14);
+  --kb-bad: #f4ae98;
 }
-@media (max-width: 768px) {
-  .dz-headbtns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .dz-headbtns .kb-btn { grid-column: 1 / -1; order: -1; justify-content: center; }
-  .dz-headbtns .kb-pillbtn { justify-content: center; }
-  .kb-grid.kb-grid--digitizer { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "stage" "right" "left"; }
-  .dz-stage { height: min(72vh, 560px); min-height: 380px; }
+
+/* The roles the rules below are written in, mapped onto the tokens. (Written for the website's pine and bone: `pine` is what is chosen or
+   strong, `bone` the face of a card, `paper` the fill of a field.) */
+.dz-page, .dz-menu, .dz-pop, .dz-tour {
+  --dz-pine: var(--kb-accent);
+  --dz-bone: var(--kb-surface);
+  --dz-paper: var(--kb-well);
+  --dz-moss: var(--kb-accent);
+  --dz-moss-deep: var(--kb-accent);
+  --dz-edge: var(--kb-line-hi);
+  --dz-card-shadow: var(--kb-shadow-hi, 0 12px 28px -12px rgba(15, 46, 34, .28));
+  --dz-r: 8px;
+  --font-head: var(--font);
 }
 
-/* a pane is a flex column: its head, then a body that takes the rest and scrolls inside itself */
-.kb-tile.dz-tile { padding: 12px 12px 12px; gap: 8px; }
-.dz-tile > .kb-hd { padding: 0 4px; }
+/* ── the workspace ────────────────────────────────────────────── */
 
-/* ── header ───────────────────────────────────────────────────── */
-
-.dz-headbtns { gap: 8px 8px; }
-.dz-headbtns .kb-pillbtn:disabled { opacity: .45; cursor: default; }
-.dz-headbtns .kb-btn { height: 32px; border-radius: 999px; padding: 0 16px; }
-
-/* A message floats at the bottom of the canvas: it takes no room, so nothing under the pointer moves when it comes and goes.
-   Solid, because it lies over a picture. */
-.dz-note {
-  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 3; width: max-content; max-width: calc(100% - 24px);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 8px 8px 14px; border-radius: 12px; font-size: 13px; line-height: 1.35; color: var(--kb-ink);
-  background: var(--kb-surface); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow);
+/* `.kb` (bento.css) makes the page fill what the shell leaves under the top bar; the workspace is that box. `overflow: clip` (after
+   `hidden`, for browsers that do not know it) is not a scroll container at all: the browser scrolls a `hidden` one to bring a focused
+   control into view, which once slid the whole workspace up out of its frame. */
+.dz-page {
+  --dz-gap: 14px;
+  --dz-rail-w: 44px;
+  --dz-right-w: 300px;
 }
-.dz-note--error { color: var(--kb-bad); border-color: color-mix(in srgb, var(--kb-bad) 45%, transparent); }
-.dz-note button { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
-
-/* ── the stage ────────────────────────────────────────────────── */
-
-.dz-stage { padding: 10px; gap: 8px; }
-.dz-toolbar { flex: none; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
-.dz-tools, .dz-zoom { display: flex; align-items: center; gap: 4px; }
-.dz-tool {
-  display: inline-grid; place-items: center; min-width: 32px; height: 32px; padding: 0 6px; border-radius: 9px;
-  border: 1px solid transparent; background: transparent; color: var(--kb-ink-2); cursor: pointer; font: 600 12px/1 var(--font);
-  transition: background-color .15s, color .15s, border-color .15s;
+.kb.dz-page {
+  position: relative; display: block; min-width: 0; min-height: 520px; overflow: hidden; overflow: clip;
+  border-radius: var(--kb-r); border: 1px solid var(--kb-line-hi); background: var(--kb-well); color: var(--kb-ink);
+  font-family: var(--font); font-size: 13.5px; line-height: 1.35;
 }
-.dz-tool:hover:not(:disabled) { background: var(--kb-well); color: var(--kb-ink); }
-.dz-tool.is-on { background: var(--kb-chip); color: var(--kb-accent); border-color: var(--kb-line-hi); }
-.dz-tool:disabled { opacity: .4; cursor: default; }
-.dz-tool:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
-.dz-tool--text { padding: 0 10px; }
-.dz-zoom-pct { min-width: 44px; text-align: center; font: 600 12px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); }
 
-.dz-canvas-wrap {
-  position: relative; flex: 1 1 0; min-height: 0; border-radius: 12px; overflow: hidden;
-  background: var(--kb-well); border: 1px solid var(--kb-line);
-}
+/* the canvas: the whole workspace; the Stage sizes itself to this box */
+.dz-canvas-wrap { position: absolute; inset: 0; overflow: hidden; overflow: clip; background: var(--kb-well); --dz-cx: calc(var(--dz-inset-l, 0px) + (100% - var(--dz-inset-l, 0px) - var(--dz-inset-r, 0px)) / 2); }
 .dz-canvas { position: absolute; inset: 0; display: block; touch-action: none; outline: none; }
-.dz-cursor { position: absolute; left: 10px; bottom: 8px; padding: 3px 8px; border-radius: 6px; font: 600 11px/1.2 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); background: var(--kb-surface); border: 1px solid var(--kb-line); pointer-events: none; }
-.dz-cursor:empty { display: none; }
 .dz-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--kb-accent); }
+/* the pointer's position in millimetres: bottom right of the room the panels leave */
+.dz-cursor { position: absolute; right: calc(var(--dz-inset-r, 0px) + 12px); bottom: 12px; padding: 2px 7px; border-radius: var(--dz-r); font: 500 11.5px/1.2 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); background: color-mix(in srgb, var(--kb-surface) 85%, transparent); border: 1px solid var(--kb-line); pointer-events: none; }
+.dz-cursor:empty { display: none; }
 
-.dz-stage.is-drop .dz-canvas-wrap { box-shadow: inset 0 0 0 2px var(--kb-accent); }
+.dz-page.is-drop .dz-canvas-wrap { box-shadow: inset 0 0 0 2px var(--kb-accent); }
 .dz-drop {
   position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
-  background: color-mix(in srgb, var(--kb-accent) 12%, transparent); color: var(--kb-accent); font: 600 18px/1 var(--font);
-}
-.dz-busy-bar {
-  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 7px 14px; border-radius: 999px;
-  background: var(--kb-surface); color: var(--kb-ink); font: 600 12.5px/1 var(--font); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi);
+  background: color-mix(in srgb, var(--kb-accent) 12%, transparent); color: var(--kb-accent); font: 600 30px/1 var(--font);
 }
 
-.dz-hint-chip {
-  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 7px 8px 7px 14px; border-radius: 999px;
-  background: var(--kb-surface); color: var(--kb-ink); font: 600 12.5px/1 var(--font); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi); z-index: 2;
+/* ── the cards: the right-hand panel and the Objects list ─────── */
+
+.dz-card {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; overflow: clip;
+  background: var(--dz-bone); border: 1px solid var(--dz-edge); border-radius: 12px; box-shadow: var(--dz-card-shadow);
 }
-.dz-hint-chip button { height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--kb-line-hi); background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); cursor: pointer; }
+.dz-card-hd { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--dz-edge); }
+.dz-card-hd h2 { flex: 1 1 auto; min-width: 0; margin: 0; font: 600 15px/1 var(--font); color: var(--kb-ink); }
+.dz-card-note { flex: none; font: 500 12px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-3); }
+.dz-card-x { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--kb-ink-3); cursor: pointer; }
+.dz-card-x:hover { background: var(--kb-well); color: var(--kb-ink); }
+.dz-card-x:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; }
+.dz-card-ft { flex: none; display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--dz-edge); }
+.dz-card-ft .kb-btn { flex: 1 1 0; min-width: 0; }
+
+/* left: the rail and the Objects list. The column stops above the zoom chip. It is only a frame: clicks pass through it to the canvas. */
+.dz-left {
+  position: absolute; z-index: 10; left: var(--dz-gap); top: var(--dz-gap); bottom: 60px; width: max-content;
+  display: flex; align-items: flex-start; gap: 8px; pointer-events: none;
+}
+.dz-left > * { pointer-events: auto; }
+.dz-objects-card { flex: none; width: 208px; max-height: 100%; }
+
+/* right: the steps and what can be changed. As tall as its contents, up to the window less its margins. */
+.dz-right { position: absolute; z-index: 10; right: var(--dz-gap); top: var(--dz-gap); width: var(--dz-right-w); max-height: calc(100% - 2 * var(--dz-gap)); }
+.dz-steps-hd { flex: none; padding: 8px 10px; }
+/* what the design comes to */
+.dz-stats {
+  flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; margin: 0; padding: 0 14px 9px; border-bottom: 1px solid var(--dz-edge);
+  font: 400 10.5px/1.3 var(--font); letter-spacing: .12em; text-transform: uppercase; color: var(--kb-ink-2);
+}
+.dz-stats > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dz-stats.is-empty { display: block; }
+.dz-stats b { margin-right: 4px; font: 600 16px/1 var(--font); letter-spacing: 0; text-transform: none; color: var(--kb-ink); }
+.dz-panel { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 14px; padding: 12px 14px 16px; }
+
+/* ── the rail and the view chip ──────────────────────────────── */
+
+.dz-rail {
+  flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; max-height: 100%; padding: 6px; overflow-y: auto; scrollbar-width: none;
+  background: var(--dz-bone); border: 1px solid var(--dz-edge); border-radius: 14px; box-shadow: var(--dz-card-shadow);
+}
+.dz-rail::-webkit-scrollbar { display: none; }
+.dz-rail-btn {
+  position: relative; flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 9px;
+  background: transparent; color: var(--kb-ink-2); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.dz-rail-btn:hover:not(:disabled):not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.dz-rail-btn.is-on { background: var(--kb-chip); color: var(--kb-accent); box-shadow: inset 0 0 0 1px var(--kb-line-hi); }
+.dz-rail-btn:disabled { opacity: .35; cursor: default; }
+.dz-rail-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
+.dz-rail-sep { flex: none; width: 18px; height: 1px; margin: 4px 0; background: var(--kb-line-hi); }
+.dz-rail-badge { position: absolute; top: -3px; right: -3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--kb-accent); color: var(--kb-on-accent); font: 700 9.5px/15px var(--font); text-align: center; font-variant-numeric: tabular-nums; }
+
+.dz-chip {
+  position: absolute; z-index: 10; left: calc(var(--dz-gap) + var(--dz-rail-w) + 8px); bottom: var(--dz-gap); display: flex; align-items: center; gap: 1px; padding: 3px;
+  background: color-mix(in srgb, var(--dz-bone) 92%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid var(--dz-edge); border-radius: 10px; box-shadow: var(--kb-shadow);
+}
+.dz-chip-btn { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 4px; border: 0; border-radius: 7px; background: transparent; color: var(--kb-ink-2); cursor: pointer; font: 700 12.5px/1 var(--font); transition: background-color .15s, color .15s; }
+.dz-chip-btn:hover:not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.dz-chip-btn.is-on { background: var(--kb-chip); color: var(--kb-accent); }
+.dz-chip-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
+.dz-chip-btn--text { padding: 0 9px; letter-spacing: .04em; }
+.dz-chip-sep { width: 1px; height: 16px; margin: 0 3px; background: var(--kb-line-hi); }
+.dz-zoom-pct { min-width: 40px; text-align: center; font: 500 12.5px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); }
+
+/* ── buttons: the bento frame's own `.kb-btn`; only what this page adds ── */
+
+.dz-page .kb-btn:focus-visible, .dz-tour .kb-btn:focus-visible, .dz-pop .kb-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
+.dz-page .kb-btn:disabled { opacity: .45; cursor: default; }
+.kb-btn--danger { color: var(--kb-bad); border-color: color-mix(in srgb, var(--kb-bad) 40%, transparent); }
+
+/* ── messages and strips over the canvas ──────────────────────── */
+
+/* A message floats at the bottom of the canvas: it takes no room, so nothing under the pointer moves when it comes and goes.
+   Solid, because it lies over a picture. Centred in the room between the panels, and above the player when that is on show. */
+.dz-note {
+  position: absolute; left: var(--dz-cx); bottom: 16px; transform: translateX(-50%); z-index: 3; width: max-content; max-width: calc(100% - var(--dz-inset-l, 0px) - var(--dz-inset-r, 0px) - 24px);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 7px 6px 7px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.35; color: var(--kb-ink);
+  background: var(--kb-surface); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow);
+}
+.dz-page.has-player .dz-note { bottom: 76px; }
+.dz-note--error { color: var(--kb-bad); border-color: color-mix(in srgb, var(--kb-bad) 45%, transparent); }
+.dz-note button { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 6px; }
+
+.dz-busy-bar {
+  position: absolute; left: var(--dz-cx); top: 16px; transform: translateX(-50%); padding: 7px 13px; border-radius: 10px;
+  background: var(--kb-surface); color: var(--kb-ink); font: 600 13px/1 var(--font); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi);
+}
+.dz-hint-chip {
+  position: absolute; left: var(--dz-cx); top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 13px; border-radius: 10px;
+  background: var(--kb-surface); color: var(--kb-ink); font: 600 13px/1.2 var(--font); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi); z-index: 2;
+  max-width: calc(100% - var(--dz-inset-l, 0px) - var(--dz-inset-r, 0px) - 120px);
+}
+.dz-hint-chip button { height: 24px; padding: 0 10px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); background: transparent; color: var(--kb-ink-2); font: 700 12.5px/1 var(--font); cursor: pointer; }
 /* trace by hand: the strip over the canvas (what to do next, the kind of the next points, and the keys as buttons) */
 .dz-tracebar {
-  position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 2; width: max-content; max-width: calc(100% - 24px);
-  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 6px 12px; padding: 6px 8px 6px 14px; border-radius: 18px;
+  position: absolute; left: var(--dz-cx); top: 16px; transform: translateX(-50%); z-index: 2; width: max-content; max-width: calc(100% - var(--dz-inset-l, 0px) - var(--dz-inset-r, 0px) - 120px);
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 6px 12px; padding: 5px 6px 5px 13px; border-radius: 10px;
   background: var(--kb-surface); color: var(--kb-ink); box-shadow: var(--kb-shadow); border: 1px solid var(--kb-line-hi);
 }
 /* the strip floats over the work: clicks pass through everything but its own buttons, so it never hides a spot to click */
 .dz-tracebar { pointer-events: none; }
 .dz-tracebar .dz-seg, .dz-tracebar button { pointer-events: auto; }
-.dz-tracebar-msg { font: 600 12.5px/1.3 var(--font); }
+.dz-tracebar-msg { font: 600 13px/1.3 var(--font); }
 .dz-tracebar-ctl { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .dz-tracebar .dz-tool--text { height: 28px; border-color: var(--kb-line-hi); }
+.dz-tracebar .dz-tool--text.is-on { border-color: var(--dz-pine); }
 .dz-tracebar .dz-seg button { height: 24px; }
 /* the "Reading the picture" bar goes to the bottom (above any message) while the strip is on top, so they never sit on each other */
-.dz-canvas-wrap.is-tracing .dz-busy-bar { top: auto; bottom: 64px; }
-/* a phone has little canvas to spare: the buttons say it all, the sentence stays for screen readers only */
-@media (max-width: 768px) {
-  .dz-tracebar { padding: 5px 6px; gap: 4px; border-radius: 14px; }
-  .dz-tracebar-msg { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-}
-.dz-empty-stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; pointer-events: none; }
-.dz-card {
-  pointer-events: auto; max-width: 440px; padding: 22px 24px; border-radius: 18px; text-align: center;
-  background: var(--kb-surface); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow-hi);
-}
-.dz-card h2 { margin: 10px 0 6px; font-size: 18px; font-weight: 700; letter-spacing: -.01em; color: var(--kb-ink); }
-.dz-card p { margin: 0 0 14px; font-size: 13.5px; color: var(--kb-ink-2); line-height: 1.45; }
-.dz-card .dz-hint { margin: 12px 0 0; }
-.dz-steps { margin: 0 0 14px; padding: 0; list-style: none; counter-reset: dz; text-align: left; display: flex; flex-direction: column; gap: 8px; }
-.dz-steps li { counter-increment: dz; position: relative; padding-left: 30px; font-size: 13px; line-height: 1.4; color: var(--kb-ink-2); }
-.dz-steps li::before { content: counter(dz); position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 6px; background: var(--kb-chip); color: var(--kb-accent); font: 700 11.5px/20px var(--font); text-align: center; }
-.dz-steps b { color: var(--kb-ink); margin-right: 4px; }
-.dz-card-chip { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--kb-chip); color: var(--kb-accent); }
+.dz-canvas-wrap.is-tracing .dz-busy-bar { top: auto; bottom: 60px; }
 
-.dz-sim { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 2px 2px 0; font-size: 12px; color: var(--kb-ink-2); }
-.dz-sim input[type="range"] { flex: 1 1 160px; min-width: 120px; accent-color: var(--kb-accent); }
-.dz-sim output { font-variant-numeric: tabular-nums; min-width: 120px; text-align: right; }
+/* small buttons: in the trace strip and the player */
+.dz-tool {
+  display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 6px; border-radius: var(--dz-r);
+  border: 1px solid transparent; background: transparent; color: var(--kb-ink-2); cursor: pointer; font: 700 13px/1 var(--font);
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.dz-tool:hover:not(:disabled):not(.is-on) { background: var(--kb-well); color: var(--kb-ink); }
+.dz-tool.is-on { background: var(--kb-chip); color: var(--kb-accent); box-shadow: inset 0 0 0 1px var(--kb-line-hi); }
+.dz-tool:disabled { opacity: .4; cursor: default; }
+.dz-tool:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
+.dz-tool--text { padding: 0 10px; }
+
+/* flex + `margin: auto` centres the card when there is room and lets it scroll from its top when there is not (a centred grid would cut its top off).
+   It is centred in the room between the panels. */
+.dz-empty-stage { position: absolute; inset: 0; display: flex; padding: 16px calc(var(--dz-inset-r, 0px) + 16px) 16px calc(var(--dz-inset-l, 0px) + 16px); overflow-y: auto; pointer-events: none; transition: opacity 0.12s; }
+/* While a file is dragged over the empty canvas the "Start with a picture" card steps back, so "Drop to open" is not printed over its text. */
+.dz-page.is-drop .dz-empty-stage { opacity: 0.1; }
+.dz-card-empty {
+  margin: auto; pointer-events: auto; max-width: 400px; padding: 22px 24px 20px; border-radius: 12px; text-align: center;
+  background: var(--kb-surface); border: 1px solid var(--dz-edge); box-shadow: var(--dz-card-shadow);
+}
+.dz-card-empty h2 { margin: 10px 0 4px; font: 600 28px/1.1 var(--font); letter-spacing: 0; color: var(--kb-ink); }
+.dz-card-empty p { margin: 0 0 12px; font-size: 14px; color: var(--kb-ink-2); line-height: 1.4; }
+.dz-card-empty .dz-hint { margin: 12px 0 0; }
+.dz-card-chip { display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; background: var(--kb-chip); color: var(--kb-accent); }
+
+/* ── the player: a small dock at the bottom, only while the stitches are on show ── */
+
+.dz-sim {
+  position: absolute; z-index: 10; left: max(var(--dz-inset-l, 0px), 292px); right: var(--dz-inset-r, 0px); bottom: var(--dz-gap);
+  display: flex; justify-content: center; padding: 0 var(--dz-gap); pointer-events: none;
+}
+.dz-sim-in {
+  pointer-events: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; max-width: 100%; padding: 6px 14px 6px 8px;
+  background: var(--dz-bone); border: 1px solid var(--dz-edge); color: var(--kb-ink-2); border-radius: 14px; box-shadow: var(--dz-card-shadow); font-size: 12.5px;
+}
+.dz-sim-in input[type="range"] { flex: 1 1 140px; min-width: 100px; width: 160px; height: 18px; margin: 0; background: transparent; cursor: pointer; accent-color: var(--kb-accent); -webkit-appearance: none; appearance: none; --p: 100%; }
+.dz-sim-in input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--kb-accent) var(--p), var(--kb-line-hi) var(--p)); }
+.dz-sim-in input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 13px; height: 13px; margin-top: -4.5px; border: 0; border-radius: 50%; background: var(--kb-accent); }
+.dz-sim-in input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--kb-line-hi); }
+.dz-sim-in input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--kb-accent); }
+.dz-sim-in input[type="range"]::-moz-range-thumb { width: 13px; height: 13px; border: 0; border-radius: 50%; background: var(--kb-accent); }
+.dz-sim-in input[type="range"]:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 3px; border-radius: 4px; }
+.dz-sim-in output { font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; color: var(--kb-ink); }
 .dz-speed { display: inline-flex; align-items: center; gap: 6px; }
-.dz-sim .dz-toggle { font-size: 12px; color: var(--kb-ink-2); }
 
-/* ── the objects pane ─────────────────────────────────────────── */
+/* ── the objects pane (inside its card) ───────────────────────── */
 
-.dz-objects { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-.dz-olist { flex: 1 1 0; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
-.dz-empty { margin: 8px 4px; font-size: 13px; color: var(--kb-ink-3); line-height: 1.45; }
+.dz-objects { --dz-row-h: 30px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 6px 6px 8px; }
+@media (pointer: coarse) { .dz-objects { --dz-row-h: 40px; } }
+.dz-olist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.dz-olist-in { margin: 0; list-style: none; box-sizing: content-box; }
+.dz-empty { margin: 8px 8px; font-size: 13px; color: var(--kb-ink-3); line-height: 1.4; }
 .dz-orow {
-  display: grid; grid-template-columns: 20px minmax(0, 1fr) 28px 28px; align-items: center; gap: 2px; min-height: 34px; padding: 0 2px; border-radius: 9px;
-  border: 1px solid transparent; transition: background-color .12s;
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) 26px 26px; align-items: center; gap: 1px; height: var(--dz-row-h); padding: 0 1px; border-radius: var(--dz-r);
+  border: 1px solid transparent; transition: background-color .12s; box-sizing: border-box;
 }
-/* a big picture makes thousands of shapes: rows far off screen are not laid out until they scroll near (their height is remembered) */
-.dz-orow { content-visibility: auto; contain-intrinsic-size: auto 34px; }
-@media (pointer: coarse) { .dz-orow { contain-intrinsic-size: auto 44px; } }
+/* (a big picture makes thousands of shapes: only the rows in view are drawn at all, see ObjectsPane.jsx; every row is one height) */
 .dz-orow:hover { background: var(--kb-well); }
 .dz-orow.is-on { background: var(--kb-chip); border-color: var(--kb-line-hi); }
 .dz-orow.is-hidden .dz-oname { opacity: .5; }
 .dz-orow.is-over { border-top-color: var(--kb-accent); box-shadow: 0 -2px 0 var(--kb-accent); }
-.dz-onum { text-align: right; font: 600 10.5px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-3); padding-right: 2px; }
-.dz-oname { display: flex; align-items: center; gap: 8px; min-width: 0; height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--kb-ink); font: 500 13px/1.2 var(--font); text-align: left; cursor: pointer; border-radius: 8px; }
+.dz-onum { text-align: right; font: 500 11px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-3); padding-right: 3px; }
+.dz-oname { display: flex; align-items: center; gap: 7px; min-width: 0; height: 28px; padding: 0 5px; border: 0; background: transparent; color: var(--kb-ink); font: 500 13px/1.2 var(--font); text-align: left; cursor: pointer; border-radius: var(--dz-r); }
 .dz-oname:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; }
 .dz-oname-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dz-oname--edit { cursor: text; }
-.dz-rename { flex: 1 1 auto; min-width: 0; height: 26px; padding: 0 6px; border-radius: 8px; border: 1.5px solid var(--kb-accent); background: var(--kb-surface); color: var(--kb-ink); font: 500 13px/1 var(--font); }
+.dz-rename { flex: 1 1 auto; min-width: 0; height: 24px; padding: 0 6px; border-radius: var(--dz-r); border: 1px solid var(--kb-accent); background: var(--dz-paper); color: var(--kb-ink); font: 500 13px/1 var(--font); }
 .dz-rename:focus { outline: none; box-shadow: 0 0 0 3px var(--kb-chip); }
-.dz-dot { flex: none; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--kb-line-hi); }
-.dz-dot--lg { width: 18px; height: 18px; border-radius: 6px; }
-.dz-badge { flex: none; margin-left: auto; font: 700 10px/1 var(--font); color: var(--kb-ink-3); background: var(--kb-well); border-radius: 5px; padding: 3px 5px; }
-.dz-oicon { display: grid; place-items: center; width: 28px; height: 28px; border: 0; background: transparent; color: var(--kb-ink-3); border-radius: 8px; cursor: pointer; }
+.dz-dot { flex: none; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--kb-line-hi); }
+.dz-dot--lg { width: 16px; height: 16px; }
+.dz-badge { flex: none; margin-left: auto; font: 700 10.5px/1 var(--font); color: var(--kb-ink-3); background: var(--kb-well); border-radius: var(--dz-r); padding: 3px 4px; }
+.dz-oicon { display: grid; place-items: center; width: 26px; height: 26px; border: 0; background: transparent; color: var(--kb-ink-3); border-radius: var(--dz-r); cursor: pointer; }
 .dz-oicon:hover { color: var(--kb-ink); background: var(--kb-well); }
 .dz-oicon.is-on { color: var(--kb-accent); }
 .dz-oicon:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; }
 .dz-obar { flex: none; display: flex; gap: 6px; flex-wrap: wrap; }
+.dz-obar .kb-btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
 
-/* ── the right pane ───────────────────────────────────────────── */
+/* ── what goes in the panel ───────────────────────────────────── */
 
-.dz-panel { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 14px; padding: 2px 4px 8px; }
 .dz-group { display: flex; flex-direction: column; gap: 9px; }
 .dz-group > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.dz-group h3 { margin: 0; font: 600 11.5px/1 var(--font); letter-spacing: .05em; text-transform: uppercase; color: var(--kb-ink-3); }
-.dz-group + .dz-group { padding-top: 12px; border-top: 1px solid var(--kb-line); }
+.dz-group h3 { margin: 0; font: 600 10.5px/1.1 var(--font); letter-spacing: .16em; text-transform: uppercase; color: var(--kb-ink-2); }
+.dz-group + .dz-group { padding-top: 13px; border-top: 1px solid var(--kb-line); }
 
-.dz-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); align-items: center; gap: 4px 10px; }
+.dz-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 3px 8px; }
 .dz-row--wide { grid-template-columns: minmax(0, 1fr); }
 .dz-row-l { font: 600 12.5px/1.2 var(--font); color: var(--kb-ink-2); }
 .dz-row-c { min-width: 0; }
-.dz-hint { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.4; color: var(--kb-ink-3); }
-.dz-warn { margin: 0; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: var(--kb-warn); background: var(--kb-warn-bg); }
-.dz-warn p { margin: 0 0 8px; }
+.dz-hint { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.35; color: var(--kb-ink-3); }
+.dz-warn { margin: 0; padding: 8px 10px; border-radius: var(--dz-r); font-size: 12.5px; line-height: 1.35; color: var(--kb-warn); background: var(--kb-warn-bg); }
+.dz-warn p { margin: 0 0 7px; }
 .dz-warn .kb-btn { height: 28px; }
-.dz-note-inline { margin: 0; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: var(--kb-info); background: var(--kb-info-bg); }
+.dz-note-inline { margin: 0; padding: 8px 10px; border-radius: var(--dz-r); font-size: 12.5px; line-height: 1.35; color: var(--kb-info); background: var(--kb-info-bg); }
 /* "Make it fill the hoop": the note, its button and what it does */
-.dz-fit { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 10px; background: var(--kb-info-bg); }
-.dz-fit p { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--kb-info); }
-.dz-fit .dz-fit-sub { font-size: 12px; color: var(--kb-ink-3); }
-.dz-fit .kb-btn { height: 30px; }
-.dz-busy { font: 600 11.5px/1 var(--font); color: var(--kb-ink-3); }
+.dz-fit { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 10px; border-radius: var(--dz-r); background: var(--kb-info-bg); }
+.dz-fit p { margin: 0; font-size: 12.5px; line-height: 1.35; color: var(--kb-info); }
+.dz-fit .kb-btn { height: 28px; }
+.dz-busy { font: 600 11px/1 var(--font); color: var(--kb-ink-3); }
 .dz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.dz-first { display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; }
-.dz-first h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--kb-ink); }
-.dz-first p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--kb-ink-2); }
+.dz-first { display: flex; flex-direction: column; gap: 9px; padding: 4px 0; }
+.dz-first h3 { margin: 0; font: 600 21px/1.15 var(--font); color: var(--kb-ink); }
+.dz-first p { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--kb-ink-2); }
 
 .dz-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .dz-actions--center { justify-content: center; }
-.dz-actions .kb-btn { height: 30px; }
-.kb-btn--danger { color: var(--kb-bad); border-color: color-mix(in srgb, var(--kb-bad) 40%, transparent); }
-.kb-btn:disabled { opacity: .5; cursor: default; }
-.kb-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
+.dz-actions--end { justify-content: flex-end; margin-top: 10px; }
+.dz-actions .kb-btn { height: 28px; padding: 0 11px; font-size: 12.5px; }
+.dz-card-empty .dz-actions .kb-btn { height: 32px; padding: 0 14px; font-size: 13px; }
 
 .dz-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .dz-iconrow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
-.dz-iconrow button { display: grid; place-items: center; height: 30px; border-radius: 8px; border: 1px solid var(--kb-line-hi); background: transparent; color: var(--kb-ink-2); cursor: pointer; }
+.dz-iconrow button { display: grid; place-items: center; height: 28px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); background: transparent; color: var(--kb-ink-2); cursor: pointer; }
 .dz-iconrow button:hover { background: var(--kb-well); color: var(--kb-ink); }
 .dz-iconrow button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
 
-/* fields */
+/* fields: the site's form controls (square, hairline border, paper fill; the border goes pine on focus) */
 .dz-text, .dz-textarea, .dz-num input {
-  width: 100%; min-width: 0; height: 32px; padding: 0 9px; border-radius: 9px; border: 1.5px solid var(--kb-line-hi);
-  background: var(--kb-surface); color: var(--kb-ink); font: 500 13px/1 var(--font); font-variant-numeric: tabular-nums;
+  width: 100%; min-width: 0; height: 30px; padding: 0 9px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi);
+  background: var(--dz-paper); color: var(--kb-ink); font: 400 13.5px/1 var(--font); font-variant-numeric: tabular-nums;
 }
-.dz-textarea { height: auto; padding: 8px 9px; line-height: 1.35; resize: vertical; min-height: 52px; font-family: var(--font); }
+.dz-textarea { height: auto; padding: 7px 9px; line-height: 1.35; resize: vertical; min-height: 52px; font-family: var(--font); }
 .dz-text:hover, .dz-textarea:hover, .dz-num input:hover { border-color: var(--kb-ink-3); }
-.dz-text:focus, .dz-textarea:focus, .dz-num input:focus { outline: none; border-color: var(--kb-accent); box-shadow: 0 0 0 3px var(--kb-chip); }
+.dz-text:focus, .dz-textarea:focus, .dz-num input:focus { outline: none; border-color: var(--dz-pine); box-shadow: 0 0 0 3px var(--kb-chip); }
 .dz-num { position: relative; display: block; }
 .dz-num input { padding-right: 30px; text-align: left; }
-.dz-unit { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font: 600 11px/1 var(--font); color: var(--kb-ink-3); pointer-events: none; }
+.dz-unit { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font: 500 11.5px/1 var(--font); color: var(--kb-ink-3); pointer-events: none; }
 .dz-num.is-off input { opacity: .55; }
 
 /* The shared dropdown (Select.jsx) drawn as a form field reads the base tokens (`--mg-input`, `--ink`, `--line-strong`) that only a dialog
-   defines: in a pane it was a white, 40px box in the dark, beside 32px dark text boxes. Here it reads the pane's own tokens and has the
-   text box's height, radius, border and type. (`.dz-tile` first: one class more than controls.css, so it wins in any stylesheet order.) */
-.dz-tile .ksel--field {
-  height: 32px; gap: 6px; padding: 0 8px 0 9px; border: 1.5px solid var(--kb-line-hi); border-radius: 9px;
-  background-color: var(--kb-surface); color: var(--kb-ink); font: 500 13px/1.3 var(--font); font-variant-numeric: tabular-nums;   /* 1.3: the value is clipped to its box, and a tighter line cut the tail off a g */
+   defines: in the panel it was a white, 40px box in the dark, beside 30px dark text boxes. Here it reads the page's own tokens and has the
+   text box's height, radius, border and type. (`.dz-page` first: one class more than controls.css, so it wins in any stylesheet order.) */
+.dz-page .ksel--field {
+  height: 30px; gap: 6px; padding: 0 8px 0 9px; border: 1px solid var(--kb-line-hi); border-radius: var(--dz-r);
+  background-color: var(--dz-paper); color: var(--kb-ink); font: 400 13.5px/1.3 var(--font); font-variant-numeric: tabular-nums;
 }
-.dz-tile .ksel--field:hover:not(:disabled):not(.is-open) { border-color: var(--kb-ink-3); }
-.dz-tile .ksel--field:focus-visible, .dz-tile .ksel--field.is-open { border-color: var(--kb-accent); border-radius: 9px; box-shadow: 0 0 0 3px var(--kb-chip); }
-.dz-tile .ksel--field:disabled { background-color: var(--kb-well); color: var(--kb-ink-3); }
-.dz-tile .ksel--field .ksel-chev { color: var(--kb-ink-3); }
-.dz-tile .ksel-val.is-ph { color: var(--kb-ink-3); }
+.dz-page .ksel--field:hover:not(:disabled):not(.is-open) { border-color: var(--kb-ink-3); }
+.dz-page .ksel--field:focus-visible, .dz-page .ksel--field.is-open { border-color: var(--kb-accent); border-radius: var(--dz-r); box-shadow: 0 0 0 3px var(--kb-chip); }
+.dz-page .ksel--field:disabled { background-color: var(--kb-well); color: var(--kb-ink-3); }
+.dz-page .ksel--field .ksel-chev { color: var(--kb-ink-3); }
+.dz-page .ksel-val.is-ph { color: var(--kb-ink-3); }
+.dz-page .ksel--pill { height: 28px; }
 
 .dz-slider { display: flex; align-items: center; gap: 8px; }
 .dz-slider input { flex: 1 1 auto; min-width: 0; accent-color: var(--kb-accent); }
-.dz-slider output { min-width: 50px; text-align: right; font: 600 12px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); }
+/* Firefox draws the thumb in a grey of its own unless told: the same green, a thin track with the filled part in green */
+.dz-slider input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--kb-accent); }
+.dz-slider input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--kb-line-hi); }
+.dz-slider input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--kb-accent); }
+.dz-slider output { min-width: 48px; text-align: right; font: 500 12.5px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); }
 
-.dz-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 10px; background: var(--kb-well); border: 1px solid var(--kb-line); max-width: 100%; }
-.dz-seg button { height: 26px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: var(--kb-ink-2); font: 600 12px/1 var(--font); cursor: pointer; white-space: nowrap; }
-.dz-seg button:hover:not(:disabled):not(.is-on) { color: var(--kb-ink); }
-.dz-seg button.is-on { background: var(--kb-surface); color: var(--kb-accent); box-shadow: var(--kb-shadow); }
+/* a choice between a few things: the chosen one is solid pine, like the site's own pickers */
+.dz-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--dz-r); background: transparent; border: 1px solid var(--kb-line-hi); max-width: 100%; }
+.dz-seg button { height: 26px; padding: 0 10px; border-radius: 6px; border: 0; background: transparent; color: var(--kb-ink-2); font: 700 12.5px/1 var(--font); cursor: pointer; white-space: nowrap; transition: background-color .15s, color .15s; }
+.dz-seg button:hover:not(:disabled):not(.is-on) { color: var(--kb-ink); background: var(--kb-well); }
+.dz-seg button.is-on { background: var(--kb-chip); color: var(--kb-accent); box-shadow: inset 0 0 0 1px var(--kb-line-hi); }
 .dz-seg button:disabled { opacity: .4; cursor: default; }
 .dz-seg button:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
 .dz-seg--wrap { display: flex; flex-wrap: wrap; }
 .dz-seg--wrap button { flex: 1 1 auto; }
-.dz-seg--step { border-radius: 999px; padding: 3px; }
-.dz-seg--step button { height: 28px; padding: 0 16px; border-radius: 999px; font-size: 12.5px; }
+/* the three steps: a pill with a pine knob, like the Atelier's front / back switch */
+.dz-seg--step { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; width: 100%; padding: 3px; border-radius: 999px; background: var(--kb-well); border-color: var(--dz-edge); }
+.dz-seg--step button { height: 28px; padding: 0 6px; border-radius: 999px; font: 400 10px/1 var(--font); letter-spacing: .18em; text-transform: uppercase; }
 
-.dz-toggle { display: inline-flex; align-items: center; gap: 8px; font: 500 13px/1.3 var(--font); color: var(--kb-ink-2); cursor: pointer; }
-.dz-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.dz-toggle-box { flex: none; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--kb-ink-3); background: var(--kb-surface); display: inline-grid; place-items: center; transition: background-color .12s, border-color .12s; }
+.dz-toggle { position: relative; display: inline-flex; align-items: center; gap: 8px; font: 400 13.5px/1.3 var(--font); color: var(--kb-ink-2); cursor: pointer; }
+/* The real checkbox is invisible, and `position: absolute`: it must sit inside its own label. Left to the nearest positioned ancestor (the
+   whole workspace), it stayed where it would have been in the long, scrolling panel, outside that panel's scrolling and clipping. Pressing a
+   toggle low in the panel then made the browser scroll the workspace itself to bring it into view, and the whole editor slid up and out of its frame. */
+.dz-toggle input { position: absolute; left: 0; top: 0; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.dz-toggle-box { flex: none; width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--kb-ink-3); background: var(--dz-paper); display: inline-grid; place-items: center; transition: background-color .12s, border-color .12s; }
 .dz-toggle input:checked + .dz-toggle-box { background: var(--kb-accent); border-color: var(--kb-accent); }
 .dz-toggle input:checked + .dz-toggle-box::after { content: ""; width: 4px; height: 8px; border: solid var(--kb-on-accent); border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
 .dz-toggle input:focus-visible + .dz-toggle-box { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 .dz-toggle.is-off { opacity: .55; cursor: default; }
 
-.dz-color { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; padding: 0 9px 0 5px; border-radius: 9px; border: 1.5px solid var(--kb-line-hi); background: var(--kb-surface); color: var(--kb-ink); cursor: pointer; font: 500 12.5px/1 var(--font); }
+.dz-color { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 9px 0 4px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); background: var(--dz-paper); color: var(--kb-ink); cursor: pointer; font: 400 13px/1 var(--font); }
 .dz-color:hover { border-color: var(--kb-ink-3); }
-.dz-color:focus-visible { outline: none; border-color: var(--kb-accent); box-shadow: 0 0 0 3px var(--kb-chip); }
-.dz-color-sw { flex: none; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--kb-line-hi); }
+.dz-color:focus-visible { outline: none; border-color: var(--dz-pine); box-shadow: 0 0 0 3px var(--kb-chip); }
+.dz-color-sw { flex: none; width: 22px; height: 22px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); }
 .dz-color-hex { font-variant-numeric: tabular-nums; text-transform: uppercase; color: var(--kb-ink-2); }
 
-/* the colour chart pop-up lives in <body>, outside `.kb`, so it carries its own colours */
+/* the colour chart pop-up and the right-click menu live in <body> (see the token block at the top) */
 .dz-pop {
-  position: fixed; z-index: 1400; padding: 12px; border-radius: 16px; overflow: auto; color: var(--ink, #0a1c14);
-  background: var(--card, #fff); border: 1px solid var(--line-strong, rgba(15,46,34,.14)); box-shadow: var(--shadow-pop, 0 16px 48px -12px rgba(15,46,34,.25));
+  position: fixed; z-index: 1400; padding: 12px; border-radius: 10px; overflow: auto; color: var(--kb-ink); font-family: var(--font);
+  background: var(--dz-bone); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow-hi);
 }
-:root[data-theme="dark"] .dz-pop { background: #18211d; color: #edf1ef; border-color: rgba(255,255,255,.17); }
-/* the right-click menu lives in <body> too, so it carries its own colours as well */
 .dz-menu {
-  position: fixed; z-index: 1400; min-width: 200px; max-width: 280px; padding: 6px; border-radius: 12px; color: var(--ink, #0a1c14);
-  background: var(--card, #fff); border: 1px solid var(--line-strong, rgba(15,46,34,.14)); box-shadow: var(--shadow-pop, 0 16px 48px -12px rgba(15,46,34,.25));
-  animation: kn-pop .14s cubic-bezier(.2, .8, .2, 1) both; transform-origin: top left;
+  position: fixed; z-index: 1400; min-width: 200px; max-width: 280px; padding: 5px; border-radius: 10px; color: var(--kb-ink); font-family: var(--font);
+  background: var(--dz-bone); border: 1px solid var(--kb-line-hi); box-shadow: var(--kb-shadow-hi);
+  animation: dz-pop .14s cubic-bezier(.2, .8, .2, 1) both; transform-origin: top left;
 }
-:root[data-theme="dark"] .dz-menu { background: #18211d; color: #edf1ef; border-color: rgba(255,255,255,.17); }
+@keyframes dz-pop { from { opacity: 0; transform: scale(.97); } }
 .dz-menu button {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
-  background: transparent; color: inherit; font: 500 13px/1.3 var(--font); text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px;
+  background: transparent; color: inherit; font: 500 14px/1.3 var(--font); text-align: left; cursor: pointer;
 }
-.dz-menu button small { font: 400 11.5px/1.3 var(--font); color: var(--ink-3, #5b6a62); }
-.dz-menu button:hover, .dz-menu button:focus-visible { background: var(--bg-2, #e6ebe4); outline: none; }
-.dz-menu button.is-danger { color: #a8442c; }
-.dz-menu hr { margin: 4px 6px; border: 0; border-top: 1px solid var(--line, rgba(15,46,34,.1)); }
-:root[data-theme="dark"] .dz-menu button small { color: #b5c0bb; }
-:root[data-theme="dark"] .dz-menu button:hover, :root[data-theme="dark"] .dz-menu button:focus-visible { background: rgba(255,255,255,.08); }
-:root[data-theme="dark"] .dz-menu button.is-danger { color: #f4ae98; }
-:root[data-theme="dark"] .dz-menu hr { border-top-color: rgba(255,255,255,.12); }
-.dz-pop-h { margin: 8px 0 6px; font: 600 11px/1 var(--font); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3, #5b6a62); }
+.dz-menu button small { font: 400 12.5px/1.3 var(--font); color: var(--kb-ink-3); }
+.dz-menu button:hover, .dz-menu button:focus-visible { background: var(--kb-well); outline: none; }
+.dz-menu button.is-danger { color: var(--kb-bad); }
+.dz-menu hr { margin: 4px 6px; border: 0; border-top: 1px solid var(--kb-line); }
+.dz-pop-h { margin: 8px 0 6px; font: 600 10.5px/1 var(--font); letter-spacing: .16em; text-transform: uppercase; color: var(--kb-ink-3); }
 .dz-pop-h:first-child { margin-top: 0; }
-:root[data-theme="dark"] .dz-pop-h { color: #b5c0bb; }
 .dz-swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
-.dz-swatch { aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line-strong); cursor: pointer; padding: 0; }
+.dz-swatch { aspect-ratio: 1; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); cursor: pointer; padding: 0; }
 .dz-swatch:hover { transform: scale(1.12); }
-.dz-swatch.is-on { outline: 2px solid var(--mint-deep, #1f6e4c); outline-offset: 1px; }
-:root[data-theme="dark"] .dz-swatch.is-on { outline-color: var(--mint, #7dd3a8); }
-.dz-swatch:focus-visible { outline: 2px solid var(--mint-deep, #1f6e4c); outline-offset: 2px; }
+.dz-swatch.is-on { outline: 2px solid var(--kb-accent); outline-offset: 1px; }
+.dz-swatch:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 .dz-hexrow { display: flex; gap: 8px; }
-.dz-hexrow input[type="color"] { width: 44px; height: 34px; padding: 2px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; cursor: pointer; }
-.dz-hexrow input[type="text"] { flex: 1; min-width: 0; height: 34px; padding: 0 10px; border-radius: 8px; border: 1.5px solid var(--line-strong); background: transparent; color: inherit; font: 500 13px var(--font); text-transform: uppercase; }
+.dz-hexrow input[type="color"] { width: 44px; height: 32px; padding: 2px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); background: transparent; cursor: pointer; }
+.dz-hexrow input[type="text"] { flex: 1; min-width: 0; height: 32px; padding: 0 9px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); background: var(--dz-paper); color: inherit; font: 400 13.5px var(--font); text-transform: uppercase; }
+.dz-hexrow input[type="text"]:focus { outline: none; border-color: var(--dz-pine); box-shadow: 0 0 0 3px var(--kb-chip); }
+.dz-hexrow .kb-btn { height: 32px; }
+/* the thread picker: a swatch the person has is ringed and ticked (the tick is white on a dark thread, dark on a light one: `color` is set by the swatch) */
+.dz-swatch--pick { position: relative; }
+.dz-swatch--pick.is-on::after { content: ""; position: absolute; inset: 0; margin: auto; width: 5px; height: 9px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
+
+/* my threads: the threads the person has */
+.dz-threadlist { display: flex; flex-wrap: wrap; gap: 6px; }
+.dz-thread { position: relative; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); cursor: pointer; }
+.dz-thread svg { opacity: 0; transition: opacity .12s; }
+.dz-thread:hover svg, .dz-thread:focus-visible svg { opacity: 1; }
+.dz-thread:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
+.dz-thread--add { background: transparent; border-style: dashed; color: var(--kb-ink-2); }
+.dz-thread--add svg { opacity: 1; }
+.dz-thread--add:hover { border-color: var(--kb-ink-3); color: var(--kb-ink); background: var(--kb-well); }
+.dz-threadbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dz-linkbtn { border: 0; background: transparent; padding: 2px 4px; color: var(--kb-ink-2); font: 700 12.5px/1 var(--font); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.dz-linkbtn:hover { color: var(--kb-ink); }
+.dz-linkbtn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 
 /* the colours found / the threads in order */
-.dz-pal, .dz-threads { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.dz-pal li { display: grid; grid-template-columns: 18px minmax(0, 1fr) 40px auto; align-items: center; gap: 8px; min-height: 32px; }
-.dz-threads li { display: grid; grid-template-columns: 18px 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 34px; }
+.dz-pal, .dz-threads { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 1px; }
+.dz-pal li { display: grid; grid-template-columns: 16px minmax(0, 1fr) 38px auto; align-items: center; gap: 8px; min-height: 30px; }
+.dz-threads li { display: grid; grid-template-columns: 18px 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 32px; }
 .dz-pal li.is-bg { opacity: .6; }
-.dz-pal-n { display: flex; flex-direction: column; min-width: 0; font: 500 13px/1.2 var(--font); color: var(--kb-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dz-pal-n small { font: 500 11px/1.2 var(--font); color: var(--kb-ink-3); text-transform: uppercase; font-variant-numeric: tabular-nums; }
-.dz-pal-p { font: 600 12px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); text-align: right; }
+.dz-pal-n { display: flex; flex-direction: column; min-width: 0; font: 500 13.5px/1.2 var(--font); color: var(--kb-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dz-pal-n small { font: 500 11px/1.2 var(--font); color: var(--kb-ink-3); text-transform: uppercase; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.dz-pal-p { font: 500 12.5px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink-2); text-align: right; }
 
-.dz-facts { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.dz-facts > div { padding: 9px 10px; border-radius: 12px; background: var(--kb-well); }
-.dz-facts dt { font: 600 11px/1 var(--font); letter-spacing: .04em; text-transform: uppercase; color: var(--kb-ink-3); margin-bottom: 5px; }
-.dz-facts dd { margin: 0; font: 600 16px/1.1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--kb-ink); }
+/* what the design comes to: the figures in the display face, as the price on the estimator */
+.dz-facts { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dz-facts > div { padding: 8px 10px; border-radius: var(--dz-r); background: var(--kb-well); }
+.dz-facts dt { font: 600 10px/1 var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--kb-ink-3); margin-bottom: 5px; }
+.dz-facts dd { margin: 0; font: 600 20px/1.05 var(--font); font-variant-numeric: tabular-nums; color: var(--kb-ink); }
 
 .dz-formats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.dz-format { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 10px; border-radius: 12px; border: 1.5px solid var(--kb-line-hi); background: var(--kb-surface); color: var(--kb-ink); cursor: pointer; text-align: left; min-width: 0; }
-.dz-format strong { font: 700 14px/1 var(--font); letter-spacing: .02em; }
-.dz-format span { font: 500 11.5px/1.3 var(--font); color: var(--kb-ink-3); }
-.dz-format:hover:not(:disabled) { border-color: var(--kb-accent); }
-.dz-format.is-main { grid-column: 1 / -1; background: var(--kb-accent); border-color: var(--kb-accent); color: var(--kb-on-accent); }
-.dz-format.is-main span { color: var(--kb-on-accent); opacity: .9; }
+.dz-format { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: var(--dz-r); border: 1px solid var(--kb-line-hi); background: transparent; color: var(--kb-ink); cursor: pointer; text-align: left; min-width: 0; transition: border-color .15s, background-color .15s; }
+.dz-format strong { font: 600 18px/1 var(--font); letter-spacing: .02em; }
+.dz-format span { font: 400 12px/1.25 var(--font); color: var(--kb-ink-3); }
+.dz-format:hover:not(:disabled) { border-color: var(--dz-pine); background: var(--kb-well); }
+.dz-format.is-main {
+  grid-column: 1 / -1; border-color: transparent; color: var(--kb-on-accent); background: var(--kb-accent);
+}
+.dz-format.is-main span { color: var(--kb-on-accent); opacity: .85; }
 .dz-format.is-main:hover:not(:disabled) { filter: brightness(1.08); }
 .dz-format:disabled { opacity: .5; cursor: default; }
 .dz-format:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) { .dz-swatch:hover { transform: none; } .dz-menu { animation: none; } }
-@media (pointer: coarse) { .dz-text, .dz-num input, .dz-textarea, .dz-tile .ksel--field { font-size: 16px; } .dz-tool { min-width: 40px; height: 40px; } .dz-orow { min-height: 44px; } }
+@media (pointer: coarse) {
+  .dz-text, .dz-num input, .dz-textarea, .dz-page .ksel--field { font-size: 16px; }   /* 16px: iOS does not zoom the page when a field is focused */
+  .dz-rail-btn { width: 40px; height: 40px; }
+  .dz-chip-btn { min-width: 36px; height: 36px; }
+  .dz-tool { min-width: 38px; height: 38px; }
+  .dz-orow { grid-template-columns: 18px minmax(0, 1fr) 36px 36px; }
+  .dz-oicon { width: 36px; height: 36px; }
+  .kb-btn, .dz-actions .kb-btn, .dz-obar .kb-btn, .dz-warn .kb-btn, .dz-fit .kb-btn, .dz-card-empty .dz-actions .kb-btn { height: 40px; }
+  .dz-seg button { height: 34px; }
+  .dz-seg--step button { height: 36px; }
+  .dz-tracebar .dz-tool--text { height: 36px; }
+  .dz-tracebar .dz-seg button { height: 32px; }
+  .dz-toggle-box { width: 22px; height: 22px; }
+}
 
-/* a phone has no pane height to share out (`flex: 1 1 0` would shut a pane to nothing): the panes take the room they need and the page scrolls.
+/* ── the help: a "?" button in the corner of the canvas, and a card with a video of every feature ── */
+
+.dz-help-btn {
+  position: absolute; z-index: 10; top: var(--dz-gap); right: calc(var(--dz-inset-r, 0px) + 12px); display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 1px solid var(--dz-edge); border-radius: 999px; color: var(--kb-ink-2); cursor: pointer; box-shadow: var(--kb-shadow);
+  background: color-mix(in srgb, var(--dz-bone) 92%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: background-color .15s, color .15s;
+}
+.dz-help-btn:hover { background: var(--dz-bone); color: var(--kb-ink); }
+.dz-help-btn.is-on { background: var(--kb-chip); border-color: var(--kb-line-hi); color: var(--kb-accent); }
+.dz-help-btn:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: 2px; }
+
+.dz-help {
+  position: absolute; z-index: 30; left: calc(var(--dz-inset-l, 0px) + (100% - var(--dz-inset-l, 0px) - var(--dz-inset-r, 0px)) / 2); top: 50%; transform: translate(-50%, -50%);
+  width: min(860px, calc(100% - var(--dz-inset-l, 0px) - var(--dz-inset-r, 0px) - 32px)); max-height: calc(100% - 40px); display: flex; flex-direction: column;
+  background: var(--dz-bone); border: 1px solid var(--dz-edge); border-radius: 12px; box-shadow: var(--dz-card-shadow); overflow: hidden;
+}
+.dz-help-hd { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--dz-edge); }
+.dz-help-hd h2 { flex: 1 1 auto; margin: 0; font: 600 17px/1 var(--font); color: var(--kb-ink); }
+.dz-help-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
+.dz-help-list { overflow-y: auto; overscroll-behavior: contain; padding: 8px; border-right: 1px solid var(--dz-edge); }
+.dz-help-group { margin: 12px 8px 4px; font: 600 10px/1 var(--font); letter-spacing: .16em; text-transform: uppercase; color: var(--kb-ink-3); }
+.dz-help-grp:first-child .dz-help-group { margin-top: 2px; }
+.dz-help-item { display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--kb-ink); font: 500 13.5px/1.25 var(--font); text-align: left; cursor: pointer; }
+.dz-help-item:hover:not(.is-on) { background: var(--kb-well); }
+.dz-help-item.is-on { background: var(--kb-chip); color: var(--kb-accent); }
+.dz-help-item:focus-visible { outline: 2px solid var(--kb-accent); outline-offset: -2px; }
+.dz-help-view { min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 16px; }
+.dz-help-video { position: relative; width: 100%; aspect-ratio: 960 / 536; background: var(--kb-well); border: 1px solid var(--dz-edge); border-radius: 8px; overflow: hidden; }
+.dz-help-video video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dz-help-pp { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 999px; background: rgba(10, 20, 15, .7); color: #fff; color: #fff; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.dz-help-video:hover .dz-help-pp, .dz-help-pp:focus-visible { opacity: 1; }
+@media (hover: none) { .dz-help-pp { opacity: .9; } }
+.dz-help-novideo { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; background: var(--kb-well); font-size: 13px; color: var(--kb-ink-3); }
+.dz-help-view h3 { margin: 14px 0 6px; font: 600 21px/1.15 var(--font); color: var(--kb-ink); }
+.dz-help-view p { margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: var(--kb-ink-2); }
+.dz-help-keys { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--kb-ink-2); }
+.dz-help-keys kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--kb-line-hi); border-bottom-width: 2px; border-radius: 4px; background: var(--dz-paper); font: 600 12px/1.4 var(--font); color: var(--kb-ink); }
+
+/* ── the tour: a spotlight over the page, and a card beside what it talks about ── */
+
+.dz-tour { position: fixed; inset: 0; z-index: 1600; font-family: var(--font); }
+.dz-tour-block { position: absolute; inset: 0; }
+.dz-tour-dim { position: absolute; inset: 0; background: rgba(10, 20, 15, .55); }
+.dz-tour-hole { position: absolute; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 2px var(--kb-surface), 0 0 0 9999px rgba(10, 20, 15, .55); transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease; }
+.dz-tour-card {
+  position: absolute; width: min(340px, calc(100vw - 24px)); padding: 16px 18px 14px; background: var(--dz-bone); color: var(--kb-ink);
+  border: 1px solid var(--dz-edge); border-radius: 12px; box-shadow: var(--kb-shadow-hi); transition: left .25s ease, top .25s ease;
+}
+.dz-tour-count { margin: 0 0 6px; font: 600 10px/1 var(--font); letter-spacing: .16em; text-transform: uppercase; color: var(--kb-ink-3); }
+.dz-tour-card h2 { margin: 0 0 6px; font: 600 22px/1.1 var(--font); color: var(--kb-ink); }
+.dz-tour-card #dz-tour-text { margin: 0 0 14px; font-size: 14.5px; line-height: 1.45; color: var(--kb-ink-2); }
+.dz-tour-foot { display: flex; align-items: center; gap: 8px; }
+.dz-tour-dots { flex: 1 1 auto; display: flex; justify-content: center; gap: 4px; }
+.dz-tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--kb-line-hi); }
+.dz-tour-dots i.is-done { background: var(--kb-ink-3); }
+.dz-tour-dots i.is-on { background: var(--dz-pine); }
+@media (prefers-reduced-motion: reduce) { .dz-tour-hole, .dz-tour-card { transition: none; } }
+
+/* a narrower window: the help's list becomes a row of chips above the video */
+@media (max-width: 1100px) {
+  .dz-help-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .dz-help-list { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 8px 10px; border-right: 0; border-bottom: 1px solid var(--dz-edge); }
+  .dz-help-grp { display: contents; }
+  .dz-help-group { display: none; }
+  .dz-help-item { width: auto; flex: none; white-space: nowrap; }
+}
+
+/* ── a smaller screen: a narrower panel, and the Objects list starts closed (DigitizerEditor.jsx) ── */
+@media (max-width: 1100px) {
+  .dz-page { --dz-right-w: 272px; }
+  .dz-objects-card { width: 190px; }
+}
+
+/* ── a short window (a small laptop, or the browser zoomed in): the rail's buttons are a little smaller, so all of it still shows ──
+   (Not for a touch screen, whose buttons stay big enough to hit.) */
+@media (min-width: 769px) and (max-height: 640px) and (pointer: fine) {
+  .dz-rail { padding: 5px; }
+  .dz-rail-btn { width: 28px; height: 28px; }
+  .dz-rail-sep { margin: 3px 0; }
+  .dz-left { bottom: 56px; }
+}
+
+/* ── a phone: nothing floats ──────────────────────────────────────
+   The page is as tall as it needs to be and scrolls: the rail, then the canvas, then the player and view chip, the panel and the
+   Objects list, one under the other. (`display: contents` on the left column lets its two children take their own place in the order.)
    After the rules they override, on purpose: equal weight, the later one wins. */
 @media (max-width: 768px) {
+  .kb.dz-page { display: flex; flex-direction: column; gap: 0; height: auto; min-height: 0; overflow: visible; padding: 0 0 24px; }
+  .dz-canvas-wrap { position: relative; inset: auto; order: 1; flex: none; height: min(68dvh, 520px); min-height: 340px; }
+  .dz-left { position: static; display: contents; }
+  .dz-rail { order: 0; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; max-height: none; overflow: visible; margin: 10px 12px; padding: 5px; border-radius: 14px; }
+  .dz-rail-sep { display: none; }   /* the buttons wrap onto two rows: a divider could end up dangling at the end of one */
+  .dz-chip { position: static; order: 2; align-self: center; margin: 10px 12px 0; }
+  .dz-sim { position: static; order: 2; padding: 10px 12px 0; }
+  .dz-sim-in { width: 100%; }
+  .dz-right { position: static; order: 3; width: auto; max-height: none; margin: 12px 12px 0; }
+  .dz-objects-card { order: 4; width: auto; max-height: none; margin: 12px 12px 0; }
   .dz-panel { flex: none; overflow: visible; }
   .dz-objects { flex: none; }
   .dz-olist { flex: none; max-height: 280px; }
+  .dz-note, .dz-hint-chip, .dz-busy-bar, .dz-tracebar { left: 50%; }
+  .dz-note, .dz-hint-chip, .dz-tracebar { max-width: calc(100% - 24px); }
+  .dz-page.has-player .dz-note { bottom: 16px; }
+  .dz-cursor { right: 10px; }
+  .dz-canvas-wrap.is-tracing .dz-busy-bar { bottom: 12px; }
+  /* a phone has little canvas to spare: the buttons say it all, the sentence stays for screen readers only */
+  .dz-tracebar { padding: 5px 6px; gap: 4px; }
+  .dz-tracebar-msg { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .dz-skeleton { height: 420px; }
+  .dz-help { position: fixed; z-index: 1400; left: 8px; right: 8px; bottom: 8px; top: auto; transform: none; width: auto; max-height: 82dvh; }
+  .dz-help-btn { right: 12px; }
 }

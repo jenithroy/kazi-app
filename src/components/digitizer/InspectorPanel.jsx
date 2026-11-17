@@ -1,14 +1,17 @@
 /**
  * The Design step's side panel: what you can change about the selected shapes (where they are, how big, what colour, how they
  * are stitched, their outline, their lettering), or, with nothing selected, about the whole design (hoop, fabric, name).
+ * No paragraph under each control: how they work is in the tour and the help (Tour.jsx, Help.jsx). The tools (text, shapes, tracing)
+ * are on the rail on the left.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Select from "../Select";
 import { Group, Row, NumberField, Slider, Segmented, Toggle, ColorField } from "./Controls";
 import HoopFit from "./HoopFit";
 import { HOOPS, boxOfObjects, objectSize } from "../../lib/digitizer/model";
 import { FABRICS } from "../../lib/embroidery/stitch/presets";
 import { FONTS } from "../../lib/digitizer/text";
+import { adviceForTextObject, adviceText } from "../../lib/digitizer/legible";
 
 /** "Woven (shirts, twill, denim, canvas)" is the name on the button and the examples beside it in the list: the whole line does not fit in the box. */
 const fabricOption = ([id, f]) => {
@@ -46,12 +49,12 @@ const A = ({ children }) => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">{children}</svg>
 );
 const ALIGN = [
-  ["left", "Line up left", <A><path d="M4 4v16" /><rect x="7" y="6" width="12" height="4" rx="1" /><rect x="7" y="14" width="7" height="4" rx="1" /></A>],
-  ["centerX", "Centre across", <A><path d="M12 3v18" /><rect x="5" y="6" width="14" height="4" rx="1" /><rect x="8" y="14" width="8" height="4" rx="1" /></A>],
-  ["right", "Line up right", <A><path d="M20 4v16" /><rect x="5" y="6" width="12" height="4" rx="1" /><rect x="10" y="14" width="7" height="4" rx="1" /></A>],
-  ["top", "Line up top", <A><path d="M4 4h16" /><rect x="6" y="7" width="4" height="12" rx="1" /><rect x="14" y="7" width="4" height="7" rx="1" /></A>],
-  ["centerY", "Centre down", <A><path d="M3 12h18" /><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="8" width="4" height="8" rx="1" /></A>],
-  ["bottom", "Line up bottom", <A><path d="M4 20h16" /><rect x="6" y="5" width="4" height="12" rx="1" /><rect x="14" y="10" width="4" height="7" rx="1" /></A>],
+  ["left", "Line up left", <A key="left"><path d="M4 4v16" /><rect x="7" y="6" width="12" height="4" rx="1" /><rect x="7" y="14" width="7" height="4" rx="1" /></A>],
+  ["centerX", "Centre across", <A key="centerX"><path d="M12 3v18" /><rect x="5" y="6" width="14" height="4" rx="1" /><rect x="8" y="14" width="8" height="4" rx="1" /></A>],
+  ["right", "Line up right", <A key="right"><path d="M20 4v16" /><rect x="5" y="6" width="12" height="4" rx="1" /><rect x="10" y="14" width="7" height="4" rx="1" /></A>],
+  ["top", "Line up top", <A key="top"><path d="M4 4h16" /><rect x="6" y="7" width="4" height="12" rx="1" /><rect x="14" y="7" width="4" height="7" rx="1" /></A>],
+  ["centerY", "Centre down", <A key="centerY"><path d="M3 12h18" /><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="8" width="4" height="8" rx="1" /></A>],
+  ["bottom", "Line up bottom", <A key="bottom"><path d="M4 20h16" /><rect x="6" y="5" width="4" height="12" rx="1" /><rect x="14" y="10" width="4" height="7" rx="1" /></A>],
 ];
 
 const same = (list, get) => {
@@ -78,14 +81,14 @@ function DesignSettings({ api }) {
             onChange={(v) => { const h = HOOPS.find((x) => x.id === v); if (h) api.setHoop(h.w, h.h); }}
           />
         </Row>
-        <Row label="Size (mm)" hint={design.objects.length || design.reference ? undefined : "The space the design can fill. Choose it before the picture: a picture is made as big as the hoop allows, and a bigger design keeps more detail."}>
+        <Row label="Size (mm)">
           <div className="dz-pair">
             <NumberField label="Hoop width in millimetres" value={design.hoop.w} min={20} max={1000} digits={0} unit="W" onChange={(v) => api.setHoop(v, design.hoop.h)} />
             <NumberField label="Hoop height in millimetres" value={design.hoop.h} min={20} max={1000} digits={0} unit="H" onChange={(v) => api.setHoop(design.hoop.w, v)} />
           </div>
         </Row>
         <HoopFit api={api} />
-        <Row label="Fabric" hint="Sets how dense and how long the stitches are, and the underlay.">
+        <Row label="Fabric">
           <Select value={design.fabric} label="Fabric" variant="field" searchable={false} minWidth={280} options={Object.entries(FABRICS).map(fabricOption)} onChange={(v) => api.setDesign({ fabric: v })} />
         </Row>
       </Group>
@@ -93,16 +96,6 @@ function DesignSettings({ api }) {
         <Row label="Colour">
           <ColorField value={design.fabricColor} label="Cloth colour" onChange={(c) => api.setFabricColor(c)} />
         </Row>
-        <p className="dz-hint">The colour of the garment. Only for looking at the design: white thread on white cloth is hard to see. Colours in a picture that match it are left out when the picture is converted. It is not saved in the stitch file.</p>
-      </Group>
-      <Group title="Add">
-        <div className="dz-actions">
-          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("text")}>Text</button>
-          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("rect")}>Rectangle</button>
-          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("ellipse")}>Ellipse</button>
-          <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setTool("trace")} title="Draw a shape by clicking round its edge (P)">Trace by hand</button>
-        </div>
-        <p className="dz-hint">Pick a tool, then click or drag on the canvas. Right-click a shape or the picture for more.</p>
       </Group>
     </>
   );
@@ -114,12 +107,16 @@ export default function InspectorPanel({ api }) {
   useEffect(() => {
     if (api.openRequest && selected.length === 1 && selected[0].kind === "text") textRef.current?.focus();
   }, [api.openRequest]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Can the selected text be read once it is stitched? Worked out from its letters as they are NOW (their size, their weight, how much of them is hairline), so it follows the font, the height and any scaling.
+  const textObj = selected.length === 1 && selected[0].kind === "text" && selected[0].text ? selected[0] : null;
+  const textAdvice = useMemo(() => (textObj ? adviceForTextObject(textObj) : null), [textObj && textObj.rings, textObj && textObj.transform.sx, textObj && textObj.transform.sy, textObj && textObj.text.size]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!selected.length) return <DesignSettings api={api} />;
 
   const ids = selected.map((o) => o.id);
   const one = selected.length === 1 ? selected[0] : null;
   const usedColors = [...new Set(design.objects.flatMap((o) => [o.fill.color, o.stroke.type !== "none" ? o.stroke.color : null]).filter(Boolean))];
+  const mineThreads = api.settings.useThreads !== false && api.settings.threads ? api.settings.threads : []; // the threads the person has: first in the colour chart
   const box = boxOfObjects(selected);
   // One object shows its own width and height (what typing a size sets), turned or not; a group shows the box around it.
   const own = one ? objectSize(one) : null;
@@ -165,7 +162,6 @@ export default function InspectorPanel({ api }) {
             <button key={how} type="button" title={title} aria-label={title} onClick={() => api.align(ids, how)}>{icon}</button>
           ))}
         </div>
-        <p className="dz-hint">{one ? "Centre uses the hoop's middle; with several objects they line up with each other." : "With several objects they line up with each other."}</p>
       </Group>
 
       {one && one.kind === "text" && one.text && (
@@ -192,7 +188,14 @@ export default function InspectorPanel({ api }) {
           <Row label="Align">
             <Segmented label="Text alignment" value={one.text.align} onChange={(v) => api.editText(one.id, { align: v })} options={[{ value: "left", label: "Left" }, { value: "center", label: "Centre" }, { value: "right", label: "Right" }]} />
           </Row>
-          {one.text.size < 5 && <p className="dz-warn">Letters under about 5 mm tall are hard to sew cleanly. Try a bolder font or make it larger.</p>}
+          {textAdvice && textAdvice.level !== "good" && (
+            <>
+              <p className="dz-warn">{adviceText(textAdvice, { capMm: textAdvice.capMm, font: FONTS.find((f) => f.id === one.text.font)?.label || "this font" })}</p>
+              {one.text.font !== "sans" && textAdvice.kind !== "plain" && (
+                <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.editText(one.id, { font: "sans" })}>Use Sans</button>
+              )}
+            </>
+          )}
           <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.breakApart(ids)}>Split into letters</button>
         </Group>
       )}
@@ -200,14 +203,14 @@ export default function InspectorPanel({ api }) {
       {!selected.every((o) => o.open) && (
       <Group title="Colour and stitching">
         <Row label="Thread">
-          <ColorField value={color ?? "#888888"} used={usedColors} label="Fill colour" onChange={(c) => api.patchFill(ids, { color: c })} />
+          <ColorField value={color ?? "#888888"} used={usedColors} mine={mineThreads} label="Fill colour" onChange={(c) => api.patchFill(ids, { color: c })} />
         </Row>
         <Row label="Stitch as">
           <Segmented label="How the shape is stitched" value={fillType} onChange={(v) => setFill({ type: v })} options={FILL_TYPES} size="wrap" />
         </Row>
         {fillType !== "none" && (
           <>
-            <Row label="Density" hint="Distance between rows, in mm. Smaller is thicker.">
+            <Row label="Density">
               <NumberField label="Row spacing in millimetres" value={fill.spacing ?? base.spacing ?? 0.4} min={0.2} max={1.2} digits={2} step={0.02} unit="mm" onChange={(v) => setBoth("spacing", v)} />
             </Row>
             {fillType !== "satin" && (
@@ -222,10 +225,10 @@ export default function InspectorPanel({ api }) {
                 </Row>
               </>
             )}
-            <Row label="Pull comp." hint="Makes stitching a little wider, because thread pulls the cloth in.">
+            <Row label="Pull comp.">
               <NumberField label="Pull compensation in millimetres" value={fill.pullComp ?? base.pullComp ?? 0.2} min={0} max={1} digits={2} step={0.05} unit="mm" onChange={(v) => setBoth("pullComp", v)} />
             </Row>
-            <Row label="Underlay" hint="Stitches sewn first that hold the cloth flat.">
+            <Row label="Underlay">
               {fillType === "satin" ? (
                 <Select value={sat.underlay ?? "auto"} label="Satin underlay" variant="field" options={SATIN_UNDERLAY} onChange={(v) => setSat({ underlay: v })} />
               ) : (
@@ -244,7 +247,7 @@ export default function InspectorPanel({ api }) {
         {strokeType && strokeType !== "none" && (
           <>
             <Row label="Thread">
-              <ColorField value={stroke.color} used={usedColors} label="Outline colour" onChange={(c) => api.patchStroke(ids, { color: c })} />
+              <ColorField value={stroke.color} used={usedColors} mine={mineThreads} label="Outline colour" onChange={(c) => api.patchStroke(ids, { color: c })} />
             </Row>
             {strokeType === "satin" ? (
               <>

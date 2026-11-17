@@ -2,9 +2,13 @@
  * The list of everything in the design, in the order it is sewn (first at the top). Press a row to select it (Shift or Ctrl to
  * add more), drag a row to change when it is sewn, use the eye to hide it and the padlock to keep it from being moved, and
  * right-click a row for the same menu as a right-click on the shape.
+ *
+ * A picture can make thousands of shapes, and a list of thousands of rows, every one made again at each change, is what made the page slow:
+ * only the rows that can be seen (and a few either side) are drawn. Rows are all one height (`--dz-row-h`), so where a row is follows from its
+ * number, and the rows above and below are stood in for by padding.
  */
-import { useRef, useState } from "react";
-import { Icons } from "../ui";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Trash } from "./icons";
 
 const Eye = ({ off }) => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -34,6 +38,39 @@ export default function ObjectsPane({ api }) {
     else setSelection([id]);
   };
 
+  // Which rows are in view. The scroller is told when it moves or changes size; a frame at most apart.
+  const scroller = useRef(null);
+  const [win, setWin] = useState({ top: 0, h: 400, rowH: 30 });
+  const count = design.objects.length;
+  const hasRows = count > 0; // (the list, and so its scroller, exists only when there are rows)
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const rowH = parseFloat(getComputedStyle(el).getPropertyValue("--dz-row-h")) || 30;
+      setWin((w) => (w.top === el.scrollTop && w.h === el.clientHeight && w.rowH === rowH ? w : { top: el.scrollTop, h: el.clientHeight, rowH }));
+    };
+    measure();
+    let raf = 0;
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; measure(); }); };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener("scroll", onScroll); cancelAnimationFrame(raf); };
+  }, [hasRows]);
+  // A shape picked on the canvas that is out of sight in the list: scroll the list to it (a click on a row is already in view).
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || selection.length !== 1) return;
+    const at = design.objects.findIndex((o) => o.id === selection[0]);
+    if (at < 0) return;
+    const top = at * win.rowH;
+    if (top < el.scrollTop || top + win.rowH > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - el.clientHeight / 2);
+  }, [selection]); // eslint-disable-line react-hooks/exhaustive-deps
+  const OVER = 8;
+  const firstRow = Math.max(0, Math.floor(win.top / win.rowH) - OVER);
+  const endRow = Math.min(count, Math.ceil((win.top + win.h) / win.rowH) + OVER);
+
   const [editing, setEditing] = useState(null); // the id of the row being renamed
   const finishRename = (o, text, save) => {
     setEditing(null);
@@ -46,12 +83,16 @@ export default function ObjectsPane({ api }) {
       {design.objects.length === 0 ? (
         <p className="dz-empty">Nothing here yet. Add a picture, some text or a shape.</p>
       ) : (
-        <ol className="dz-olist" aria-label="Objects, in the order they are sewn">
-          {design.objects.map((o, i) => {
+        <div className="dz-olist" ref={scroller}>
+        <ol className="dz-olist-in" aria-label="Objects, in the order they are sewn" style={{ paddingTop: firstRow * win.rowH, paddingBottom: (count - endRow) * win.rowH }}>
+          {design.objects.slice(firstRow, endRow).map((o, k) => {
+            const i = firstRow + k;
             const on = selection.includes(o.id);
             return (
               <li
                 key={o.id}
+                aria-setsize={count}
+                aria-posinset={i + 1}
                 className={`dz-orow${on ? " is-on" : ""}${o.visible ? "" : " is-hidden"}${overIdx === i && dragId && dragId !== o.id ? " is-over" : ""}`}
                 draggable
                 onDragStart={(e) => { setDragId(o.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", o.id); }}
@@ -89,10 +130,11 @@ export default function ObjectsPane({ api }) {
             );
           })}
         </ol>
+        </div>
       )}
       <div className="dz-obar">
         <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.setSelection(design.objects.filter((o) => !o.locked).map((o) => o.id))} disabled={!design.objects.some((o) => !o.locked)}>Select all</button>
-        <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.removeObjects(selection)} disabled={!selection.length}><Icons.Trash size={13} sw={1.8} aria-hidden="true" /> Delete</button>
+        <button type="button" className="kb-btn kb-btn--ghost" onClick={() => api.removeObjects(selection)} disabled={!selection.length}><Trash size={14} aria-hidden="true" /> Delete</button>
       </div>
     </div>
   );

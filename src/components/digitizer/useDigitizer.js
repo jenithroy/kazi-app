@@ -7,23 +7,25 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { createHistory } from "../../lib/digitizer/history";
 import { createEngine } from "../../lib/digitizer/engineClient";
 import { findPerson, disposePersonFinder } from "../../lib/digitizer/segmentClient";
+import { mainFaces, paintFeatureClasses, faceMeasures, faceCropBox } from "../../lib/digitizer/faces";
 import {
   newDesign, makeObject, boxOfObjects, objectBox, objectCorners, moveObject, setObjectSize, setObjectCentre, withTransform, scaleObjectAbout, flipObject,
   breakApart, fillHoles, cloneObjects, engineDesign, serializeDesign, parseDesign, DEFAULT_FILL, DEFAULT_CLOTH, newId, centreRings, followsPicture,
 } from "../../lib/digitizer/model";
 import { traceRing, tracePolyline, crossesItself, nextTraceName, sampleRingColour } from "../../lib/digitizer/trace";
 import { loadPicture, extractImage, downloadBlob, fileSafe } from "../../lib/digitizer/image";
-import { mergeTraceObjects, CONVERT_DEFAULTS, traceOptions, clothFromTrace, contentBox, fillScale } from "../../lib/digitizer/convert";
+import { mergeTraceObjects, CONVERT_DEFAULTS, traceOptions, clothFromTrace, contentBox, fillScale, snapOf, threadPicker } from "../../lib/digitizer/convert";
 import { drawText, textRings, DEFAULT_TEXT } from "../../lib/digitizer/text";
 import { summarize } from "../../lib/digitizer/stats";
 import { buildFile, buildPreview, productionSheetHtml, printSheet, loadFormats, centreStitches } from "../../lib/digitizer/exporter";
 import { flatten } from "../../lib/digitizer/flat";
 import { checkStitches, checkMessages } from "../../lib/embroidery/stitch/checks";
 import { FABRICS } from "../../lib/embroidery/stitch/presets";
-import { threadName, nearestThread, hexToRgb } from "../../lib/embroidery/thread/chart";
+import { threadName, hexToRgb } from "../../lib/embroidery/thread/chart";
+import { hasAutosave, peekAutosave, saveAutosave, loadAutosave, clearAutosave } from "../../lib/digitizer/store";
 
-const AUTOSAVE_KEY = "kazi.digitizer.autosave";
 const SETTINGS_KEY = "kazi.digitizer.settings";
+const THREADS_KEY = "kazi.digitizer.threads";
 /** How many of the pictures opened in one visit are kept for undo (a big picture is tens of megabytes). */
 const KEEP_PICTURES = 4;
 /** How long the cloth colour must rest before the picture's colours are looked at again for it (a drag through the colour chart passes many). */
@@ -61,6 +63,13 @@ const read = (key, fallback) => {
 };
 const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } };
 
+/** The threads the person has (hex colours) and whether they are in use, remembered on this computer so they are not typed in again every visit. */
+const rememberedThreads = () => {
+  const t = read(THREADS_KEY, null);
+  const list = t && Array.isArray(t.list) ? t.list.filter((h) => typeof h === "string" && /^#[0-9a-f]{6}$/i.test(h)).map((h) => h.toLowerCase()) : [];
+  return { threads: [...new Set(list)].slice(0, 60), useThreads: !(t && t.use === false) };
+};
+
 const HOOP_KEY = "kazi.digitizer.hoop";
 /** The hoop last chosen on this computer: a new design starts with it, so a bigger hoop is not forgotten between designs (the first time: Left chest, 100 x 100). */
 const rememberedHoop = () => {
@@ -71,6 +80,34 @@ const rememberedHoop = () => {
 
 /** What identifies a crop of the picture for the person finder: what it found stays valid until the crop changes. */
 const personKey = (crop) => [crop.x, crop.y, crop.w, crop.h].map(Math.round).join(",");
+
+/**
+ * What the person finder found, as the tracer wants it at this size: the region map with the face's eyes, brows and lips painted in (their width in pixels
+ * depends on how big a pixel is on the cloth, so this is done for each trace). `faces` are the landmarker's points (faceFinder.js); a picture without one
+ * has the person finder's own map.
+ */
+function personAt(person, mmPerPx) {
+  if (!person || !person.regions) return null;
+  const { width: W, height: H } = person.regions;
+  const fl = person.faces && person.faces.length ? mainFaces(person.faces, W, H) : [];
+  if (!fl.length) return { regions: person.regions };
+  const painted = paintFeatureClasses(person.regions.data, W, H, fl, { mmPerPx });
+  // (the white of the eyes and of the teeth, measured on the picture when it was looked at: they go with the eyes and lips painted above)
+  return { regions: { width: W, height: H, data: painted.classes }, anchors: person.anchors && person.anchors.length ? person.anchors : null };
+}
+
+/**
+ * The biggest face the person finder found, in the PICTURE's own pixels (`scale` = pixels of the traced copy per picture pixel), and a crop that frames it. In the
+ * picture's pixels so that it stays true for any size, crop, undo or redo: the page multiplies by the picture's millimetres a pixel NOW. null without a face.
+ */
+function faceOf(person, scale) {
+  if (!person || !person.regions || !person.faces || !person.faces.length) return null;
+  const { width: W, height: H } = person.regions;
+  const fl = mainFaces(person.faces, W, H);
+  if (!fl.length) return null;
+  const m = faceMeasures(fl[0], 1 / scale); // (the "millimetres" of faceMeasures are picture pixels here: a pixel of the traced copy is 1 / scale of one of the picture's)
+  return { face: { facePx: m.faceMm, eyePx: m.eyeMm }, box: faceCropBox(fl, W, H) };
+}
 
 export function useDigitizer() {
   const hist = useRef(null);
@@ -98,7 +135,7 @@ export function useDigitizer() {
   // back the picture that went with a step and not only the place it sat.
   const pictures = useRef(new Map());
   const [hasImage, setHasImage] = useState(false);
-  const [settings, setSettings] = useState(CONVERT_DEFAULTS);
+  const [settings, setSettings] = useState(() => ({ ...CONVERT_DEFAULTS, ...rememberedThreads() }));
   const [palette, setPalette] = useState([]);
   const [skip, setSkip] = useState(() => new Set());
   const [include, setInclude] = useState(() => new Set()); // colours that match the cloth but the person wants stitched
@@ -544,11 +581,12 @@ export function useDigitizer() {
     const d = hist.current.present;
     const seen = d.reference && refImage.current ? sampleRingColour(refImage.current.canvas, d.reference, ring) : null;
     const rgb = seen ? hexToRgb(seen) : null;
-    const color = rgb ? (settings.snap ? nearestThread(rgb.r, rgb.g, rgb.b).hex : seen) : lastColor.current;
+    const snap = snapOf(settings);
+    const color = rgb ? (snap ? threadPicker(snap)(rgb.r, rgb.g, rgb.b) : seen) : lastColor.current;
     addObjects([makeObject({ name: nextTraceName(d.objects), kind: "shape", rings: [ring], fill: { color }, source: d.reference ? "hand" : undefined })]);
     setTraceNow(null);
     return true;
-  }, [notify, addObjects, settings.snap, setTraceNow]);
+  }, [notify, addObjects, settings, setTraceNow]);
 
   // Leaving the tool, or the Design step, throws away a shape that was not finished.
   useEffect(() => { if (tool !== "trace" || mode !== "design") setTraceNow(null); }, [tool, mode, setTraceNow]);
@@ -693,7 +731,7 @@ export function useDigitizer() {
     const amend = want === chosenRef.current;
     shapesBusy.current++;
     try {
-      await applyTrace(want.skip, want.include, settingsRef.current.snap, d.fabricColor, false, lt, null, amend);
+      await applyTrace(want.skip, want.include, snapOf(settingsRef.current), d.fabricColor, false, lt, null, amend);
     } catch (e) {
       // The shapes could not be made: show the colour list as the design really is.
       wantRef.current = chosenRef.current;
@@ -733,8 +771,11 @@ export function useDigitizer() {
       // is given the region map the finder made. What was found is kept with the picture, so a slider moved later does not look again.
       const seekKey = personKey(ref0.crop);
       const lookForPerson = s.people !== false && s.background !== "none" && (s.kind === "auto" || s.kind === "photo");
-      const withPerson = (o) => (lookForPerson && img.person && img.person.key === seekKey && img.person.regions ? { ...o, regions: img.person.regions } : o);
-      let opts = withPerson(traceOptions(s, mmPerPx));
+      const withPerson = (o, mm) => {
+        const at = lookForPerson && img.person && img.person.key === seekKey ? personAt(img.person, mm) : null;
+        return at ? { ...o, regions: at.regions, ...(at.anchors ? { regionAnchors: at.anchors } : {}) } : o;
+      };
+      let opts = withPerson(traceOptions(s, mmPerPx), mmPerPx);
       let tok = newToken();
       let res = await engine.current.trace(first.image, opts, "picture", tok);
       if (token !== convertToken.current) return;
@@ -742,10 +783,10 @@ export function useDigitizer() {
       if (lookForPerson && res.stats?.kind === "photo" && !(img.person && img.person.key === seekKey)) {
         const found = await findPerson(extractImage(img.canvas, ref0.crop, 1600).image);
         if (token !== convertToken.current) return;
-        img.person = { key: seekKey, regions: found ? found.regions : null };
+        img.person = { key: seekKey, regions: found ? found.regions : null, faces: found ? found.faces : [], anchors: found ? found.anchors : [] };
         if (found) {
           const again = extractImage(img.canvas, ref0.crop, 1600);
-          opts = withPerson(traceOptions(s, mmPerPx));
+          opts = withPerson(traceOptions(s, mmPerPx), mmPerPx);
           tok = newToken();
           res = await engine.current.trace(again.image, opts, "picture", tok);
           if (token !== convertToken.current) return;
@@ -764,7 +805,7 @@ export function useDigitizer() {
           const next = { ...ref0, mmPerPx: ref0.mmPerPx * k, x: -cx * k, y: -cy * k };
           const again = extractImage(img.canvas, ref0.crop, 1600); // the first copy went to the worker (its memory moved over): take another
           const mm2 = next.mmPerPx / again.scale;
-          const opts2 = withPerson(traceOptions(s, mm2));
+          const opts2 = withPerson(traceOptions(s, mm2), mm2);
           const tok2 = newToken();
           const res2 = await engine.current.trace(again.image, opts2, "picture", tok2);
           if (token !== convertToken.current) return;
@@ -798,11 +839,14 @@ export function useDigitizer() {
       const lt = { token: tok, scale, crop: { x: Math.round(ref.crop.x), y: Math.round(ref.crop.y) }, holder: img, maxColors: typeof s.colors === "number" ? Math.min(s.colors, s.maxColors) : s.maxColors, thick: !!s.detailThick, recipe: { crop: { x: ref0.crop.x, y: ref0.crop.y, w: ref0.crop.w, h: ref0.crop.h }, options: opts } };
       const perWorkPx = mmPerPx * (res.stats?.scale || 1); // millimetres a pixel of the tracer's own (maybe shrunk) copy is
       const droppedMm2 = ((res.stats?.removedSliverPixels || 0) + (res.stats?.removedSpeckPixels || 0)) * perWorkPx * perWorkPx;
-      const info = { kind: res.stats?.kind || "logo", person: res.stats?.person ?? null, widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx };
+      // the face the person finder found: how wide it and one eye are, in the picture's own pixels (the panel multiplies by the picture's size NOW), and a crop that frames it
+      const faceNow = lookForPerson && img.person && img.person.key === seekKey ? faceOf(img.person, scale) : null;
+      const faceCrop = faceNow && faceNow.box ? { x: Math.round(ref0.crop.x + faceNow.box[0] / scale), y: Math.round(ref0.crop.y + faceNow.box[1] / scale), w: Math.round((faceNow.box[2] - faceNow.box[0]) / scale), h: Math.round((faceNow.box[3] - faceNow.box[1]) / scale) } : null;
+      const info = { kind: res.stats?.kind || "logo", lettering: res.stats?.lettering || null, person: res.stats?.person ?? null, widenedMm2: (res.stats?.widenedPixels || 0) * perWorkPx * perWorkPx, letters: res.stats?.strokeCount || 0, letterMm: res.stats?.strokeMedianMm || 0, widthMm: ref.crop.w * ref.mmPerPx, face: faceNow ? faceNow.face : null, faceCrop };
       const nextSkip = new Set(), nextInclude = new Set();
       cloth = clothOf(res);
       // The shapes are made in the worker. What was found out, the colour list and the shapes land together, in one step.
-      landed = await applyTrace(nextSkip, nextInclude, s.snap, cloth, true, lt, (u) => {
+      landed = await applyTrace(nextSkip, nextInclude, snapOf(s), cloth, true, lt, (u) => {
         const done = { ...info, details: (u && u.details) || null }; // (what the fine lines and dots came to once they were checked against the colours)
         setDropped(droppedMm2);
         setTraceInfo(done);
@@ -822,17 +866,65 @@ export function useDigitizer() {
   }, [settings, applyTrace, busy, syncSoon, commit, setTraceNow, releaseTokens]);
 
   const changeSettings = useCallback((patch, convertNow = true) => {
-    setSettings((s) => ({ ...s, ...patch }));
+    setSettings((s) => {
+      const next = { ...s, ...patch };
+      if ("threads" in patch || "useThreads" in patch) write(THREADS_KEY, { list: next.threads, use: next.useThreads !== false });
+      return next;
+    });
     if (convertNow && refImage.current) {
       // A slider sends many values as it moves: convert once it has rested a moment, not for each one.
       clearTimeout(convertTimer.current);
-      convertTimer.current = setTimeout(() => runConvertRef.current({ ...patch }), 150);
+      // Only the threads changed: the picture is not read again (seconds); its shapes are made again from the reading the worker keeps.
+      const onlyThreads = Object.keys(patch).every((k) => k === "threads" || k === "useThreads");
+      convertTimer.current = setTimeout(() => (onlyThreads ? remapRef.current(patch) : runConvertRef.current({ ...patch })), 150);
     }
   }, []);
   const runConvertRef = useRef(runConvert);
   runConvertRef.current = runConvert;
+  const remapRef = useRef(null);
+  /**
+   * The person's threads changed (added, taken away, switched on or off): the shapes are made again in the new colours from the reading of the
+   * picture the worker has kept, which is quick. Like "Convert again", it replaces the shapes made from the picture (Undo brings them back).
+   * With no reading to go on (a conversion is running, a design opened from a file, shapes from an older reading) the picture is read again.
+   */
+  const remapThreads = useCallback(async (patch) => {
+    const d = hist.current.present, lt = lastTrace.current;
+    const made = madeFor(d);
+    if (convertingRef.current || !lt || !d.reference || !made || made.token !== lt.token) { runConvertRef.current({ ...patch }); return; }
+    const s = { ...settingsRef.current, ...patch };
+    busy(true);
+    try {
+      await applyTrace(chosenRef.current.skip, chosenRef.current.include, snapOf(s), d.fabricColor, true, lt);
+    } catch (e) {
+      notify(e.message || "The threads could not be used. Press Convert again.", "error");
+    } finally {
+      busy(false);
+    }
+  }, [applyTrace, busy, notify]);
+  remapRef.current = remapThreads;
   /** Make the picture (and the shapes made from it) as big as the hoop allows and read it again at that size: where the extra detail of a bigger hoop comes from. */
   const fitToHoop = useCallback(() => runConvertRef.current({}, "hoop"), []);
+
+  /**
+   * Crop the picture to the head and shoulders round the face the person finder found (traceInfo.faceCrop, in the picture's own pixels), then make the result
+   * fill the hoop: a face that is a small part of a picture is a few millimetres wide on the cloth, and eyes that small cannot be sewn.
+   * One step to undo for the crop; the conversion that follows is its own.
+   */
+  const cropToFace = useCallback(() => {
+    const old = hist.current.present.reference;
+    const box = traceInfo && traceInfo.faceCrop;
+    if (!old || !box || !refImage.current) return;
+    flush();
+    const x = Math.max(0, Math.min(old.srcW - 1, box.x)), y = Math.max(0, Math.min(old.srcH - 1, box.y));
+    const nc = { x, y, w: Math.max(1, Math.min(old.srcW - x, box.w)), h: Math.max(1, Math.min(old.srcH - y, box.h)) };
+    commit((dd) => {
+      const r = dd.reference;
+      if (!r) return dd;
+      return { ...dd, reference: { ...r, crop: nc, x: r.x + (nc.x - r.crop.x) * r.mmPerPx, y: r.y + (nc.y - r.crop.y) * r.mmPerPx } };
+    });
+    setCrop(false);
+    setTimeout(() => runConvertRef.current({}, "hoop"), 0);
+  }, [traceInfo, commit, flush]);
 
   // Turn a colour of the picture on or off. A colour that matches the cloth starts off; turning it on is remembered in `include`.
   const toggleSkip = useCallback((index) => {
@@ -1005,7 +1097,7 @@ export function useDigitizer() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [sim.playing, stitches]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sim.playing, stitches]);
 
   const playSim = useCallback(() => setSim((s) => ({ ...s, playing: true, pos: s.pos == null || s.pos >= (stitches?.flat.length || 0) / 3 ? 0 : s.pos })), [stitches]);
   const pauseSim = useCallback(() => setSim((s) => ({ ...s, playing: false })), []);
@@ -1117,27 +1209,36 @@ export function useDigitizer() {
   }, [flush, notify, cancelConversion, markSaved, dropPictures]);
   const openDesignFile = useCallback((file) => ask("open that file", () => openDesignFileNow(file)), [ask, openDesignFileNow]);
 
-  // Keep the last design on this computer so a closed tab does not lose the work.
-  const [restorable, setRestorable] = useState(() => { try { return !!localStorage.getItem(AUTOSAVE_KEY); } catch { return false; } });
+  // Keep the last design on this computer so a closed tab does not lose the work (lib/digitizer/store.js: IndexedDB, which takes a big design
+  // where localStorage, at about 5 MB, did not). A big design is megabytes of text, so it is made when the browser is idle and a little less often.
+  const [restorable, setRestorable] = useState(hasAutosave);
+  useEffect(() => { let off = false; peekAutosave().then((has) => { if (!off && has) setRestorable(true); }); return () => { off = true; }; }, []);
   const autosaveWarned = useRef(false);
   useEffect(() => {
     if (dragging || !design.objects.length) return undefined;
-    const t = setTimeout(() => {
-      try { localStorage.setItem(AUTOSAVE_KEY, serializeDesign(design)); setRestorable(true); } catch {
-        // Storage is full or blocked. An older copy left there would come back as "your last design", so it goes, and the person is told.
-        try { localStorage.removeItem(AUTOSAVE_KEY); } catch { /* blocked as well */ }
-        setRestorable(false);
-        if (!autosaveWarned.current) {
-          autosaveWarned.current = true;
-          notify("This browser could not keep a copy of your design (its storage is full or blocked), so the design cannot be brought back if the tab closes. Press Save design to keep your work.", "error");
-        }
+    let cancelled = false, idle = 0;
+    const save = async () => {
+      if (cancelled) return;
+      const ok = await saveAutosave(serializeDesign(design));
+      if (ok) { if (!cancelled) setRestorable(true); return; }
+      // Nowhere would take it (storage full or blocked). An older copy left there would come back as "your last design", so it goes, and the person is told.
+      await clearAutosave();
+      setRestorable(false);
+      if (!autosaveWarned.current) {
+        autosaveWarned.current = true;
+        notify("This design could not be kept in the browser (its storage is full or blocked), so it cannot be brought back if the tab closes. Press Save design to keep your work.", "error");
       }
-    }, 1500);
-    return () => clearTimeout(t);
+    };
+    const t = setTimeout(() => {
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(save, { timeout: 4000 }); else save();
+    }, design.objects.length > 400 ? 4000 : 1500);
+    return () => { cancelled = true; clearTimeout(t); if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle); };
   }, [design, dragging, notify]);
-  const restoreNow = useCallback(() => {
+  const restoreNow = useCallback(async () => {
     try {
-      const d = parseDesign(localStorage.getItem(AUTOSAVE_KEY));
+      const text = await loadAutosave();
+      if (!text) throw new Error("There is no saved design.");
+      const d = parseDesign(text);
       flush();
       cancelConversion();
       hist.current.reset(d);
@@ -1190,7 +1291,7 @@ export function useDigitizer() {
     undo, redo, commit, coalesced, begin, live, end, flush, setFabricColor, include,
     patchFill, patchStroke, patchSatin, patchObject, addObjects, removeObjects, duplicate, reorder, stepOrder, breakApart: doBreakApart, fillHoles: doFillHoles,
     flip, setSize, setCentre, setRotation, align, nudge, recolor, setDesign, setHoop, newFile, editText, retext,
-    runConvert, fitToHoop, changeSettings, toggleSkip, loadPictureFile, setReference, setReferenceWidth, removeReference, replacing, confirmReplace, cancelReplace,
+    runConvert, fitToHoop, cropToFace, changeSettings, toggleSkip, loadPictureFile, setReference, setReferenceWidth, removeReference, replacing, confirmReplace, cancelReplace,
     trace, traceBack, traceCancel, traceFinish, startTracing, menu, openMenu, closeMenu,
     playSim, pauseSim, stopSim, seekSim, setSimSpeed,
     exportFormats, exportPreview, printProduction, saveDesignFile, openDesignFile, openStitchFile, restore,

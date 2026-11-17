@@ -51,6 +51,8 @@ export class Stage {
     this.dirty = true;
     this.raf = 0;
     this.fitted = false;
+    this.autoFit = false; // the view is still the one a fit made (not moved or zoomed by the person since): a panel opening or the window resizing fits it again
+    this.lastFit = "hoop"; // which fit that was: "hoop" or "design"
     this.themeCache = null;
     this.layer = null;
     this.layerTimer = 0;
@@ -71,7 +73,10 @@ export class Stage {
     canvas.addEventListener("wheel", this.onWheel, { passive: false });
     canvas.addEventListener("dblclick", this.onDoubleClick);
     canvas.addEventListener("contextmenu", this.onContext);
+    this.pointerInside = false; // the pointer is over the canvas: Space is for panning it (see onKeyDown)
+    canvas.addEventListener("pointerenter", () => { this.pointerInside = true; });
     this.onLeave = () => {
+      this.pointerInside = false;
       if (this.cursorEl) this.cursorEl.textContent = "";
       if (this.tracePointer) { this.tracePointer = null; this.invalidate(); } // the line to the pointer goes with the pointer
     };
@@ -112,6 +117,8 @@ export class Stage {
     // A different hoop (picked, typed, a new or opened design): show all of it. (Before, the view stayed as it was once it had been fitted,
     // so a bigger hoop was drawn mostly out of sight.)
     if (prev.design?.hoop !== props.design?.hoop) this.fitHoop();
+    // A panel opened or closed over the edge of the canvas: while the view is still the fitted one, fit it again in what is left.
+    else if (this.autoFit && (prev.insets?.l !== props.insets?.l || prev.insets?.r !== props.insets?.r || prev.insets?.b !== props.insets?.b)) this.refit();
     if (prev.theme !== props.theme) this.themeCache = null;
     this.invalidate();
   }
@@ -133,7 +140,7 @@ export class Stage {
     this.canvas.height = Math.floor(h * dpr);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
-    if (!this.fitted) this.fitHoop(); else this.emitView();
+    if (!this.fitted || this.autoFit) this.refit(); else this.emitView();
     this.invalidate();
   }
 
@@ -148,16 +155,24 @@ export class Stage {
   fitBox(box, pad = 36) {
     const { w, h } = this.size;
     if (!box || w < 10 || h < 10) return;
+    // Panels float over the left and right edges of the canvas, and the zoom chip and the player over the bottom (props.insets, in pixels): the
+    // box is fitted to, and centred in, what they leave free. (Never more than 45% of the width or 40% of the height, so a narrow or short
+    // window cannot leave nothing to draw in.)
+    const ins = this.props.insets || {};
+    const il = Math.max(0, Math.min(ins.l || 0, w * 0.45)), ir = Math.max(0, Math.min(ins.r || 0, w * 0.45)), ib = Math.max(0, Math.min(ins.b || 0, h * 0.4));
+    const aw = w - il - ir, ah = h - ib;
     const bw = Math.max(1, box[2] - box[0]), bh = Math.max(1, box[3] - box[1]);
-    const k = Math.max(0.5, Math.min((w - 2 * pad) / bw, (h - 2 * pad) / bh));
-    this.view = { k, ox: w / 2 - ((box[0] + box[2]) / 2) * k, oy: h / 2 - ((box[1] + box[3]) / 2) * k };
+    const k = Math.max(0.5, Math.min((aw - 2 * pad) / bw, (ah - 2 * pad) / bh));
+    this.view = { k, ox: il + aw / 2 - ((box[0] + box[2]) / 2) * k, oy: ah / 2 - ((box[1] + box[3]) / 2) * k };
     this.fitted = true;
+    this.autoFit = true;
     this.emitView();
     this.invalidate();
   }
 
   fitHoop() {
     const { hoop } = this.props.design || { hoop: { w: 100, h: 100 } };
+    this.lastFit = "hoop";
     this.fitBox([-hoop.w / 2, -hoop.h / 2, hoop.w / 2, hoop.h / 2]);
   }
 
@@ -166,10 +181,14 @@ export class Stage {
     const box = boxOfObjects(objs);
     const ref = this.refBox();
     const all = box && ref ? [Math.min(box[0], ref[0]), Math.min(box[1], ref[1]), Math.max(box[2], ref[2]), Math.max(box[3], ref[3])] : box || ref;
-    if (all) this.fitBox(all); else this.fitHoop();
+    if (all) { this.lastFit = "design"; this.fitBox(all); } else this.fitHoop();
   }
 
+  /** Make the same fit again (the canvas or the room the panels leave changed size). */
+  refit() { if (this.lastFit === "design") this.fitDesign(); else this.fitHoop(); }
+
   zoomAt(factor, sx, sy) {
+    this.autoFit = false; // the person has taken the view over
     const k = clamp(this.view.k * factor, 0.4, 120);
     const f = k / this.view.k;
     this.view = { k, ox: sx - (sx - this.view.ox) * f, oy: sy - (sy - this.view.oy) * f };
@@ -239,6 +258,7 @@ export class Stage {
     e.preventDefault();
     const [sx, sy] = this.pos(e);
     if (e.shiftKey && !e.ctrlKey) {
+      this.autoFit = false;
       this.view = { ...this.view, ox: this.view.ox - e.deltaY, oy: this.view.oy };
       this.emitView();
       this.invalidate();
@@ -250,7 +270,13 @@ export class Stage {
   }
 
   onKeyDown(e) {
-    if (e.code === "Space" && !this.isTyping(e)) { this.spaceDown = true; this.updateCursor(); }
+    if (e.code === "Space" && !this.isTyping(e)) {
+      this.spaceDown = true; this.updateCursor();
+      // Space pans here. This panel sits in a page that scrolls, where Space would also scroll the page away from under the pointer
+      // (the first version of this tool lived in a page that never scrolled). Stop that while the canvas has the keyboard or the pointer,
+      // and leave the key alone everywhere else on the page.
+      if (e.target === this.canvas || this.pointerInside) e.preventDefault();
+    }
   }
   onKeyUp(e) {
     if (e.code === "Space") { this.spaceDown = false; this.updateCursor(); }
@@ -408,6 +434,7 @@ export class Stage {
       const pts = [...this.pointers.values()];
       const dist = Math.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]) || 1;
       const mid = [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+      this.autoFit = false;
       this.view = { ...this.view, ox: this.view.ox + (mid[0] - d.mid[0]), oy: this.view.oy + (mid[1] - d.mid[1]) };
       this.zoomAt(dist / d.dist, mid[0], mid[1]);
       d.dist = dist; d.mid = mid;
@@ -415,6 +442,7 @@ export class Stage {
     }
     if (d.kind === "pan") {
       if (d.click && !d.moved) { if (Math.hypot(sx - d.sx, sy - d.sy) < CLICK_PX) return; d.moved = true; } // still a right-click
+      this.autoFit = false;
       this.view = { ...this.view, ox: d.ox + (sx - d.sx), oy: d.oy + (sy - d.sy) };
       this.emitView();
       this.invalidate();
@@ -426,6 +454,7 @@ export class Stage {
         if (d.touch) {
           // A finger that drags moves the view (from where it first touched, so there is no jump).
           this.drag = { kind: "pan", sx: d.sx, sy: d.sy, ox: this.view.ox, oy: this.view.oy };
+          this.autoFit = false;
           this.view = { ...this.view, ox: this.drag.ox + (sx - d.sx), oy: this.drag.oy + (sy - d.sy) };
           this.emitView();
           this.invalidate();
@@ -733,7 +762,7 @@ export class Stage {
     ctx.moveTo(cx - 6, cy); ctx.lineTo(cx + 6, cy); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx, cy + 6);
     ctx.stroke();
 
-    this.drawRulers(hoop);
+    if (p.showRulers) this.drawRulers(hoop);
     if (mode === "picture") this.drawPictureHandles();
     else if (mode !== "stitches" && !tracing) this.drawSelection();
     this.drawGuides();
@@ -771,7 +800,7 @@ export class Stage {
     const nice = [1, 2, 5, 10, 20, 50, 100];
     const step = nice.find((n) => n * k >= 46) || 100;
     ctx.save();
-    ctx.font = '500 10px "Geist", system-ui, sans-serif';
+    ctx.font = '500 11.5px "Geist", system-ui, sans-serif'; // the app's face (the website's own is a serif)
     ctx.fillStyle = th.ink3;
     ctx.strokeStyle = th.line;
     ctx.lineWidth = 1;
@@ -878,6 +907,9 @@ export class Stage {
    * that are new.
    */
   stitchLayer(st, upto) {
+    // A layer of hundreds of thousands of stitches is drawn a slice at a time, a frame apart, so the page stays alive while it fills in (one
+    // stroke of a million threads is a pause of a second or more on a computer without a graphics card).
+    const SLICE = 120000;
     const { w, h, dpr } = this.size;
     const { k, ox, oy } = this.view;
     let L = this.layer;
@@ -891,16 +923,17 @@ export class Stage {
     }
     const moved = L.k !== k || L.ox !== ox || L.oy !== oy;
     if (L.upto < 0 || (moved && (this.props.simPos != null || L.upto !== upto))) {
-      this.paintStitches(L, st, 0, upto, true);
+      this.paintStitches(L, st, 0, Math.min(upto, SLICE), true);
     } else if (moved) {
       // Follow the view with the old picture now; draw the sharp one when it has stopped.
       L.stale = true;
       clearTimeout(this.layerTimer);
-      this.layerTimer = setTimeout(() => { if (this.layer === L) { this.paintStitches(L, st, 0, this.layerUpto(st), true); this.invalidate(); } }, 140);
+      this.layerTimer = setTimeout(() => { if (this.layer === L) { this.paintStitches(L, st, 0, Math.min(this.layerUpto(st), SLICE), true); this.invalidate(); } }, 140);
     } else if (L.upto !== upto) {
-      if (upto > L.upto) this.paintStitches(L, st, L.upto, upto, false);
-      else this.paintStitches(L, st, 0, upto, true);
+      if (upto > L.upto) this.paintStitches(L, st, L.upto, Math.min(upto, L.upto + SLICE), false);
+      else this.paintStitches(L, st, 0, Math.min(upto, SLICE), true);
     }
+    if (L.upto >= 0 && L.upto < upto && !L.stale) this.invalidate(); // the rest of the stitches follow in the next frames
     return L;
   }
 
@@ -926,10 +959,14 @@ export class Stage {
     const paths = new Map();
     const jumps = new Path2D();
     let any = false;
+    // The layer is the size of the canvas: a stitch wholly beyond one of its sides (plus a thread's width) cannot show, so it is not even
+    // put in the path. Zoomed in on a big design that is nearly all of them.
+    const margin = 2 + THREAD_MM;
+    const vx0 = -L.ox / L.k - margin, vx1 = (L.w - L.ox) / L.k + margin, vy0 = -L.oy / L.k - margin, vy1 = (L.h - L.oy) / L.k + margin;
     for (let i = from; i < to; i++) {
       const x = flat[i * 3] / 10, y = flat[i * 3 + 1] / 10, c = flat[i * 3 + 2];
       if (c === CMD.STITCH) {
-        if (S.px !== null) {
+        if (S.px !== null && !((S.px < vx0 && x < vx0) || (S.px > vx1 && x > vx1) || (S.py < vy0 && y < vy0) || (S.py > vy1 && y > vy1))) {
           let p = paths.get(S.thread);
           if (!p) { p = new Path2D(); paths.set(S.thread, p); }
           p.moveTo(S.px, S.py); p.lineTo(x, y);
@@ -1047,11 +1084,11 @@ export class Stage {
       const box = boxOfObjects(frame.objs);
       const label = `${(box[2] - box[0]).toFixed(1)} × ${(box[3] - box[1]).toFixed(1)} mm`;
       const [lx, ly] = this.toScreen((box[0] + box[2]) / 2, box[3]);
-      ctx.font = '600 11px "Geist", system-ui, sans-serif';
+      ctx.font = '600 12px "Geist", system-ui, sans-serif';
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = th.accent;
       ctx.beginPath();
-      ctx.roundRect(lx - tw / 2 - 6, ly + 12, tw + 12, 20, 6);
+      ctx.roundRect(lx - tw / 2 - 6, ly + 12, tw + 12, 20, 2); // square-ish corners, like the rest of the site
       ctx.fill();
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";

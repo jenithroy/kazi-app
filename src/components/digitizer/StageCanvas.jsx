@@ -1,11 +1,14 @@
 /**
  * The canvas, made and fed. It builds the Stage once, hands it the latest props after every render and tears it down on
  * the way out. The picture on the table (`refImage`) is a ref, so a new one shows because `hasImage` changes.
+ *
+ * `insets` is how much of the canvas's left and right edges the floating panels cover (pixels, { l, r }): the hoop is fitted to, and
+ * centred in, the room they leave.
  */
 import { useEffect, useRef } from "react";
 import { Stage } from "./Stage";
 
-export default function StageCanvas({ api, stageRef }) {
+export default function StageCanvas({ api, stageRef, insets }) {
   const canvas = useRef(null);
   const cursor = useRef(null);
   const stage = useRef(null);
@@ -21,6 +24,8 @@ export default function StageCanvas({ api, stageRef }) {
     stitches: api.stitches,
     simPos: api.sim.pos,
     showGrid: api.prefs.showGrid,
+    showRulers: !!api.prefs.showRulers,
+    insets,
     showJumps: api.prefs.showJumps,
     showProblems: api.prefs.showProblems,
     showShapes: false,
